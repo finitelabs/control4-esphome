@@ -1,0 +1,140 @@
+<devicedata>
+  <name>ESPHome Lock</name>
+  <version>20250606</version>
+  <manufacturer>Finite Labs</manufacturer>
+  <model>ESPHome Lock</model>
+  <creator>Derek Miller</creator>
+  <control>lua_gen</control>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2025 Finite Labs, LLC. All rights reserved.</copyright>
+  <created>06/06/2025 12:00:00 PM</created>
+  <modified>06/06/2025 05:06 PM</modified>
+  <minimum_os_version>3.3.0</minimum_os_version>
+  <composer_categories>
+    <category>Lock</category>
+  </composer_categories>
+  <conditionals/>
+  <events/>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <properties>
+      <property>
+        <name>Driver Settings</name>
+        <type>LABEL</type>
+        <default>Driver Settings</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <default>3 - Info</default>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+      </property>
+      <property>
+        <name>Device Settings</name>
+        <type>LABEL</type>
+        <default>Device Settings</default>
+      </property>
+      <property>
+        <name>Lock Code</name>
+        <type>STRING</type>
+        <description>If the device does not have a code, leave this field blank.</description>
+        <default/>
+      </property>
+    </properties>
+    <commands/>
+    <actions/>
+  </config>
+  <capabilities>
+    <is_management_only>False</is_management_only>
+    <has_admin_code>False</has_admin_code>
+    <has_schedule_lockout>False</has_schedule_lockout>
+    <has_auto_lock_time>False</has_auto_lock_time>
+    <has_log_item_count>False</has_log_item_count>
+    <has_lock_modes>False</has_lock_modes>
+    <has_log_failed_attempts>False</has_log_failed_attempts>
+    <has_wrong_code_attempts>False</has_wrong_code_attempts>
+    <has_shutout_timer>False</has_shutout_timer>
+    <has_language>False</has_language>
+    <has_volume>False</has_volume>
+    <has_one_touch_locking>False</has_one_touch_locking>
+    <has_daily_schedule>False</has_daily_schedule>
+    <has_date_range_schedule>False</has_date_range_schedule>
+    <has_settings>False</has_settings>
+    <has_custom_settings>False</has_custom_settings>
+    <has_internal_history>False</has_internal_history>
+  </capabilities>
+  <proxies>
+    <proxy proxybindingid="5001" primary="True" name="ESPHome Lock">lock</proxy>
+  </proxies>
+  <lock_settings>
+    <lock_mode>normal</lock_mode>
+    <language>English</language>
+    <one_touch_locking>false</one_touch_locking>
+  </lock_settings>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>Lock</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>LOCK</classname>
+        </class>
+      </classes>
+      <hidden>True</hidden>
+    </connection>
+    <connection>
+      <id>5002</id>
+      <facing>6</facing>
+      <connectionname>ESPHome Lock</connectionname>
+      <type>2</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>ESPHOME_LOCK</classname>
+        </class>
+      </classes>
+      <hidden>False</hidden>
+    </connection>
+  </connections>
+</devicedata>

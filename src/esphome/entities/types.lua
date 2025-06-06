@@ -1,0 +1,6 @@
+--- @class Entity
+--- @field TYPE EntityType The type of the entity (e.g., "sensor", "switch").
+--- @field client ESPHomeClient The ESPHome client instance.
+--- @field new (fun(client: ESPHomeClient): Entity) A constructor function to create a new entity instance.
+--- @field discovered (fun(self: Entity, entity: table<string, any>): void )? A function to handle entity discovery.
+--- @field updated (fun(self: Entity, entity: table<string, any>, state: table<string, any>): void)? A function to update the entity state.

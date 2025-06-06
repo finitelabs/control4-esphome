@@ -1,0 +1,170 @@
+<devicedata>
+  <name>ESPHome</name>
+  <version>20250606</version>
+  <manufacturer>Finite Labs</manufacturer>
+  <model>ESPHome</model>
+  <creator>Derek Miller</creator>
+  <small image_source="c4z">icons/device_sm.png</small>
+  <large image_source="c4z">icons/device_lg.png</large>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2025 Finite Labs, LLC. All rights reserved.</copyright>
+  <created>06/06/2025 12:00:00 PM</created>
+  <modified>06/06/2025 05:06 PM</modified>
+  <combo>true</combo>
+  <minimum_os_version>3.3.0</minimum_os_version>
+  <composer_categories>
+    <category>Motorization</category>
+  </composer_categories>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <properties>
+      <property>
+        <name>Cloud</name>
+        <type>LABEL</type>
+        <default>Cloud Settings</default>
+      </property>
+      <property>
+        <name>Automatic Updates</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <default>On</default>
+      </property>
+      <property>
+        <name>Update Channel</name>
+        <type>LIST</type>
+        <default>Production</default>
+        <items>
+          <item>Production</item>
+          <item>Prerelease</item>
+        </items>
+      </property>
+      <property>
+        <name>Driver</name>
+        <type>LABEL</type>
+        <default>Driver Settings</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <default>3 - Info</default>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+      </property>
+      <property>
+        <name>Device Settings</name>
+        <type>LABEL</type>
+        <default>Device Settings</default>
+      </property>
+      <property>
+        <name>IP Address</name>
+        <type>STRING</type>
+        <default/>
+      </property>
+      <property>
+        <name>Port</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>1</minimum>
+        <maximum>65535</maximum>
+        <default>6053</default>
+      </property>
+      <property>
+        <name>Password</name>
+        <description>If the device does not have a password, leave this field blank.</description>
+        <type>STRING</type>
+        <default/>
+        <password>true</password>
+      </property>
+      <property>
+        <name>Device Info</name>
+        <type>LABEL</type>
+        <default>Device Info</default>
+      </property>
+      <property>
+        <name>Name</name>
+        <type>STRING</type>
+        <default>N/A</default>
+        <readonly>True</readonly>
+      </property>
+      <property>
+        <name>Model</name>
+        <type>STRING</type>
+        <default>N/A</default>
+        <readonly>True</readonly>
+      </property>
+      <property>
+        <name>Manufacturer</name>
+        <type>STRING</type>
+        <default>N/A</default>
+        <readonly>True</readonly>
+      </property>
+      <property>
+        <name>MAC Address</name>
+        <type>STRING</type>
+        <default>N/A</default>
+        <readonly>True</readonly>
+      </property>
+      <property>
+        <name>Firmware Version</name>
+        <type>STRING</type>
+        <default>N/A</default>
+        <readonly>True</readonly>
+      </property>
+    </properties>
+    <actions>
+      <action>
+        <name>Update Drivers</name>
+        <command>UpdateDrivers</command>
+      </action>
+      <action>
+        <name>Reset Connections and Variables</name>
+        <command>ResetConnectionsAndVariables</command>
+        <params>
+          <param>
+            <name>Are You Sure?</name>
+            <type>LIST</type>
+            <items>
+              <item>No</item>
+              <item>Yes</item>
+            </items>
+          </param>
+        </params>
+      </action>
+    </actions>
+  </config>
+</devicedata>

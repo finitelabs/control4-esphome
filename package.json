@@ -1,0 +1,35 @@
+{
+  "config": {
+    "drivers": "esphome esphome_light esphome_lock",
+    "driver_names": {
+      "esphome": "ESPHome",
+      "esphome_light": "ESPHome Light",
+      "esphome_lock": "ESPHome Lock"
+    }
+  },
+  "scripts": {
+    "init": "mkdir -p dist && python -m venv .venv && . .venv/bin/activate && python -m pip install pip setuptools wheel protobuf types-protobuf black && env LDFLAGS=\"-L$(brew --prefix openssl)/lib\" CFLAGS=\"-I$(brew --prefix openssl)/include\" SWIG_FEATURES=\"-cpperraswarn -includeall -I$(brew --prefix openssl)/include\" pip install M2Crypto lxml && rm -rf dist/driverpackager && git clone git@github.com:snap-one/drivers-driverpackager.git dist/driverpackager",
+    "fmt:lua": "stylua --indent-type Spaces --column-width 120 --line-endings Unix --indent-width 2 --quote-style AutoPreferDouble -g '*.lua' -v ./{drivers,src}",
+    "fmt:py": ".venv/bin/black tools/*",
+    "fmt:md": "prettier --prose-wrap always --write ./drivers/**/www/**/*.md",
+    "fmt": "npm run fmt:lua && npm run fmt:md",
+    "docs:html": "for dir in $npm_package_config_drivers; do generate-md --layout github --input \"drivers/$dir/www/documentation/index.md\" --output \"drivers/$dir/www/documentation\"; done",
+    "docs:pdf": "for dir in $npm_package_config_drivers; do driver_name_var=npm_package_config_driver_names_$dir; electron-pdf --marginsType 0 --input \"$(pwd)/drivers/$dir/www/documentation/index.html\" --output \"dist/${!driver_name_var} Documentation.pdf\"; done",
+    "docs:readme": "rm -rf ./images && cp -r drivers/esphome/www/documentation/images . && pandoc drivers/esphome/www/documentation/index.md -f gfm -t gfm --lua-filter=tools/pandoc-remove-style.lua -o README.md",
+    "docs": "npm run docs:readme && npm run docs:html && npm run docs:pdf",
+    "update-driver-versions": "for dir in $npm_package_config_drivers; do xmlstarlet edit --inplace --omit-decl --update '/devicedata/version' --value \"`date +'%Y%m%d'`\" ./drivers/$dir/driver.xml; done",
+    "update-driver-modified-dates": "for dir in $npm_package_config_drivers; do xmlstarlet edit --inplace --omit-decl --update '/devicedata/modified' --value \"`date +'%m/%d/%Y %I:%M %p'`\" ./drivers/$dir/driver.xml; done",
+    "gen-lua-proto-schema": ".venv/bin/python3 tools/gen_lua_proto_schema src/esphome/proto-schema.lua https://raw.githubusercontent.com/esphome/esphome/refs/heads/dev/esphome/components/api/api.proto https://raw.githubusercontent.com/esphome/esphome/refs/heads/dev/esphome/components/api/api_options.proto",
+    "package": "for dir in $npm_package_config_drivers; do cd \"drivers/$dir\" && ../../.venv/bin/python3 ../../dist/driverpackager/dp3/driverpackager.py . ../../dist driver.c4zproj && cd ../..; done",
+    "zip": "cd dist && zip $(basename \"$(realpath \"$(pwd)/../\")\").zip *.{c4z,pdf}",
+    "build": "npm run gen-lua-proto-schema && npm run fmt && npm run update-driver-versions && npm run update-driver-modified-dates && npm run docs && npm run package && npm run zip",
+    "clean:build": "rm -rfv dist/*.c4z dist/*.zip dist/*.pdf drivers/*/www/documentation/assets drivers/*/www/documentation/index.html",
+    "clean": "npm run clean:build && rm -rfv dist node_modules .venv"
+  },
+  "dependencies": {
+    "@johnnymorganz/stylua-bin": "^2.1.0",
+    "electron-pdf": "^25.0.0",
+    "markdown-styles": "^3.2.0",
+    "prettier": "^3.5.3"
+  }
+}

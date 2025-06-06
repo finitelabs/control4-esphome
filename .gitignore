@@ -1,0 +1,5 @@
+/dist
+/.venv
+/node_modules
+/drivers/*/www/documentation/assets
+/drivers/*/www/documentation/index.html

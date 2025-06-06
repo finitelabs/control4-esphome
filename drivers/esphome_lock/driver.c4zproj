@@ -1,0 +1,7 @@
+<Driver type="c4z" name="esphome_lock" squishLua="true">
+  <Items>
+    <Item type="dir" c4zDir="www" name="www" recurse="true" exclude="false"/>
+    <Item type="file" name="driver.lua"/>
+    <Item type="file" name="driver.xml"/>
+  </Items>
+</Driver>
