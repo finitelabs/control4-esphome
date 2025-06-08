@@ -309,10 +309,12 @@ def main():
         subprocess.check_call(
             [
                 "protoc",
-                f"--descriptor_set_out",
+                "--descriptor_set_out",
                 os.path.join(tmpdir, "descriptor.pb"),
                 "--include_imports",
-                f"--proto_path",
+                "--proto_path",
+                ".",
+                "--proto_path",
                 tmpdir,
                 input_proto_files[0],
             ]
