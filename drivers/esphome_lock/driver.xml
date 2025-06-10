@@ -1,6 +1,6 @@
 <devicedata>
   <name>ESPHome Lock</name>
-  <version>20250606</version>
+  <version/>
   <manufacturer>Finite Labs</manufacturer>
   <model>ESPHome Lock</model>
   <creator>Derek Miller</creator>
@@ -8,7 +8,7 @@
   <driver>DriverWorks</driver>
   <copyright>Copyright 2025 Finite Labs, LLC. All rights reserved.</copyright>
   <created>06/06/2025 12:00:00 PM</created>
-  <modified>06/06/2025 05:06 PM</modified>
+  <modified/>
   <minimum_os_version>3.3.0</minimum_os_version>
   <composer_categories>
     <category>Lock</category>
@@ -19,6 +19,28 @@
     <script file="driver.lua" jit="1"/>
     <documentation file="www/documentation/index.html"/>
     <properties>
+      <!-- #ifdef DRIVERCENTRAL -->
+      <property>
+        <name>Cloud Settings</name>
+        <type>LABEL</type>
+        <default>Cloud Settings</default>
+      </property>
+      <property>
+        <name>Cloud Status</name>
+        <default/>
+        <type>STRING</type>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Automatic Updates</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <default>On</default>
+      </property>
+      <!-- #endif -->
       <property>
         <name>Driver Settings</name>
         <type>LABEL</type>

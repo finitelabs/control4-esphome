@@ -1,3 +1,8 @@
+--#ifdef DRIVERCENTRAL
+DC_PID = 819
+DC_X = nil
+DC_FILENAME = "esphome_light.c4z"
+--#endif
 require("lib.utils")
 require("vendor.drivers-common-public.global.handlers")
 require("vendor.drivers-common-public.global.lib")
@@ -19,6 +24,12 @@ local ENTITY
 local STATE -- leaving this explicitly nil so we can distinguish driver init from "unknown"
 
 function OnDriverInit()
+  --#ifdef DRIVERCENTRAL
+  require("vendor.cloud-client-byte")
+  C4:AllowExecute(false)
+  --#else
+  C4:AllowExecute(true)
+  --#endif
   gInitialized = false
   log:setLogName(C4:GetDeviceData(C4:GetDeviceID(), "name"))
   log:setLogLevel(Properties["Log Level"])
@@ -31,8 +42,6 @@ function OnDriverLateInit()
   if not CheckMinimumVersion("Driver Status") then
     return
   end
-
-  C4:AllowExecute(true)
 
   -- Fire OnPropertyChanged to set the initial Headers and other Property
   -- global sets, they'll change if Property is changed.

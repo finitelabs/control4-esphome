@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import shutil
+import re
+from pathlib import Path
+
+
+def process_file(file_path: Path, test_condition: str) -> None:
+    """
+    Process a file for conditional directives.
+
+    Args:
+        file_path: Path to the file to process
+        test_condition: Condition to check against, e.g., "DRIVERCENTRAL" or "OSS"
+    """
+    # Stack to track nested conditions
+    condition_stack = []
+    # Whether we're currently including lines
+    including = True
+    # Lines to keep
+    output_lines = []
+
+    try:
+        with open(file_path, "tr", encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception:
+        return
+
+    # Regular expressions for different file types
+    xml_ifdef_pattern = re.compile(r"^\s*<!--\s*#ifdef\s+(\w+)\s*-->\s*$")
+    xml_ifndef_pattern = re.compile(r"^\s*<!--\s*#ifndef\s+(\w+)\s*-->\s*$")
+    xml_else_pattern = re.compile(r"^\s*<!--\s*#else\s*-->\s*$")
+    xml_endif_pattern = re.compile(r"^\s*<!--\s*#endif\s*-->\s*$")
+
+    lua_ifdef_pattern = re.compile(r"^\s*--\s*#ifdef\s+(\w+)\s*$")
+    lua_ifndef_pattern = re.compile(r"^\s*--\s*#ifndef\s+(\w+)\s*$")
+    lua_else_pattern = re.compile(r"^\s*--\s*#else\s*$")
+    lua_endif_pattern = re.compile(r"^\s*--\s*#endif\s*$")
+
+    slash_ifdef_pattern = re.compile(r"^\s*//\s*#ifdef\s+(\w+)\s*$")
+    slash_ifndef_pattern = re.compile(r"^\s*//\s*#ifndef\s+(\w+)\s*$")
+    slash_else_pattern = re.compile(r"^\s*//\s*#else\s*$")
+    slash_endif_pattern = re.compile(r"^\s*//\s*#endif\s*$")
+
+    # Generic patterns (for other file types)
+    generic_ifdef_pattern = re.compile(r"^\s*#ifdef\s+(\w+)\s*$")
+    generic_ifndef_pattern = re.compile(r"^\s*#ifndef\s+(\w+)\s*$")
+    generic_else_pattern = re.compile(r"^\s*#else\s*$")
+    generic_endif_pattern = re.compile(r"^\s*#endif\s*$")
+
+    ifdef_patterns = [
+        xml_ifdef_pattern,
+        lua_ifdef_pattern,
+        slash_ifdef_pattern,
+        generic_ifdef_pattern,
+    ]
+    ifndef_patterns = [
+        xml_ifndef_pattern,
+        lua_ifndef_pattern,
+        slash_ifndef_pattern,
+        generic_ifndef_pattern,
+    ]
+    else_patterns = [
+        xml_else_pattern,
+        lua_else_pattern,
+        slash_else_pattern,
+        generic_else_pattern,
+    ]
+    endif_patterns = [
+        xml_endif_pattern,
+        lua_endif_pattern,
+        slash_endif_pattern,
+        generic_endif_pattern,
+    ]
+
+    for line in lines:
+        # Check for conditional directives
+        ifdef_match = next((m for pattern in ifdef_patterns if (m := pattern.match(line))), None)
+        ifndef_match = next((m for pattern in ifndef_patterns if (m := pattern.match(line))), None)
+        else_match = next((m for pattern in else_patterns if (m := pattern.match(line))), None)
+        endif_match = next((m for pattern in endif_patterns if (m := pattern.match(line))), None)
+
+        # Check for #ifdef
+        if ifdef_match:
+            line_condition = ifdef_match.group(1)
+            condition_stack.append((line_condition, including))
+            including = including and line_condition == test_condition
+            continue
+
+        # Check for #ifndef
+        if ifndef_match:
+            line_condition = ifndef_match.group(1)
+            condition_stack.append((line_condition, including))
+            including = including and line_condition != test_condition
+            continue
+
+        # Check for #else
+        if else_match:
+            if not condition_stack:
+                print(f"Error: #else without matching #ifdef/#ifndef in {file_path}")
+                continue
+            line_condition, parent_including = condition_stack[-1]
+            including = parent_including and not including
+            continue
+
+        # Check for #endif
+        if endif_match:
+            if not condition_stack:
+                print(f"Error: #endif without matching #ifdef/#ifndef in {file_path}")
+                continue
+            _, parent_including = condition_stack.pop()
+            including = parent_including if condition_stack else True
+            continue
+
+        # If we're including this line, add it to the output
+        if including:
+            output_lines.append(line)
+
+    # Check if we have unmatched conditionals
+    if condition_stack:
+        print(
+            f"Warning: Unmatched conditional directives in {file_path}: {condition_stack}"
+        )
+
+    # Write the processed content back to the file
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.writelines(output_lines)
+
+
+def process_directory(build_dir: Path, conditions):
+    """
+    Copy a directory and process all files for conditional directives.
+
+    Args:
+        build_dir: Build directory
+        conditions: Set of enabled conditions
+    """
+    # Copy and process all files and subdirectories
+    for item in os.listdir(build_dir):
+        build_item_path = build_dir / item
+
+        if build_item_path.is_dir():
+            # Recursively copy and process subdirectories
+            process_directory(build_item_path, conditions)
+        else:
+            # Process the file for conditional directives
+            process_file(build_item_path, conditions)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Build the project with conditional directives."
+    )
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--drivercentral", action="store_true", help="Enable DRIVERCENTRAL build"
+    )
+    group.add_argument("--oss", action="store_true", help="Enable OSS build")
+    args = parser.parse_args()
+
+    if args.drivercentral:
+        condition = "DRIVERCENTRAL"
+    elif args.oss:
+        condition = "OSS"
+    else:
+        condition = None
+    assert condition, "No condition specified"
+    print(f"Building with condition: {condition}")
+
+    # Define source and build directories
+    repo_root = Path(__file__).parent.parent
+    src_dir = repo_root / "src"
+    drivers_dir = repo_root / "drivers"
+    build_dir = repo_root / "build" / condition.lower()
+
+    os.makedirs(build_dir, exist_ok=True)
+
+    # Clean previous builds
+    shutil.rmtree(build_dir / "src", ignore_errors=True)
+    shutil.rmtree(build_dir / "drivers", ignore_errors=True)
+
+    shutil.copytree(src_dir, build_dir / "src")
+    shutil.copytree(drivers_dir, build_dir / "drivers")
+
+    # Copy and process src directory
+    process_directory(build_dir, condition)
+
+    print(f"Build completed successfully. Output in {build_dir}")
+
+
+if __name__ == "__main__":
+    main()

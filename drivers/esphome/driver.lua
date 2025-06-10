@@ -5,6 +5,11 @@ DRIVER_FILENAMES = {
   "esphome_lock.c4z",
 }
 --
+--#ifdef DRIVERCENTRAL
+DC_PID = 819
+DC_X = nil
+DC_FILENAME = "esphome.c4z"
+--#endif
 require("lib.utils")
 require("vendor.drivers-common-public.global.handlers")
 require("vendor.drivers-common-public.global.lib")
@@ -47,6 +52,12 @@ local Entities = {
 }
 
 function OnDriverInit()
+  --#ifdef DRIVERCENTRAL
+  require("vendor.cloud-client-byte")
+  C4:AllowExecute(false)
+  --#else
+  C4:AllowExecute(true)
+  --#endif
   gInitialized = false
   log:setLogName(C4:GetDeviceData(C4:GetDeviceID(), "name"))
   log:setLogLevel(Properties["Log Level"])
@@ -63,7 +74,6 @@ function OnDriverLateInit()
   -- Firmaware version is usually an entity and will be picked up by state updates
   C4:SetPropertyAttribs("Firmware Version", constants.HIDE_PROPERTY)
 
-  C4:AllowExecute(true)
   C4:FileSetDir("c29tZXNwZWNpYWxrZXk=++11")
   bindings:restoreBindings()
   values:restoreValues()
@@ -146,6 +156,13 @@ function Connect()
   local lastUpdateTime = os.time() -- Don't check for updates on the first cycle
 
   local heartbeat = function()
+    --#ifdef DRIVERCENTRAL
+    if DC_X == 0 then
+      updateStatus("No active license")
+      esphome:disconnect()
+      return
+    end
+    --#endif
     if not esphome:isConfigured() then
       updateStatus("Not configured")
       esphome:disconnect()

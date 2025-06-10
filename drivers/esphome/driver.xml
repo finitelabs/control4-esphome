@@ -1,6 +1,6 @@
 <devicedata>
   <name>ESPHome</name>
-  <version>20250606</version>
+  <version/>
   <manufacturer>Finite Labs</manufacturer>
   <model>ESPHome</model>
   <creator>Derek Miller</creator>
@@ -11,7 +11,7 @@
   <driver>DriverWorks</driver>
   <copyright>Copyright 2025 Finite Labs, LLC. All rights reserved.</copyright>
   <created>06/06/2025 12:00:00 PM</created>
-  <modified>06/06/2025 05:06 PM</modified>
+  <modified/>
   <combo>true</combo>
   <minimum_os_version>3.3.0</minimum_os_version>
   <composer_categories>
@@ -26,6 +26,14 @@
         <type>LABEL</type>
         <default>Cloud Settings</default>
       </property>
+      <!-- #ifdef DRIVERCENTRAL -->
+      <property>
+        <name>Cloud Status</name>
+        <default/>
+        <type>STRING</type>
+        <readonly>true</readonly>
+      </property>
+      <!-- #endif -->
       <property>
         <name>Automatic Updates</name>
         <type>LIST</type>
@@ -35,6 +43,7 @@
         </items>
         <default>On</default>
       </property>
+      <!-- #ifndef DRIVERCENTRAL -->
       <property>
         <name>Update Channel</name>
         <type>LIST</type>
@@ -44,6 +53,7 @@
           <item>Prerelease</item>
         </items>
       </property>
+      <!-- #endif -->
       <property>
         <name>Driver</name>
         <type>LABEL</type>
@@ -147,10 +157,12 @@
       </property>
     </properties>
     <actions>
+      <!-- #ifndef DRIVERCENTRAL -->
       <action>
         <name>Update Drivers</name>
         <command>UpdateDrivers</command>
       </action>
+      <!-- #endif -->
       <action>
         <name>Reset Connections and Variables</name>
         <command>ResetConnectionsAndVariables</command>

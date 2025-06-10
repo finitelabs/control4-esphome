@@ -19,8 +19,12 @@
 
 # <span style="color:#17BCF2">Overview</span>
 
+<!-- #ifndef DRIVERCENTRAL -->
+
 > DISCLAIMER: This software is neither affiliated with nor endorsed by either
 > Control4 or ESPHome.
+
+<!-- #endif -->
 
 This driver provides specialized support for ESPHome devices with light
 entities, allowing them to be controlled through the Control4 light proxy.
@@ -55,6 +59,20 @@ Light driver to the light entity exposed by the main driver.
 
 ### Driver Properties
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+#### Cloud Settings
+
+##### Cloud Status
+
+Displays the DriverCentral cloud license status.
+
+##### Automatic Updates
+
+Turns on/off the DriverCentral cloud automatic updates.
+
+<!-- #endif -->
+
 #### Driver Settings
 
 ##### Driver Status (read-only)
@@ -73,6 +91,8 @@ Sets the logging level. Default is `Info`.
 
 Sets the logging mode. Default is `Off`.
 
+<!-- #ifdef DRIVERCENTRAL -->
+
 # <span style="color:#17BCF2">Developer Information</span>
 
 <p align="center">
@@ -88,9 +108,20 @@ by U.S. and Foreign Patents, patents in process, and are protected by trade
 secret or copyright law. Dissemination of this information or reproduction of
 this material is strictly forbidden unless prior written permission is obtained
 from Finite Labs LLC. For the latest information, please visit
-https://github.com/finitelabs/control4-esphome
+https://drivercentral.io/platforms/control4-drivers/utility/esphome
+
+<!-- #endif -->
 
 # <span style="color:#17BCF2">Support</span>
+
+<!-- #ifdef DRIVERCENTRAL -->
+
+If you have any questions or issues integrating this driver with Control4 or
+ESPHome, you can contact us at
+[driver-support@finitelabs.com](mailto:driver-support@finitelabs.com) or
+call/text us at [+1 (949) 371-5805](tel:+19493715805).
+
+<!-- #else -->
 
 If you have any questions or issues integrating this driver with Control4, you
 can file an issue on GitHub:
@@ -98,6 +129,8 @@ can file an issue on GitHub:
 https://github.com/finitelabs/control4-esphome/issues/new
 
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
+<!-- #endif -->
 
 <div style="page-break-after: always"></div>
 

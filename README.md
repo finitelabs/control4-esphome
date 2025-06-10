@@ -33,7 +33,6 @@ Control4 system.
       - [Device Settings](#device-settings)
       - [Device Info](#device-info)
     - [Driver Actions](#driver-actions)
-- [Developer Information](#developer-information)
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -115,12 +114,13 @@ know!
 Driver installation and setup are similar to most other ip-based
 drivers. Below is an outline of the basic steps for your convenience.
 
-1.  Download the `control4-esphome.zip` from the [latest GitHub
-    release](https://github.com/finitelabs/control4-esphome/releases/latest).
+1.  Download the latest `control4-esphome.zip` from
+    [Github](https://github.com/finitelabs/control4-esphome/releases/latest).
 
 2.  Extract and
     [install]((https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm))
-    the `esphome.c4z` driver.
+    the `esphome.c4z`, `esphome_light.c4z`, and `esphome_lock.c4z`
+    drivers.
 
 3.  Use the "Search" tab to find the "ESPHome" driver and add it to your
     project.
@@ -141,10 +141,11 @@ drivers. Below is an outline of the basic steps for your convenience.
 6.  Once connected, the driver will automatically create variables and
     connections for each supported entity type.
 
-7.  If you want to control lights or locks, add the `esphome_light.c4z`
-    and/or `esphome_lock.c4z` drivers to your project and bind them to
-    the light or lock entities exposed by the main ESPHome driver. One
-    driver instance is required for each exposed light/lock entity.
+7.  To control lights and/or locks, use the "Search" tab to find the
+    "ESPHome Light" and/or "ESPHome Lock" driver. Add one driver
+    instance for each exposed light or lock entity in your project. In
+    the "Connections" tab, select the "ESPHome" driver and bind the
+    light or lock entities to the newly added drivers.
 
 ## Driver Setup
 
@@ -238,24 +239,6 @@ the connected ESPHome device or there are stale connections or
 variables.
 
 <div style="page-break-after: always"></div>
-
-# <span style="color:#17BCF2">Developer Information</span>
-
-<p align="center">
-<img alt="Finite Labs" src="./images/finite-labs-logo.png" width="400"/>
-</p>
-
-Copyright © 2025 Finite Labs LLC
-
-All information contained herein is, and remains the property of Finite
-Labs LLC and its suppliers, if any. The intellectual and technical
-concepts contained herein are proprietary to Finite Labs LLC and its
-suppliers and may be covered by U.S. and Foreign Patents, patents in
-process, and are protected by trade secret or copyright law.
-Dissemination of this information or reproduction of this material is
-strictly forbidden unless prior written permission is obtained from
-Finite Labs LLC. For the latest information, please visit
-<https://github.com/finitelabs/control4-esphome>
 
 # <span style="color:#17BCF2">Support</span>
 
