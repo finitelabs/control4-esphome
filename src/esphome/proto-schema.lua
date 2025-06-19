@@ -292,6 +292,7 @@ PROTOBUF_SCHEMA.Enum = {
     VOICE_ASSISTANT_STT_VAD_END = 12,
     VOICE_ASSISTANT_TTS_STREAM_START = 98,
     VOICE_ASSISTANT_TTS_STREAM_END = 99,
+    VOICE_ASSISTANT_INTENT_PROGRESS = 100,
   },
   --- @enum VoiceAssistantTimerEvent
   VoiceAssistantTimerEvent = {
@@ -612,6 +613,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 12,
       source = 1,
       ifdef = "USE_BINARY_SENSOR",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -668,6 +670,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_BINARY_SENSOR",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -693,6 +696,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 13,
       source = 1,
       ifdef = "USE_COVER",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -764,6 +768,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_COVER",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -850,6 +855,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 14,
       source = 1,
       ifdef = "USE_FAN",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -922,6 +928,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_FAN",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -1043,6 +1050,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 15,
       source = 1,
       ifdef = "USE_LIGHT",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -1131,6 +1139,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_LIGHT",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -1352,6 +1361,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 16,
       source = 1,
       ifdef = "USE_SENSOR",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -1428,6 +1438,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_SENSOR",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -1453,6 +1464,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 17,
       source = 1,
       ifdef = "USE_SWITCH",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -1509,6 +1521,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_SWITCH",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -1550,6 +1563,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 18,
       source = 1,
       ifdef = "USE_TEXT_SENSOR",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -1601,6 +1615,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_TEXT_SENSOR",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -1960,6 +1975,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 43,
       source = 1,
       ifdef = "USE_ESP32_CAMERA",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -2051,6 +2067,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 46,
       source = 1,
       ifdef = "USE_CLIMATE",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -2193,6 +2210,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_CLIMATE",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -2404,6 +2422,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 49,
       source = 1,
       ifdef = "USE_NUMBER",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -2480,6 +2499,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_NUMBER",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -2526,6 +2546,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 52,
       source = 1,
       ifdef = "USE_SELECT",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -2578,6 +2599,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_SELECT",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -2624,6 +2646,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 55,
       source = 1,
       ifdef = "USE_SIREN",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -2686,6 +2709,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_SIREN",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -2762,6 +2786,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 58,
       source = 1,
       ifdef = "USE_LOCK",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -2828,6 +2853,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_LOCK",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -2879,6 +2905,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 61,
       source = 1,
       ifdef = "USE_BUTTON",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -2978,6 +3005,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 63,
       source = 1,
       ifdef = "USE_MEDIA_PLAYER",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -3035,6 +3063,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_MEDIA_PLAYER",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4130,6 +4159,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 94,
       source = 1,
       ifdef = "USE_ALARM_CONTROL_PANEL",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4191,6 +4221,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_ALARM_CONTROL_PANEL",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4237,6 +4268,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 97,
       source = 1,
       ifdef = "USE_TEXT",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4303,6 +4335,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_TEXT",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4349,6 +4382,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 100,
       source = 1,
       ifdef = "USE_DATETIME_DATE",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4395,6 +4429,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_DATETIME_DATE",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4461,6 +4496,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 103,
       source = 1,
       ifdef = "USE_DATETIME_TIME",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4507,6 +4543,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_DATETIME_TIME",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4573,6 +4610,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 107,
       source = 1,
       ifdef = "USE_EVENT",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4629,6 +4667,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 108,
       source = 1,
       ifdef = "USE_EVENT",
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4649,6 +4688,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 109,
       source = 1,
       ifdef = "USE_VALVE",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4715,6 +4755,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_VALVE",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4771,6 +4812,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 112,
       source = 1,
       ifdef = "USE_DATETIME_DATETIME",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4817,6 +4859,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_DATETIME_DATETIME",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4863,6 +4906,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 116,
       source = 1,
       ifdef = "USE_UPDATE",
+      base_class = "InfoResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -4914,6 +4958,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 1,
       ifdef = "USE_UPDATE",
       no_delay = 1,
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {

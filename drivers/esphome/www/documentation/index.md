@@ -54,7 +54,9 @@ ESPHome devices directly from your Control4 system.
       - [Device Settings](#device-settings)
       - [Device Info](#device-info)
     - [Driver Actions](#driver-actions)
-    <!-- #ifdef DRIVERCENTRAL -->
+- [Configuration Guides](#configuration-guides)
+  - [ratgdo Configuration Guide](#ratgdo-configuration-guide)
+  <!-- #ifdef DRIVERCENTRAL -->
 - [Developer Information](#developer-information)
 <!-- #endif -->
 - [Support](#support)
@@ -82,7 +84,8 @@ ESPHome devices directly from your Control4 system.
 This driver will generically work with any ESPHome device, but we have tested
 extensively with the following devices:
 
-- [ratgdo](https://ratcloud.llc)
+- [ratgdo](https://ratcloud.llc) -
+  [Configuration Guide](#ratgdo-configuration-guide)
 
 If you try this driver on a product listed above, and it works, let us know!
 
@@ -330,6 +333,119 @@ connected ESPHome device or there are stale connections or variables.
 
 <div style="page-break-after: always"></div>
 
+# <span style="display:none">Configuration Guides</span>
+
+# <span style="color:#17BCF2">ratgdo Configuration Guide</span>
+
+This guide provides instructions for configuring the ESPHome driver to work with
+ratgdo devices for garage door control via relays in Control4 Composer Pro.
+
+## Add Relay Controller Driver
+
+Add the desired relay controller driver to your Control4 project in Composer
+Pro.
+
+<img alt="Relay Controller Drivers" src="./images/relay-controller-drivers.png" width="250"/>
+
+## Relay Controller Properties
+
+The ratgdo device exposes a "Cover" entity in ESPHome, which maps to the relay
+controller functionality in Control4.
+
+### Number of Relays
+
+The ratgdo device uses a multi-relay configuration to control the garage door.
+In Composer Pro, you should configure the relay settings as follows:
+
+- Set to **2 Relays** (Open/Close) or **3 Relays** (Open/Close/Stop)
+  - The ratgdo device uses separate commands for opening and closing the garage
+    door
+  - If your ratgdo firmware supports the "stop" command, configure for 3 relays
+    to enable the stop functionality. If you are not sure, you can look at the
+    ratgdo connections in Composer Pro to see if the "Stop Door" relay is
+    available.
+
+### Relay Configuration
+
+- Set to **Pulse**
+  - ratgdo uses momentary pulses to trigger the garage door opener, similar to a
+    wall button press
+
+### Pulse Time
+
+- Set all relay pulse times to **500** (default)
+  - This is the duration the relay will be activated
+
+### Invert Relay
+
+- Set all invert relay properties to **No** (default)
+
+### Contact Debounce
+
+- Set all contact debounce times to **250** (default)
+  - This helps prevent false flapping of the garage door state sensors
+
+### Invert Contact
+
+- Set all invert contact properties to **No** (default)
+
+### Example Properties
+
+For reference, here is an example of the relay controller properties in Composer
+Pro:
+
+<img alt="Relay Controller Properties" src="./images/relay-controller-properties.png" width="550"/>
+
+## Relay Controller Connections
+
+### Relays
+
+- **Open**: Connect to the ratgdo's "Open Door" relay
+- **Close**: Connect to the ratgdo's "Close Door" relay
+- **Stop**: Connect to the ratgdo's "Stop Door" relay, if available
+
+### Contact Sensors
+
+- **Closed Contact**: Connect to the ratgdo's "Door Closed" contact
+- **Opened Contact**: Connect to the ratgdo's "Door Open" contact
+
+### Example Connections
+
+For reference, here is an example of how the connections should look in Composer
+Pro:
+
+<img alt="Relay Controller Connections" src="./images/relay-controller-connections.png" width="550"/>
+
+## Programming
+
+You can create programming in Control4 to:
+
+- Open/close the garage door based on events
+- Monitor the garage door state
+- Set up notifications for garage door status changes
+- Create custom buttons on touchscreens and remotes
+
+### Example: Creating a "Still Open" Alert
+
+Using the "Still Open Time" property from the relay controller driver:
+
+1. Set the "Still Open Time" to your desired duration (e.g., 10 minutes)
+2. Create a programming rule that triggers when the "Still Open" event fires
+3. Add actions to send notifications or perform other tasks
+
+## Additional Entities
+
+Depending on your ratgdo device, firmware, and its capabilities, there may be
+additional entities exposed by the ESPHome driver. These can come as additional
+connections or driver variables.
+
+Please refer to ratgdo's documentation for more information on specific
+entities:
+
+https://ratgdo.github.io/esphome-ratgdo/webui_documentation.html
+
+<div style="page-break-after: always"></div>
+
 <!-- #ifdef DRIVERCENTRAL -->
 
 # <span style="color:#17BCF2">Developer Information</span>
@@ -384,6 +500,12 @@ https://github.com/finitelabs/control4-esphome/issues/new
 [//]: # "- Changed"
 [//]: # "### Removed"
 [//]: # "- Removed"
+
+## v20250619 - 2025-06-19
+
+### Added
+
+- Added ratgdo specific documentation
 
 ## v20250606 - 2025-06-06
 
