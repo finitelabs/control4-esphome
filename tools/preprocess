@@ -50,6 +50,9 @@ def process_file(file_path: Path, test_condition: str) -> None:
     generic_else_pattern = re.compile(r"^\s*#else\s*$")
     generic_endif_pattern = re.compile(r"^\s*#endif\s*$")
 
+    # Embed changelog pattern
+    changelog_pattern = re.compile(r"^\s*<!--\s*#embed-changelog\s*-->\s*$")
+
     ifdef_patterns = [
         xml_ifdef_pattern,
         lua_ifdef_pattern,
@@ -81,6 +84,7 @@ def process_file(file_path: Path, test_condition: str) -> None:
         ifndef_match = next((m for pattern in ifndef_patterns if (m := pattern.match(line))), None)
         else_match = next((m for pattern in else_patterns if (m := pattern.match(line))), None)
         endif_match = next((m for pattern in endif_patterns if (m := pattern.match(line))), None)
+        changelog_match = changelog_pattern.match(line)
 
         # Check for #ifdef
         if ifdef_match:
@@ -112,6 +116,17 @@ def process_file(file_path: Path, test_condition: str) -> None:
                 continue
             _, parent_including = condition_stack.pop()
             including = parent_including if condition_stack else True
+            continue
+
+        # Check for #embed-changelog
+        if changelog_match:
+            try:
+                changelog_path = Path(__file__).parent.parent / "CHANGELOG.md"
+                with open(changelog_path, "r", encoding="utf-8") as cf:
+                    changelog_content = cf.read()
+                    output_lines.append(changelog_content)
+            except Exception as e:
+                print(f"Error embedding changelog in {file_path}: {e}")
             continue
 
         # If we're including this line, add it to the output

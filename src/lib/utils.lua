@@ -510,10 +510,18 @@ function delay(ms)
   return d
 end
 
+--- Creates a deferred object that is immediately rejected with an error.
+--- @generic F
+--- @param error F The error to reject the deferred object with.
+--- @return Deferred<void,F> rejected The error to reject the deferred object with.
 function reject(error)
   return deferred.new():reject(error)
 end
 
+--- Creates a deferred object that is immediately resolved with a value.
+--- @generic T
+--- @param value T The value to resolve the deferred object with.
+--- @return Deferred<T,void> resolved The value to resolve the deferred object with.
 function resolve(value)
   return deferred.new():resolve(value)
 end
@@ -540,4 +548,16 @@ function RegexEscape(x)
       :gsub("%-", "%%-")
       :gsub("%?", "%%?")
   )
+end
+
+--- Convert string to hex representation for debugging
+--- @param str string The string to convert
+--- @return string hex The hex representation
+function to_hex(str)
+  if str == nil then
+    return "nil"
+  end
+  return (str:gsub(".", function(c)
+    return string.format("%02X ", string.byte(c))
+  end))
 end

@@ -12,6 +12,15 @@ local Persist = {}
 --- @type table
 local EMPTY = {}
 
+--- Migrate data during first retrieval. Helpful in cases where you wish to change structure of data
+--- between driver versions.
+--- This map is of the form:
+--- {
+---   "key": function(value) -> newValue
+--- }
+--- @type table<string, fun(value: any): any>
+local MIGRATIONS = {}
+
 --- Creates a new instance of the Persist class.
 --- @return Persist persist A new instance of the Persist class.
 function Persist:new()
@@ -32,6 +41,19 @@ end
 --- @return any value The retrieved value, or the default if the key doesn't exist.
 function Persist:get(key, default, encrypted)
   log:trace("Persist:get(%s, %s, %s)", key, default, encrypted)
+  local value = self:_get(key, default, encrypted)
+
+  if type(MIGRATIONS[key]) == "function" then
+    value = MIGRATIONS[key](value)
+    MIGRATIONS[key] = nil
+    self:set(key, value, encrypted)
+  end
+
+  return value
+end
+
+function Persist:_get(key, default, encrypted)
+  log:trace("Persist:_get(%s, %s, %s)", key, default, encrypted)
   if default == nil then
     default = EMPTY
   end

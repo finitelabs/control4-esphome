@@ -75,6 +75,7 @@ ESPHome devices directly from your Control4 system.
 - Local network communication requiring no cloud services
 - Real-time updates from all [supported entities](#supported-esphome-entities)
   exposed by the device
+- Supports encrypted connections using the device encryption key
 - Variable Programming Support
 
 # <span style="color:#17BCF2">Compatibility</span>
@@ -285,10 +286,30 @@ HTTPS is not supported.
 
 Sets the device port. The default port for ESPHome devices is `6053`.
 
+##### Authentication Mode \[ **_None_** \| Password \| Encryption Key \]
+
+Selects the authentication method for connecting to the ESPHome device.
+
+- **None**: No authentication required.
+- **Password**: Use a password for authentication (see below).
+- **Encryption Key**: Use an encryption key for secure communication (see
+  below).
+
 ##### Password
 
-Sets the device password. If the device does not have a password, leave this
-field blank.
+Shown only if
+[Authentication Mode](#authentication-mode--none--password--encryption-key-) is
+set to `Password`.  
+Sets the device password. This must match the password configured on the ESPHome
+device.
+
+##### Encryption Key
+
+Shown only if
+[Authentication Mode](#authentication-mode--none--password--encryption-key-) is
+set to `Encryption Key`.  
+Sets the device encryption key for secure communication. This must match the
+encryption key configured on the ESPHome device.
 
 #### Device Info
 
@@ -489,26 +510,4 @@ https://github.com/finitelabs/control4-esphome/issues/new
 
 <div style="page-break-after: always"></div>
 
-# <span style="color:#17BCF2">Changelog</span>
-
-[//]: # "## v[Version] - YYY-MM-DD"
-[//]: # "### Added"
-[//]: # "- Added"
-[//]: # "### Fixed"
-[//]: # "- Fixed"
-[//]: # "### Changed"
-[//]: # "- Changed"
-[//]: # "### Removed"
-[//]: # "- Removed"
-
-## v20250619 - 2025-06-19
-
-### Added
-
-- Added ratgdo specific documentation
-
-## v20250606 - 2025-06-06
-
-### Added
-
-- Initial Release
+<!-- #embed-changelog -->

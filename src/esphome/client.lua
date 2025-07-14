@@ -2,11 +2,37 @@
 --- ESPHome API Client for Control4.
 --- This module provides a Lua implementation for connecting to ESPHome devices
 --- using the native API protocol over TCP with protobuf encoding.
+--- Supports both plaintext and encrypted (Noise protocol) communication.
 
 local log = require("lib.logging")
-local Protobuf = require("lib.protobuf")
+local bit16 = require("lib.bit16")
+local pb = require("lib.protobuf")
 local ESPHomeProtoSchema = require("esphome.proto-schema")
 local deferred = require("vendor.deferred")
+local noise = require("vendor.noiseprotocol")
+
+local NULL_BYTE = "\x00"
+
+--- @enum NoiseProtocolCallback
+local NoiseProtocolCallback = {
+  -- These are negative values to avoid conflicts with message IDs
+  HELLO = -1,
+  HANDSHAKE = -2,
+}
+
+--- @enum NoiseState
+local NoiseState = {
+  HELLO = "hello",
+  HANDSHAKE = "handshake",
+  READY = "ready",
+  ERROR = "error",
+}
+
+--- @enum Indicator
+local Indicator = {
+  PLAINTEXT = "\x00",
+  NOISE = "\x01",
+}
 
 --- A class representing the ESPHome API client.
 --- @class ESPHomeClient
@@ -53,9 +79,12 @@ function ESPHomeClient:new()
     _ipAddress = nil, --- @type string|nil The IP address of the ESPHome device.
     _port = 6053, --- @type number The port of the ESPHome device.
     _password = nil, --- @type string|nil The password for the ESPHome device.
+    _encryptionKey = nil, --- @type string|nil The encryption key for the ESPHome device.
     _buffer = "", --- @type string The buffer for incoming data.
     _callbacks = {}, --- @type table<number, (fun(message: table<string, any>, schema: ProtoMessageSchema): void)|nil> The callback for the next expected response.
     _pingTimer = nil, --- @type C4LuaTimer|nil The timer for sending ping messages.
+    _hs = nil, --- @type NoiseConnection|nil The Noise protocol connection for encrypted communication.
+    _hsState = nil, --- @type NoiseState|nil The current state of the Noise protocol handshake.
   }
   setmetatable(properties, self)
   self.__index = self
@@ -63,18 +92,53 @@ function ESPHomeClient:new()
   return properties
 end
 
+--- Parse the base64 encoded encryption key to 32-byte binary data.
+--- @param encryptionKey string The base64 encoded encryption key.
+--- @return string|nil decodedEncryptionKey The decoded encryption key as a 32-byte binary string, or nil if invalid.
+local function parseEncryptionKey(encryptionKey)
+  if IsEmpty(encryptionKey) then
+    return nil
+  end
+
+  if type(encryptionKey) ~= "string" then
+    log:warn("Invalid encryption key type (expected string, got %s)", type(encryptionKey))
+    return nil
+  end
+
+  local success, decodedEncryptionKey = pcall(C4.Base64Decode, C4, encryptionKey)
+  if not success then
+    log:warn("Invalid encryption key format (expected base64 encoded string)")
+    return nil
+  end
+
+  if #decodedEncryptionKey ~= 32 then
+    log:warn("Invalid encryption key length (expected 32 bytes, got %d bytes)", #decodedEncryptionKey)
+    return nil
+  end
+
+  return decodedEncryptionKey
+end
+
 --- Set the configuration for the ESPHome API client. If the client is already
 --- connected, it will disconnect before setting the configuration.
 --- @param ipAddress string The IP address of the ESPHome device.
 --- @param port number The port of the ESPHome device.
 --- @param password? string The password for the ESPHome device (optional).
+--- @param encryptionKey? string The encryption key for the ESPHome device (optional).
 --- @return ESPHomeClient self The ESPHomeClient instance.
-function ESPHomeClient:setConfig(ipAddress, port, password)
-  log:trace("ESPHomeClient:setConfig(%s, %s, %s)", ipAddress, port, password and "***" or nil)
+function ESPHomeClient:setConfig(ipAddress, port, password, encryptionKey)
+  log:trace(
+    "ESPHomeClient:setConfig(%s, %s, %s, %s)",
+    ipAddress,
+    port,
+    password and "***" or nil,
+    encryptionKey and "***" or nil
+  )
   self:disconnect()
   self._ipAddress = not IsEmpty(ipAddress) and ipAddress or nil
   self._port = toport(port) or 6053
   self._password = not IsEmpty(password) and password or nil
+  self._encryptionKey = parseEncryptionKey(encryptionKey)
   return self
 end
 
@@ -113,6 +177,11 @@ function ESPHomeClient:connect()
   -- Disconnect to clear any state
   self:disconnect()
 
+  -- Initialize Noise protocol state if encryption key is present
+  if self._encryptionKey ~= nil then
+    log:info("Noise protocol encryption enabled")
+  end
+
   -- Add callbacks for any requests we can expect to receive from the device
   self._callbacks[ESPHomeProtoSchema.Message.PingRequest.options.id] = function(message)
     log:debug("Received ping request: %s", message)
@@ -136,8 +205,34 @@ function ESPHomeClient:connect()
       log:debug("Connected to ESPHome device at %s:%s", self._ipAddress, self._port)
       self._connected = true
 
-      self
-        :sendHello()
+      ---@type Deferred<void, string>
+      local d
+      if not IsEmpty(self._encryptionKey) then
+        d = self
+          :sendNoiseHello()
+          :next(function()
+            log:debug("Noise hello message sent successfully")
+            return self:sendHandshake()
+          end, function(err)
+            log:error("Failed to send noise hello message: %s", err)
+            return reject(err)
+          end)
+          :next(function()
+            log:debug("Noise handshake completed")
+          end, function(err)
+            log:error("Failed to complete Noise Handshake: %s", err)
+            return reject(err)
+          end)
+      else
+        log:debug("No encryption key provided, using plaintext protocol")
+        d = deferred.new():resolve(nil)
+      end
+
+      d:next(function()
+        log:debug("Sending hello message to ESPHome device")
+        -- Send the hello message
+        return self:sendHello()
+      end)
         :next(function()
           log:debug("Hello message sent successfully")
           return self:sendConnect()
@@ -176,12 +271,10 @@ function ESPHomeClient:connect()
     end)
     :OnRead(function(client, data)
       log:debug("Received %d byte(s) from ESPHome device", #data)
-      log:trace("Incoming raw data (hex): %s", (data:gsub(".", function(c)
-        return string.format("%02X ", string.byte(c))
-      end)))
+      log:trace("Incoming raw data (hex): %s", to_hex(data))
       self._buffer = self._buffer .. data
 
-      self:_proccessBuffer()
+      self:_processBuffer()
 
       client:ReadUpTo(4096)
     end)
@@ -211,6 +304,8 @@ function ESPHomeClient:disconnect()
   end
 
   self._connected = false
+  self._hs = nil
+  self._hsState = nil
   self._authenticated = false
   self._buffer = ""
   self._callbacks = {}
@@ -346,6 +441,114 @@ function ESPHomeClient:sendHello()
   return d
 end
 
+--- Check if the Noise protocol handshake is in the expected state.
+--- @param expectedState NoiseState The expected state of the handshake.
+--- @return boolean isValid True if the handshake is in the expected state, false otherwise.
+function ESPHomeClient:checkHandshakeState(expectedState)
+  log:trace("ESPHomeClient:checkHandshakeState(%s)", expectedState)
+  if self._hsState ~= expectedState then
+    log:error("Expected Noise state %s, actual %s", expectedState, self._hsState)
+    return false
+  end
+  return true
+end
+
+--- Send a hello message using the Noise protocol.
+--- @return Deferred<void, string> result A promise that resolves when the hello message is sent.
+function ESPHomeClient:sendNoiseHello()
+  log:trace("ESPHomeClient:sendNoiseHello()")
+  --- @type Deferred<table<string,any>, string>
+  local d = deferred.new()
+
+  if not self:isConnected() then
+    return d:reject("Not connected to ESPHome device")
+  end
+  --- @cast self._client -nil
+
+  -- Hello message
+  local frame = "\x01\x00\x00"
+
+  local timeoutTimer = C4:SetTimer(ONE_SECOND * 5, function()
+    -- Remove the callback for the response
+    self._callbacks[NoiseProtocolCallback.HELLO] = nil
+    self._hsState = NoiseState.ERROR
+    d:reject("Timeout waiting for SERVER_HELLO response")
+  end)
+  self._callbacks[NoiseProtocolCallback.HELLO] = function(message)
+    log:debug("Received SERVER_HELLO: node=%s, mac=%s", message.node, message.mac_address)
+    timeoutTimer:Cancel()
+    d:resolve(nil)
+  end
+
+  self._hsState = NoiseState.HELLO
+  log:ultra("Sending CLIENT_HELLO frame (hex): %s", to_hex(frame))
+  self._client:Write(frame)
+  return d
+end
+
+--- Send the Noise protocol handshake message to establish encrypted communication.
+--- @return Deferred<void, string> result A promise that resolves when the handshake is complete.
+function ESPHomeClient:sendHandshake()
+  log:trace("ESPHomeClient:sendHandshake()")
+  --- @type Deferred<void, string>
+  local d = deferred.new()
+  if self._encryptionKey == nil then
+    return d:resolve(nil)
+  end
+
+  if not self:isConnected() then
+    return d:reject("Not connected to ESPHome device")
+  end
+  --- @cast self._client -nil
+
+  self._hs = noise.NoiseConnection:new({
+    protocol_name = "Noise_NNpsk0_25519_ChaChaPoly_SHA256",
+    initiator = true,
+    psks = { self._encryptionKey },
+    prologue = "NoiseAPIInit" .. NULL_BYTE .. NULL_BYTE,
+  })
+  self._hs:start_handshake()
+  local handshake = NULL_BYTE .. self._hs:write_handshake_message()
+
+  local frame = Indicator.NOISE .. bit16.u16_to_be_bytes(#handshake) .. handshake
+
+  local timeoutTimer = C4:SetTimer(ONE_SECOND * 5, function()
+    self:checkHandshakeState(NoiseState.HANDSHAKE)
+
+    -- Remove the callback for the response
+    self._callbacks[NoiseProtocolCallback.HANDSHAKE] = nil
+    self._hsState = NoiseState.ERROR
+    d:reject("Timeout waiting for HANDSHAKE response")
+  end)
+  self._callbacks[NoiseProtocolCallback.HANDSHAKE] = function(success, message)
+    timeoutTimer:Cancel()
+    self:checkHandshakeState(NoiseState.HANDSHAKE)
+
+    if not success then
+      log:error("HANDSHAKE failed: %s", message)
+      self._hsState = NoiseState.ERROR
+      return d:reject(message)
+    end
+
+    assert(self._hs):read_handshake_message(message)
+
+    if not self._hs.handshake_complete then
+      log:error("Handshake not completed after reading handshake message")
+      self._hsState = NoiseState.ERROR
+      return d:reject("Handshake not completed")
+    end
+
+    log:debug("Handshake completed successfully")
+    self._hsState = NoiseState.READY
+    d:resolve(nil)
+  end
+
+  self._hsState = NoiseState.HANDSHAKE
+  log:ultra("Sending HANDSHAKE frame (hex): %s", to_hex(frame))
+  self._client:Write(frame)
+  return d
+end
+
 --- Send a connect message to the ESPHome device.
 --- @return Deferred<void, string> result A promise that resolves when the connect response is received.
 function ESPHomeClient:sendConnect()
@@ -398,68 +601,34 @@ end
 --- @param timeout? number The timeout for the request in milliseconds (optional). Only non-void methods support this. Default is 5 seconds.
 --- @return Deferred<table|nil, string> result A promise that resolves with the response.
 function ESPHomeClient:callServiceMethod(method, body, authRequired, timeout)
-  log:trace("ESPHomeClient:callServiceMethod(%s, %s, %s)", method.method, body, authRequired)
+  log:trace("ESPHomeClient:callServiceMethod(%s, %s, %s, %s)", method.method, body, authRequired, timeout)
   if authRequired == nil then
     authRequired = true
   end
-  if timeout == nil then
-    timeout = ONE_SECOND * 5
-  end
-
-  --- @type Deferred<table|nil, string>
-  local d = deferred.new()
 
   if not self:isConnected(authRequired) then
-    return d:reject("Not connected to ESPHome device")
+    return reject("Not connected to ESPHome device")
   end
-  --- @cast self._client -nil
 
-  -- Encode the input message
-  local messageType = tointeger(Select(method.inputType, "options", "id"))
-  if IsEmpty(messageType) then
-    return d:reject("Invalid request message ID")
-  end
-  --- @cast messageType integer
-
-  -- Encode parts and build the frame (see _proccessBuffer for frame details)
-  local indicator = string.char(0) -- Only plaintext is supported
-  local encodedMessageType = Protobuf.encode_varint(messageType)
-  local encodedData = Protobuf.encode(ESPHomeProtoSchema, method.inputType, body)
-  local encodedPayloadSize = Protobuf.encode_varint(#encodedData)
-  local frame = indicator .. encodedPayloadSize .. encodedMessageType .. encodedData
-
-  -- Store callback for response if one is expected
+  -- Determine if we expect a response
+  local responseSchema = nil
   if method.outputType.name ~= ESPHomeProtoSchema.Message.void.name then
-    local timeoutTimer = C4:SetTimer(timeout, function()
-      log:warn("Timeout waiting for %s.%s() response", method.service, method.method)
-      -- Remove the callback for the response
-      self._callbacks[method.outputType.options.id] = nil
-      d:reject("Timeout waiting for " .. method.service .. "." .. method.method .. "() response")
-    end)
-    self._callbacks[method.outputType.options.id] = function(message)
-      log:trace("Received response for %s.%s()", method.service, method.method)
-      timeoutTimer:Cancel()
-      d:resolve(message)
-    end
-  else
-    -- If the method has no output type, we don't need to wait for a response
-    d:resolve(nil)
+    responseSchema = method.outputType
   end
-  log:debug("Calling service method %s.%s() with %d byte(s) of data", method.service, method.method, #encodedData)
-  log:trace("Outgoing raw data (hex): %s", (frame:gsub(".", function(c)
-    return string.format("%02X ", string.byte(c))
-  end)))
-  self._client:Write(frame)
-  return d
+
+  -- Use sendMessage to handle the actual sending
+  return self:sendMessage(method.inputType, body, responseSchema, timeout)
 end
 
 --- Send a message to the ESPHome device.
 --- @param messageSchema ProtoMessageSchema The message to send.
---- @param body? table The message body (optional).
---- @return Deferred<void, string> result A promise that resolves when the message is sent.
-function ESPHomeClient:sendMessage(messageSchema, body)
-  log:trace("ESPHomeClient:sendMessage(%s, %s)", messageSchema, body)
-  --- @type Deferred<void, string>
+--- @param body? table<string, any> The message body (optional).
+--- @param responseSchema? ProtoMessageSchema The expected response schema (optional).
+--- @param timeout? number The timeout for the response in milliseconds (optional).
+--- @return Deferred<table|nil, string> result A promise that resolves when the message is sent (and response received if expected).
+function ESPHomeClient:sendMessage(messageSchema, body, responseSchema, timeout)
+  log:trace("ESPHomeClient:sendMessage(%s, %s, %s, %s)", messageSchema.name, body, responseSchema, timeout)
+  --- @type Deferred<table|nil, string>
   local d = deferred.new()
 
   if not self:isConnected() then
@@ -474,52 +643,267 @@ function ESPHomeClient:sendMessage(messageSchema, body)
   end
   --- @cast messageType integer
 
-  -- Encode parts and build the frame (see _proccessBuffer for frame details)
-  local indicator = string.char(0) -- Only plaintext is supported
-  local encodedMessageType = Protobuf.encode_varint(messageType)
-  local encodedData = Protobuf.encode(ESPHomeProtoSchema, messageSchema, body)
-  local encodedPayloadSize = Protobuf.encode_varint(#encodedData)
-  local frame = indicator .. encodedPayloadSize .. encodedMessageType .. encodedData
+  local encodedData = pb.encode(ESPHomeProtoSchema, messageSchema, body or {})
 
+  local frame
+  if self._encryptionKey ~= nil then
+    -- Noise protocol (encrypted)
+    if not self:checkHandshakeState(NoiseState.READY) then
+      return d:reject("Noise protocol handshake not completed")
+    end
+    log:trace("Using Noise protocol for encrypted message send")
+
+    -- Combine message type, data length, and data (this will be encrypted)
+    local plaintextPayload = bit16.u16_to_be_bytes(messageType) .. bit16.u16_to_be_bytes(#encodedData) .. encodedData
+
+    -- Encrypt the payload using noise
+    local success, ciphertextPayload = pcall(assert(self._hs).send_message, self._hs, plaintextPayload)
+    if not success then
+      log:error("Failed to encrypt payload: %s", ciphertextPayload)
+      return d:reject("Encryption failed: " .. (ciphertextPayload or "unknown error"))
+    end
+    log:debug("Building frame for encrypted message send")
+
+    -- Build the frame
+    frame = Indicator.NOISE .. bit16.u16_to_be_bytes(#ciphertextPayload) .. ciphertextPayload
+  else
+    -- Plaintext protocol
+    frame = Indicator.PLAINTEXT .. pb.encode_varint(#encodedData) .. pb.encode_varint(messageType) .. encodedData
+  end
+
+  -- Store callback for response if one is expected
+  if responseSchema then
+    local timeoutTimer = C4:SetTimer(timeout or ONE_SECOND * 5, function()
+      log:warn("Timeout waiting for response to %s", messageSchema.name)
+      -- Remove the callback for the response
+      self._callbacks[responseSchema.options.id] = nil
+      d:reject("Timeout waiting for response to " .. messageSchema.name)
+    end)
+    self._callbacks[responseSchema.options.id] = function(message)
+      log:debug("Received response to %s", messageSchema.name)
+      timeoutTimer:Cancel()
+      d:resolve(message)
+    end
+  else
+    -- If no response is expected, resolve immediately after sending
+    d:resolve(nil)
+  end
+
+  log:debug("Sending message %s with %d byte(s) of data", messageSchema.name, #encodedData)
+  log:ultra("Outgoing frame (hex): %s", to_hex(frame))
   self._client:Write(frame)
-  return d:resolve(nil)
+  return d
 end
 
 --- Process the current data buffer and decodes any valid packets recursively.
 --- Currently only plaintext packets are supported.
 --- @return void
-function ESPHomeClient:_proccessBuffer()
-  log:trace("ESPHomeClient:_proccessBuffer()")
-  --[[
-  Plaintext Protocol Frame Structure:
-    [Indicator][Payload Size VarInt][Message Type VarInt][Payload]
-      1 byte         1-3 bytes           1-2 bytes       Variable
-
-  Data Type Summary:
-  +--------------+--------+-----------+----------+----------------------------+
-  | Field        | Type   | Size      | Encoding | Notes                      |
-  +--------------+--------+-----------+----------+----------------------------+
-  | Indicator    | uint8  | 1 byte    | -        | Always 0x00                |
-  | Payload Size | varint | 1-3 bytes | VarInt   | Unsigned                   |
-  | Message Type | varint | 1-2 bytes | VarInt   | Unsigned, max 65535        |
-  | Data         | bytes  | Variable  | -        | Protocol buffer payload    |
-  +--------------+--------+-----------+----------+----------------------------+
-  --]]
-  if IsEmpty(self._buffer) then
+function ESPHomeClient:_processBuffer()
+  log:trace("ESPHomeClient:_processBuffer()")
+  -- We need at least 3 bytes to begin processing a frame
+  if self._buffer == nil or #self._buffer < 3 then
     return
   end
+  log:ultra("Processing buffer (hex): %s", to_hex(self._buffer))
 
   -- Process the indicator
-  local indicator, indicatorEndPos = Protobuf.decode_varint(self._buffer, 1)
-  if indicator ~= 0 then
+  local indicator, indicatorEndPos = string.byte(self._buffer, 1), 2
+
+  if indicator == string.byte(Indicator.PLAINTEXT) then
+    --[[
+      Plaintext Protocol Frame Structure:
+        [Indicator][Payload Size VarInt][Message Type VarInt][Payload]
+          1 byte         1-3 bytes           1-2 bytes       Variable
+
+      Data Type Summary:
+      +--------------+--------+-----------+----------+----------------------------+
+      | Field        | Type   | Size      | Encoding | Notes                      |
+      +--------------+--------+-----------+----------+----------------------------+
+      | Indicator    | uint8  | 1 byte    | -        | Always 0x00                |
+      | Payload Size | varint | 1-3 bytes | VarInt   | Unsigned                   |
+      | Message Type | varint | 1-2 bytes | VarInt   | Unsigned, max 65535        |
+      | Data         | bytes  | Variable  | -        | Protocol buffer payload    |
+      +--------------+--------+-----------+----------+----------------------------+
+    --]]
+    -- Process the payload size and message type
+    local payloadSize, payloadSizeEndPos = pb.decode_varint(self._buffer, indicatorEndPos)
+    local messageType, messageTypeEndPos = pb.decode_varint(self._buffer, payloadSizeEndPos)
+
+    -- Extract the payload data
+    local totalFrameSize = messageTypeEndPos + payloadSize - 1
+    if #self._buffer < totalFrameSize then
+      -- This can happen if the message is split across multiple tcp reads
+      log:debug("Incomplete plaintext frame (%d bytes expected, %d bytes received)", totalFrameSize, #self._buffer)
+      return
+    end
+    local payload = string.sub(self._buffer, messageTypeEndPos, totalFrameSize)
+    local payloadEndPos = totalFrameSize + 1
+
+    -- Remove the processed data from the buffer
+    self._buffer = string.sub(self._buffer, payloadEndPos)
+
+    log:ultra("Plaintext frame - Message type: %d, Payload size: %d", messageType, payloadSize)
+    self:_processPayload(messageType, payload)
+  elseif indicator == string.byte(Indicator.NOISE) then
+    --[[
+      Noise Protocol Frame Structure:
+        [Indicator][Encrypted Size][Encrypted Payload][MAC]
+            1 byte      2 bytes         Variable      16 bytes
+
+      Message Format:
+        Unencrypted Header (3 bytes)
+          Indicator: 0x01
+          Encrypted payload size: 16-bit unsigned, big-endian
+        Encrypted Payload
+          Message type: 16-bit unsigned, big-endian (encrypted)
+          Data length: 16-bit unsigned, big-endian (encrypted)
+          Protocol buffer data
+        MAC (16 bytes)
+
+      During the Noise handshake, the server sends a SERVER_HELLO message:
+      SERVER_HELLO format:
+        [Indicator] [Size] [Protocol] [Node-Name] [MAC-Address]
+            0x01      2B      0x01     null-term    null-term
+
+      Handshake rejection format:
+        [Indicator] [Size] [Error-Flag] [Error-Message]
+            0x01      2B      0x01         Variable
+    --]]
+
+    local encryptedSize = bit16.be_bytes_to_u16(self._buffer:sub(indicatorEndPos, indicatorEndPos + 1))
+    local encryptedSizeEndPos = indicatorEndPos + 2
+
+    -- Check if we have the complete frame in the buffer
+    local totalFrameSize = encryptedSizeEndPos + encryptedSize - 1
+    if #self._buffer < totalFrameSize then
+      -- This can happen if the message is split across multiple tcp reads
+      log:debug("Incomplete noise frame (%d bytes expected, %d bytes received)", totalFrameSize, #self._buffer)
+      return
+    end
+
+    -- Extract the encrypted payload
+    local encryptedPayload = string.sub(self._buffer, encryptedSizeEndPos, totalFrameSize)
+    local encryptedPayloadEndPos = totalFrameSize + 1
+
+    -- Remove the processed data from the buffer
+    self._buffer = string.sub(self._buffer, encryptedPayloadEndPos)
+
+    if self._hsState == NoiseState.HELLO then
+      -- SERVER_HELLO message structure
+      --[[
+        01 00 1E 01 72 61 74 67 64 6F 33 32 2D 65 32 65 39 64 34 00 65 63 63 39 66 66 65 32 65 39 64 34 00
+        ^  ^---^ ^  ^------------------ Node ------------------^ ^  ^ ---------------- MAC -----------^ ^
+        |    |   |                "ratgdo32-e2e9d4               |               "ecc9ffe2e9d4"         |
+        |    |   Protocol (0x01)                                 Null                                 Null
+        |    Size (30 bytes, big-endian)
+        Indicator
+      --]]
+
+      if string.byte(encryptedPayload, 1) ~= 0x01 then
+        log:error("Invalid SERVER_HELLO message (invalid protocol byte %02X)", string.byte(encryptedPayload, 1))
+        return
+      end
+      log:trace("Encrypted payload is a SERVER_HELLO message")
+
+      -- Extract node name
+      local nodeNullTermPos = encryptedPayload:find(NULL_BYTE, 2)
+      if not nodeNullTermPos then
+        log:error("Invalid SERVER_HELLO message (missing node null terminator)")
+        return
+      end
+      -- Extract node name
+      local nodeName = string.sub(encryptedPayload, 2, nodeNullTermPos - 1)
+
+      -- Extract mac address
+      local macNullTermPos = encryptedPayload:find(NULL_BYTE, nodeNullTermPos + 1)
+      if not macNullTermPos then
+        log:error("Invalid SERVER_HELLO message (missing mac null terminator)")
+        return
+      end
+      -- Extract mac address
+      local macAddress = string.sub(encryptedPayload, nodeNullTermPos + 1, macNullTermPos - 1)
+
+      log:debug("SERVER_HELLO message - Node: %s, MAC: %s", nodeName, macAddress)
+
+      -- Call the callback for SERVER_HELLO if registered
+      if type(self._callbacks[NoiseProtocolCallback.HELLO]) == "function" then
+        self._callbacks[NoiseProtocolCallback.HELLO]({
+          node = nodeName,
+          mac_address = macAddress,
+        })
+      end
+    elseif self._hsState == NoiseState.HANDSHAKE then
+      -- HANDSHAKE error message structure
+      --[[
+        01 00 10 01 48 61 6E 64 73 68 61 6B 65 20 65 72 72 6F 72
+        ^  ^^^^^ ^  ^----------------Error---------------------^
+        |    |   |               "Handshake error"
+        |    |   Error Flag
+        |    Size (16 bytes, big-endian)
+        Indicator
+      --]]
+      -- Extract message
+      local success = string.byte(encryptedPayload, 1) ~= 0x01
+      log:trace("Encrypted payload is a HANDSHAKE %s message", success and "success" or "error")
+
+      local message = encryptedPayload:sub(2)
+
+      log:trace("HANDSHAKE message - Success: %s, Message: %s", success, to_hex(message))
+
+      -- Call the callback for HANDSHAKE if registered
+      if type(self._callbacks[NoiseProtocolCallback.HANDSHAKE]) == "function" then
+        self._callbacks[NoiseProtocolCallback.HANDSHAKE](success, message)
+      end
+    elseif self._hsState == NoiseState.READY then
+      local ok, decryptedPayload = pcall(assert(self._hs).receive_message, self._hs, encryptedPayload)
+      if not ok or decryptedPayload == nil then
+        if decryptedPayload == nil then
+          decryptedPayload = "decryption failed"
+        elseif type(decryptedPayload) ~= "string" then
+          decryptedPayload = "unknown error"
+        end
+        log:error("Failed to decrypt noise frame: %s", decryptedPayload)
+        return
+      end
+      --- @cast decryptedPayload string
+
+      log:trace("READY message - %s", success, to_hex(decryptedPayload))
+
+      -- Extract the message type and data length from the decrypted payload
+      if #decryptedPayload < 4 then
+        log:error("Decrypted payload too short (need at least 4 bytes)")
+        return
+      end
+
+      local messageType = bit16.be_bytes_to_u16(decryptedPayload:sub(1, 2))
+      local dataLength = bit16.be_bytes_to_u16(decryptedPayload:sub(3, 4))
+
+      -- Extract the protocol buffer data
+      local payload = string.sub(decryptedPayload, 5)
+      if #payload ~= dataLength then
+        log:error("Decrypted data length mismatch (%d bytes expected, %d bytes received)", dataLength, #payload)
+        return
+      end
+
+      self:_processPayload(messageType, payload)
+    else
+      log:warn("Invalid Noise state: %s", self._hsState)
+      return
+    end
+  else
+    -- Unknown indicator
     log:warn("Invalid esphome frame (unsupported indicator %02X)", indicator)
-    self._buffer = ""
     return
   end
 
-  -- Process the payload size and message type
-  local payloadSize, payloadSizeEndPos = Protobuf.decode_varint(self._buffer, indicatorEndPos)
-  local messageType, messageTypeEndPos = Protobuf.decode_varint(self._buffer, payloadSizeEndPos)
+  -- Continue processing any remaining data in the buffer
+  self:_processBuffer()
+end
+
+function ESPHomeClient:_processPayload(messageType, payload)
+  log:trace("ESPHomeClient:_processPayload(%s, %d bytes)", messageType, #payload)
+
+  -- Find the message schema
   local messageSchema = nil
   for _, schema in pairs(ESPHomeProtoSchema.Message) do
     if messageType == Select(schema, "options", "id") then
@@ -529,33 +913,13 @@ function ESPHomeClient:_proccessBuffer()
   end
   if messageSchema == nil then
     log:warn("Invalid esphome frame (unknown message type %d)", messageType)
-    self._buffer = ""
     return
   end
-
-  -- Extract the payload data
-  local data = string.sub(self._buffer, messageTypeEndPos, messageTypeEndPos + payloadSize - 1)
-  if #data ~= payloadSize then
-    -- This can happen if the message is split across multiple tcp reads
-    log:debug("Incomplete esphome frame (%d bytes expected, %d bytes received)", payloadSize, #data)
-    return
-  end
-
-  -- Remove the processed data from the buffer
-  self._buffer = string.sub(self._buffer, messageTypeEndPos + payloadSize)
 
   -- Decode the payload data
-  local success, message = pcall(Protobuf.decode, ESPHomeProtoSchema, messageSchema, data)
+  local success, message = pcall(pb.decode, ESPHomeProtoSchema, messageSchema, payload)
   if not success then
-    log:warn(
-      "Invalid esphome frame (failed to decode message type %s); raw data: %s",
-      messageType,
-      message,
-      (data:gsub(".", function(c)
-        return string.format("%02X ", string.byte(c))
-      end))
-    )
-    self._buffer = ""
+    log:warn("Invalid esphome frame (failed to decode message type %s): %s", messageType, message)
     return
   end
 
@@ -572,9 +936,6 @@ function ESPHomeClient:_proccessBuffer()
       log:error("Callback for message type %s failed; %s", messageType, err)
     end
   end
-
-  -- Continue processing any remaining data in the buffer
-  self:_proccessBuffer()
 end
 
 return ESPHomeClient
