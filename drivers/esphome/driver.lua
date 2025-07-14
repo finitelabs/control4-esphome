@@ -135,8 +135,34 @@ function OPC.Port(propertyValue)
   Connect()
 end
 
+function OPC.Authentication_Mode(propertyValue)
+  log:trace("OPC.Authentication_Mode('%s')", propertyValue)
+  if propertyValue == "None" then
+    UpdateProperty("Password", "")
+    UpdateProperty("Encryption Key", "")
+    C4:SetPropertyAttribs("Password", constants.HIDE_PROPERTY)
+    C4:SetPropertyAttribs("Encryption Key", constants.HIDE_PROPERTY)
+  end
+  if propertyValue == "Password" then
+    UpdateProperty("Encryption Key", "")
+    C4:SetPropertyAttribs("Password", constants.SHOW_PROPERTY)
+    C4:SetPropertyAttribs("Encryption Key", constants.HIDE_PROPERTY)
+  end
+  if propertyValue == "Encryption Key" then
+    UpdateProperty("Password", "")
+    C4:SetPropertyAttribs("Password", constants.HIDE_PROPERTY)
+    C4:SetPropertyAttribs("Encryption Key", constants.SHOW_PROPERTY)
+  end
+  Connect()
+end
+
 function OPC.Password(propertyValue)
   log:trace("OPC.Password('%s')", not IsEmpty(propertyValue) and "****" or "")
+  Connect()
+end
+
+function OPC.Encryption_Key(propertyValue)
+  log:trace("OPC.Encryption_Key('%s')", not IsEmpty(propertyValue) and "****" or "")
   Connect()
 end
 
@@ -151,7 +177,7 @@ function Connect()
     return
   end
 
-  esphome:setConfig(Properties["IP Address"], Properties["Port"], Properties["Password"])
+  esphome:setConfig(Properties["IP Address"], Properties["Port"], Properties["Password"], Properties["Encryption Key"])
 
   local lastUpdateTime = os.time() -- Don't check for updates on the first cycle
 

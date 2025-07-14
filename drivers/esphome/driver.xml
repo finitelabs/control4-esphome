@@ -114,8 +114,23 @@
         <default>6053</default>
       </property>
       <property>
+        <name>Authentication Mode</name>
+        <type>LIST</type>
+        <default>None</default>
+        <items>
+          <item>None</item>
+          <item>Password</item>
+          <item>Encryption Key</item>
+        </items>
+      </property>
+      <property>
         <name>Password</name>
-        <description>If the device does not have a password, leave this field blank.</description>
+        <type>STRING</type>
+        <default/>
+        <password>true</password>
+      </property>
+      <property>
+        <name>Encryption Key</name>
         <type>STRING</type>
         <default/>
         <password>true</password>

@@ -478,6 +478,43 @@ PROTOBUF_SCHEMA.Message = {
     },
     fields = {},
   },
+  AreaInfo = {
+    name = "AreaInfo",
+    options = {},
+    fields = {
+      [1] = {
+        name = "area_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+      [2] = {
+        name = "name",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+    },
+  },
+  DeviceInfo = {
+    name = "DeviceInfo",
+    options = {},
+    fields = {
+      [1] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+      [2] = {
+        name = "name",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [3] = {
+        name = "area_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+    },
+  },
   DeviceInfoResponse = {
     name = "DeviceInfoResponse",
     options = {
@@ -580,6 +617,23 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
       },
+      [20] = {
+        name = "devices",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.MESSAGE,
+        repeated = true,
+      },
+      [21] = {
+        name = "areas",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.MESSAGE,
+        repeated = true,
+      },
+      [22] = {
+        name = "area",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.MESSAGE,
+      },
     },
   },
   ListEntitiesRequest = {
@@ -661,6 +715,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- EntityCategory
       },
+      [10] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   BinarySensorStateResponse = {
@@ -687,6 +746,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "missing_state",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [4] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -759,6 +823,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
       },
+      [13] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   CoverStateResponse = {
@@ -795,6 +864,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "current_operation",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- CoverOperation
+      },
+      [6] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -919,6 +993,11 @@ PROTOBUF_SCHEMA.Message = {
         type = PROTOBUF_SCHEMA.DataType.STRING,
         repeated = true,
       },
+      [13] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   FanStateResponse = {
@@ -965,6 +1044,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "preset_mode",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [8] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -1130,6 +1214,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- EntityCategory
       },
+      [16] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   LightStateResponse = {
@@ -1206,6 +1295,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "effect",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [14] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -1429,6 +1523,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- EntityCategory
       },
+      [14] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   SensorStateResponse = {
@@ -1455,6 +1554,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "missing_state",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [4] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -1512,6 +1616,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
+      [10] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   SwitchStateResponse = {
@@ -1533,6 +1642,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "state",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [3] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -1606,6 +1720,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
+      [9] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   TextSensorStateResponse = {
@@ -1632,6 +1751,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "missing_state",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [4] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -1974,7 +2098,7 @@ PROTOBUF_SCHEMA.Message = {
     options = {
       id = 43,
       source = 1,
-      ifdef = "USE_ESP32_CAMERA",
+      ifdef = "USE_CAMERA",
       base_class = "InfoResponseProtoMessage",
     },
     fields = {
@@ -2013,6 +2137,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- EntityCategory
       },
+      [8] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   CameraImageResponse = {
@@ -2020,7 +2149,7 @@ PROTOBUF_SCHEMA.Message = {
     options = {
       id = 44,
       source = 1,
-      ifdef = "USE_ESP32_CAMERA",
+      ifdef = "USE_CAMERA",
     },
     fields = {
       [1] = {
@@ -2045,7 +2174,7 @@ PROTOBUF_SCHEMA.Message = {
     options = {
       id = 45,
       source = 2,
-      ifdef = "USE_ESP32_CAMERA",
+      ifdef = "USE_CAMERA",
       no_delay = 1,
     },
     fields = {
@@ -2201,6 +2330,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.FIXED32,
         type = PROTOBUF_SCHEMA.DataType.FLOAT,
       },
+      [26] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   ClimateStateResponse = {
@@ -2287,6 +2421,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "target_humidity",
         wireType = PROTOBUF_SCHEMA.WireType.FIXED32,
         type = PROTOBUF_SCHEMA.DataType.FLOAT,
+      },
+      [16] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -2490,6 +2629,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
+      [14] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   NumberStateResponse = {
@@ -2516,6 +2660,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "missing_state",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [4] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -2590,6 +2739,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- EntityCategory
       },
+      [9] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   SelectStateResponse = {
@@ -2616,6 +2770,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "missing_state",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [4] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -2700,6 +2859,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- EntityCategory
       },
+      [11] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   SirenStateResponse = {
@@ -2721,6 +2885,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "state",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [3] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -2844,6 +3013,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
+      [12] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   LockStateResponse = {
@@ -2865,6 +3039,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "state",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- LockState
+      },
+      [3] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -2947,6 +3126,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "device_class",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [9] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -3054,6 +3238,11 @@ PROTOBUF_SCHEMA.Message = {
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
       },
+      [10] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   MediaPlayerStateResponse = {
@@ -3085,6 +3274,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "muted",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [5] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -4212,6 +4406,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
       },
+      [11] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   AlarmControlPanelStateResponse = {
@@ -4233,6 +4432,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "state",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- AlarmControlPanelState
+      },
+      [3] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -4326,6 +4530,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- TextMode
       },
+      [12] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   TextStateResponse = {
@@ -4352,6 +4561,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "missing_state",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [4] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -4420,6 +4634,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- EntityCategory
       },
+      [8] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   DateStateResponse = {
@@ -4454,6 +4673,11 @@ PROTOBUF_SCHEMA.Message = {
       },
       [5] = {
         name = "day",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+      [6] = {
+        name = "device_id",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
@@ -4534,6 +4758,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- EntityCategory
       },
+      [8] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   TimeStateResponse = {
@@ -4568,6 +4797,11 @@ PROTOBUF_SCHEMA.Message = {
       },
       [5] = {
         name = "second",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+      [6] = {
+        name = "device_id",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
@@ -4659,6 +4893,11 @@ PROTOBUF_SCHEMA.Message = {
         type = PROTOBUF_SCHEMA.DataType.STRING,
         repeated = true,
       },
+      [10] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   EventResponse = {
@@ -4679,6 +4918,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "event_type",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [3] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -4746,6 +4990,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
       },
+      [12] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   ValveStateResponse = {
@@ -4772,6 +5021,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "current_operation",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- ValveOperation
+      },
+      [4] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -4850,6 +5104,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- EntityCategory
       },
+      [8] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   DateTimeStateResponse = {
@@ -4876,6 +5135,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "epoch_seconds",
         wireType = PROTOBUF_SCHEMA.WireType.FIXED32,
         type = PROTOBUF_SCHEMA.DataType.FIXED32,
+      },
+      [4] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -4949,6 +5213,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
+      [9] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   UpdateStateResponse = {
@@ -5010,6 +5279,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "release_url",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [11] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
