@@ -10,6 +10,12 @@
 [//]: # "### Removed"
 [//]: # "- Removed"
 
+## v20250715 - 2025-07-14
+
+### Fixed
+
+- Fixed bug causing entities to not be discovered on connect
+
 ## v20250714 - 2025-07-14
 
 ### Added
