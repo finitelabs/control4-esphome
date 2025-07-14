@@ -206,9 +206,9 @@ function ESPHomeClient:connect()
       self._connected = true
 
       ---@type Deferred<void, string>
-      local d
+      local dConnect
       if not IsEmpty(self._encryptionKey) then
-        d = self
+        dConnect = self
           :sendNoiseHello()
           :next(function()
             log:debug("Noise hello message sent successfully")
@@ -225,14 +225,15 @@ function ESPHomeClient:connect()
           end)
       else
         log:debug("No encryption key provided, using plaintext protocol")
-        d = deferred.new():resolve(nil)
+        dConnect = deferred.new():resolve(nil)
       end
 
-      d:next(function()
-        log:debug("Sending hello message to ESPHome device")
-        -- Send the hello message
-        return self:sendHello()
-      end)
+      dConnect
+        :next(function()
+          log:debug("Sending hello message to ESPHome device")
+          -- Send the hello message
+          return self:sendHello()
+        end)
         :next(function()
           log:debug("Hello message sent successfully")
           return self:sendConnect()

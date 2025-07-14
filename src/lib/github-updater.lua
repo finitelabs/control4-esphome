@@ -170,8 +170,16 @@ end
 --- @return Deferred<string[], table<number, string>> updatedDrivers Deferred resolving to a list of updated driver filenames, or rejected with an error table.
 function GitHubUpdater:updateAll(repo, driverFilenames, includePrereleases, forceUpdate)
   log:trace("GitHubUpdater:updateAll(%s, %s, %s, %s)", repo, driverFilenames, includePrereleases, forceUpdate)
+  -- Only update drivers that are already installed.
+  local installedDriverFilenames = {}
+  for _, driverFilename in pairs(driverFilenames) do
+    if not IsEmpty(C4:GetDevicesByC4iName(driverFilename) or {}) then
+      table.insert(installedDriverFilenames, driverFilename)
+    end
+  end
+
   return self
-    :downloadOutdatedDrivers("C4Z_ROOT", repo, driverFilenames, includePrereleases, forceUpdate)
+    :downloadOutdatedDrivers("C4Z_ROOT", repo, installedDriverFilenames, includePrereleases, forceUpdate)
     :next(function(downloadedDriverFilenames)
       --- @type Deferred<string[], table<number, string>>
       local d = deferred.new()
