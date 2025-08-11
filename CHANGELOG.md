@@ -10,6 +10,12 @@
 [//]: # "### Removed"
 [//]: # "- Removed"
 
+## v20250811 - 2025-08-11
+
+### Fixed
+
+- Fixed switch entities not responding to bound relay proxies
+
 ## v20250715 - 2025-07-14
 
 ### Fixed
