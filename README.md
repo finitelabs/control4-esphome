@@ -394,6 +394,12 @@ Control4, you can file an issue on GitHub:
 
 # <span style="color:#17BCF2">Changelog</span>
 
+## v20250811 - 2025-08-11
+
+### Fixed
+
+- Fixed switch entities not responding to bound relay proxies
+
 ## v20250715 - 2025-07-14
 
 ### Fixed

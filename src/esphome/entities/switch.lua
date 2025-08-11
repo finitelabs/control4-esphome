@@ -27,8 +27,9 @@ end
 --- @return void
 function SwitchEntity:discovered(entity)
   log:trace("SwitchEntity:discovered(%s)", entity)
-  local bindingId =
-    assert(bindings:getOrAddDynamicBinding(self.TYPE, "switch_" .. entity.key, "PROXY", true, entity.name, "RELAY"))
+  local bindingId = assert(
+    bindings:getOrAddDynamicBinding(self.TYPE, "switch_" .. entity.key, "PROXY", true, entity.name, "RELAY")
+  ).bindingId
 
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
