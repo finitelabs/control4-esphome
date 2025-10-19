@@ -238,7 +238,12 @@ function ESPHomeClient:connect()
         end)
         :next(function()
           log:debug("Hello message sent successfully")
-          return self:sendConnect()
+          -- Only authenticate when using password authentication
+          if not IsEmpty(self._password) then
+            return self:sendAuthenticate()
+          end
+          log:debug("Skipping authentication request (using Noise encryption)")
+          return deferred.new():resolve({})
         end, function(err)
           log:error("Failed to send hello message: %s", err)
           return reject(err)
@@ -552,12 +557,12 @@ function ESPHomeClient:sendHandshake()
   return d
 end
 
---- Send a connect message to the ESPHome device.
---- @return Deferred<void, string> result A promise that resolves when the connect response is received.
-function ESPHomeClient:sendConnect()
-  log:trace("ESPHomeClient:sendConnect()")
+--- Send an authenticate message to the ESPHome device.
+--- @return Deferred<void, string> result A promise that resolves when the authenticate response is received.
+function ESPHomeClient:sendAuthenticate()
+  log:trace("ESPHomeClient:sendAuthenticate()")
   local d = self
-    :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.connect, {
+    :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.authenticate, {
       password = not IsEmpty(self._password) and self._password or "",
     }, false)
     :next(function(message)

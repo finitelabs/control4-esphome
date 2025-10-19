@@ -226,6 +226,9 @@ PROTOBUF_SCHEMA.Enum = {
     MEDIA_PLAYER_STATE_IDLE = 1,
     MEDIA_PLAYER_STATE_PLAYING = 2,
     MEDIA_PLAYER_STATE_PAUSED = 3,
+    MEDIA_PLAYER_STATE_ANNOUNCING = 4,
+    MEDIA_PLAYER_STATE_OFF = 5,
+    MEDIA_PLAYER_STATE_ON = 6,
   },
   --- @enum MediaPlayerCommand
   MediaPlayerCommand = {
@@ -234,6 +237,15 @@ PROTOBUF_SCHEMA.Enum = {
     MEDIA_PLAYER_COMMAND_STOP = 2,
     MEDIA_PLAYER_COMMAND_MUTE = 3,
     MEDIA_PLAYER_COMMAND_UNMUTE = 4,
+    MEDIA_PLAYER_COMMAND_TOGGLE = 5,
+    MEDIA_PLAYER_COMMAND_VOLUME_UP = 6,
+    MEDIA_PLAYER_COMMAND_VOLUME_DOWN = 7,
+    MEDIA_PLAYER_COMMAND_ENQUEUE = 8,
+    MEDIA_PLAYER_COMMAND_REPEAT_ONE = 9,
+    MEDIA_PLAYER_COMMAND_REPEAT_OFF = 10,
+    MEDIA_PLAYER_COMMAND_CLEAR_PLAYLIST = 11,
+    MEDIA_PLAYER_COMMAND_TURN_ON = 12,
+    MEDIA_PLAYER_COMMAND_TURN_OFF = 13,
   },
   --- @enum MediaPlayerFormatPurpose
   MediaPlayerFormatPurpose = {
@@ -341,9 +353,15 @@ PROTOBUF_SCHEMA.Enum = {
     UPDATE_COMMAND_UPDATE = 1,
     UPDATE_COMMAND_CHECK = 2,
   },
+  --- @enum ZWaveProxyRequestType
+  ZWaveProxyRequestType = {
+    ZWAVE_PROXY_REQUEST_TYPE_SUBSCRIBE = 0,
+    ZWAVE_PROXY_REQUEST_TYPE_UNSUBSCRIBE = 1,
+    ZWAVE_PROXY_REQUEST_TYPE_HOME_ID_CHANGE = 2,
+  },
 }
 
---- @alias ProtoEnum APISourceType|EntityCategory|LegacyCoverState|CoverOperation|LegacyCoverCommand|FanSpeed|FanDirection|ColorMode|SensorStateClass|SensorLastResetType|LogLevel|ServiceArgType|ClimateMode|ClimateFanMode|ClimateSwingMode|ClimateAction|ClimatePreset|NumberMode|LockState|LockCommand|MediaPlayerState|MediaPlayerCommand|MediaPlayerFormatPurpose|BluetoothDeviceRequestType|BluetoothScannerState|BluetoothScannerMode|VoiceAssistantSubscribeFlag|VoiceAssistantRequestFlag|VoiceAssistantEvent|VoiceAssistantTimerEvent|AlarmControlPanelState|AlarmControlPanelStateCommand|TextMode|ValveOperation|UpdateCommand
+--- @alias ProtoEnum APISourceType|EntityCategory|LegacyCoverState|CoverOperation|LegacyCoverCommand|FanSpeed|FanDirection|ColorMode|SensorStateClass|SensorLastResetType|LogLevel|ServiceArgType|ClimateMode|ClimateFanMode|ClimateSwingMode|ClimateAction|ClimatePreset|NumberMode|LockState|LockCommand|MediaPlayerState|MediaPlayerCommand|MediaPlayerFormatPurpose|BluetoothDeviceRequestType|BluetoothScannerState|BluetoothScannerMode|VoiceAssistantSubscribeFlag|VoiceAssistantRequestFlag|VoiceAssistantEvent|VoiceAssistantTimerEvent|AlarmControlPanelState|AlarmControlPanelStateCommand|TextMode|ValveOperation|UpdateCommand|ZWaveProxyRequestType
 
 PROTOBUF_SCHEMA.Message = {
   void = {
@@ -406,11 +424,12 @@ PROTOBUF_SCHEMA.Message = {
       },
     },
   },
-  ConnectRequest = {
-    name = "ConnectRequest",
+  AuthenticationRequest = {
+    name = "AuthenticationRequest",
     options = {
       id = 3,
       source = 2,
+      ifdef = "USE_API_PASSWORD",
       no_delay = 1,
     },
     fields = {
@@ -421,11 +440,12 @@ PROTOBUF_SCHEMA.Message = {
       },
     },
   },
-  ConnectResponse = {
-    name = "ConnectResponse",
+  AuthenticationResponse = {
+    name = "AuthenticationResponse",
     options = {
       id = 4,
       source = 1,
+      ifdef = "USE_API_PASSWORD",
       no_delay = 1,
     },
     fields = {
@@ -634,6 +654,16 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
       },
+      [23] = {
+        name = "zwave_proxy_feature_flags",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+      [24] = {
+        name = "zwave_home_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   ListEntitiesRequest = {
@@ -682,11 +712,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -775,11 +800,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -879,6 +899,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_COVER",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -921,6 +942,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
       },
+      [9] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   ListEntitiesFanResponse = {
@@ -944,11 +970,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -1059,6 +1080,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_FAN",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -1126,6 +1148,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
+      [14] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   ListEntitiesLightResponse = {
@@ -1149,11 +1176,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -1310,6 +1332,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_LIGHT",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -1447,6 +1470,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
+      [28] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   ListEntitiesSensorResponse = {
@@ -1470,11 +1498,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -1586,11 +1609,6 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
-      [4] = {
-        name = "unique_id",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
       [5] = {
         name = "icon",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
@@ -1657,6 +1675,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_SWITCH",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -1668,6 +1687,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "state",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [3] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -1692,11 +1716,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -1797,11 +1816,6 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.BYTES,
       },
-      [4] = {
-        name = "send_failed",
-        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
-        type = PROTOBUF_SCHEMA.DataType.BOOL,
-      },
     },
   },
   NoiseEncryptionSetKeyRequest = {
@@ -1839,6 +1853,7 @@ PROTOBUF_SCHEMA.Message = {
     options = {
       id = 34,
       source = 2,
+      ifdef = "USE_API_HOMEASSISTANT_SERVICES",
     },
     fields = {},
   },
@@ -1858,11 +1873,12 @@ PROTOBUF_SCHEMA.Message = {
       },
     },
   },
-  HomeassistantServiceResponse = {
-    name = "HomeassistantServiceResponse",
+  HomeassistantActionRequest = {
+    name = "HomeassistantActionRequest",
     options = {
       id = 35,
       source = 1,
+      ifdef = "USE_API_HOMEASSISTANT_SERVICES",
       no_delay = 1,
     },
     fields = {
@@ -1894,6 +1910,52 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
       },
+      [6] = {
+        name = "call_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+      [7] = {
+        name = "wants_response",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [8] = {
+        name = "response_template",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+    },
+  },
+  HomeassistantActionResponse = {
+    name = "HomeassistantActionResponse",
+    options = {
+      id = 130,
+      source = 2,
+      ifdef = "USE_API_HOMEASSISTANT_ACTION_RESPONSES",
+      no_delay = 1,
+    },
+    fields = {
+      [1] = {
+        name = "call_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+      [2] = {
+        name = "success",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [3] = {
+        name = "error_message",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [4] = {
+        name = "response_data",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.BYTES,
+      },
     },
   },
   SubscribeHomeAssistantStatesRequest = {
@@ -1901,6 +1963,7 @@ PROTOBUF_SCHEMA.Message = {
     options = {
       id = 38,
       source = 2,
+      ifdef = "USE_API_HOMEASSISTANT_STATES",
     },
     fields = {},
   },
@@ -1909,6 +1972,7 @@ PROTOBUF_SCHEMA.Message = {
     options = {
       id = 39,
       source = 1,
+      ifdef = "USE_API_HOMEASSISTANT_STATES",
     },
     fields = {
       [1] = {
@@ -1933,6 +1997,7 @@ PROTOBUF_SCHEMA.Message = {
     options = {
       id = 40,
       source = 2,
+      ifdef = "USE_API_HOMEASSISTANT_STATES",
       no_delay = 1,
     },
     fields = {
@@ -1957,7 +2022,7 @@ PROTOBUF_SCHEMA.Message = {
     name = "GetTimeRequest",
     options = {
       id = 36,
-      source = 0,
+      source = 1,
     },
     fields = {},
   },
@@ -1965,7 +2030,7 @@ PROTOBUF_SCHEMA.Message = {
     name = "GetTimeResponse",
     options = {
       id = 37,
-      source = 0,
+      source = 2,
       no_delay = 1,
     },
     fields = {
@@ -1974,11 +2039,18 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.FIXED32,
         type = PROTOBUF_SCHEMA.DataType.FIXED32,
       },
+      [2] = {
+        name = "timezone",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
     },
   },
   ListEntitiesServicesArgument = {
     name = "ListEntitiesServicesArgument",
-    options = {},
+    options = {
+      ifdef = "USE_API_SERVICES",
+    },
     fields = {
       [1] = {
         name = "name",
@@ -1997,6 +2069,7 @@ PROTOBUF_SCHEMA.Message = {
     options = {
       id = 41,
       source = 1,
+      ifdef = "USE_API_SERVICES",
     },
     fields = {
       [1] = {
@@ -2019,7 +2092,9 @@ PROTOBUF_SCHEMA.Message = {
   },
   ExecuteServiceArgument = {
     name = "ExecuteServiceArgument",
-    options = {},
+    options = {
+      ifdef = "USE_API_SERVICES",
+    },
     fields = {
       [1] = {
         name = "bool_",
@@ -2077,6 +2152,7 @@ PROTOBUF_SCHEMA.Message = {
     options = {
       id = 42,
       source = 2,
+      ifdef = "USE_API_SERVICES",
       no_delay = 1,
     },
     fields = {
@@ -2117,11 +2193,6 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
-      [4] = {
-        name = "unique_id",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
       [5] = {
         name = "disabled_by_default",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
@@ -2150,6 +2221,7 @@ PROTOBUF_SCHEMA.Message = {
       id = 44,
       source = 1,
       ifdef = "USE_CAMERA",
+      base_class = "StateResponseProtoMessage",
     },
     fields = {
       [1] = {
@@ -2166,6 +2238,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "done",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [4] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -2211,11 +2288,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -2335,6 +2407,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
+      [27] = {
+        name = "feature_flags",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   ClimateStateResponse = {
@@ -2436,6 +2513,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_CLIMATE",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -2553,6 +2631,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.FIXED32,
         type = PROTOBUF_SCHEMA.DataType.FLOAT,
       },
+      [24] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   ListEntitiesNumberResponse = {
@@ -2576,11 +2659,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -2675,6 +2753,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_NUMBER",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -2686,6 +2765,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "state",
         wireType = PROTOBUF_SCHEMA.WireType.FIXED32,
         type = PROTOBUF_SCHEMA.DataType.FLOAT,
+      },
+      [3] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -2710,11 +2794,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -2785,6 +2864,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_SELECT",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -2796,6 +2876,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "state",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [3] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -2820,11 +2905,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -2900,6 +2980,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_SIREN",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -2947,6 +3028,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.FIXED32,
         type = PROTOBUF_SCHEMA.DataType.FLOAT,
       },
+      [10] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   ListEntitiesLockResponse = {
@@ -2970,11 +3056,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -3054,6 +3135,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_LOCK",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -3075,6 +3157,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "code",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [5] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -3099,11 +3186,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -3141,12 +3223,18 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_BUTTON",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
         name = "key",
         wireType = PROTOBUF_SCHEMA.WireType.FIXED32,
         type = PROTOBUF_SCHEMA.DataType.FIXED32,
+      },
+      [2] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -3207,11 +3295,6 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
-      [4] = {
-        name = "unique_id",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
       [5] = {
         name = "icon",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
@@ -3240,6 +3323,11 @@ PROTOBUF_SCHEMA.Message = {
       },
       [10] = {
         name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+      [11] = {
+        name = "feature_flags",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
@@ -3289,6 +3377,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_MEDIA_PLAYER",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -3335,6 +3424,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "announcement",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [10] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -3557,6 +3651,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
+      [3] = {
+        name = "short_uuid",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   BluetoothGATTCharacteristic = {
@@ -3585,6 +3684,11 @@ PROTOBUF_SCHEMA.Message = {
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
       },
+      [5] = {
+        name = "short_uuid",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
     },
   },
   BluetoothGATTService = {
@@ -3607,6 +3711,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+      },
+      [4] = {
+        name = "short_uuid",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -4018,6 +4127,11 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- BluetoothScannerMode
       },
+      [3] = {
+        name = "configured_mode",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.ENUM, -- BluetoothScannerMode
+      },
     },
   },
   BluetoothScannerSetModeRequest = {
@@ -4295,6 +4409,48 @@ PROTOBUF_SCHEMA.Message = {
       },
     },
   },
+  VoiceAssistantExternalWakeWord = {
+    name = "VoiceAssistantExternalWakeWord",
+    options = {},
+    fields = {
+      [1] = {
+        name = "id",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [2] = {
+        name = "wake_word",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [3] = {
+        name = "trained_languages",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.STRING,
+        repeated = true,
+      },
+      [4] = {
+        name = "model_type",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [5] = {
+        name = "model_size",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+      [6] = {
+        name = "model_hash",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [7] = {
+        name = "url",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+    },
+  },
   VoiceAssistantConfigurationRequest = {
     name = "VoiceAssistantConfigurationRequest",
     options = {
@@ -4302,7 +4458,14 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_VOICE_ASSISTANT",
     },
-    fields = {},
+    fields = {
+      [1] = {
+        name = "external_wake_words",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.MESSAGE,
+        repeated = true,
+      },
+    },
   },
   VoiceAssistantConfigurationResponse = {
     name = "VoiceAssistantConfigurationResponse",
@@ -4368,11 +4531,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -4447,6 +4605,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_ALARM_CONTROL_PANEL",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -4463,6 +4622,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "code",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [4] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -4487,11 +4651,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -4576,6 +4735,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_TEXT",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -4587,6 +4747,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "state",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [3] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -4611,11 +4776,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -4690,6 +4850,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_DATETIME_DATE",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -4709,6 +4870,11 @@ PROTOBUF_SCHEMA.Message = {
       },
       [4] = {
         name = "day",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+      [5] = {
+        name = "device_id",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
@@ -4735,11 +4901,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -4814,6 +4975,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_DATETIME_TIME",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -4833,6 +4995,11 @@ PROTOBUF_SCHEMA.Message = {
       },
       [4] = {
         name = "second",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+      [5] = {
+        name = "device_id",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
@@ -4859,11 +5026,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -4950,11 +5112,6 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
-      [4] = {
-        name = "unique_id",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
       [5] = {
         name = "icon",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
@@ -5036,6 +5193,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_VALVE",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -5057,6 +5215,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "stop",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [5] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -5081,11 +5244,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -5150,6 +5308,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_DATETIME_DATETIME",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -5161,6 +5320,11 @@ PROTOBUF_SCHEMA.Message = {
         name = "epoch_seconds",
         wireType = PROTOBUF_SCHEMA.WireType.FIXED32,
         type = PROTOBUF_SCHEMA.DataType.FIXED32,
+      },
+      [3] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
     },
   },
@@ -5185,11 +5349,6 @@ PROTOBUF_SCHEMA.Message = {
       },
       [3] = {
         name = "name",
-        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
-        type = PROTOBUF_SCHEMA.DataType.STRING,
-      },
-      [4] = {
-        name = "unique_id",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.STRING,
       },
@@ -5294,6 +5453,7 @@ PROTOBUF_SCHEMA.Message = {
       source = 2,
       ifdef = "USE_UPDATE",
       no_delay = 1,
+      base_class = "CommandProtoMessage",
     },
     fields = {
       [1] = {
@@ -5305,6 +5465,47 @@ PROTOBUF_SCHEMA.Message = {
         name = "command",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.ENUM, -- UpdateCommand
+      },
+      [3] = {
+        name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+    },
+  },
+  ZWaveProxyFrame = {
+    name = "ZWaveProxyFrame",
+    options = {
+      id = 128,
+      source = 0,
+      ifdef = "USE_ZWAVE_PROXY",
+      no_delay = 1,
+    },
+    fields = {
+      [1] = {
+        name = "data",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.BYTES,
+      },
+    },
+  },
+  ZWaveProxyRequest = {
+    name = "ZWaveProxyRequest",
+    options = {
+      id = 129,
+      source = 0,
+      ifdef = "USE_ZWAVE_PROXY",
+    },
+    fields = {
+      [1] = {
+        name = "type",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.ENUM, -- ZWaveProxyRequestType
+      },
+      [2] = {
+        name = "data",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.BYTES,
       },
     },
   },
@@ -5318,11 +5519,11 @@ PROTOBUF_SCHEMA.RPC = {
       inputType = PROTOBUF_SCHEMA.Message.HelloRequest,
       outputType = PROTOBUF_SCHEMA.Message.HelloResponse,
     },
-    connect = {
+    authenticate = {
       service = "APIConnection",
-      method = "connect",
-      inputType = PROTOBUF_SCHEMA.Message.ConnectRequest,
-      outputType = PROTOBUF_SCHEMA.Message.ConnectResponse,
+      method = "authenticate",
+      inputType = PROTOBUF_SCHEMA.Message.AuthenticationRequest,
+      outputType = PROTOBUF_SCHEMA.Message.AuthenticationResponse,
     },
     disconnect = {
       service = "APIConnection",
@@ -5371,12 +5572,6 @@ PROTOBUF_SCHEMA.RPC = {
       method = "subscribe_home_assistant_states",
       inputType = PROTOBUF_SCHEMA.Message.SubscribeHomeAssistantStatesRequest,
       outputType = PROTOBUF_SCHEMA.Message.void,
-    },
-    get_time = {
-      service = "APIConnection",
-      method = "get_time",
-      inputType = PROTOBUF_SCHEMA.Message.GetTimeRequest,
-      outputType = PROTOBUF_SCHEMA.Message.GetTimeResponse,
     },
     execute_service = {
       service = "APIConnection",
@@ -5586,6 +5781,18 @@ PROTOBUF_SCHEMA.RPC = {
       service = "APIConnection",
       method = "alarm_control_panel_command",
       inputType = PROTOBUF_SCHEMA.Message.AlarmControlPanelCommandRequest,
+      outputType = PROTOBUF_SCHEMA.Message.void,
+    },
+    zwave_proxy_frame = {
+      service = "APIConnection",
+      method = "zwave_proxy_frame",
+      inputType = PROTOBUF_SCHEMA.Message.ZWaveProxyFrame,
+      outputType = PROTOBUF_SCHEMA.Message.void,
+    },
+    zwave_proxy_request = {
+      service = "APIConnection",
+      method = "zwave_proxy_request",
+      inputType = PROTOBUF_SCHEMA.Message.ZWaveProxyRequest,
       outputType = PROTOBUF_SCHEMA.Message.void,
     },
   },
