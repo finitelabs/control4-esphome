@@ -401,6 +401,11 @@ Control4, you can file an issue on GitHub:
 - Added support for OpenSSL with "Encryption Key" authentication mode
   across all applicable algorithms
 
+### Fixed
+
+- Fixed a bug with the authentication flow in the latest 2025.10.0
+  firmware
+
 ## v20250811 - 2025-08-11
 
 ### Fixed
