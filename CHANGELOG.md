@@ -10,6 +10,12 @@
 [//]: # "### Removed"
 [//]: # "- Removed"
 
+## v20251019 - 2025-10-19
+
+### Added
+
+- Added support for OpenSSL with "Encryption Key" authentication mode across all applicable algorithms 
+
 ## v20250811 - 2025-08-11
 
 ### Fixed

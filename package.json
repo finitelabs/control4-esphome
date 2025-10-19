@@ -30,9 +30,9 @@
     "clean": "npm run clean:build && rm -rfv dist node_modules .venv"
   },
   "dependencies": {
-    "@johnnymorganz/stylua-bin": "^2.1.0",
+    "@johnnymorganz/stylua-bin": "^2.3.0",
     "electron-pdf": "^25.0.0",
     "markdown-styles": "^3.2.0",
-    "prettier": "^3.5.3"
+    "prettier": "^3.6.2"
   }
 }
