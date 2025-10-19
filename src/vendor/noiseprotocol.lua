@@ -3,8 +3,7 @@ do
   package.preload["noiseprotocol.crypto"] = function(...)
     local arg = _G.arg
     --- @module "noiseprotocol.crypto"
-
-    return {
+    local crypto = {
       -- Hash functions
       sha256 = require("noiseprotocol.crypto.sha256"),
       sha512 = require("noiseprotocol.crypto.sha512"),
@@ -24,6 +23,8 @@ do
       x25519 = require("noiseprotocol.crypto.x25519"),
       x448 = require("noiseprotocol.crypto.x448"),
     }
+
+    return crypto
   end
 end
 
@@ -33,14 +34,13 @@ do
     local arg = _G.arg
     --- @module "noiseprotocol.crypto.aes_gcm"
     --- AES-GCM Authenticated Encryption with Associated Data (AEAD) Implementation for portability.
+    local aes_gcm = {}
 
     local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
     local utils = require("noiseprotocol.utils")
     local bit32 = utils.bit32
     local bytes = utils.bytes
     local benchmark_op = utils.benchmark.benchmark_op
-
-    local aes_gcm = {}
 
     -- ============================================================================
     -- AES CORE IMPLEMENTATION
@@ -701,7 +701,7 @@ do
 
       aad = aad or ""
 
-      local openssl = openssl_wrapper.get()
+      local openssl = openssl_wrapper.get(openssl_wrapper.Feature.AAD)
       if openssl then
         local evp = openssl.cipher.get("aes-" .. #key * 8 .. "-gcm")
         local e = evp:encrypt_new()
@@ -777,7 +777,7 @@ do
       local ciphertext = string.sub(ciphertext_and_tag, 1, ciphertext_len)
       local received_tag = string.sub(ciphertext_and_tag, ciphertext_len + 1)
 
-      local openssl = openssl_wrapper.get()
+      local openssl = openssl_wrapper.get(openssl_wrapper.Feature.AAD)
       if openssl then
         local evp = openssl.cipher.get("aes-" .. #key * 8 .. "-gcm")
         local e = evp:decrypt_new()
@@ -1154,6 +1154,7 @@ do
     local arg = _G.arg
     --- @module "noiseprotocol.crypto.blake2"
     --- Pure Lua BLAKE2s and BLAKE2b Implementation for portability.
+    local blake2 = {}
 
     local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
     local utils = require("noiseprotocol.utils")
@@ -1161,8 +1162,6 @@ do
     local bit64 = utils.bit64
     local bytes = utils.bytes
     local benchmark_op = utils.benchmark.benchmark_op
-
-    local blake2 = {}
 
     -- BLAKE2s initialization vectors (first 32 bits of fractional parts of square roots of first 8 primes)
     --- @type HashState
@@ -1949,14 +1948,13 @@ do
     local arg = _G.arg
     --- @module "noiseprotocol.crypto.chacha20"
     --- ChaCha20 Stream Cipher Implementation for portability.
+    local chacha20 = {}
 
     local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
     local utils = require("noiseprotocol.utils")
     local bit32 = utils.bit32
     local bytes = utils.bytes
     local benchmark_op = utils.benchmark.benchmark_op
-
-    local chacha20 = {}
 
     -- Type definitions for better type checking
 
@@ -2462,6 +2460,7 @@ do
     local arg = _G.arg
     --- @module "noiseprotocol.crypto.chacha20_poly1305"
     --- ChaCha20-Poly1305 Authenticated Encryption with Associated Data (AEAD) Implementation for portability.
+    local chacha20_poly1305 = {}
 
     local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
     local utils = require("noiseprotocol.utils")
@@ -2469,8 +2468,6 @@ do
     local benchmark_op = utils.benchmark.benchmark_op
     local chacha20 = require("noiseprotocol.crypto.chacha20")
     local poly1305 = require("noiseprotocol.crypto.poly1305")
-
-    local chacha20_poly1305 = {}
 
     --- Generate Poly1305 one-time key using ChaCha20
     --- @param key string 32-byte ChaCha20 key
@@ -2523,7 +2520,7 @@ do
 
       aad = aad or ""
 
-      local openssl = openssl_wrapper.get()
+      local openssl = openssl_wrapper.get(openssl_wrapper.Feature.AAD)
       if openssl then
         local evp = openssl.cipher.get("chacha20-poly1305")
         local e = evp:encrypt_new()
@@ -2585,7 +2582,7 @@ do
       local ciphertext = string.sub(ciphertext_and_tag, 1, ciphertext_len)
       local received_tag = string.sub(ciphertext_and_tag, ciphertext_len + 1)
 
-      local openssl = openssl_wrapper.get()
+      local openssl = openssl_wrapper.get(openssl_wrapper.Feature.AAD)
       if openssl then
         local evp = openssl.cipher.get("chacha20-poly1305")
         local e = evp:decrypt_new()
@@ -2927,13 +2924,12 @@ do
     local arg = _G.arg
     --- @module "noiseprotocol.crypto.poly1305"
     --- Poly1305 Message Authentication Code (MAC) Implementation for portability.
+    local poly1305 = {}
 
     local utils = require("noiseprotocol.utils")
     local bit32 = utils.bit32
     local bytes = utils.bytes
     local benchmark_op = utils.benchmark.benchmark_op
-
-    local poly1305 = {}
 
     -- Type definitions for better type checking
 
@@ -3469,14 +3465,13 @@ do
     local arg = _G.arg
     --- @module "noiseprotocol.crypto.sha256"
     --- Pure Lua SHA-256 Implementation for portability.
+    local sha256 = {}
 
     local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
     local utils = require("noiseprotocol.utils")
     local bit32 = utils.bit32
     local bytes = utils.bytes
     local benchmark_op = utils.benchmark.benchmark_op
-
-    local sha256 = {}
 
     -- SHA-256 constants (first 32 bits of fractional parts of cube roots of first 64 primes)
     --- @type integer[64]
@@ -3957,6 +3952,7 @@ do
     local arg = _G.arg
     --- @module "noiseprotocol.crypto.sha512"
     --- Pure Lua SHA-512 Implementation for portability.
+    local sha512 = {}
 
     local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
     local utils = require("noiseprotocol.utils")
@@ -3967,7 +3963,6 @@ do
 
     -- SHA-512 uses 64-bit words, but Lua numbers are limited to 2^53-1
     -- We'll work with 32-bit high/low pairs for 64-bit arithmetic
-    local sha512 = {}
 
     -- SHA-512 round constants (first 64 bits of fractional parts of cube roots of first 80 primes)
     --- @type Int64HighLow[]
@@ -4497,7 +4492,6 @@ do
     local arg = _G.arg
     --- @module "noiseprotocol.crypto.x25519"
     --- X25519 Curve25519 Elliptic Curve Diffie-Hellman Implementation for portability.
-
     local x25519 = {}
 
     local utils = require("noiseprotocol.utils")
@@ -4983,6 +4977,7 @@ do
     --- - Field arithmetic modulo p = 2^448 - 2^224 - 1
     --- - Scalar multiplication on Curve448
     --- - Key generation and Diffie-Hellman operations
+    local x448 = {}
 
     local utils = require("noiseprotocol.utils")
     local bytes = utils.bytes
@@ -4994,8 +4989,6 @@ do
     local floor = math.floor
     local char = string.char
     local byte = string.byte
-
-    local x448 = {}
 
     -- Constants for X448 implementation
     -- Field prime p = 2^448 - 2^224 - 1 (Goldilocks prime)
@@ -5681,10 +5674,38 @@ do
     ---
     --- Note: X25519 and X448 currently use native implementations only as they are
     --- not currently supported by lua-openssl.
-
     local openssl_wrapper = {}
 
+    --- OpenSSL Feature Enum
+    ---
+    --- Identifies specific OpenSSL capabilities required by crypto operations.
+    --- Use these features with `openssl_wrapper.get()` to check if the installed
+    --- OpenSSL version supports the functionality needed.
+    ---
+    --- @enum OpenSSLFeature
+    local OpenSSLFeature = {
+      --- Additional Authenticated Data support for AEAD ciphers (ChaCha20-Poly1305, AES-GCM)
+      AAD = "AAD",
+    }
+
+    --- Feature version requirements mapping
+    ---
+    --- Defines the minimum OpenSSL version required for each feature to work correctly.
+    --- Used internally by `get()` to determine feature availability based on
+    --- the installed OpenSSL version.
+    ---
+    --- @type table<OpenSSLFeature, string>
+    local FeatureVersions = {
+      [OpenSSLFeature.AAD] = "0.9.2",
+    }
+
+    -- Export Feature enum for external use
+    openssl_wrapper.Feature = OpenSSLFeature
+
+    --- @type table?
     local _openssl_module
+    --- @type table<OpenSSLFeature, boolean>
+    local _openssl_module_features = {}
     local _use_openssl = os.getenv("NOISE_USE_OPENSSL") == "1" or os.getenv("NOISE_USE_OPENSSL") == "true"
 
     --- Enable or disable OpenSSL acceleration for cryptographic operations
@@ -5693,10 +5714,50 @@ do
       _use_openssl = use
     end
 
-    --- Get the cached OpenSSL module if enabled and available
-    --- @return table|nil openssl The OpenSSL module or nil if not enabled/available
+    --- Parse semantic version string into comparable components
+    --- @param version_str string Version string like "0.9.1" or "1.0.0-rc1"
+    --- @return number major Major version number
+    --- @return number minor Minor version number
+    --- @return number patch Patch version number
+    local function parse_version(version_str)
+      local major, minor, patch = version_str:match("(%d+)%.(%d+)%.(%d+)")
+      return tonumber(major) or 0, tonumber(minor) or 0, tonumber(patch) or 0
+    end
+
+    --- Compare two semantic versions
+    --- @param current_version string Current version string
+    --- @param required_version string Required minimum version string
+    --- @return boolean supported True if current version >= required version
+    local function version_supports(current_version, required_version)
+      local cur_major, cur_minor, cur_patch = parse_version(current_version)
+      local req_major, req_minor, req_patch = parse_version(required_version)
+
+      -- Compare major.minor.patch
+      if cur_major > req_major then
+        return true
+      elseif cur_major == req_major then
+        if cur_minor > req_minor then
+          return true
+        elseif cur_minor == req_minor then
+          return cur_patch >= req_patch
+        end
+      end
+
+      return false
+    end
+
+    --- Get the OpenSSL module if enabled and supports required features
+    ---
+    --- Checks if OpenSSL is enabled and supports all specified features before
+    --- returning the module. This ensures that the returned module can safely
+    --- be used for the requested cryptographic operations.
+    ---
+    --- @param ... OpenSSLFeature One or more required features that must be supported
+    --- @return table|nil openssl The OpenSSL module if available and supports all features, nil otherwise
     --- @throws error If OpenSSL is enabled but the module cannot be loaded
-    function openssl_wrapper.get()
+    function openssl_wrapper.get(...)
+      local required_features = { ... }
+
       if not _use_openssl then
         _openssl_module = nil
       elseif _openssl_module == nil then
@@ -5706,6 +5767,25 @@ do
         end
         --- @cast openssl_module table
         _openssl_module = openssl_module
+        _openssl_module_features = {}
+        local current_version = type(_openssl_module.version) == "function" and _openssl_module.version()
+        if current_version then
+          -- Cache all supported features
+          for _, feature in ipairs(OpenSSLFeature) do
+            local required_version = FeatureVersions[feature]
+
+            if not required_version then
+              error("Unknown feature: " .. tostring(feature))
+            end
+            _openssl_module_features[feature] = version_supports(current_version, required_version)
+          end
+        end
+      end
+      -- Check all requested features
+      for _, required_feature in ipairs(required_features) do
+        if not _openssl_module_features[required_feature] then
+          return nil
+        end
       end
       return _openssl_module
     end
@@ -5720,13 +5800,14 @@ do
     local arg = _G.arg
     --- @module "noiseprotocol.utils"
     --- Common utility functions for the Noise Protocol Framework
-
-    return {
+    local utils = {
       bit32 = require("noiseprotocol.utils.bit32"),
       bit64 = require("noiseprotocol.utils.bit64"),
       bytes = require("noiseprotocol.utils.bytes"),
       benchmark = require("noiseprotocol.utils.benchmark"),
     }
+
+    return utils
   end
 end
 
@@ -5736,7 +5817,6 @@ do
     local arg = _G.arg
     --- @module "noiseprotocol.utils.benchmark"
     --- Common benchmarking utilities for performance testing
-
     local benchmark = {}
 
     --- Run a benchmarked operation with warmup and timing
@@ -5777,7 +5857,6 @@ do
     local arg = _G.arg
     --- @module "noiseprotocol.utils.bit32"
     --- 32-bit bitwise operations
-
     local bit32 = {}
 
     -- 32-bit mask for ensuring results stay within 32-bit range
@@ -6230,10 +6309,9 @@ do
     local arg = _G.arg
     --- @module "noiseprotocol.utils.bit64"
     --- 64-bit bitwise operations using high/low pairs
+    local bit64 = {}
 
     local bit32 = require("noiseprotocol.utils.bit32")
-
-    local bit64 = {}
 
     -- Type definitions
     --- @alias Int64HighLow [integer, integer] Array with [1]=high 32 bits, [2]=low 32 bits
@@ -6594,10 +6672,9 @@ do
     local arg = _G.arg
     --- @module "noiseprotocol.utils.bytes"
     --- Byte manipulation and conversion utilities
+    local bytes = {}
 
     local bit32 = require("noiseprotocol.utils.bit32")
-
-    local bytes = {}
 
     --- Convert binary string to hexadecimal string
     --- @param str string Binary string
@@ -7290,28 +7367,29 @@ end
 ---   static_key = my_static_key
 --- })
 --- ...
+local noiseprotocol = {}
 
 local crypto = require("noiseprotocol.crypto")
 local utils = require("noiseprotocol.utils")
 local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
 
 --- Module version
-local VERSION = "v0.1.0"
+local VERSION = "v0.2.0"
 
-local noise = {
-  --- Enable or disable OpenSSL acceleration
-  --- @function use_openssl
-  --- @param use boolean True to enable OpenSSL, false to disable
-  --- @see noiseprotocol.openssl_wrapper.use
-  use_openssl = openssl_wrapper.use,
+--- Enable or disable OpenSSL acceleration
+--- @function use_openssl
+--- @param use boolean True to enable OpenSSL, false to disable
+--- @see noiseprotocol.openssl_wrapper.use
+function noiseprotocol.use_openssl(use)
+  openssl_wrapper.use(use)
+end
 
-  --- Get the module version
-  --- @function version
-  --- @return string version The version string
-  version = function()
-    return VERSION
-  end,
-}
+--- Get the module version
+--- @function version
+--- @return string version The version string
+function noiseprotocol.version()
+  return VERSION
+end
 
 -- ============================================================================
 -- PROTOCOL NAME PARSING
@@ -8852,19 +8930,19 @@ function NoiseConnection:new(config)
 
   -- Get cipher suite components
   -- Map DH functions
-  local dh = noise.DH[parsed.dh]
+  local dh = noiseprotocol.DH[parsed.dh]
   if dh == nil then
     error("Unknown DH function: " .. parsed.dh)
   end
 
   -- Map cipher functions
-  local cipher = noise.Cipher[parsed.cipher]
+  local cipher = noiseprotocol.Cipher[parsed.cipher]
   if cipher == nil then
     error("Unknown cipher: " .. parsed.cipher)
   end
 
   -- Map hash functions
-  local hash = noise.Hash[parsed.hash]
+  local hash = noiseprotocol.Hash[parsed.hash]
   if hash == nil then
     error("Unknown hash: " .. parsed.hash)
   end
@@ -8996,7 +9074,7 @@ end
 --- considered cryptographically safe.
 ---
 --- @return boolean result True if all tests pass, false otherwise
-function noise.selftest()
+function noiseprotocol.selftest()
   local function functional_tests()
     print("Running Noise Protocol functional tests...")
     local passed = 0
@@ -9279,7 +9357,7 @@ function noise.selftest()
           protocol_name = "Noise_XXpsk0_25519_ChaChaPoly_SHA256",
           initiator = true,
           psk = nil, -- No PSK provided
-          psk_placement = noise.PSKPlacement.ZERO,
+          psk_placement = noiseprotocol.PSKPlacement.ZERO,
         })
         client_no_psk:start_handshake("test")
         client_no_psk:write_handshake_message("test") -- Should fail here due to missing PSK
@@ -9294,7 +9372,7 @@ function noise.selftest()
           protocol_name = "Noise_NN_25519_ChaChaPoly_SHA256",
           initiator = true,
           psk = psk,
-          psk_placement = noise.PSKPlacement.ZERO,
+          psk_placement = noiseprotocol.PSKPlacement.ZERO,
         })
         client_with_psk:start_handshake("test")
         client_with_psk:write_handshake_message("test") -- Should work with PSK
@@ -9480,19 +9558,19 @@ function noise.selftest()
 end
 
 --- @type table<string, DHFunction>
-noise.DH = {
+noiseprotocol.DH = {
   [DH_25519.name] = DH_25519,
   [DH_448.name] = DH_448,
 }
 
 --- @type table<string, CipherFunction>
-noise.Cipher = {
+noiseprotocol.Cipher = {
   [CIPHER_ChaChaPoly.name] = CIPHER_ChaChaPoly,
   [CIPHER_AESGCM.name] = CIPHER_AESGCM,
 }
 
 --- @type table<string, HashFunction>
-noise.Hash = {
+noiseprotocol.Hash = {
   [HASH_SHA256.name] = HASH_SHA256,
   [HASH_SHA512.name] = HASH_SHA512,
   [HASH_BLAKE2S.name] = HASH_BLAKE2S,
@@ -9500,16 +9578,16 @@ noise.Hash = {
 }
 
 -- Utility types
-noise.CipherState = CipherState
-noise.SymmetricState = SymmetricState
-noise.HandshakeState = HandshakeState
-noise.NoiseConnection = NoiseConnection
-noise.CipherSuite = CipherSuite
-noise.PSKPlacement = PSKPlacement
-noise.NoisePattern = NoisePattern
+noiseprotocol.CipherState = CipherState
+noiseprotocol.SymmetricState = SymmetricState
+noiseprotocol.HandshakeState = HandshakeState
+noiseprotocol.NoiseConnection = NoiseConnection
+noiseprotocol.CipherSuite = CipherSuite
+noiseprotocol.PSKPlacement = PSKPlacement
+noiseprotocol.NoisePattern = NoisePattern
 
 -- Export submodules for convenience
-noise.crypto = crypto
-noise.utils = utils
+noiseprotocol.crypto = crypto
+noiseprotocol.utils = utils
 
-return noise
+return noiseprotocol

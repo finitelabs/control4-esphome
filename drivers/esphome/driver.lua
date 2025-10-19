@@ -142,16 +142,19 @@ function OPC.Authentication_Mode(propertyValue)
     UpdateProperty("Encryption Key", "")
     C4:SetPropertyAttribs("Password", constants.HIDE_PROPERTY)
     C4:SetPropertyAttribs("Encryption Key", constants.HIDE_PROPERTY)
+    C4:SetPropertyAttribs("Use OpenSSL", constants.HIDE_PROPERTY)
   end
   if propertyValue == "Password" then
     UpdateProperty("Encryption Key", "")
     C4:SetPropertyAttribs("Password", constants.SHOW_PROPERTY)
     C4:SetPropertyAttribs("Encryption Key", constants.HIDE_PROPERTY)
+    C4:SetPropertyAttribs("Use OpenSSL", constants.HIDE_PROPERTY)
   end
   if propertyValue == "Encryption Key" then
     UpdateProperty("Password", "")
     C4:SetPropertyAttribs("Password", constants.HIDE_PROPERTY)
     C4:SetPropertyAttribs("Encryption Key", constants.SHOW_PROPERTY)
+    C4:SetPropertyAttribs("Use OpenSSL", constants.SHOW_PROPERTY)
   end
   Connect()
 end
@@ -166,6 +169,11 @@ function OPC.Encryption_Key(propertyValue)
   Connect()
 end
 
+function OPC.Use_OpenSSL(propertyValue)
+  log:trace("OPC.Use_OpenSSL('%s')", propertyValue)
+  Connect()
+end
+
 local function updateStatus(status)
   UpdateProperty("Driver Status", not IsEmpty(status) and status or "Unknown")
 end
@@ -177,7 +185,13 @@ function Connect()
     return
   end
 
-  esphome:setConfig(Properties["IP Address"], Properties["Port"], Properties["Password"], Properties["Encryption Key"])
+  esphome:setConfig(
+    Properties["IP Address"],
+    Properties["Port"],
+    Properties["Password"],
+    Properties["Encryption Key"],
+    Properties["Use OpenSSL"] == "Yes"
+  )
 
   local lastUpdateTime = os.time() -- Don't check for updates on the first cycle
 

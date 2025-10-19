@@ -136,6 +136,15 @@
         <password>true</password>
       </property>
       <property>
+        <name>Use OpenSSL</name>
+        <type>LIST</type>
+        <default>Yes</default>
+        <items>
+          <item>Yes</item>
+          <item>No</item>
+        </items>
+      </property>
+      <property>
         <name>Device Info</name>
         <type>LABEL</type>
         <default>Device Info</default>

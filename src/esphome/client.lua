@@ -93,7 +93,7 @@ function ESPHomeClient:new()
 end
 
 --- Parse the base64 encoded encryption key to 32-byte binary data.
---- @param encryptionKey string The base64 encoded encryption key.
+--- @param encryptionKey string? The base64 encoded encryption key.
 --- @return string|nil decodedEncryptionKey The decoded encryption key as a 32-byte binary string, or nil if invalid.
 local function parseEncryptionKey(encryptionKey)
   if IsEmpty(encryptionKey) then
@@ -125,8 +125,9 @@ end
 --- @param port number The port of the ESPHome device.
 --- @param password? string The password for the ESPHome device (optional).
 --- @param encryptionKey? string The encryption key for the ESPHome device (optional).
+--- @param useOpenssl? boolean
 --- @return ESPHomeClient self The ESPHomeClient instance.
-function ESPHomeClient:setConfig(ipAddress, port, password, encryptionKey)
+function ESPHomeClient:setConfig(ipAddress, port, password, encryptionKey, useOpenssl)
   log:trace(
     "ESPHomeClient:setConfig(%s, %s, %s, %s)",
     ipAddress,
@@ -134,6 +135,7 @@ function ESPHomeClient:setConfig(ipAddress, port, password, encryptionKey)
     password and "***" or nil,
     encryptionKey and "***" or nil
   )
+  noise.use_openssl(toboolean(useOpenssl))
   self:disconnect()
   self._ipAddress = not IsEmpty(ipAddress) and ipAddress or nil
   self._port = toport(port) or 6053
