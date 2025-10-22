@@ -2407,11 +2407,6 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
-      [27] = {
-        name = "feature_flags",
-        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
-        type = PROTOBUF_SCHEMA.DataType.UINT32,
-      },
     },
   },
   ClimateStateResponse = {

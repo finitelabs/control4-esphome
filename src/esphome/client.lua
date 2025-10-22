@@ -238,8 +238,8 @@ function ESPHomeClient:connect()
         end)
         :next(function()
           log:debug("Hello message sent successfully")
-          -- Only authenticate when using password authentication
-          if not IsEmpty(self._password) then
+          -- Only authenticate when not using encryption key
+          if IsEmpty(self._encryptionKey) then
             return self:sendAuthenticate()
           end
           log:debug("Skipping authentication request (using Noise encryption)")

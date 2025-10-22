@@ -394,6 +394,12 @@ Control4, you can file an issue on GitHub:
 
 # <span style="color:#17BCF2">Changelog</span>
 
+## v20251022 - 2025-10-22
+
+### Fixed
+
+- Fixed an issue with parsing unknown fields in protobuf messages
+
 ## v20251019 - 2025-10-19
 
 ### Added
