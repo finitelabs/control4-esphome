@@ -230,41 +230,57 @@ function Protobuf.decode(protoSchema, messageSchema, buffer)
     -- Find the corresponding field in the schema
     local field = messageSchema.fields[field_number]
     if not field then
-      error("Unknown field number: " .. field_number)
-    end
-
-    local value
-    -- Decode the value based on the wire type
-    if wire_type == protoSchema.WireType.VARINT then
-      value, pos = Protobuf.decode_varint(buffer, pos)
-      if field.type == protoSchema.DataType.BOOL then
-        value = value ~= 0 -- Convert to boolean
-      end
-    elseif wire_type == protoSchema.WireType.FIXED32 then
-      if field.type == protoSchema.DataType.FLOAT then
-        value, pos = Protobuf.decode_float(buffer, pos)
+      -- Skip unknown field based on wire type
+      if wire_type == protoSchema.WireType.VARINT then
+        -- Decode and discard the varint
+        local _
+        _, pos = Protobuf.decode_varint(buffer, pos)
+      elseif wire_type == protoSchema.WireType.FIXED32 then
+        -- Skip 4 bytes
+        pos = pos + 4
+      elseif wire_type == protoSchema.WireType.LENGTH_DELIMITED then
+        -- Decode length and skip that many bytes
+        local length
+        length, pos = Protobuf.decode_varint(buffer, pos)
+        pos = pos + length
       else
-        value, pos = Protobuf.decode_fixed32(buffer, pos)
-      end
-    elseif wire_type == protoSchema.WireType.LENGTH_DELIMITED then
-      local data
-      data, pos = Protobuf.decode_length_delimited(buffer, pos)
-      if field.subschema then
-        value, _ = Protobuf.decode(protoSchema, field.subschema, data)
-      else
-        value = data
+        error("Unknown wire type: " .. wire_type)
       end
     else
-      error("Unsupported wire type: " .. wire_type)
-    end
-
-    if field.repeated then
-      if message[field.name] == nil then
-        message[field.name] = {}
+      -- Known field - decode and store the value
+      local value
+      -- Decode the value based on the wire type
+      if wire_type == protoSchema.WireType.VARINT then
+        value, pos = Protobuf.decode_varint(buffer, pos)
+        if field.type == protoSchema.DataType.BOOL then
+          value = value ~= 0 -- Convert to boolean
+        end
+      elseif wire_type == protoSchema.WireType.FIXED32 then
+        if field.type == protoSchema.DataType.FLOAT then
+          value, pos = Protobuf.decode_float(buffer, pos)
+        else
+          value, pos = Protobuf.decode_fixed32(buffer, pos)
+        end
+      elseif wire_type == protoSchema.WireType.LENGTH_DELIMITED then
+        local data
+        data, pos = Protobuf.decode_length_delimited(buffer, pos)
+        if field.subschema then
+          value, _ = Protobuf.decode(protoSchema, field.subschema, data)
+        else
+          value = data
+        end
+      else
+        error("Unsupported wire type: " .. wire_type)
       end
-      table.insert(message[field.name], value)
-    else
-      message[field.name] = value
+
+      if field.repeated then
+        if message[field.name] == nil then
+          message[field.name] = {}
+        end
+        table.insert(message[field.name], value)
+      else
+        message[field.name] = value
+      end
     end
   end
 
