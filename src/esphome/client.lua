@@ -75,7 +75,6 @@ function ESPHomeClient:new()
   local properties = {
     _client = nil, --- @type C4TCPClient|nil The TCP client for the ESPHome connection.
     _connected = false, --- @type boolean Indicates if the client is connected.
-    _authenticated = false, --- @type boolean Indicates if the client is authenticated.
     _ipAddress = nil, --- @type string|nil The IP address of the ESPHome device.
     _port = 6053, --- @type number The port of the ESPHome device.
     _password = nil, --- @type string|nil The password for the ESPHome device.
@@ -85,6 +84,7 @@ function ESPHomeClient:new()
     _pingTimer = nil, --- @type C4LuaTimer|nil The timer for sending ping messages.
     _hs = nil, --- @type NoiseConnection|nil The Noise protocol connection for encrypted communication.
     _hsState = nil, --- @type NoiseState|nil The current state of the Noise protocol handshake.
+    _fatalError = nil, --- @type string|nil Fatal error message (e.g., authentication failure).
   }
   setmetatable(properties, self)
   self.__index = self
@@ -152,14 +152,16 @@ function ESPHomeClient:isConfigured()
 end
 
 --- Check if the client is connected to the ESPHome device.
---- @param authRequired? boolean Whether client needs to be authenticated (optional).
 --- @return boolean connected True if the client is connected, false otherwise.
-function ESPHomeClient:isConnected(authRequired)
-  log:trace("ESPHomeClient:isConnected(%s)", authRequired)
-  return self._client ~= nil and self._connected and (not authRequired or self._authenticated)
+function ESPHomeClient:isConnected()
+  log:trace("ESPHomeClient:isConnected()")
+  return self._client ~= nil and self._connected
 end
 
 --- Connect to the ESPHome device.
+--- Note: This establishes the TCP connection and exchanges hello/auth messages.
+--- It does NOT guarantee authentication succeeded - auth failures are detected
+--- asynchronously and will cause subsequent operations to fail.
 --- @return Deferred<void, string> result A promise that resolves when the connection is established.
 function ESPHomeClient:connect()
   log:trace("ESPHomeClient:connect()")
@@ -178,6 +180,9 @@ function ESPHomeClient:connect()
 
   -- Disconnect to clear any state
   self:disconnect()
+
+  -- Reset fatal error on new connection attempt
+  self._fatalError = nil
 
   -- Initialize Noise protocol state if encryption key is present
   if self._encryptionKey ~= nil then
@@ -249,8 +254,7 @@ function ESPHomeClient:connect()
           return reject(err)
         end)
         :next(function()
-          log:debug("Successfully authenticated with ESPHome device")
-          self._authenticated = true
+          log:debug("Connection established (authentication request sent)")
 
           -- Start ping timer to keep connection alive
           self._pingTimer = C4:SetTimer(15000, function()
@@ -259,7 +263,7 @@ function ESPHomeClient:connect()
 
           d:resolve(true)
         end, function(err)
-          log:error("Failed to authenticate with ESPHome device: %s", err)
+          log:error("Failed to establish connection: %s", err)
           self:disconnect()
           d:reject(err)
         end)
@@ -314,7 +318,6 @@ function ESPHomeClient:disconnect()
   self._connected = false
   self._hs = nil
   self._hsState = nil
-  self._authenticated = false
   self._buffer = ""
   self._callbacks = {}
 end
@@ -443,7 +446,7 @@ function ESPHomeClient:sendHello()
     client_info = "Control4",
     api_version_major = 1,
     api_version_minor = 0,
-  }, false)
+  })
 
   --- @cast d Deferred<table, string>
   return d
@@ -558,37 +561,41 @@ function ESPHomeClient:sendHandshake()
 end
 
 --- Send an authenticate message to the ESPHome device.
---- @return Deferred<void, string> result A promise that resolves when the authenticate response is received.
+--- ESPHome 2025.8.0+ devices without password authentication don't send AuthenticationResponse.
+--- Devices will either send error response (wrong password) or ignore (no password support).
+--- @return Deferred<void, string> result A promise that resolves immediately after sending.
 function ESPHomeClient:sendAuthenticate()
   log:trace("ESPHomeClient:sendAuthenticate()")
-  local d = self
-    :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.authenticate, {
-      password = not IsEmpty(self._password) and self._password or "",
-    }, false)
-    :next(function(message)
-      if message.invalid_password then
-        log:error("Connect unsuccessful (invalid password)")
-        return reject("Invalid password")
-      else
-        log:debug("Connect successful")
-      end
-    end, function(err)
-      if IsEmpty(err) or type(err) ~= "string" then
-        err = "unknown error"
-      end
-      log:error("Connect failed; %s", err)
-      return reject(err)
-    end)
 
-  --- @cast d Deferred<void, string>
-  return d
+  -- Register async handler for AuthenticationResponse (sets fatal error on invalid password)
+  self._callbacks[ESPHomeProtoSchema.Message.AuthenticationResponse.options.id] = function(message)
+    -- Remove callback immediately
+    self._callbacks[ESPHomeProtoSchema.Message.AuthenticationResponse.options.id] = nil
+
+    if message.invalid_password then
+      log:error("Connect unsuccessful (invalid password)")
+      -- Set fatal error - subsequent operations will fail with this error
+      self._fatalError = "Invalid password"
+      self:disconnect()
+    else
+      log:debug("Connect successful")
+    end
+  end
+
+  -- Send AuthenticationRequest without waiting for response
+  return self:sendMessage(
+    ESPHomeProtoSchema.Message.AuthenticationRequest,
+    { password = not IsEmpty(self._password) and self._password or "" },
+    nil, -- Don't wait for response
+    nil
+  )
 end
 
 --- Send a ping message to the ESPHome device.
 --- @return Deferred<void, string> result A promise that resolves when the ping response is received.
 function ESPHomeClient:sendPing()
   log:trace("ESPHomeClient:sendPing()")
-  local d = self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.ping, {}, false):next(function()
+  local d = self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.ping, {}):next(function()
     log:info("Ping successful")
   end, function(err)
     if IsEmpty(err) or type(err) ~= "string" then
@@ -605,18 +612,10 @@ end
 --- Call a service method on the ESPHome device.
 --- @param method ProtoServiceMethodSchema The method to call.
 --- @param body? table The request body (optional).
---- @param authRequired? boolean Whether authentication is required to call the method (optional).
 --- @param timeout? number The timeout for the request in milliseconds (optional). Only non-void methods support this. Default is 5 seconds.
 --- @return Deferred<table|nil, string> result A promise that resolves with the response.
-function ESPHomeClient:callServiceMethod(method, body, authRequired, timeout)
-  log:trace("ESPHomeClient:callServiceMethod(%s, %s, %s, %s)", method.method, body, authRequired, timeout)
-  if authRequired == nil then
-    authRequired = true
-  end
-
-  if not self:isConnected(authRequired) then
-    return reject("Not connected to ESPHome device")
-  end
+function ESPHomeClient:callServiceMethod(method, body, timeout)
+  log:trace("ESPHomeClient:callServiceMethod(%s, %s, %s)", method.method, body, timeout)
 
   -- Determine if we expect a response
   local responseSchema = nil
@@ -638,6 +637,12 @@ function ESPHomeClient:sendMessage(messageSchema, body, responseSchema, timeout)
   log:trace("ESPHomeClient:sendMessage(%s, %s, %s, %s)", messageSchema.name, body, responseSchema, timeout)
   --- @type Deferred<table|nil, string>
   local d = deferred.new()
+
+  -- Check for fatal error first (e.g., authentication failure)
+  if not IsEmpty(self._fatalError) then
+    --- @cast self._fatalError -nil
+    return d:reject(self._fatalError)
+  end
 
   if not self:isConnected() then
     return d:reject("Not connected to ESPHome device")
