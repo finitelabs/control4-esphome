@@ -219,7 +219,13 @@ function Connect()
     elseif not esphome:isConnected() then
       updateStatus("Connecting")
       esphome:connect():next(function()
-        updateStatus("Connected")
+        -- If using password authentication, show "waiting for authentication" status
+        -- until first successful operation confirms auth succeeded
+        if Properties["Authentication Mode"] == "Password" and not IsEmpty(Properties["Password"]) then
+          updateStatus("Connection established, waiting for authentication")
+        else
+          updateStatus("Connected")
+        end
         RefreshStatus()
       end, function(reason)
         updateStatus("Connection failed: " .. reason)
@@ -241,6 +247,8 @@ function RefreshStatus()
       :getDeviceInfo()
       :next(function(deviceInfo)
         log:debug("Device Info: %s", deviceInfo)
+        -- First successful operation confirms authentication succeeded
+        updateStatus("Connected")
         values:update("Name", Select(deviceInfo, "friendly_name") or Select(deviceInfo, "name") or "N/A", "STRING")
         values:update("Model", Select(deviceInfo, "model") or "N/A", "STRING")
         values:update("Manufacturer", Select(deviceInfo, "manufacturer") or "N/A", "STRING")
@@ -318,6 +326,7 @@ function RefreshStatus()
           error = "unknown error"
         end
         log:error("An error occurred refreshing device status; %s", error)
+        updateStatus("Refresh failed: " .. error)
         esphome:disconnect()
       end)
   end)

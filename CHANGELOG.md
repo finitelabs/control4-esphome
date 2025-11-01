@@ -10,6 +10,14 @@
 [//]: # "### Removed"
 [//]: # "- Removed"
 
+## v20251031 - 2025-10-31
+
+### Fixed
+
+- Fixed compatibility with ESPHome 2025.10.0 for devices configured
+  without passwords
+- Improved password authentication failure detection and error reporting
+
 ## v20251022 - 2025-10-22
 
 ### Fixed
