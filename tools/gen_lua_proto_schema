@@ -79,6 +79,10 @@ def parse_field(field: FieldDescriptorProto, indent: int = 0) -> str:
     lua += "\n"
     if field.label == FieldDescriptorProto.LABEL_REPEATED:
         lua += ("  " * (indent + 1)) + f"repeated = true,\n"
+    if field.type == FieldDescriptorProto.TYPE_MESSAGE:
+        # Add subschema reference for MESSAGE types
+        type_name = field.type_name.strip('.')
+        lua += ("  " * (indent + 1)) + f"subschema = PROTOBUF_SCHEMA.Message.{type_name},\n"
     lua += ("  " * indent) + "},\n"
     return lua
 
