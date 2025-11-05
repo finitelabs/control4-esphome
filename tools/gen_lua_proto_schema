@@ -343,7 +343,7 @@ def main():
                     --- @field wireType integer The protobuf wire type (see ProtoSchema.WireType).
                     --- @field type integer The protobuf type (see ProtoSchema.DataType).
                     --- @field repeated boolean? Whether the field is repeated (optional).
-                    --- @field subschema ProtoMessageSchema? The subschema for nested messages (optional).
+                    --- @field subschema string? The subschema name for nested messages (optional).
                     
                     --- @class ProtoMessageSchema
                     --- @field name string The name of the message type.

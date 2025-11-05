@@ -6,7 +6,7 @@
 --- @field wireType integer The protobuf wire type (see ProtoSchema.WireType).
 --- @field type integer The protobuf type (see ProtoSchema.DataType).
 --- @field repeated boolean? Whether the field is repeated (optional).
---- @field subschema ProtoMessageSchema? The subschema for nested messages (optional).
+--- @field subschema string? The subschema name for nested messages (optional).
 
 --- @class ProtoMessageSchema
 --- @field name string The name of the message type.
@@ -642,20 +642,20 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.DeviceInfo,
+        subschema = "DeviceInfo",
       },
       [21] = {
         name = "areas",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.AreaInfo,
+        subschema = "AreaInfo",
       },
       [22] = {
         name = "area",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
-        subschema = PROTOBUF_SCHEMA.Message.AreaInfo,
+        subschema = "AreaInfo",
       },
       [23] = {
         name = "zwave_proxy_feature_flags",
@@ -1895,21 +1895,21 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.HomeassistantServiceMap,
+        subschema = "HomeassistantServiceMap",
       },
       [3] = {
         name = "data_template",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.HomeassistantServiceMap,
+        subschema = "HomeassistantServiceMap",
       },
       [4] = {
         name = "variables",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.HomeassistantServiceMap,
+        subschema = "HomeassistantServiceMap",
       },
       [5] = {
         name = "is_event",
@@ -2093,7 +2093,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.ListEntitiesServicesArgument,
+        subschema = "ListEntitiesServicesArgument",
       },
     },
   },
@@ -2173,7 +2173,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.ExecuteServiceArgument,
+        subschema = "ExecuteServiceArgument",
       },
     },
   },
@@ -3323,7 +3323,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.MediaPlayerSupportedFormat,
+        subschema = "MediaPlayerSupportedFormat",
       },
       [10] = {
         name = "device_id",
@@ -3508,14 +3508,14 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.BluetoothServiceData,
+        subschema = "BluetoothServiceData",
       },
       [6] = {
         name = "manufacturer_data",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.BluetoothServiceData,
+        subschema = "BluetoothServiceData",
       },
       [7] = {
         name = "address_type",
@@ -3564,7 +3564,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.BluetoothLERawAdvertisement,
+        subschema = "BluetoothLERawAdvertisement",
       },
     },
   },
@@ -3690,7 +3690,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.BluetoothGATTDescriptor,
+        subschema = "BluetoothGATTDescriptor",
       },
       [5] = {
         name = "short_uuid",
@@ -3719,7 +3719,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.BluetoothGATTCharacteristic,
+        subschema = "BluetoothGATTCharacteristic",
       },
       [4] = {
         name = "short_uuid",
@@ -3746,7 +3746,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.BluetoothGATTService,
+        subschema = "BluetoothGATTService",
       },
     },
   },
@@ -4227,7 +4227,7 @@ PROTOBUF_SCHEMA.Message = {
         name = "audio_settings",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
-        subschema = PROTOBUF_SCHEMA.Message.VoiceAssistantAudioSettings,
+        subschema = "VoiceAssistantAudioSettings",
       },
       [5] = {
         name = "wake_word_phrase",
@@ -4290,7 +4290,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.VoiceAssistantEventData,
+        subschema = "VoiceAssistantEventData",
       },
     },
   },
@@ -4476,7 +4476,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.VoiceAssistantExternalWakeWord,
+        subschema = "VoiceAssistantExternalWakeWord",
       },
     },
   },
@@ -4493,7 +4493,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
-        subschema = PROTOBUF_SCHEMA.Message.VoiceAssistantWakeWord,
+        subschema = "VoiceAssistantWakeWord",
       },
       [2] = {
         name = "active_wake_words",
