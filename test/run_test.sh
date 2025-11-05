@@ -2,7 +2,7 @@
 # Wrapper script to run ESPHome tests with proper environment
 #
 # Usage:
-#   ./run_test.sh [test_file] <ip> [--password <pwd> | --key <encryption_key>] [--bluetooth-mac <mac>] [--timeout <seconds>]
+#   ./run_test.sh [test_file] <ip> [--port <port>] [--password <pwd> | --key <encryption_key>] [--bluetooth-mac <mac>] [--timeout <seconds>]
 #
 # Arguments:
 #   test_file              Optional test file to run (defaults to test_esphome_connection.lua)
@@ -10,10 +10,11 @@
 #                            - test_esphome_connection.lua  (default)
 #                            - test_bluetooth_proxy.lua     (requires --bluetooth-mac)
 #                            - test_fatal_error.lua
+#   --port <port>          Optional port (defaults to 6053)
 #
 # Examples:
 #   ./run_test.sh 192.168.2.44 --password U6j4sO7HG3RmU3
-#   ./run_test.sh test_bluetooth_proxy.lua 192.168.2.43 --key ViJ/SSZtc/EWqDPb5Z/UHwCzjT5Hv3iU0VloagpXYnw= --bluetooth-mac AA:BB:CC:DD:EE:FF
+#   ./run_test.sh test_bluetooth_proxy.lua 192.168.2.43 --port 60533 --bluetooth-mac AA:BB:CC:DD:EE:FF
 #   ./run_test.sh test_fatal_error.lua 192.168.2.44 --password wrong_password
 
 # Set up LuaRocks paths for local installation
@@ -22,6 +23,7 @@ eval $(luarocks path --bin)
 # Parse arguments
 TEST_FILE="test_esphome_connection.lua"  # default
 IP_ADDRESS=""
+PORT=""
 PASSWORD=""
 ENCRYPTION_KEY=""
 BLUETOOTH_MAC=""
@@ -39,6 +41,10 @@ fi
 # Parse remaining arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
+    --port)
+      PORT="$2"
+      shift 2
+      ;;
     --password)
       PASSWORD="$2"
       shift 2
@@ -68,7 +74,7 @@ done
 if [ -z "$IP_ADDRESS" ]; then
   echo "Error: IP address is required"
   echo ""
-  echo "Usage: $0 [test_file] <ip> [--password <pwd> | --key <encryption_key>] [--bluetooth-mac <mac>] [--timeout <seconds>]"
+  echo "Usage: $0 [test_file] <ip> [--port <port>] [--password <pwd> | --key <encryption_key>] [--bluetooth-mac <mac>] [--timeout <seconds>]"
   echo ""
   echo "Available tests:"
   echo "  - test_esphome_connection.lua (default) - Test basic ESPHome connection"
@@ -105,6 +111,7 @@ export LUA_CPATH="$HOME/.luarocks/lib/lua/5.1/?.so;$LUA_CPATH"
 
 # Export config as environment variables for the Lua script
 export ESPHOME_TEST_IP="$IP_ADDRESS"
+export ESPHOME_TEST_PORT="$PORT"
 export ESPHOME_TEST_PASSWORD="$PASSWORD"
 export ESPHOME_TEST_KEY="$ENCRYPTION_KEY"
 export ESPHOME_TEST_BT_MAC="$BLUETOOTH_MAC"
