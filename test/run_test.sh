@@ -28,6 +28,7 @@ PASSWORD=""
 ENCRYPTION_KEY=""
 BLUETOOTH_MAC=""
 TIMEOUT=30
+SCAN_DURATION=""
 
 # First argument could be test file or IP
 if [[ $# -gt 0 ]]; then
@@ -61,6 +62,10 @@ while [[ $# -gt 0 ]]; do
       TIMEOUT="$2"
       shift 2
       ;;
+    --scan-duration)
+      SCAN_DURATION="$2"
+      shift 2
+      ;;
     *)
       if [ -z "$IP_ADDRESS" ]; then
         IP_ADDRESS="$1"
@@ -74,16 +79,18 @@ done
 if [ -z "$IP_ADDRESS" ]; then
   echo "Error: IP address is required"
   echo ""
-  echo "Usage: $0 [test_file] <ip> [--port <port>] [--password <pwd> | --key <encryption_key>] [--bluetooth-mac <mac>] [--timeout <seconds>]"
+  echo "Usage: $0 [test_file] <ip> [--port <port>] [--password <pwd> | --key <encryption_key>] [--bluetooth-mac <mac>] [--timeout <seconds>] [--scan-duration <seconds>]"
   echo ""
   echo "Available tests:"
   echo "  - test_esphome_connection.lua (default) - Test basic ESPHome connection"
-  echo "  - test_bluetooth_proxy.lua              - Test Bluetooth proxy (requires --bluetooth-mac)"
+  echo "  - test_bluetooth_proxy.lua              - Test Bluetooth proxy connection (requires --bluetooth-mac)"
+  echo "  - test_bluetooth_scan.lua               - Scan for BLE advertisements (optional --bluetooth-mac to highlight device)"
   echo "  - test_fatal_error.lua                  - Test error handling"
   echo ""
   echo "Examples:"
   echo "  $0 192.168.2.44 --password U6j4sO7HG3RmU3"
   echo "  $0 test_bluetooth_proxy.lua 192.168.2.43 --key KEY --bluetooth-mac AA:BB:CC:DD:EE:FF"
+  echo "  $0 test_bluetooth_scan.lua 192.168.2.43 --scan-duration 30 --bluetooth-mac D8:35:34:38:49:70"
   exit 1
 fi
 
@@ -97,8 +104,8 @@ if [ ! -f "$TEST_FILE" ]; then
 fi
 
 # Validate Bluetooth MAC if running Bluetooth test
-if [[ "$TEST_FILE" == *"bluetooth"* ]] && [ -z "$BLUETOOTH_MAC" ]; then
-  echo "Error: --bluetooth-mac is required for Bluetooth tests"
+if [[ "$TEST_FILE" == *"bluetooth_proxy"* ]] && [ -z "$BLUETOOTH_MAC" ]; then
+  echo "Error: --bluetooth-mac is required for test_bluetooth_proxy.lua"
   echo ""
   echo "Example:"
   echo "  $0 $TEST_FILE $IP_ADDRESS --bluetooth-mac AA:BB:CC:DD:EE:FF"
@@ -115,6 +122,7 @@ export ESPHOME_TEST_PORT="$PORT"
 export ESPHOME_TEST_PASSWORD="$PASSWORD"
 export ESPHOME_TEST_KEY="$ENCRYPTION_KEY"
 export ESPHOME_TEST_BT_MAC="$BLUETOOTH_MAC"
+export ESPHOME_TEST_SCAN_DURATION="$SCAN_DURATION"
 
 echo "Running test: $TEST_FILE"
 echo "============================================================"
