@@ -160,6 +160,50 @@ client:connect()
     print("  Name:              " .. (device_info.name or "N/A"))
     print("  ESPHome Version:   " .. (device_info.esphome_version or "N/A"))
     print("  Model:             " .. (device_info.model or "N/A"))
+    if device_info.bluetooth_proxy_feature_flags then
+      print("  BT Proxy Flags:    " .. device_info.bluetooth_proxy_feature_flags)
+    end
+    print()
+
+    -- List entities to check for bluetooth_proxy
+    print("Step 2a: Listing entities...")
+    return client:listEntities()
+  end, function(err)
+    print("✗ Failed to get device info: " .. tostring(err))
+    test_state.test_complete = true
+    return nil
+  end)
+  :next(function(entities)
+    if not entities then
+      return nil
+    end
+
+    local entity_count = 0
+    for _ in pairs(entities) do
+      entity_count = entity_count + 1
+    end
+
+    print("✓ Found " .. entity_count .. " entities")
+
+    -- Group entities by type
+    local by_type = {}
+    for key, entity in pairs(entities) do
+      local entity_type = entity.entity_type or "unknown"
+      if not by_type[entity_type] then
+        by_type[entity_type] = {}
+      end
+      table.insert(by_type[entity_type], entity)
+    end
+
+    -- Display entities grouped by type
+    for entity_type, entity_list in pairs(by_type) do
+      print("  " .. entity_type:upper() .. " (" .. #entity_list .. "):")
+      for _, entity in ipairs(entity_list) do
+        local name = entity.name or entity.object_id or "unnamed"
+        local key = entity.key or "N/A"
+        print(string.format("    - %s (key: %s)", name, key))
+      end
+    end
     print()
 
     -- Connect to Bluetooth device
@@ -190,7 +234,7 @@ client:connect()
 
     return connection_promise
   end, function(err)
-    print("✗ Failed to get device info: " .. tostring(err))
+    print("✗ Failed to list entities: " .. tostring(err))
     test_state.test_complete = true
     return nil
   end)
