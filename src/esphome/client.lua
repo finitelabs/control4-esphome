@@ -514,9 +514,8 @@ function ESPHomeClient:subscribeBluetoothLEAdvertisements(callback)
     -- Decode each raw advertisement
     for _, rawAdv in ipairs(message.advertisements or {}) do
       -- Decode the raw advertisement protobuf data
-      local success, decoded = pcall(function()
-        return ESPHomeProtoSchema:decodeMessage(rawAdv, ESPHomeProtoSchema.Message.BluetoothLEAdvertisementResponse)
-      end)
+      local success, decoded = pcall(pb.decode, ESPHomeProtoSchema,
+        ESPHomeProtoSchema.Message.BluetoothLEAdvertisementResponse, rawAdv)
 
       if success and decoded then
         log:debug("Decoded advertisement from %s: %s, RSSI: %s",
