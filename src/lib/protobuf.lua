@@ -402,7 +402,12 @@ function Protobuf.decode(protoSchema, messageSchema, buffer)
         local data
         data, pos = Protobuf.decode_length_delimited(buffer, pos)
         if field.subschema then
-          value, _ = Protobuf.decode(protoSchema, field.subschema, data)
+          -- subschema can be either a table (schema object) or string (message type name)
+          local subschema = field.subschema
+          if type(subschema) == "string" then
+            subschema = protoSchema.Message[subschema]
+          end
+          value, _ = Protobuf.decode(protoSchema, subschema, data)
         else
           value = data
         end
