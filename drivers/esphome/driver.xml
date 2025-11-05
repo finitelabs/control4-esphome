@@ -156,6 +156,20 @@
         <description>Comma-separated list of Bluetooth MAC addresses to connect (e.g., AA:BB:CC:DD:EE:FF, 11:22:33:44:55:66)</description>
       </property>
       <property>
+        <name>BLE Proximity Devices</name>
+        <type>STRING</type>
+        <default/>
+        <description>Comma-separated list of BLE devices for proximity tracking. Format: MAC=Name (e.g., A0:D1:B3:C2:EE:3C=MyPhone,AA:BB:CC:DD:EE:FF=MyWatch). Creates CONTACT bindings that close when device is in range.</description>
+      </property>
+      <property>
+        <name>BLE Presence Timeout</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>10</minimum>
+        <maximum>300</maximum>
+        <default>60</default>
+        <description>Seconds to wait after last advertisement before marking device as away</description>
+      </property>
+      <property>
         <name>Device Info</name>
         <type>LABEL</type>
         <default>Device Info</default>

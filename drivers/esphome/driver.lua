@@ -24,6 +24,7 @@ local values = require("lib.values")
 
 local ESPHomeClient = require("esphome.client")
 local BinarySensorEntity = require("esphome.entities.binary_sensor")
+local BLEProximityEntity = require("esphome.entities.ble_proximity")
 local BluetoothProxyEntity = require("esphome.entities.bluetooth_proxy")
 local ButtonEntity = require("esphome.entities.button")
 local CoverEntity = require("esphome.entities.cover")
@@ -42,6 +43,7 @@ local esphome = ESPHomeClient:new()
 --- @type table<EntityType, Entity>
 local Entities = {
   [BinarySensorEntity.TYPE] = BinarySensorEntity:new(esphome),
+  [BLEProximityEntity.TYPE] = BLEProximityEntity:new(esphome),
   [BluetoothProxyEntity.TYPE] = BluetoothProxyEntity:new(esphome),
   [ButtonEntity.TYPE] = ButtonEntity:new(esphome),
   [CoverEntity.TYPE] = CoverEntity:new(esphome),
@@ -185,6 +187,25 @@ function OPC.Bluetooth_Devices(propertyValue)
   end
 end
 
+function OPC.BLE_Proximity_Devices(propertyValue)
+  log:trace("OPC.BLE_Proximity_Devices('%s')", propertyValue)
+  -- Update BLE proximity devices when property changes
+  local timeout = tonumber(Properties["BLE Presence Timeout"]) or 60
+  if Entities[BLEProximityEntity.TYPE] then
+    Entities[BLEProximityEntity.TYPE]:updateProximityDevices(propertyValue, timeout)
+  end
+end
+
+function OPC.BLE_Presence_Timeout(propertyValue)
+  log:trace("OPC.BLE_Presence_Timeout('%s')", propertyValue)
+  -- Update timeout for existing proximity devices
+  local devicesList = Properties["BLE Proximity Devices"]
+  local timeout = tonumber(propertyValue) or 60
+  if Entities[BLEProximityEntity.TYPE] and not IsEmpty(devicesList) then
+    Entities[BLEProximityEntity.TYPE]:updateProximityDevices(devicesList, timeout)
+  end
+end
+
 local function updateStatus(status)
   UpdateProperty("Driver Status", not IsEmpty(status) and status or "Unknown")
 end
@@ -291,15 +312,29 @@ function RefreshStatus()
         end
 
         -- Check if device supports Bluetooth proxy (it's a device capability, not an entity)
-        if Entities[ESPHomeClient.EntityType.BLUETOOTH_PROXY] and capturedDeviceInfo then
+        if capturedDeviceInfo then
           local btFlags = Select(capturedDeviceInfo, "bluetooth_proxy_feature_flags") or 0
           if btFlags > 0 then
             log:debug("Triggering Bluetooth Proxy discovered() with flags: %s", btFlags)
-            local success, ret = xpcall(function()
-              Entities[ESPHomeClient.EntityType.BLUETOOTH_PROXY]:discovered(capturedDeviceInfo)
-            end, debug.traceback)
-            if not success then
-              log:error("Bluetooth Proxy discovered() handler failed: %s", ret or "unknown error")
+
+            -- Notify BluetoothProxyEntity
+            if Entities[ESPHomeClient.EntityType.BLUETOOTH_PROXY] then
+              local success, ret = xpcall(function()
+                Entities[ESPHomeClient.EntityType.BLUETOOTH_PROXY]:discovered(capturedDeviceInfo)
+              end, debug.traceback)
+              if not success then
+                log:error("Bluetooth Proxy discovered() handler failed: %s", ret or "unknown error")
+              end
+            end
+
+            -- Notify BLEProximityEntity
+            if Entities[BLEProximityEntity.TYPE] then
+              local success, ret = xpcall(function()
+                Entities[BLEProximityEntity.TYPE]:discovered(capturedDeviceInfo)
+              end, debug.traceback)
+              if not success then
+                log:error("BLE Proximity discovered() handler failed: %s", ret or "unknown error")
+              end
             end
           else
             log:debug("Bluetooth Proxy not supported by device (flags: %s)", btFlags)
