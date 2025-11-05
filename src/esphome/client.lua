@@ -474,6 +474,31 @@ function ESPHomeClient:unsubscribeBluetoothAdvertisements()
   )
 end
 
+--- Subscribe to Bluetooth LE advertisement messages.
+--- @param callback fun(message: table<string, any>): void The callback for advertisement messages.
+--- @return Deferred<void, string> result A promise that resolves when subscription starts.
+function ESPHomeClient:subscribeBluetoothLEAdvertisements(callback)
+  log:trace("ESPHomeClient:subscribeBluetoothLEAdvertisements()")
+
+  -- Register callback for advertisement responses
+  local advSchema = ESPHomeProtoSchema.Message.BluetoothLEAdvertisementResponse
+  self._callbacks[advSchema.options.id] = function(message, messageSchema)
+    log:debug("Bluetooth LE advertisement from %s: %s, RSSI: %s", message.address, message.name or "(unnamed)", message.rssi)
+    local callbackSuccess, err = pcall(callback, message)
+    if not callbackSuccess then
+      if IsEmpty(err) or type(err) ~= "string" then
+        err = "unknown error"
+      end
+      log:error("Bluetooth LE advertisement callback failed; %s", err)
+    end
+  end
+
+  return self:callServiceMethod(
+    ESPHomeProtoSchema.RPC.APIConnection.subscribe_bluetooth_le_advertisements,
+    {}
+  )
+end
+
 --- Connect to a Bluetooth device via the ESPHome proxy.
 --- @param address number The 48-bit Bluetooth MAC address as a number.
 --- @param callback fun(message: table<string, any>, schema: ProtoMessageSchema): void The callback for connection responses.
