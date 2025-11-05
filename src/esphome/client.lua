@@ -305,17 +305,28 @@ end
 function ESPHomeClient:disconnect()
   log:trace("ESPHomeClient:disconnect()")
 
+  -- Prevent infinite recursion - check if already disconnected
+  if not self._connected and self._client == nil then
+    log:trace("Already disconnected, skipping")
+    return
+  end
+
+  -- Set to disconnected state first to prevent re-entry
+  self._connected = false
+
   if self._pingTimer ~= nil then
     self._pingTimer:Cancel()
     self._pingTimer = nil
   end
 
-  if self._client ~= nil then
-    self._client:Close()
-    self._client = nil
+  -- Store client reference and clear it before closing to prevent OnDisconnect recursion
+  local client = self._client
+  self._client = nil
+
+  if client ~= nil then
+    client:Close()
   end
 
-  self._connected = false
   self._hs = nil
   self._hsState = nil
   self._buffer = ""
