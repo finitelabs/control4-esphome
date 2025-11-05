@@ -53,6 +53,7 @@ Control4 system.
   entities](#supported-esphome-entities) exposed by the device
 - Supports encrypted connections using the device encryption key
 - Variable Programming Support
+- Bluetooth Proxy support for Switchbot devices
 
 # <span style="color:#17BCF2">Compatibility</span>
 
@@ -63,6 +64,18 @@ tested extensively with the following devices:
 
 - [ratgdo](https://ratcloud.llc) - [Configuration
   Guide](#ratgdo-configuration-guide)
+
+### Bluetooth Proxy Devices
+
+This driver includes a dedicated sub-driver for Switchbot devices connected
+through an ESPHome Bluetooth Proxy:
+
+- **Switchbot Bot** - Simple on/off switch with battery monitoring
+
+To use Switchbot devices:
+1. Set up an ESPHome device with Bluetooth Proxy enabled
+2. Add the ESPHome main driver and configure it to connect to your proxy
+3. Add the ESPHome Switchbot driver and enter the Bluetooth MAC address of your Switchbot device
 
 If you try this driver on a product listed above, and it works, let us
 know!
@@ -78,7 +91,7 @@ know!
 | Alarm Control Panel | ❌        |
 | API Noise           | ❌        |
 | Binary Sensor       | ✅        |
-| Bluetooth Proxy     | ❌        |
+| Bluetooth Proxy     | ✅ (Switchbot) |
 | Button              | ✅        |
 | Climate             | ❌        |
 | Cover               | ✅        |

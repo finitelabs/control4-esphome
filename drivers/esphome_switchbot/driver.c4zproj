@@ -1,0 +1,6 @@
+<Driver type="c4z" name="esphome_switchbot" squishLua="true">
+  <Items>
+    <Item type="file" name="driver.lua"/>
+    <Item type="file" name="driver.xml"/>
+  </Items>
+</Driver>

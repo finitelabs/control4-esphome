@@ -438,6 +438,321 @@ function ESPHomeClient:subscribeStates(callback)
   return d
 end
 
+--- Subscribe to Bluetooth LE advertisements from the ESPHome proxy.
+--- @param callback fun(message: table<string, any>, schema: ProtoMessageSchema): void The callback function for advertisements.
+--- @param flags? number Advertisement filtering flags (optional).
+--- @return Deferred<void, string> result A promise that resolves when the subscription is successful.
+function ESPHomeClient:subscribeBluetoothAdvertisements(callback, flags)
+  log:trace("ESPHomeClient:subscribeBluetoothAdvertisements()")
+
+  -- Register callback for raw advertisement responses
+  local rawAdvSchema = ESPHomeProtoSchema.Message.BluetoothLERawAdvertisementsResponse
+  self._callbacks[rawAdvSchema.options.id] = function(message, messageSchema)
+    log:debug("Received Bluetooth advertisements: %d devices", #(message.advertisements or {}))
+    local callbackSuccess, err = pcall(callback, message, messageSchema)
+    if not callbackSuccess then
+      if IsEmpty(err) or type(err) ~= "string" then
+        err = "unknown error"
+      end
+      log:error("Bluetooth advertisement callback failed; %s", err)
+    end
+  end
+
+  return self:callServiceMethod(
+    ESPHomeProtoSchema.RPC.APIConnection.subscribe_bluetooth_le_advertisements,
+    { flags = flags or 0 }
+  )
+end
+
+--- Unsubscribe from Bluetooth LE advertisements.
+--- @return Deferred<void, string> result A promise that resolves when unsubscribed.
+function ESPHomeClient:unsubscribeBluetoothAdvertisements()
+  log:trace("ESPHomeClient:unsubscribeBluetoothAdvertisements()")
+  return self:callServiceMethod(
+    ESPHomeProtoSchema.RPC.APIConnection.unsubscribe_bluetooth_le_advertisements,
+    {}
+  )
+end
+
+--- Connect to a Bluetooth device via the ESPHome proxy.
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param callback fun(message: table<string, any>, schema: ProtoMessageSchema): void The callback for connection responses.
+--- @param addressType? number The address type (optional).
+--- @param withCache? boolean Use cached services (default true).
+--- @return Deferred<void, string> result A promise that resolves when the connection request is sent.
+function ESPHomeClient:bluetoothDeviceConnect(address, callback, addressType, withCache)
+  log:trace("ESPHomeClient:bluetoothDeviceConnect(%s)", address)
+
+  -- Register callback for connection responses
+  local connSchema = ESPHomeProtoSchema.Message.BluetoothDeviceConnectionResponse
+  if not self._callbacks[connSchema.options.id] then
+    self._callbacks[connSchema.options.id] = {}
+  end
+  -- Store callback by address since multiple devices can be connected
+  self._callbacks[connSchema.options.id][address] = function(message, messageSchema)
+    log:debug("Bluetooth device connection response for %s: connected=%s, mtu=%s, error=%s",
+      address, message.connected, message.mtu, message.error)
+    local callbackSuccess, err = pcall(callback, message, messageSchema)
+    if not callbackSuccess then
+      if IsEmpty(err) or type(err) ~= "string" then
+        err = "unknown error"
+      end
+      log:error("Bluetooth connection callback failed; %s", err)
+    end
+  end
+
+  local requestType = (withCache == false)
+    and ESPHomeProtoSchema.Enum.BluetoothDeviceRequestType.BLUETOOTH_DEVICE_REQUEST_TYPE_CONNECT_V3_WITHOUT_CACHE
+    or ESPHomeProtoSchema.Enum.BluetoothDeviceRequestType.BLUETOOTH_DEVICE_REQUEST_TYPE_CONNECT_V3_WITH_CACHE
+
+  local body = {
+    address = address,
+    request_type = requestType,
+  }
+
+  if addressType ~= nil then
+    body.has_address_type = true
+    body.address_type = addressType
+  end
+
+  return self:callServiceMethod(
+    ESPHomeProtoSchema.RPC.APIConnection.bluetooth_device_request,
+    body
+  )
+end
+
+--- Disconnect from a Bluetooth device.
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @return Deferred<void, string> result A promise that resolves when the disconnect request is sent.
+function ESPHomeClient:bluetoothDeviceDisconnect(address)
+  log:trace("ESPHomeClient:bluetoothDeviceDisconnect(%s)", address)
+
+  return self:callServiceMethod(
+    ESPHomeProtoSchema.RPC.APIConnection.bluetooth_device_request,
+    {
+      address = address,
+      request_type = ESPHomeProtoSchema.Enum.BluetoothDeviceRequestType.BLUETOOTH_DEVICE_REQUEST_TYPE_DISCONNECT,
+    }
+  )
+end
+
+--- Get GATT services for a connected Bluetooth device.
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param callback fun(services: table[], done: boolean): void The callback for service responses.
+--- @return Deferred<void, string> result A promise that resolves when the request is sent.
+function ESPHomeClient:bluetoothGattGetServices(address, callback)
+  log:trace("ESPHomeClient:bluetoothGattGetServices(%s)", address)
+
+  -- Register callbacks for service discovery
+  local servicesSchema = ESPHomeProtoSchema.Message.BluetoothGATTGetServicesResponse
+  local doneSchema = ESPHomeProtoSchema.Message.BluetoothGATTGetServicesDoneResponse
+
+  if not self._callbacks[servicesSchema.options.id] then
+    self._callbacks[servicesSchema.options.id] = {}
+  end
+  if not self._callbacks[doneSchema.options.id] then
+    self._callbacks[doneSchema.options.id] = {}
+  end
+
+  self._callbacks[servicesSchema.options.id][address] = function(message, messageSchema)
+    log:debug("Bluetooth GATT services response for %s: %d services", address, #(message.services or {}))
+    local callbackSuccess, err = pcall(callback, message.services or {}, false)
+    if not callbackSuccess then
+      if IsEmpty(err) or type(err) ~= "string" then
+        err = "unknown error"
+      end
+      log:error("Bluetooth GATT services callback failed; %s", err)
+    end
+  end
+
+  self._callbacks[doneSchema.options.id][address] = function(message, messageSchema)
+    log:debug("Bluetooth GATT service discovery done for %s", address)
+    local callbackSuccess, err = pcall(callback, {}, true)
+    if not callbackSuccess then
+      if IsEmpty(err) or type(err) ~= "string" then
+        err = "unknown error"
+      end
+      log:error("Bluetooth GATT services done callback failed; %s", err)
+    end
+  end
+
+  return self:callServiceMethod(
+    ESPHomeProtoSchema.RPC.APIConnection.bluetooth_gatt_get_services,
+    { address = address }
+  )
+end
+
+--- Read a GATT characteristic.
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param handle number The characteristic handle.
+--- @param callback fun(data: string, error: number|nil): void The callback for read response.
+--- @return Deferred<void, string> result A promise that resolves when the request is sent.
+function ESPHomeClient:bluetoothGattRead(address, handle, callback)
+  log:trace("ESPHomeClient:bluetoothGattRead(%s, %s)", address, handle)
+
+  -- Register callbacks for read responses
+  local readSchema = ESPHomeProtoSchema.Message.BluetoothGATTReadResponse
+  local errorSchema = ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse
+
+  if not self._callbacks[readSchema.options.id] then
+    self._callbacks[readSchema.options.id] = {}
+  end
+  if not self._callbacks[errorSchema.options.id] then
+    self._callbacks[errorSchema.options.id] = {}
+  end
+
+  local callbackKey = address .. "_" .. handle
+
+  self._callbacks[readSchema.options.id][callbackKey] = function(message, messageSchema)
+    log:debug("Bluetooth GATT read response for %s handle %s: %d bytes", address, handle, #(message.data or ""))
+    local callbackSuccess, err = pcall(callback, message.data or "", nil)
+    if not callbackSuccess then
+      if IsEmpty(err) or type(err) ~= "string" then
+        err = "unknown error"
+      end
+      log:error("Bluetooth GATT read callback failed; %s", err)
+    end
+    -- Clear one-time callback
+    self._callbacks[readSchema.options.id][callbackKey] = nil
+  end
+
+  self._callbacks[errorSchema.options.id][callbackKey] = function(message, messageSchema)
+    log:warn("Bluetooth GATT error for %s handle %s: error=%s", address, handle, message.error)
+    local callbackSuccess, err = pcall(callback, "", message.error or -1)
+    if not callbackSuccess then
+      if IsEmpty(err) or type(err) ~= "string" then
+        err = "unknown error"
+      end
+      log:error("Bluetooth GATT error callback failed; %s", err)
+    end
+    -- Clear one-time callback
+    self._callbacks[errorSchema.options.id][callbackKey] = nil
+  end
+
+  return self:callServiceMethod(
+    ESPHomeProtoSchema.RPC.APIConnection.bluetooth_gatt_read,
+    { address = address, handle = handle }
+  )
+end
+
+--- Write to a GATT characteristic.
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param handle number The characteristic handle.
+--- @param data string The data to write (binary string).
+--- @param response? boolean Whether to wait for a write response (default false).
+--- @param callback? fun(success: boolean, error: number|nil): void Optional callback for write response.
+--- @return Deferred<void, string> result A promise that resolves when the request is sent.
+function ESPHomeClient:bluetoothGattWrite(address, handle, data, response, callback)
+  log:trace("ESPHomeClient:bluetoothGattWrite(%s, %s, %d bytes, response=%s)", address, handle, #data, response)
+
+  if callback then
+    local writeSchema = ESPHomeProtoSchema.Message.BluetoothGATTWriteResponse
+    local errorSchema = ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse
+
+    if not self._callbacks[writeSchema.options.id] then
+      self._callbacks[writeSchema.options.id] = {}
+    end
+    if not self._callbacks[errorSchema.options.id] then
+      self._callbacks[errorSchema.options.id] = {}
+    end
+
+    local callbackKey = address .. "_" .. handle
+
+    self._callbacks[writeSchema.options.id][callbackKey] = function(message, messageSchema)
+      log:debug("Bluetooth GATT write response for %s handle %s", address, handle)
+      local callbackSuccess, err = pcall(callback, true, nil)
+      if not callbackSuccess then
+        if IsEmpty(err) or type(err) ~= "string" then
+          err = "unknown error"
+        end
+        log:error("Bluetooth GATT write callback failed; %s", err)
+      end
+      self._callbacks[writeSchema.options.id][callbackKey] = nil
+    end
+
+    self._callbacks[errorSchema.options.id][callbackKey] = function(message, messageSchema)
+      log:warn("Bluetooth GATT write error for %s handle %s: error=%s", address, handle, message.error)
+      local callbackSuccess, err = pcall(callback, false, message.error or -1)
+      if not callbackSuccess then
+        if IsEmpty(err) or type(err) ~= "string" then
+          err = "unknown error"
+        end
+        log:error("Bluetooth GATT write error callback failed; %s", err)
+      end
+      self._callbacks[errorSchema.options.id][callbackKey] = nil
+    end
+  end
+
+  return self:callServiceMethod(
+    ESPHomeProtoSchema.RPC.APIConnection.bluetooth_gatt_write,
+    {
+      address = address,
+      handle = handle,
+      response = response or false,
+      data = data,
+    }
+  )
+end
+
+--- Subscribe to GATT characteristic notifications.
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param handle number The characteristic handle.
+--- @param enable boolean Enable or disable notifications.
+--- @param callback fun(data: string): void The callback for notification data.
+--- @return Deferred<void, string> result A promise that resolves when the request is sent.
+function ESPHomeClient:bluetoothGattNotify(address, handle, enable, callback)
+  log:trace("ESPHomeClient:bluetoothGattNotify(%s, %s, %s)", address, handle, enable)
+
+  if enable and callback then
+    local notifyDataSchema = ESPHomeProtoSchema.Message.BluetoothGATTNotifyDataResponse
+    local notifyRespSchema = ESPHomeProtoSchema.Message.BluetoothGATTNotifyResponse
+
+    if not self._callbacks[notifyDataSchema.options.id] then
+      self._callbacks[notifyDataSchema.options.id] = {}
+    end
+    if not self._callbacks[notifyRespSchema.options.id] then
+      self._callbacks[notifyRespSchema.options.id] = {}
+    end
+
+    local callbackKey = address .. "_" .. handle
+
+    -- Register persistent callback for notifications
+    self._callbacks[notifyDataSchema.options.id][callbackKey] = function(message, messageSchema)
+      log:debug("Bluetooth GATT notify data for %s handle %s: %d bytes", address, handle, #(message.data or ""))
+      local callbackSuccess, err = pcall(callback, message.data or "")
+      if not callbackSuccess then
+        if IsEmpty(err) or type(err) ~= "string" then
+          err = "unknown error"
+        end
+        log:error("Bluetooth GATT notify callback failed; %s", err)
+      end
+    end
+
+    -- Log when notification subscription is confirmed
+    self._callbacks[notifyRespSchema.options.id][callbackKey] = function(message, messageSchema)
+      log:debug("Bluetooth GATT notify subscription confirmed for %s handle %s", address, handle)
+      -- Clear this one-time confirmation callback
+      self._callbacks[notifyRespSchema.options.id][callbackKey] = nil
+    end
+  else
+    -- Unsubscribe - clear the callback
+    local notifyDataSchema = ESPHomeProtoSchema.Message.BluetoothGATTNotifyDataResponse
+    if self._callbacks[notifyDataSchema.options.id] then
+      local callbackKey = address .. "_" .. handle
+      self._callbacks[notifyDataSchema.options.id][callbackKey] = nil
+    end
+  end
+
+  return self:callServiceMethod(
+    ESPHomeProtoSchema.RPC.APIConnection.bluetooth_gatt_notify,
+    {
+      address = address,
+      handle = handle,
+      enable = enable,
+    }
+  )
+end
+
 --- Send a hello message to the ESPHome device.
 --- @return Deferred<table, string> result A promise that resolves when the hello message is sent.
 function ESPHomeClient:sendHello()
@@ -947,6 +1262,35 @@ function ESPHomeClient:_processPayload(messageType, payload)
         err = "unknown error"
       end
       log:error("Callback for message type %s failed; %s", messageType, err)
+    end
+  elseif type(self._callbacks[messageType]) == "table" then
+    -- Handle nested callbacks (e.g., Bluetooth callbacks keyed by address or address_handle)
+    -- Try different callback key strategies based on the message content
+    local callbackKeys = {}
+
+    -- Strategy 1: Just address (for connection responses)
+    if message.address then
+      table.insert(callbackKeys, message.address)
+    end
+
+    -- Strategy 2: address_handle (for GATT operations)
+    if message.address and message.handle then
+      table.insert(callbackKeys, message.address .. "_" .. message.handle)
+    end
+
+    -- Try each callback key
+    for _, key in ipairs(callbackKeys) do
+      if type(self._callbacks[messageType][key]) == "function" then
+        log:debug("Calling registered callback for message type %s with key %s", messageType, key)
+        local callbackSuccess, err = pcall(self._callbacks[messageType][key], message, messageSchema)
+        if not callbackSuccess then
+          if IsEmpty(err) or type(err) ~= "string" then
+            err = "unknown error"
+          end
+          log:error("Callback for message type %s key %s failed; %s", messageType, key, err)
+        end
+        break
+      end
     end
   end
 end

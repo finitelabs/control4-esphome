@@ -3,6 +3,7 @@ DRIVER_FILENAMES = {
   "esphome.c4z",
   "esphome_light.c4z",
   "esphome_lock.c4z",
+  "esphome_switchbot.c4z",
 }
 --
 --#ifdef DRIVERCENTRAL
@@ -358,6 +359,142 @@ function EC.UpdateDrivers()
   log:trace("EC.UpdateDrivers()")
   log:print("Updating drivers")
   UpdateDrivers(true)
+end
+
+-- Switchbot Bluetooth Proxy Support
+-- Track connected Switchbot devices
+local switchbotDevices = {}
+
+--- Handle Switchbot connection request from sub-driver
+function RFP.SWITCHBOT_CONNECT(idBinding, strCommand, tParams, args)
+  log:trace("RFP.SWITCHBOT_CONNECT(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
+
+  local address = tonumber(Select(tParams, "address"))
+  if not address then
+    log:error("SWITCHBOT_CONNECT: Invalid address")
+    return
+  end
+
+  log:info("Connecting to Switchbot device at address 0x%012X", address)
+
+  -- Initialize device tracking
+  if not switchbotDevices[address] then
+    switchbotDevices[address] = {
+      bindingId = idBinding,
+      connected = false,
+      services = nil,
+    }
+  else
+    switchbotDevices[address].bindingId = idBinding
+  end
+
+  -- Connect to the device
+  esphome:bluetoothDeviceConnect(
+    address,
+    function(message, schema)
+      log:debug("Switchbot connection response: connected=%s, mtu=%s, error=%s", message.connected, message.mtu, message.error)
+
+      if message.connected then
+        switchbotDevices[address].connected = true
+
+        -- Discover GATT services
+        esphome:bluetoothGattGetServices(address, function(services, done)
+          if done then
+            log:info("Switchbot GATT service discovery complete")
+
+            -- Send connection success to sub-driver with services
+            SendToProxy(idBinding, "SWITCHBOT_CONNECTED", {
+              connected = "true",
+              services = Serialize(switchbotDevices[address].services or {}),
+            }, "NOTIFY")
+          else
+            -- Accumulate services
+            if not switchbotDevices[address].services then
+              switchbotDevices[address].services = {}
+            end
+            for _, service in ipairs(services) do
+              table.insert(switchbotDevices[address].services, service)
+            end
+            log:debug("Received %d GATT services for Switchbot", #services)
+          end
+        end)
+      else
+        log:error("Failed to connect to Switchbot: error=%s", message.error)
+        switchbotDevices[address].connected = false
+
+        -- Send connection failure to sub-driver
+        SendToProxy(idBinding, "SWITCHBOT_CONNECTED", {
+          connected = "false",
+          services = Serialize({}),
+        }, "NOTIFY")
+      end
+    end,
+    nil,
+    true
+  )
+end
+
+--- Handle Switchbot write request from sub-driver
+function RFP.SWITCHBOT_WRITE(idBinding, strCommand, tParams, args)
+  log:trace("RFP.SWITCHBOT_WRITE(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
+
+  local address = tonumber(Select(tParams, "address"))
+  local handle = tonumber(Select(tParams, "handle"))
+  local data = Deserialize(Select(tParams, "data"))
+
+  if not address or not handle or not data then
+    log:error("SWITCHBOT_WRITE: Invalid parameters (address=%s, handle=%s, data=%s)", address, handle, data)
+    return
+  end
+
+  if not switchbotDevices[address] or not switchbotDevices[address].connected then
+    log:error("SWITCHBOT_WRITE: Device not connected")
+    SendToProxy(idBinding, "SWITCHBOT_WRITE_RESPONSE", {
+      success = "false",
+    }, "NOTIFY")
+    return
+  end
+
+  log:debug("Writing %d bytes to Switchbot handle %d", #data, handle)
+
+  esphome:bluetoothGattWrite(address, handle, data, true, function(success, error)
+    log:debug("Switchbot write %s", success and "successful" or "failed")
+
+    SendToProxy(idBinding, "SWITCHBOT_WRITE_RESPONSE", {
+      success = success and "true" or "false",
+    }, "NOTIFY")
+  end)
+end
+
+--- Handle Switchbot read request from sub-driver
+function RFP.SWITCHBOT_READ(idBinding, strCommand, tParams, args)
+  log:trace("RFP.SWITCHBOT_READ(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
+
+  local address = tonumber(Select(tParams, "address"))
+  local handle = tonumber(Select(tParams, "handle"))
+
+  if not address or not handle then
+    log:error("SWITCHBOT_READ: Invalid parameters (address=%s, handle=%s)", address, handle)
+    return
+  end
+
+  if not switchbotDevices[address] or not switchbotDevices[address].connected then
+    log:error("SWITCHBOT_READ: Device not connected")
+    return
+  end
+
+  log:debug("Reading from Switchbot handle %d", handle)
+
+  esphome:bluetoothGattRead(address, handle, function(data, error)
+    if error then
+      log:error("Switchbot read failed: error=%s", error)
+    else
+      log:debug("Switchbot read successful: %d bytes", #data)
+      SendToProxy(idBinding, "SWITCHBOT_READ_RESPONSE", {
+        data = Serialize(data),
+      }, "NOTIFY")
+    end
+  end)
 end
 
 --- Update the driver from the GitHub repository.
