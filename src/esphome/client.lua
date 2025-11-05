@@ -627,6 +627,16 @@ function ESPHomeClient:callServiceMethod(method, body, timeout)
   return self:sendMessage(method.inputType, body, responseSchema, timeout)
 end
 
+--- Register a callback for a specific Bluetooth message type.
+--- This allows entities to receive Bluetooth-related messages (advertisements, connections, GATT responses).
+--- @param messageSchema ProtoMessageSchema The message schema to register a callback for.
+--- @param callback fun(message: table<string, any>): void The callback function to call when a message is received.
+--- @return void
+function ESPHomeClient:registerBluetoothCallback(messageSchema, callback)
+  log:trace("ESPHomeClient:registerBluetoothCallback(%s)", messageSchema.name)
+  self._callbacks[messageSchema.options.id] = callback
+end
+
 --- Send a message to the ESPHome device.
 --- @param messageSchema ProtoMessageSchema The message to send.
 --- @param body? table<string, any> The message body (optional).

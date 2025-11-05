@@ -1,6 +1,7 @@
 DRIVER_GITHUB_REPO = "finitelabs/control4-esphome"
 DRIVER_FILENAMES = {
   "esphome.c4z",
+  "esphome_bluetooth.c4z",
   "esphome_light.c4z",
   "esphome_lock.c4z",
 }
@@ -23,6 +24,7 @@ local values = require("lib.values")
 
 local ESPHomeClient = require("esphome.client")
 local BinarySensorEntity = require("esphome.entities.binary_sensor")
+local BluetoothProxyEntity = require("esphome.entities.bluetooth_proxy")
 local ButtonEntity = require("esphome.entities.button")
 local CoverEntity = require("esphome.entities.cover")
 local LightEntity = require("esphome.entities.light")
@@ -40,6 +42,7 @@ local esphome = ESPHomeClient:new()
 --- @type table<EntityType, Entity>
 local Entities = {
   [BinarySensorEntity.TYPE] = BinarySensorEntity:new(esphome),
+  [BluetoothProxyEntity.TYPE] = BluetoothProxyEntity:new(esphome),
   [ButtonEntity.TYPE] = ButtonEntity:new(esphome),
   [CoverEntity.TYPE] = CoverEntity:new(esphome),
   [LightEntity.TYPE] = LightEntity:new(esphome),
@@ -253,6 +256,16 @@ function RefreshStatus()
         values:update("Model", Select(deviceInfo, "model") or "N/A", "STRING")
         values:update("Manufacturer", Select(deviceInfo, "manufacturer") or "N/A", "STRING")
         values:update("MAC Address", Select(deviceInfo, "mac_address") or "N/A", "STRING")
+
+        -- Check if device supports Bluetooth proxy
+        local bluetoothMacAddress = Select(deviceInfo, "bluetooth_mac_address")
+        if not IsEmpty(bluetoothMacAddress) then
+          log:info("Device supports Bluetooth Proxy (MAC: %s)", bluetoothMacAddress)
+          -- Initialize Bluetooth proxy entity with a pseudo-entity
+          if Entities[BluetoothProxyEntity.TYPE] ~= nil and type(Entities[BluetoothProxyEntity.TYPE].discovered) == "function" then
+            Entities[BluetoothProxyEntity.TYPE]:discovered({ entity_type = "bluetooth_proxy", key = 0, object_id = "bluetooth_proxy" })
+          end
+        end
       end)
       :next(function()
         return esphome:listEntities()

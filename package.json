@@ -1,9 +1,10 @@
 {
   "config": {
     "distributions": "drivercentral oss",
-    "drivers": "esphome esphome_light esphome_lock",
+    "drivers": "esphome esphome_bluetooth esphome_light esphome_lock",
     "driver_names": {
       "esphome": "ESPHome",
+      "esphome_bluetooth": "ESPHome Bluetooth Device",
       "esphome_light": "ESPHome Light",
       "esphome_lock": "ESPHome Lock"
     }
