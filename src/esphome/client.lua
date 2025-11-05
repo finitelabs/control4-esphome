@@ -1265,23 +1265,37 @@ function ESPHomeClient:_processPayload(messageType, payload)
     end
   elseif type(self._callbacks[messageType]) == "table" then
     -- Handle nested callbacks (e.g., Bluetooth callbacks keyed by address or address_handle)
+    log:debug("Message type %s has nested callbacks, looking for matching key", messageType)
+
     -- Try different callback key strategies based on the message content
     local callbackKeys = {}
 
     -- Strategy 1: Just address (for connection responses)
     if message.address then
       table.insert(callbackKeys, message.address)
+      log:debug("  Trying address key: %s (type: %s)", message.address, type(message.address))
     end
 
     -- Strategy 2: address_handle (for GATT operations)
     if message.address and message.handle then
-      table.insert(callbackKeys, message.address .. "_" .. message.handle)
+      local key = message.address .. "_" .. message.handle
+      table.insert(callbackKeys, key)
+      log:debug("  Trying address_handle key: %s", key)
     end
 
+    -- Debug: show all registered keys
+    local registered_keys = {}
+    for key in pairs(self._callbacks[messageType]) do
+      table.insert(registered_keys, tostring(key))
+    end
+    log:debug("  Registered callback keys: %s", table.concat(registered_keys, ", "))
+
     -- Try each callback key
+    local callback_found = false
     for _, key in ipairs(callbackKeys) do
       if type(self._callbacks[messageType][key]) == "function" then
-        log:debug("Calling registered callback for message type %s with key %s", messageType, key)
+        log:debug("  Found matching callback for key: %s", key)
+        callback_found = true
         local callbackSuccess, err = pcall(self._callbacks[messageType][key], message, messageSchema)
         if not callbackSuccess then
           if IsEmpty(err) or type(err) ~= "string" then
@@ -1291,6 +1305,10 @@ function ESPHomeClient:_processPayload(messageType, payload)
         end
         break
       end
+    end
+
+    if not callback_found then
+      log:warn("No matching callback found for message type %s with any of the attempted keys", messageType)
     end
   end
 end
