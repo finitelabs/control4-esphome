@@ -665,8 +665,13 @@ local function detectDeviceInfo(parsed)
 
   -- Check service UUIDs for additional device type hints
   if parsed.service_uuids and #parsed.service_uuids > 0 then
-    for _, uuid in ipairs(parsed.service_uuids) do
-      local uuid_lower = uuid:lower()
+    for _, svc in ipairs(parsed.service_uuids) do
+      -- service_uuids is now array of {uuid, description} tables
+      local uuid_str = type(svc) == "table" and svc.uuid or svc
+      if not uuid_str then
+        goto continue
+      end
+      local uuid_lower = uuid_str:lower()
 
       -- SwitchBot service UUID
       if uuid_lower == "cba20d00-224d-11e6-9fb8-0002a5d5c51b" or uuid_lower == "fd3d" then
@@ -680,6 +685,8 @@ local function detectDeviceInfo(parsed)
       elseif uuid_lower == "fe95" then
         info.device_type = info.device_type or "Xiaomi/Mi"
       end
+
+      ::continue::
     end
   end
 
