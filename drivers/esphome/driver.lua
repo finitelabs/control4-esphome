@@ -79,6 +79,12 @@ function OnDriverLateInit()
   -- Firmaware version is usually an entity and will be picked up by state updates
   C4:SetPropertyAttribs("Firmware Version", constants.HIDE_PROPERTY)
 
+  -- Hide Bluetooth Proxy properties until we detect support
+  C4:SetPropertyAttribs("Bluetooth Proxy", constants.HIDE_PROPERTY)
+  C4:SetPropertyAttribs("Bluetooth Devices", constants.HIDE_PROPERTY)
+  C4:SetPropertyAttribs("BLE Proximity Devices", constants.HIDE_PROPERTY)
+  C4:SetPropertyAttribs("BLE Presence Timeout", constants.HIDE_PROPERTY)
+
   C4:FileSetDir("c29tZXNwZWNpYWxrZXk=++11")
   bindings:restoreBindings()
   values:restoreValues()
@@ -317,6 +323,12 @@ function RefreshStatus()
           if btFlags > 0 then
             log:debug("Triggering Bluetooth Proxy discovered() with flags: %s", btFlags)
 
+            -- Show Bluetooth Proxy properties
+            C4:SetPropertyAttribs("Bluetooth Proxy", constants.SHOW_PROPERTY)
+            C4:SetPropertyAttribs("Bluetooth Devices", constants.SHOW_PROPERTY)
+            C4:SetPropertyAttribs("BLE Proximity Devices", constants.SHOW_PROPERTY)
+            C4:SetPropertyAttribs("BLE Presence Timeout", constants.SHOW_PROPERTY)
+
             -- Notify BluetoothProxyEntity
             if Entities[ESPHomeClient.EntityType.BLUETOOTH_PROXY] then
               local success, ret = xpcall(function()
@@ -338,6 +350,12 @@ function RefreshStatus()
             end
           else
             log:debug("Bluetooth Proxy not supported by device (flags: %s)", btFlags)
+
+            -- Hide Bluetooth Proxy properties
+            C4:SetPropertyAttribs("Bluetooth Proxy", constants.HIDE_PROPERTY)
+            C4:SetPropertyAttribs("Bluetooth Devices", constants.HIDE_PROPERTY)
+            C4:SetPropertyAttribs("BLE Proximity Devices", constants.HIDE_PROPERTY)
+            C4:SetPropertyAttribs("BLE Presence Timeout", constants.HIDE_PROPERTY)
           end
         end
 
