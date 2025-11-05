@@ -485,6 +485,99 @@ function ESPHomeClient:unsubscribeBluetoothAdvertisements()
   )
 end
 
+--- Parse raw BLE advertisement data according to Bluetooth Core Specification GAP format.
+--- @param data string The raw advertisement data bytes.
+--- @return table parsed A table with name, service_uuids, service_data, manufacturer_data fields.
+local function parseBLEAdvertisementData(data)
+  local parsed = {
+    name = nil,
+    service_uuids = {},
+    service_data = {},
+    manufacturer_data = {},
+  }
+
+  if not data or #data == 0 then
+    return parsed
+  end
+
+  local pos = 1
+  while pos <= #data do
+    -- Read length byte
+    local length = string.byte(data, pos)
+    if not length or length == 0 then
+      break -- End of data
+    end
+
+    pos = pos + 1
+    if pos + length - 1 > #data then
+      log:warn("BLE advertisement data truncated at position %d", pos)
+      break
+    end
+
+    -- Read AD type
+    local ad_type = string.byte(data, pos)
+    pos = pos + 1
+    local ad_data_len = length - 1
+
+    -- Extract AD data
+    local ad_data = string.sub(data, pos, pos + ad_data_len - 1)
+    pos = pos + ad_data_len
+
+    -- Parse based on AD type
+    if ad_type == 0x08 or ad_type == 0x09 then
+      -- Shortened or Complete Local Name
+      parsed.name = ad_data
+    elseif ad_type == 0x02 or ad_type == 0x03 then
+      -- Incomplete or Complete List of 16-bit Service UUIDs
+      for i = 1, #ad_data, 2 do
+        local uuid16 = string.byte(ad_data, i) + string.byte(ad_data, i + 1) * 256
+        table.insert(parsed.service_uuids, string.format("%04x", uuid16))
+      end
+    elseif ad_type == 0x06 or ad_type == 0x07 then
+      -- Incomplete or Complete List of 128-bit Service UUIDs
+      for i = 1, #ad_data, 16 do
+        local uuid_bytes = string.sub(ad_data, i, i + 15)
+        if #uuid_bytes == 16 then
+          -- Format as UUID string
+          local uuid = string.format(
+            "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+            string.byte(uuid_bytes, 4), string.byte(uuid_bytes, 3), string.byte(uuid_bytes, 2), string.byte(uuid_bytes, 1),
+            string.byte(uuid_bytes, 6), string.byte(uuid_bytes, 5),
+            string.byte(uuid_bytes, 8), string.byte(uuid_bytes, 7),
+            string.byte(uuid_bytes, 9), string.byte(uuid_bytes, 10),
+            string.byte(uuid_bytes, 11), string.byte(uuid_bytes, 12), string.byte(uuid_bytes, 13),
+            string.byte(uuid_bytes, 14), string.byte(uuid_bytes, 15), string.byte(uuid_bytes, 16)
+          )
+          table.insert(parsed.service_uuids, uuid)
+        end
+      end
+    elseif ad_type == 0x16 then
+      -- Service Data - 16-bit UUID
+      if #ad_data >= 2 then
+        local uuid16 = string.byte(ad_data, 1) + string.byte(ad_data, 2) * 256
+        local svc_data = string.sub(ad_data, 3)
+        table.insert(parsed.service_data, {
+          uuid = string.format("%04x", uuid16),
+          data = svc_data
+        })
+      end
+    elseif ad_type == 0xFF then
+      -- Manufacturer Specific Data
+      if #ad_data >= 2 then
+        local company_id = string.byte(ad_data, 1) + string.byte(ad_data, 2) * 256
+        local mfg_data = string.sub(ad_data, 3)
+        table.insert(parsed.manufacturer_data, {
+          uuid = company_id,
+          data = mfg_data
+        })
+      end
+    end
+    -- Ignore other AD types (flags, TX power, etc.)
+  end
+
+  return parsed
+end
+
 --- Subscribe to Bluetooth LE advertisement messages.
 --- This handles both decoded (BluetoothLEAdvertisementResponse) and raw (BluetoothLERawAdvertisementsResponse) formats.
 --- Modern ESPHome versions (2024+) use the raw format which needs to be decoded.
@@ -515,9 +608,18 @@ function ESPHomeClient:subscribeBluetoothLEAdvertisements(callback)
     for _, rawAdv in ipairs(message.advertisements or {}) do
       -- Decode the raw advertisement protobuf data
       local success, decoded = pcall(pb.decode, ESPHomeProtoSchema,
-        ESPHomeProtoSchema.Message.BluetoothLEAdvertisementResponse, rawAdv)
+        ESPHomeProtoSchema.Message.BluetoothLERawAdvertisement, rawAdv)
 
       if success and decoded then
+        -- Parse the raw BLE advertisement data to extract name, services, etc.
+        local parsed = parseBLEAdvertisementData(decoded.data or "")
+
+        -- Merge parsed fields into decoded message
+        decoded.name = parsed.name
+        decoded.service_uuids = parsed.service_uuids
+        decoded.service_data = parsed.service_data
+        decoded.manufacturer_data = parsed.manufacturer_data
+
         log:debug("Decoded advertisement from %s: %s, RSSI: %s",
           tostring(decoded.address), decoded.name or "(unnamed)", decoded.rssi)
 
