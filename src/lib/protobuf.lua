@@ -3,6 +3,9 @@
 --- This module provides encoding and decoding functions for Protocol Buffers data format.
 local bit = require("bit")
 
+-- Load bit64 library for proper 64-bit operations
+local has_bit64, bit64 = pcall(require, "noiseprotocol.utils.bit64")
+
 -- Try to load FFI for 64-bit integer support (available in LuaJIT)
 local has_ffi, ffi = pcall(require, "ffi")
 if has_ffi then
@@ -16,11 +19,38 @@ end
 local Protobuf = {}
 
 --- Encodes an integer into a varint byte sequence.
---- @param value number|boolean The value to encode.
+--- @param value number|boolean|table The value to encode. Can be a number, boolean, or {high, low} pair for 64-bit values.
 --- @return string bytes The encoded varint byte sequence.
 function Protobuf.encode_varint(value)
   if type(value) == "boolean" then
     value = value and 1 or 0
+  end
+
+  -- If value is a table, assume it's {high, low} format for 64-bit
+  if type(value) == "table" then
+    if has_bit64 then
+      local bytes = {}
+      local v = { value[1], value[2] }  -- Copy the input
+
+      repeat
+        -- Extract low 7 bits (low_32 % 128)
+        local byte = v[2] % 128
+
+        -- Right shift by 7 bits
+        v = bit64.shr(v, 7)
+
+        -- Check if more bytes remain (v != 0)
+        if v[1] ~= 0 or v[2] ~= 0 then
+          byte = byte + 0x80
+        end
+        table.insert(bytes, string.char(byte))
+      until v[1] == 0 and v[2] == 0
+
+      return table.concat(bytes)
+    else
+      -- Fallback: convert {high, low} to double (may lose precision)
+      value = value[1] * 0x100000000 + value[2]
+    end
   end
 
   -- For values that fit in 32 bits, use bit operations for efficiency
@@ -37,22 +67,29 @@ function Protobuf.encode_varint(value)
     return table.concat(bytes)
   end
 
-  -- For large 64-bit values, use FFI if available for exact arithmetic
-  if has_ffi then
+  -- For large 64-bit values, use bit64 library if available for exact arithmetic
+  if has_bit64 then
     local success, result = pcall(function()
       local bytes = {}
-      local v = ffi.new("uint64_t", value)
-      local divisor = ffi.new("uint64_t", 128)
+
+      -- Convert value to {high, low} format
+      local low_32 = value % 0x100000000
+      local high_32 = math.floor(value / 0x100000000)
+      local v = { high_32, low_32 }
 
       repeat
-        local byte = tonumber(v % divisor)
-        v = v / divisor
+        -- Extract low 7 bits (low_32 % 128)
+        local byte = v[2] % 128
 
-        if tonumber(v) > 0 then
+        -- Right shift by 7 bits
+        v = bit64.shr(v, 7)
+
+        -- Check if more bytes remain (v != 0)
+        if v[1] ~= 0 or v[2] ~= 0 then
           byte = byte + 0x80
         end
         table.insert(bytes, string.char(byte))
-      until tonumber(v) == 0
+      until v[1] == 0 and v[2] == 0
 
       return table.concat(bytes)
     end)
@@ -60,7 +97,7 @@ function Protobuf.encode_varint(value)
     if success then
       return result
     end
-    -- If FFI path failed, fall through to double precision fallback
+    -- If bit64 path failed, fall through to double precision fallback
   end
 
   -- Fallback for environments without FFI: best effort with doubles

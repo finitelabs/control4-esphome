@@ -23,9 +23,10 @@ function BluetoothProxyEntity:new(client)
   return properties
 end
 
---- Convert a Bluetooth MAC address string to a 48-bit number
+--- Convert a Bluetooth MAC address string to a 48-bit {high, low} representation
+--- This avoids precision loss from using Lua numbers for large 48-bit values
 --- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF"
---- @return number|nil address 48-bit address as a number, or nil if invalid
+--- @return table|nil address {high_32, low_32} representation, or nil if invalid
 local function macToAddress(mac)
   if IsEmpty(mac) then
     return nil
@@ -40,30 +41,42 @@ local function macToAddress(mac)
     return nil
   end
 
-  -- Convert hex string to number
-  local address = 0
+  -- Parse bytes (big-endian)
+  local bytes = {}
   for i = 1, 12, 2 do
     local byte = tonumber(mac:sub(i, i + 1), 16)
     if not byte then
       log:error("Invalid MAC address format: %s", mac)
       return nil
     end
-    address = address * 256 + byte
+    table.insert(bytes, byte)
   end
 
-  return address
+  -- Convert to {high_32, low_32} format
+  -- bytes[1] and bytes[2] go into high_32 (top 16 bits)
+  -- bytes[3], bytes[4], bytes[5], bytes[6] go into low_32
+  local high_32 = bytes[1] * 256 + bytes[2]  -- First 2 bytes (16 bits in high_32)
+  local low_32 = bytes[3] * 0x1000000 + bytes[4] * 0x10000 + bytes[5] * 0x100 + bytes[6]  -- Last 4 bytes
+
+  return { high_32, low_32 }
 end
 
---- Convert a 48-bit address number back to MAC string
---- @param address number 48-bit address as a number
+--- Convert a 48-bit address {high, low} back to MAC string
+--- @param address table {high_32, low_32} representation
 --- @return string mac MAC address in format "AA:BB:CC:DD:EE:FF"
 local function addressToMac(address)
-  local bytes = {}
-  for i = 1, 6 do
-    table.insert(bytes, 1, string.format("%02X", address % 256))
-    address = math.floor(address / 256)
-  end
-  return table.concat(bytes, ":")
+  local high_32 = address[1]
+  local low_32 = address[2]
+
+  -- Extract 6 bytes from {high_32, low_32}
+  local byte1 = math.floor(high_32 / 256) % 256
+  local byte2 = high_32 % 256
+  local byte3 = math.floor(low_32 / 0x1000000) % 256
+  local byte4 = math.floor(low_32 / 0x10000) % 256
+  local byte5 = math.floor(low_32 / 0x100) % 256
+  local byte6 = low_32 % 256
+
+  return string.format("%02X:%02X:%02X:%02X:%02X:%02X", byte1, byte2, byte3, byte4, byte5, byte6)
 end
 
 --- Determine device type from GATT services
