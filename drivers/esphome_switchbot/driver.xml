@@ -83,15 +83,9 @@
         </items>
       </property>
       <property>
-        <name>Device Settings</name>
+        <name>Device Info</name>
         <type>LABEL</type>
-        <default>Device Settings</default>
-      </property>
-      <property>
-        <name>Bluetooth MAC Address</name>
-        <type>STRING</type>
-        <description>Bluetooth MAC address of the Switchbot device (e.g., AA:BB:CC:DD:EE:FF)</description>
-        <default/>
+        <default>Device Info</default>
       </property>
       <property>
         <name>Battery Level</name>

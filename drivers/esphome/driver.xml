@@ -145,6 +145,17 @@
         </items>
       </property>
       <property>
+        <name>Bluetooth Proxy</name>
+        <type>LABEL</type>
+        <default>Bluetooth Proxy Settings</default>
+      </property>
+      <property>
+        <name>Bluetooth Devices</name>
+        <type>STRING</type>
+        <default/>
+        <description>Comma-separated list of Bluetooth MAC addresses to connect (e.g., AA:BB:CC:DD:EE:FF, 11:22:33:44:55:66)</description>
+      </property>
+      <property>
         <name>Device Info</name>
         <type>LABEL</type>
         <default>Device Info</default>

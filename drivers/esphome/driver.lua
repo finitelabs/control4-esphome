@@ -24,6 +24,7 @@ local values = require("lib.values")
 
 local ESPHomeClient = require("esphome.client")
 local BinarySensorEntity = require("esphome.entities.binary_sensor")
+local BluetoothProxyEntity = require("esphome.entities.bluetooth_proxy")
 local ButtonEntity = require("esphome.entities.button")
 local CoverEntity = require("esphome.entities.cover")
 local LightEntity = require("esphome.entities.light")
@@ -41,6 +42,7 @@ local esphome = ESPHomeClient:new()
 --- @type table<EntityType, Entity>
 local Entities = {
   [BinarySensorEntity.TYPE] = BinarySensorEntity:new(esphome),
+  [BluetoothProxyEntity.TYPE] = BluetoothProxyEntity:new(esphome),
   [ButtonEntity.TYPE] = ButtonEntity:new(esphome),
   [CoverEntity.TYPE] = CoverEntity:new(esphome),
   [LightEntity.TYPE] = LightEntity:new(esphome),
@@ -175,6 +177,14 @@ function OPC.Use_OpenSSL(propertyValue)
   Connect()
 end
 
+function OPC.Bluetooth_Devices(propertyValue)
+  log:trace("OPC.Bluetooth_Devices('%s')", propertyValue)
+  -- Update Bluetooth devices when property changes
+  if Entities[ESPHomeClient.EntityType.BLUETOOTH_PROXY] then
+    Entities[ESPHomeClient.EntityType.BLUETOOTH_PROXY]:updateDevices(propertyValue)
+  end
+end
+
 local function updateStatus(status)
   UpdateProperty("Driver Status", not IsEmpty(status) and status or "Unknown")
 end
@@ -278,6 +288,17 @@ function RefreshStatus()
           end
         end
 
+        -- Manually trigger bluetooth_proxy discovered (it's not a regular entity)
+        if Entities[ESPHomeClient.EntityType.BLUETOOTH_PROXY] then
+          log:debug("Triggering Bluetooth Proxy discovered()")
+          local success, ret = xpcall(function()
+            Entities[ESPHomeClient.EntityType.BLUETOOTH_PROXY]:discovered({})
+          end, debug.traceback)
+          if not success then
+            log:error("Bluetooth Proxy discovered() handler failed: %s", ret or "unknown error")
+          end
+        end
+
         return entities
       end)
       :next(function(entities)
@@ -359,142 +380,6 @@ function EC.UpdateDrivers()
   log:trace("EC.UpdateDrivers()")
   log:print("Updating drivers")
   UpdateDrivers(true)
-end
-
--- Switchbot Bluetooth Proxy Support
--- Track connected Switchbot devices
-local switchbotDevices = {}
-
---- Handle Switchbot connection request from sub-driver
-function RFP.SWITCHBOT_CONNECT(idBinding, strCommand, tParams, args)
-  log:trace("RFP.SWITCHBOT_CONNECT(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
-
-  local address = tonumber(Select(tParams, "address"))
-  if not address then
-    log:error("SWITCHBOT_CONNECT: Invalid address")
-    return
-  end
-
-  log:info("Connecting to Switchbot device at address 0x%012X", address)
-
-  -- Initialize device tracking
-  if not switchbotDevices[address] then
-    switchbotDevices[address] = {
-      bindingId = idBinding,
-      connected = false,
-      services = nil,
-    }
-  else
-    switchbotDevices[address].bindingId = idBinding
-  end
-
-  -- Connect to the device
-  esphome:bluetoothDeviceConnect(
-    address,
-    function(message, schema)
-      log:debug("Switchbot connection response: connected=%s, mtu=%s, error=%s", message.connected, message.mtu, message.error)
-
-      if message.connected then
-        switchbotDevices[address].connected = true
-
-        -- Discover GATT services
-        esphome:bluetoothGattGetServices(address, function(services, done)
-          if done then
-            log:info("Switchbot GATT service discovery complete")
-
-            -- Send connection success to sub-driver with services
-            SendToProxy(idBinding, "SWITCHBOT_CONNECTED", {
-              connected = "true",
-              services = Serialize(switchbotDevices[address].services or {}),
-            }, "NOTIFY")
-          else
-            -- Accumulate services
-            if not switchbotDevices[address].services then
-              switchbotDevices[address].services = {}
-            end
-            for _, service in ipairs(services) do
-              table.insert(switchbotDevices[address].services, service)
-            end
-            log:debug("Received %d GATT services for Switchbot", #services)
-          end
-        end)
-      else
-        log:error("Failed to connect to Switchbot: error=%s", message.error)
-        switchbotDevices[address].connected = false
-
-        -- Send connection failure to sub-driver
-        SendToProxy(idBinding, "SWITCHBOT_CONNECTED", {
-          connected = "false",
-          services = Serialize({}),
-        }, "NOTIFY")
-      end
-    end,
-    nil,
-    true
-  )
-end
-
---- Handle Switchbot write request from sub-driver
-function RFP.SWITCHBOT_WRITE(idBinding, strCommand, tParams, args)
-  log:trace("RFP.SWITCHBOT_WRITE(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
-
-  local address = tonumber(Select(tParams, "address"))
-  local handle = tonumber(Select(tParams, "handle"))
-  local data = Deserialize(Select(tParams, "data"))
-
-  if not address or not handle or not data then
-    log:error("SWITCHBOT_WRITE: Invalid parameters (address=%s, handle=%s, data=%s)", address, handle, data)
-    return
-  end
-
-  if not switchbotDevices[address] or not switchbotDevices[address].connected then
-    log:error("SWITCHBOT_WRITE: Device not connected")
-    SendToProxy(idBinding, "SWITCHBOT_WRITE_RESPONSE", {
-      success = "false",
-    }, "NOTIFY")
-    return
-  end
-
-  log:debug("Writing %d bytes to Switchbot handle %d", #data, handle)
-
-  esphome:bluetoothGattWrite(address, handle, data, true, function(success, error)
-    log:debug("Switchbot write %s", success and "successful" or "failed")
-
-    SendToProxy(idBinding, "SWITCHBOT_WRITE_RESPONSE", {
-      success = success and "true" or "false",
-    }, "NOTIFY")
-  end)
-end
-
---- Handle Switchbot read request from sub-driver
-function RFP.SWITCHBOT_READ(idBinding, strCommand, tParams, args)
-  log:trace("RFP.SWITCHBOT_READ(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
-
-  local address = tonumber(Select(tParams, "address"))
-  local handle = tonumber(Select(tParams, "handle"))
-
-  if not address or not handle then
-    log:error("SWITCHBOT_READ: Invalid parameters (address=%s, handle=%s)", address, handle)
-    return
-  end
-
-  if not switchbotDevices[address] or not switchbotDevices[address].connected then
-    log:error("SWITCHBOT_READ: Device not connected")
-    return
-  end
-
-  log:debug("Reading from Switchbot handle %d", handle)
-
-  esphome:bluetoothGattRead(address, handle, function(data, error)
-    if error then
-      log:error("Switchbot read failed: error=%s", error)
-    else
-      log:debug("Switchbot read successful: %d bytes", #data)
-      SendToProxy(idBinding, "SWITCHBOT_READ_RESPONSE", {
-        data = Serialize(data),
-      }, "NOTIFY")
-    end
-  end)
 end
 
 --- Update the driver from the GitHub repository.
