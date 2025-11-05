@@ -272,6 +272,11 @@ function TCPClient:DoRead()
   end
 end
 
+-- Global sleep function using luasocket
+function sleep(seconds)
+  socket.sleep(seconds)
+end
+
 print("C4 shim layer loaded successfully")
 
 return C4
