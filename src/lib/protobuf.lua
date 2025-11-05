@@ -39,20 +39,28 @@ function Protobuf.encode_varint(value)
 
   -- For large 64-bit values, use FFI if available for exact arithmetic
   if has_ffi then
-    local bytes = {}
-    local v = ffi.new("uint64_t", value)
+    local success, result = pcall(function()
+      local bytes = {}
+      local v = ffi.new("uint64_t", value)
+      local divisor = ffi.new("uint64_t", 128)
 
-    repeat
-      local byte = tonumber(v % 128ULL)
-      v = v / 128ULL
+      repeat
+        local byte = tonumber(v % divisor)
+        v = v / divisor
 
-      if tonumber(v) > 0 then
-        byte = byte + 0x80
-      end
-      table.insert(bytes, string.char(byte))
-    until tonumber(v) == 0
+        if tonumber(v) > 0 then
+          byte = byte + 0x80
+        end
+        table.insert(bytes, string.char(byte))
+      until tonumber(v) == 0
 
-    return table.concat(bytes)
+      return table.concat(bytes)
+    end)
+
+    if success then
+      return result
+    end
+    -- If FFI path failed, fall through to double precision fallback
   end
 
   -- Fallback for environments without FFI: best effort with doubles
@@ -79,24 +87,37 @@ end
 function Protobuf.decode_varint(buffer, pos)
   -- For FFI path with 64-bit support
   if has_ffi then
-    local result = ffi.new("uint64_t", 0)
-    local shift = 0
-    local byte
+    local success, result, new_pos = pcall(function()
+      local result = ffi.new("uint64_t", 0)
+      local shift = 0
+      local byte
 
-    repeat
-      byte = string.byte(buffer, pos)
+      repeat
+        byte = string.byte(buffer, pos)
 
-      -- Extract value bits (low 7 bits) and shift
-      local value_bits = ffi.new("uint64_t", byte % 128)
-      local shifted = value_bits * ffi.new("uint64_t", 2ULL ^ shift)
+        -- Extract value bits (low 7 bits) and shift
+        local value_bits = ffi.new("uint64_t", byte % 128)
+        local multiplier = ffi.new("uint64_t", 1)
 
-      result = result + shifted
+        -- Calculate 2^shift using repeated multiplication
+        for i = 1, shift do
+          multiplier = multiplier * 2
+        end
 
-      shift = shift + 7
-      pos = pos + 1
-    until byte < 128
+        local shifted = value_bits * multiplier
+        result = result + shifted
 
-    return tonumber(result), pos
+        shift = shift + 7
+        pos = pos + 1
+      until byte < 128
+
+      return tonumber(result), pos
+    end)
+
+    if success then
+      return result, new_pos
+    end
+    -- If FFI path failed, fall through to double precision fallback
   end
 
   -- Fallback for non-FFI environments
