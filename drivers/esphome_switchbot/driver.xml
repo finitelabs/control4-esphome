@@ -106,13 +106,13 @@
   </config>
   <capabilities/>
   <proxies>
-    <proxy proxybindingid="5001" primary="True" name="ESPHome Switchbot">switch</proxy>
+    <proxy proxybindingid="5001" primary="True" name="ESPHome Switchbot">relay</proxy>
   </proxies>
   <connections>
     <connection>
       <id>5001</id>
       <facing>6</facing>
-      <connectionname>Switch</connectionname>
+      <connectionname>Relay</connectionname>
       <type>2</type>
       <consumer>False</consumer>
       <audiosource>False</audiosource>
@@ -120,7 +120,7 @@
       <linelevel>False</linelevel>
       <classes>
         <class>
-          <classname>SWITCH</classname>
+          <classname>RELAY</classname>
         </class>
       </classes>
       <hidden>True</hidden>

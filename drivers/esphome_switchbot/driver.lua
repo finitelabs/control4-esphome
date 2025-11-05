@@ -237,7 +237,7 @@ local function turnOn()
 
   CURRENT_STATE = true
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = "true" }, "NOTIFY")
-  SendToProxy(PROXY_BINDING, "MATCH_CHANGED", { STATE = "on" }, "NOTIFY")
+  SendToProxy(PROXY_BINDING, "CLOSED", {}, "NOTIFY")  -- RELAY proxy uses CLOSED for "on"
 end
 
 --- Turn the Switchbot off
@@ -256,7 +256,7 @@ local function turnOff()
 
   CURRENT_STATE = false
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = "true" }, "NOTIFY")
-  SendToProxy(PROXY_BINDING, "MATCH_CHANGED", { STATE = "off" }, "NOTIFY")
+  SendToProxy(PROXY_BINDING, "OPENED", {}, "NOTIFY")  -- RELAY proxy uses OPENED for "off"
 end
 
 --- Read the battery level
@@ -291,18 +291,35 @@ function RFP.OFF(idBinding, strCommand)
   turnOff()
 end
 
-function RFP.SET_STATE(idBinding, strCommand, tParams, args)
-  log:trace("RFP.SET_STATE(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
+function RFP.CLOSE(idBinding, strCommand)
+  log:trace("RFP.CLOSE(%s, %s)", idBinding, strCommand)
   if idBinding ~= PROXY_BINDING then
-    log:error("RFP.SET_STATE called with idBinding %s, expected PROXY_BINDING", idBinding)
+    log:error("RFP.CLOSE called with idBinding %s, expected PROXY_BINDING", idBinding)
+    return
+  end
+  turnOn()  -- CLOSE = ON for relay
+end
+
+function RFP.OPEN(idBinding, strCommand)
+  log:trace("RFP.OPEN(%s, %s)", idBinding, strCommand)
+  if idBinding ~= PROXY_BINDING then
+    log:error("RFP.OPEN called with idBinding %s, expected PROXY_BINDING", idBinding)
+    return
+  end
+  turnOff()  -- OPEN = OFF for relay
+end
+
+function RFP.TOGGLE(idBinding, strCommand)
+  log:trace("RFP.TOGGLE(%s, %s)", idBinding, strCommand)
+  if idBinding ~= PROXY_BINDING then
+    log:error("RFP.TOGGLE called with idBinding %s, expected PROXY_BINDING", idBinding)
     return
   end
 
-  local state = Select(tParams, "STATE")
-  if state == "on" or state == "1" or state == 1 then
-    turnOn()
-  elseif state == "off" or state == "0" or state == 0 then
+  if CURRENT_STATE then
     turnOff()
+  else
+    turnOn()
   end
 end
 
