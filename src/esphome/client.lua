@@ -604,35 +604,29 @@ function ESPHomeClient:subscribeBluetoothLEAdvertisements(callback)
   self._callbacks[rawAdvSchema.options.id] = function(message, messageSchema)
     log:debug("Received raw Bluetooth advertisements: %d packets", #(message.advertisements or {}))
 
-    -- Decode each raw advertisement
-    for _, rawAdv in ipairs(message.advertisements or {}) do
-      -- Decode the raw advertisement protobuf data
-      local success, decoded = pcall(pb.decode, ESPHomeProtoSchema,
-        ESPHomeProtoSchema.Message.BluetoothLERawAdvertisement, rawAdv)
+    -- Process each advertisement (already decoded by subschema)
+    for _, adv in ipairs(message.advertisements or {}) do
+      -- Parse the raw BLE advertisement data to extract name, services, etc.
+      local parsed = parseBLEAdvertisementData(adv.data or "")
 
-      if success and decoded then
-        -- Parse the raw BLE advertisement data to extract name, services, etc.
-        local parsed = parseBLEAdvertisementData(decoded.data or "")
+      -- Merge parsed fields into advertisement (only if they exist)
+      if parsed.name then
+        adv.name = parsed.name
+      end
+      adv.service_uuids = parsed.service_uuids
+      adv.service_data = parsed.service_data
+      adv.manufacturer_data = parsed.manufacturer_data
 
-        -- Merge parsed fields into decoded message
-        decoded.name = parsed.name
-        decoded.service_uuids = parsed.service_uuids
-        decoded.service_data = parsed.service_data
-        decoded.manufacturer_data = parsed.manufacturer_data
+      log:debug("Decoded advertisement from %s: %s, RSSI: %s",
+        tostring(adv.address), adv.name or "(unnamed)", adv.rssi)
 
-        log:debug("Decoded advertisement from %s: %s, RSSI: %s",
-          tostring(decoded.address), decoded.name or "(unnamed)", decoded.rssi)
-
-        -- Call the user's callback with the decoded advertisement
-        local callbackSuccess, err = pcall(callback, decoded)
-        if not callbackSuccess then
-          if IsEmpty(err) or type(err) ~= "string" then
-            err = "unknown error"
-          end
-          log:error("Bluetooth LE advertisement callback failed; %s", err)
+      -- Call the user's callback with the decoded advertisement
+      local callbackSuccess, err = pcall(callback, adv)
+      if not callbackSuccess then
+        if IsEmpty(err) or type(err) ~= "string" then
+          err = "unknown error"
         end
-      else
-        log:warn("Failed to decode raw advertisement: %s", tostring(decoded))
+        log:error("Bluetooth LE advertisement callback failed; %s", err)
       end
     end
   end
