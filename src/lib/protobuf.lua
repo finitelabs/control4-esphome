@@ -12,14 +12,27 @@ local Protobuf = {}
 --- @return string bytes The encoded varint byte sequence.
 function Protobuf.encode_varint(value)
   local bytes = {}
+  if type(value) == "boolean" then
+    value = value and 1 or 0
+  end
+
+  -- For values that fit in 32 bits, use bit operations for efficiency
+  -- Otherwise use math operations to handle 64-bit values
+  local use_bit_ops = value >= 0 and value < 0x100000000  -- 2^32
+
   repeat
-    if type(value) == "boolean" then
-      value = value and 1 or 0
+    local byte
+    if use_bit_ops then
+      byte = bit.band(value, 0x7F)
+      value = bit.rshift(value, 7)
+    else
+      -- Use math operations for large 64-bit values
+      byte = value % 128  -- Equivalent to bit.band(value, 0x7F)
+      value = math.floor(value / 128)  -- Equivalent to bit.rshift(value, 7)
     end
-    local byte = bit.band(value, 0x7F)
-    value = bit.rshift(value, 7)
+
     if value > 0 then
-      byte = bit.bor(byte, 0x80) -- Mark this byte as "continued"
+      byte = byte + 0x80  -- Mark this byte as "continued"
     end
     table.insert(bytes, string.char(byte))
   until value == 0
@@ -35,12 +48,26 @@ function Protobuf.decode_varint(buffer, pos)
   local result = 0
   local shift = 0
   local byte
+  local byte_count = 0
+
   repeat
     byte = string.byte(buffer, pos)
-    result = result + bit.lshift(bit.band(byte, 0x7F), shift)
+    byte_count = byte_count + 1
+
+    -- Use bit operations for the first 4 bytes (28 bits), then switch to math
+    -- operations to handle 64-bit values
+    if shift < 28 then
+      result = result + bit.lshift(bit.band(byte, 0x7F), shift)
+    else
+      -- Use math operations for high-order bits to avoid overflow
+      local value_bits = byte % 128  -- bit.band(byte, 0x7F)
+      result = result + (value_bits * (2 ^ shift))
+    end
+
     shift = shift + 7
     pos = pos + 1
-  until bit.band(byte, 0x80) == 0
+  until byte < 128  -- Continue while bit 7 is set (byte >= 0x80)
+
   return result, pos
 end
 

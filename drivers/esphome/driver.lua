@@ -254,10 +254,12 @@ function RefreshStatus()
   log:trace("RefreshStatus()")
   -- Debounce the status refresh calls
   SetTimer("RefreshStatus", ONE_SECOND * 3, function()
+    local capturedDeviceInfo = nil
     esphome
       :getDeviceInfo()
       :next(function(deviceInfo)
         log:debug("Device Info: %s", deviceInfo)
+        capturedDeviceInfo = deviceInfo
         -- First successful operation confirms authentication succeeded
         updateStatus("Connected")
         values:update("Name", Select(deviceInfo, "friendly_name") or Select(deviceInfo, "name") or "N/A", "STRING")
@@ -288,14 +290,19 @@ function RefreshStatus()
           end
         end
 
-        -- Manually trigger bluetooth_proxy discovered (it's not a regular entity)
-        if Entities[ESPHomeClient.EntityType.BLUETOOTH_PROXY] then
-          log:debug("Triggering Bluetooth Proxy discovered()")
-          local success, ret = xpcall(function()
-            Entities[ESPHomeClient.EntityType.BLUETOOTH_PROXY]:discovered({})
-          end, debug.traceback)
-          if not success then
-            log:error("Bluetooth Proxy discovered() handler failed: %s", ret or "unknown error")
+        -- Check if device supports Bluetooth proxy (it's a device capability, not an entity)
+        if Entities[ESPHomeClient.EntityType.BLUETOOTH_PROXY] and capturedDeviceInfo then
+          local btFlags = Select(capturedDeviceInfo, "bluetooth_proxy_feature_flags") or 0
+          if btFlags > 0 then
+            log:debug("Triggering Bluetooth Proxy discovered() with flags: %s", btFlags)
+            local success, ret = xpcall(function()
+              Entities[ESPHomeClient.EntityType.BLUETOOTH_PROXY]:discovered(capturedDeviceInfo)
+            end, debug.traceback)
+            if not success then
+              log:error("Bluetooth Proxy discovered() handler failed: %s", ret or "unknown error")
+            end
+          else
+            log:debug("Bluetooth Proxy not supported by device (flags: %s)", btFlags)
           end
         end
 
