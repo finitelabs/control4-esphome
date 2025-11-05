@@ -3,6 +3,14 @@
 --- This module provides encoding and decoding functions for Protocol Buffers data format.
 local bit = require("bit")
 
+-- Try to load FFI for 64-bit integer support (available in LuaJIT)
+local has_ffi, ffi = pcall(require, "ffi")
+if has_ffi then
+  ffi.cdef[[
+    typedef unsigned long long uint64_t;
+  ]]
+end
+
 --- @class Protobuf
 --- A class providing Protocol Buffers encoding and decoding functionality.
 local Protobuf = {}
@@ -29,51 +37,38 @@ function Protobuf.encode_varint(value)
     return table.concat(bytes)
   end
 
-  -- For large 64-bit values, first extract as bytes to avoid precision loss
-  -- then encode as varint
-  local value_bytes = {}
-  local temp = value
+  -- For large 64-bit values, use FFI if available for exact arithmetic
+  if has_ffi then
+    local bytes = {}
+    local v = ffi.new("uint64_t", value)
 
-  -- Extract up to 8 bytes (64 bits)
-  for i = 1, 8 do
-    local byte_val = temp % 256
-    value_bytes[i] = byte_val
-    temp = (temp - byte_val) / 256  -- Exact division since we subtracted the remainder
-    if temp == 0 then
-      break
-    end
-  end
+    repeat
+      local byte = tonumber(v % 128ULL)
+      v = v / 128ULL
 
-  -- Now encode these bytes as a varint (7 bits per output byte)
-  local result = {}
-  local bit_buffer = 0
-  local bits_in_buffer = 0
-
-  for i = 1, #value_bytes do
-    -- Add this byte to the bit buffer
-    bit_buffer = bit_buffer + value_bytes[i] * (2 ^ bits_in_buffer)
-    bits_in_buffer = bits_in_buffer + 8
-
-    -- Extract 7-bit chunks from the buffer
-    while bits_in_buffer >= 7 do
-      local out_byte = bit_buffer % 128
-      bit_buffer = math.floor(bit_buffer / 128)
-      bits_in_buffer = bits_in_buffer - 7
-
-      -- Check if more bytes follow
-      if bits_in_buffer > 0 or i < #value_bytes then
-        out_byte = out_byte + 0x80
+      if tonumber(v) > 0 then
+        byte = byte + 0x80
       end
-      table.insert(result, string.char(out_byte))
+      table.insert(bytes, string.char(byte))
+    until tonumber(v) == 0
+
+    return table.concat(bytes)
+  end
+
+  -- Fallback for environments without FFI: best effort with doubles
+  -- Note: This may lose precision for values > 2^53
+  local bytes = {}
+  repeat
+    local byte = value % 128
+    value = (value - byte) / 128
+
+    if value > 0 then
+      byte = byte + 0x80
     end
-  end
+    table.insert(bytes, string.char(byte))
+  until value == 0
 
-  -- Flush any remaining bits
-  if bits_in_buffer > 0 then
-    table.insert(result, string.char(bit_buffer))
-  end
-
-  return table.concat(result)
+  return table.concat(bytes)
 end
 
 --- Decodes a varint byte sequence into an integer.
@@ -82,28 +77,48 @@ end
 --- @return integer value The decoded integer value.
 --- @return integer new_pos The new position in the buffer after decoding.
 function Protobuf.decode_varint(buffer, pos)
+  -- For FFI path with 64-bit support
+  if has_ffi then
+    local result = ffi.new("uint64_t", 0)
+    local shift = 0
+    local byte
+
+    repeat
+      byte = string.byte(buffer, pos)
+
+      -- Extract value bits (low 7 bits) and shift
+      local value_bits = ffi.new("uint64_t", byte % 128)
+      local shifted = value_bits * ffi.new("uint64_t", 2ULL ^ shift)
+
+      result = result + shifted
+
+      shift = shift + 7
+      pos = pos + 1
+    until byte < 128
+
+    return tonumber(result), pos
+  end
+
+  -- Fallback for non-FFI environments
   local result = 0
   local shift = 0
   local byte
-  local byte_count = 0
 
   repeat
     byte = string.byte(buffer, pos)
-    byte_count = byte_count + 1
 
-    -- Use bit operations for the first 4 bytes (28 bits), then switch to math
-    -- operations to handle 64-bit values
+    -- Use bit operations for the first 28 bits
     if shift < 28 then
       result = result + bit.lshift(bit.band(byte, 0x7F), shift)
     else
-      -- Use math operations for high-order bits to avoid overflow
-      local value_bits = byte % 128  -- bit.band(byte, 0x7F)
+      -- Use math operations for high-order bits (may lose precision)
+      local value_bits = byte % 128
       result = result + (value_bits * (2 ^ shift))
     end
 
     shift = shift + 7
     pos = pos + 1
-  until byte < 128  -- Continue while bit 7 is set (byte >= 0x80)
+  until byte < 128
 
   return result, pos
 end
