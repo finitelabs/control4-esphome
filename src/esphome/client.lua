@@ -485,6 +485,245 @@ function ESPHomeClient:unsubscribeBluetoothAdvertisements()
   )
 end
 
+--- Bluetooth SIG Company Identifiers
+--- Source: https://www.bluetooth.com/specifications/assigned-numbers/
+local BLE_COMPANY_IDS = {
+  [0x004C] = "Apple, Inc.",
+  [0x0006] = "Microsoft",
+  [0x00E0] = "Google",
+  [0x0075] = "Samsung Electronics Co. Ltd.",
+  [0x0157] = "Samsung Electronics Co. Ltd.",
+  [0x0969] = "Woan Technology (Shenzhen) Co., Ltd.",  -- SwitchBot
+  [0x02E5] = "Shenzhen Skyworth Digital Technology Co., Ltd",
+  [0x0499] = "Ruuvi Innovations Ltd.",
+  [0x05AC] = "Apple, Inc.",
+  [0x0590] = "Anhui Huami Information Technology Co., Ltd.",  -- Xiaomi/Amazfit
+  [0x038F] = "Wyze Labs, Inc",
+  [0x05D1] = "Qingping Electronics (Suzhou) Co., Ltd",
+  [0x0091] = "Shenzhen Intellirocks Tech Co. Ltd.",  -- Govee
+  [0x0272] = "LEGO System A/S",
+  [0x02D5] = "EM Microelectronic",
+  [0x0087] = "Garmin International, Inc.",
+  [0x0059] = "Nordic Semiconductor ASA",
+  [0x015D] = "Tile, Inc.",
+  [0x05D3] = "Espressif Inc.",
+  [0x0171] = "Estimote, Inc.",
+  [0x0822] = "Shenzhen Jingxun Software Telecommunication Technology Co., Ltd",  -- Some Xiaomi devices
+}
+
+--- Standard Bluetooth Service UUIDs (16-bit)
+--- Source: https://www.bluetooth.com/specifications/gatt/services/
+local BLE_SERVICE_UUIDS_16 = {
+  ["1800"] = "Generic Access",
+  ["1801"] = "Generic Attribute",
+  ["1802"] = "Immediate Alert",
+  ["1803"] = "Link Loss",
+  ["1804"] = "Tx Power",
+  ["1805"] = "Current Time Service",
+  ["1806"] = "Reference Time Update Service",
+  ["1808"] = "Glucose",
+  ["1809"] = "Health Thermometer",
+  ["180A"] = "Device Information",
+  ["180D"] = "Heart Rate",
+  ["180F"] = "Battery Service",
+  ["1810"] = "Blood Pressure",
+  ["1811"] = "Alert Notification Service",
+  ["1812"] = "Human Interface Device",
+  ["1813"] = "Scan Parameters",
+  ["1814"] = "Running Speed and Cadence",
+  ["1815"] = "Automation IO",
+  ["1816"] = "Cycling Speed and Cadence",
+  ["1818"] = "Cycling Power",
+  ["1819"] = "Location and Navigation",
+  ["181A"] = "Environmental Sensing",
+  ["181B"] = "Body Composition",
+  ["181C"] = "User Data",
+  ["181D"] = "Weight Scale",
+  ["181E"] = "Bond Management",
+  ["181F"] = "Continuous Glucose Monitoring",
+  ["FE95"] = "Xiaomi Inc.",
+  ["FE9F"] = "Google LLC",
+  ["FEAA"] = "Google (Eddystone)",
+  ["FD3D"] = "SwitchBot",
+  ["FCB2"] = "Mi Service",
+}
+
+--- Known 128-bit service UUIDs
+local BLE_SERVICE_UUIDS_128 = {
+  ["cba20d00-224d-11e6-9fb8-0002a5d5c51b"] = "SwitchBot Service",
+  ["0000feaa-0000-1000-8000-00805f9b34fb"] = "Eddystone",
+  ["0000fd3d-0000-1000-8000-00805f9b34fb"] = "SwitchBot",
+}
+
+--- Get manufacturer name from company ID
+--- @param company_id number The 16-bit company identifier
+--- @return string|nil name The manufacturer name, or nil if unknown
+local function getManufacturerName(company_id)
+  return BLE_COMPANY_IDS[company_id]
+end
+
+--- Get service description from UUID
+--- @param uuid string The service UUID (either 4-char hex for 16-bit or full UUID for 128-bit)
+--- @return string|nil description The service description, or nil if unknown
+local function getServiceDescription(uuid)
+  if not uuid then
+    return nil
+  end
+
+  -- Normalize to lowercase for comparison
+  local uuid_lower = uuid:lower()
+
+  -- Check 16-bit UUIDs first (4 hex characters)
+  if #uuid_lower == 4 then
+    return BLE_SERVICE_UUIDS_16[uuid_lower]
+  end
+
+  -- Check 128-bit UUIDs
+  return BLE_SERVICE_UUIDS_128[uuid_lower]
+end
+
+--- Detect device type and model from advertisement data
+--- @param parsed table Parsed advertisement data with name, service_uuids, manufacturer_data, service_data
+--- @return table|nil device_info Table with manufacturer, device_type, model fields, or nil if unknown
+local function detectDeviceInfo(parsed)
+  local info = {
+    manufacturer = nil,
+    device_type = nil,
+    model = nil,
+  }
+
+  -- Check manufacturer data for device identification
+  if parsed.manufacturer_data and #parsed.manufacturer_data > 0 then
+    for _, mfg in ipairs(parsed.manufacturer_data) do
+      local company_id = mfg.uuid
+      local company_name = getManufacturerName(company_id)
+
+      if company_name then
+        info.manufacturer = company_name
+      end
+
+      -- SwitchBot (Company ID: 0x0969)
+      if company_id == 0x0969 then
+        info.device_type = "SwitchBot"
+
+        -- Parse SwitchBot device model from manufacturer data
+        if mfg.data and #mfg.data >= 1 then
+          local device_byte = string.byte(mfg.data, 1)
+          -- SwitchBot device types (from reverse engineering)
+          if device_byte == 0x48 or device_byte == 0x43 then
+            info.model = "Bot"
+          elseif device_byte == 0x54 then
+            info.model = "Curtain"
+          elseif device_byte == 0x63 then
+            info.model = "Meter"
+          elseif device_byte == 0x69 or device_byte == 0x77 then
+            info.model = "Motion Sensor"
+          elseif device_byte == 0x64 then
+            info.model = "Contact Sensor"
+          elseif device_byte == 0x67 then
+            info.model = "Plug"
+          elseif device_byte == 0x6B then
+            info.model = "Lock"
+          elseif device_byte == 0x73 then
+            info.model = "Humidifier"
+          end
+        end
+
+      -- Apple iBeacon (Company ID: 0x004C)
+      elseif company_id == 0x004C and mfg.data and #mfg.data >= 2 then
+        local subtype = string.byte(mfg.data, 1)
+        local sublen = string.byte(mfg.data, 2)
+        if subtype == 0x02 and sublen == 0x15 then
+          info.device_type = "iBeacon"
+        elseif subtype == 0x10 then
+          info.device_type = "Apple Device"
+          info.model = "Proximity Beacon"
+        end
+
+      -- Xiaomi devices (0xFE95 in service data or 0x0590 company ID)
+      elseif company_id == 0x0590 or company_id == 0x0822 then
+        info.device_type = "Xiaomi/Mi"
+
+      -- Tile tracker
+      elseif company_id == 0x015D then
+        info.device_type = "Tile Tracker"
+
+      -- Govee devices
+      elseif company_id == 0x0091 then
+        info.device_type = "Govee"
+
+      -- Wyze devices
+      elseif company_id == 0x038F then
+        info.device_type = "Wyze"
+
+      -- Ruuvi tag
+      elseif company_id == 0x0499 then
+        info.device_type = "RuuviTag"
+      end
+    end
+  end
+
+  -- Check service UUIDs for additional device type hints
+  if parsed.service_uuids and #parsed.service_uuids > 0 then
+    for _, uuid in ipairs(parsed.service_uuids) do
+      local uuid_lower = uuid:lower()
+
+      -- SwitchBot service UUID
+      if uuid_lower == "cba20d00-224d-11e6-9fb8-0002a5d5c51b" or uuid_lower == "fd3d" then
+        info.device_type = info.device_type or "SwitchBot"
+
+      -- Eddystone beacon
+      elseif uuid_lower == "feaa" or uuid_lower == "0000feaa-0000-1000-8000-00805f9b34fb" then
+        info.device_type = info.device_type or "Eddystone Beacon"
+
+      -- Xiaomi service
+      elseif uuid_lower == "fe95" then
+        info.device_type = info.device_type or "Xiaomi/Mi"
+      end
+    end
+  end
+
+  -- Check service data for Xiaomi devices
+  if parsed.service_data and #parsed.service_data > 0 then
+    for _, svc in ipairs(parsed.service_data) do
+      if svc.uuid == "fe95" then
+        info.device_type = info.device_type or "Xiaomi/Mi"
+        info.manufacturer = info.manufacturer or "Xiaomi Inc."
+
+        -- Parse Xiaomi MiBeacon format to detect model
+        if svc.data and #svc.data >= 5 then
+          local frame_ctrl = string.byte(svc.data, 1) + string.byte(svc.data, 2) * 256
+          local product_id = string.byte(svc.data, 3) + string.byte(svc.data, 4) * 256
+
+          -- Known Xiaomi product IDs
+          if product_id == 0x0098 then
+            info.model = "Flower Care"
+          elseif product_id == 0x01AA then
+            info.model = "MiJia Door/Window Sensor"
+          elseif product_id == 0x045B or product_id == 0x045C then
+            info.model = "Mi Temperature & Humidity Sensor 2"
+          elseif product_id == 0x07F6 then
+            info.model = "Mi Motion Sensor"
+          elseif product_id == 0x040A then
+            info.model = "Mi Kettle"
+          end
+        end
+      elseif svc.uuid == "fcb2" then
+        -- Mi Service
+        info.device_type = info.device_type or "Xiaomi/Mi"
+        info.manufacturer = info.manufacturer or "Xiaomi Inc."
+      end
+    end
+  end
+
+  -- Return nil if we didn't find any useful information
+  if not info.manufacturer and not info.device_type and not info.model then
+    return nil
+  end
+
+  return info
+end
+
 --- Parse raw BLE advertisement data according to Bluetooth Core Specification GAP format.
 --- @param data string The raw advertisement data bytes.
 --- @return table parsed A table with name, service_uuids, service_data, manufacturer_data fields.
@@ -531,7 +770,11 @@ local function parseBLEAdvertisementData(data)
       -- Incomplete or Complete List of 16-bit Service UUIDs
       for i = 1, #ad_data, 2 do
         local uuid16 = string.byte(ad_data, i) + string.byte(ad_data, i + 1) * 256
-        table.insert(parsed.service_uuids, string.format("%04x", uuid16))
+        local uuid_str = string.format("%04x", uuid16)
+        table.insert(parsed.service_uuids, {
+          uuid = uuid_str,
+          description = getServiceDescription(uuid_str),
+        })
       end
     elseif ad_type == 0x06 or ad_type == 0x07 then
       -- Incomplete or Complete List of 128-bit Service UUIDs
@@ -548,16 +791,21 @@ local function parseBLEAdvertisementData(data)
             string.byte(uuid_bytes, 11), string.byte(uuid_bytes, 12), string.byte(uuid_bytes, 13),
             string.byte(uuid_bytes, 14), string.byte(uuid_bytes, 15), string.byte(uuid_bytes, 16)
           )
-          table.insert(parsed.service_uuids, uuid)
+          table.insert(parsed.service_uuids, {
+            uuid = uuid,
+            description = getServiceDescription(uuid),
+          })
         end
       end
     elseif ad_type == 0x16 then
       -- Service Data - 16-bit UUID
       if #ad_data >= 2 then
         local uuid16 = string.byte(ad_data, 1) + string.byte(ad_data, 2) * 256
+        local uuid_str = string.format("%04x", uuid16)
         local svc_data = string.sub(ad_data, 3)
         table.insert(parsed.service_data, {
-          uuid = string.format("%04x", uuid16),
+          uuid = uuid_str,
+          description = getServiceDescription(uuid_str),
           data = svc_data
         })
       end
@@ -568,6 +816,7 @@ local function parseBLEAdvertisementData(data)
         local mfg_data = string.sub(ad_data, 3)
         table.insert(parsed.manufacturer_data, {
           uuid = company_id,
+          name = getManufacturerName(company_id),
           data = mfg_data
         })
       end
@@ -617,8 +866,27 @@ function ESPHomeClient:subscribeBluetoothLEAdvertisements(callback)
       adv.service_data = parsed.service_data
       adv.manufacturer_data = parsed.manufacturer_data
 
-      log:debug("Decoded advertisement from %s: %s, RSSI: %s",
-        tostring(adv.address), adv.name or "(unnamed)", adv.rssi)
+      -- Detect device type, manufacturer, and model
+      local device_info = detectDeviceInfo(parsed)
+      if device_info then
+        adv.manufacturer = device_info.manufacturer
+        adv.device_type = device_info.device_type
+        adv.model = device_info.model
+      end
+
+      -- Enhanced debug logging with device info
+      local debug_info = tostring(adv.address) .. ": "
+      if adv.device_type or adv.model then
+        debug_info = debug_info .. string.format("[%s%s] ",
+          adv.device_type or "Unknown",
+          adv.model and (" " .. adv.model) or "")
+      end
+      debug_info = debug_info .. string.format("%s, RSSI: %s",
+        adv.name or "(unnamed)", adv.rssi)
+      if adv.manufacturer then
+        debug_info = debug_info .. ", Mfr: " .. adv.manufacturer
+      end
+      log:debug("Decoded advertisement from %s", debug_info)
 
       -- Call the user's callback with the decoded advertisement
       local callbackSuccess, err = pcall(callback, adv)

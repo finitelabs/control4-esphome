@@ -90,13 +90,21 @@ local function bytesToHex(data)
 end
 
 -- Detect device type based on services and manufacturer data
+-- Note: This is now mostly redundant since the client does this automatically,
+-- but we keep it for backwards compatibility with the test output
 local function detectDeviceType(message)
+  -- Use the automatically detected device_type if available
+  if message.device_type then
+    return message.device_type
+  end
+
+  -- Fallback to manual detection for backwards compatibility
   -- Check manufacturer data
   if message.manufacturer_data and #message.manufacturer_data > 0 then
     for _, mfg in ipairs(message.manufacturer_data) do
       -- Switchbot uses company ID 0x0969
       if mfg.uuid == 0x0969 then
-        return "Switchbot"
+        return "SwitchBot"
       end
       -- Apple iBeacon uses 0x004C
       if mfg.uuid == 0x004C and mfg.data and #mfg.data >= 2 then
@@ -108,21 +116,22 @@ local function detectDeviceType(message)
       end
       -- Xiaomi uses 0xFE95
       if mfg.uuid == 0xFE95 then
-        return "Xiaomi"
+        return "Xiaomi/Mi"
       end
     end
   end
 
-  -- Check service UUIDs
+  -- Check service UUIDs (now they're objects with uuid field)
   if message.service_uuids and #message.service_uuids > 0 then
-    for _, uuid in ipairs(message.service_uuids) do
+    for _, svc in ipairs(message.service_uuids) do
+      local uuid = type(svc) == "table" and svc.uuid or svc
       -- Switchbot service UUID
       if uuid == "cba20d00-224d-11e6-9fb8-0002a5d5c51b" then
-        return "Switchbot"
+        return "SwitchBot"
       end
       -- Eddystone
       if uuid == "0000feaa-0000-1000-8000-00805f9b34fb" then
-        return "Eddystone"
+        return "Eddystone Beacon"
       end
     end
   end
@@ -193,17 +202,37 @@ client:connect()
         print(string.format("     RSSI: %d dBm", message.rssi or 0))
         print(string.format("     Addr Type: %s", message.address_type or 0))
 
+        -- Display manufacturer and device type if detected
+        if message.manufacturer then
+          print(string.format("     Manufacturer: %s", message.manufacturer))
+        end
+        if message.device_type then
+          local device_str = message.device_type
+          if message.model then
+            device_str = device_str .. " - " .. message.model
+          end
+          print(string.format("     Device Type: %s", device_str))
+        end
+
         if message.manufacturer_data and #message.manufacturer_data > 0 then
           for _, mfg in ipairs(message.manufacturer_data) do
             local data_hex = bytesToHex(mfg.data or "")
-            print(string.format("     Mfg Data: 0x%04X [%s]", mfg.uuid, data_hex))
+            local mfg_info = string.format("0x%04X", mfg.uuid)
+            if mfg.name then
+              mfg_info = mfg_info .. " (" .. mfg.name .. ")"
+            end
+            print(string.format("     Mfg Data: %s [%s]", mfg_info, data_hex))
           end
         end
 
         if message.service_uuids and #message.service_uuids > 0 then
           print("     Services:")
-          for _, uuid in ipairs(message.service_uuids) do
-            print(string.format("       - %s", uuid))
+          for _, svc in ipairs(message.service_uuids) do
+            local svc_info = svc.uuid
+            if svc.description then
+              svc_info = svc_info .. " (" .. svc.description .. ")"
+            end
+            print(string.format("       - %s", svc_info))
           end
         end
 
@@ -211,7 +240,11 @@ client:connect()
           print("     Service Data:")
           for _, svc in ipairs(message.service_data) do
             local data_hex = bytesToHex(svc.data or "")
-            print(string.format("       - %s: [%s]", svc.uuid, data_hex))
+            local svc_info = svc.uuid
+            if svc.description then
+              svc_info = svc_info .. " (" .. svc.description .. ")"
+            end
+            print(string.format("       - %s: [%s]", svc_info, data_hex))
           end
         end
 
