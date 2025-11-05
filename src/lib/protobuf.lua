@@ -11,32 +11,69 @@ local Protobuf = {}
 --- @param value number|boolean The value to encode.
 --- @return string bytes The encoded varint byte sequence.
 function Protobuf.encode_varint(value)
-  local bytes = {}
   if type(value) == "boolean" then
     value = value and 1 or 0
   end
 
   -- For values that fit in 32 bits, use bit operations for efficiency
-  -- Otherwise use math operations to handle 64-bit values
-  local use_bit_ops = value >= 0 and value < 0x100000000  -- 2^32
-
-  repeat
-    local byte
-    if use_bit_ops then
-      byte = bit.band(value, 0x7F)
+  if value >= 0 and value < 0x100000000 then  -- 2^32
+    local bytes = {}
+    repeat
+      local byte = bit.band(value, 0x7F)
       value = bit.rshift(value, 7)
-    else
-      -- Use math operations for large 64-bit values
-      byte = value % 128  -- Equivalent to bit.band(value, 0x7F)
-      value = math.floor(value / 128)  -- Equivalent to bit.rshift(value, 7)
-    end
+      if value > 0 then
+        byte = bit.bor(byte, 0x80)
+      end
+      table.insert(bytes, string.char(byte))
+    until value == 0
+    return table.concat(bytes)
+  end
 
-    if value > 0 then
-      byte = byte + 0x80  -- Mark this byte as "continued"
+  -- For large 64-bit values, first extract as bytes to avoid precision loss
+  -- then encode as varint
+  local value_bytes = {}
+  local temp = value
+
+  -- Extract up to 8 bytes (64 bits)
+  for i = 1, 8 do
+    local byte_val = temp % 256
+    value_bytes[i] = byte_val
+    temp = (temp - byte_val) / 256  -- Exact division since we subtracted the remainder
+    if temp == 0 then
+      break
     end
-    table.insert(bytes, string.char(byte))
-  until value == 0
-  return table.concat(bytes)
+  end
+
+  -- Now encode these bytes as a varint (7 bits per output byte)
+  local result = {}
+  local bit_buffer = 0
+  local bits_in_buffer = 0
+
+  for i = 1, #value_bytes do
+    -- Add this byte to the bit buffer
+    bit_buffer = bit_buffer + value_bytes[i] * (2 ^ bits_in_buffer)
+    bits_in_buffer = bits_in_buffer + 8
+
+    -- Extract 7-bit chunks from the buffer
+    while bits_in_buffer >= 7 do
+      local out_byte = bit_buffer % 128
+      bit_buffer = math.floor(bit_buffer / 128)
+      bits_in_buffer = bits_in_buffer - 7
+
+      -- Check if more bytes follow
+      if bits_in_buffer > 0 or i < #value_bytes then
+        out_byte = out_byte + 0x80
+      end
+      table.insert(result, string.char(out_byte))
+    end
+  end
+
+  -- Flush any remaining bits
+  if bits_in_buffer > 0 then
+    table.insert(result, string.char(bit_buffer))
+  end
+
+  return table.concat(result)
 end
 
 --- Decodes a varint byte sequence into an integer.
