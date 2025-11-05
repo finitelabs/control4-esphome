@@ -26,7 +26,7 @@ log:setLogName("BluetoothTest")
 -- Configuration from environment variables or defaults
 local CONFIG = {
   ip_address = os.getenv("ESPHOME_TEST_IP"),
-  port = 6053,
+  port = tonumber(os.getenv("ESPHOME_TEST_PORT")) or 6053,
   password = os.getenv("ESPHOME_TEST_PASSWORD"),
   encryption_key = os.getenv("ESPHOME_TEST_KEY"),
   use_openssl = false,
