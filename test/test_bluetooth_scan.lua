@@ -244,8 +244,9 @@ client:connect()
 -- Wait for scan duration
 local start_time = os.time()
 while os.time() - start_time < CONFIG.scan_duration do
-  -- Keep the event loop running
-  sleep(0.1)
+  -- Process timers and socket I/O
+  processEventLoop()
+  sleep(0.01)  -- Small sleep to prevent CPU spinning
 end
 
 -- Print summary

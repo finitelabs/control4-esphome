@@ -137,8 +137,14 @@ end
 local TCPClient = {}
 TCPClient.__index = TCPClient
 
+-- Global registry of active TCP clients
+local active_clients = {}
+local client_id_counter = 0
+
 function C4:CreateTCPClient()
+  client_id_counter = client_id_counter + 1
   local client = {
+    id = client_id_counter,
     socket = nil,
     on_connect = nil,
     on_disconnect = nil,
@@ -147,6 +153,7 @@ function C4:CreateTCPClient()
     connected = false
   }
   setmetatable(client, TCPClient)
+  active_clients[client.id] = client
   return client
 end
 
@@ -215,6 +222,11 @@ function TCPClient:Close()
   end
   self.connected = false
 
+  -- Remove from active clients
+  if self.id then
+    active_clients[self.id] = nil
+  end
+
   if self.on_disconnect then
     self.on_disconnect(self)
   end
@@ -275,6 +287,19 @@ end
 -- Global sleep function using luasocket
 function sleep(seconds)
   socket.sleep(seconds)
+end
+
+-- Global event loop processor - call this in test main loops
+function processEventLoop()
+  -- Process timers
+  C4:ProcessTimers()
+
+  -- Process socket reads for all active TCP clients
+  for _, client in pairs(active_clients) do
+    if client.DoRead then
+      client:DoRead()
+    end
+  end
 end
 
 print("C4 shim layer loaded successfully")

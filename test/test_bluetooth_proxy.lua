@@ -363,13 +363,8 @@ local test_timeout = 30 -- 30 seconds timeout
 local test_start_time = socket.gettime()
 
 while running do
-  -- Process timers
-  C4:ProcessTimers()
-
-  -- Process socket reads (if client exists and has a socket)
-  if client and client._client and client._client.DoRead then
-    client._client:DoRead()
-  end
+  -- Process timers and socket I/O
+  processEventLoop()
 
   -- Check for timeout
   if not test_state.test_complete then
