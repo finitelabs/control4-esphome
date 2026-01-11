@@ -12,11 +12,10 @@ local noise = require("vendor.noiseprotocol")
 
 local NULL_BYTE = "\x00"
 
---- @enum NoiseProtocolCallback
-local NoiseProtocolCallback = {
-  -- These are negative values to avoid conflicts with message IDs
-  HELLO = -1,
-  HANDSHAKE = -2,
+--- @enum NoiseProtocolCallbackKey
+local NoiseProtocolCallbackKey = {
+  HELLO = "noise_hello",
+  HANDSHAKE = "noise_handshake",
 }
 
 --- @enum NoiseState
@@ -33,6 +32,13 @@ local Indicator = {
   NOISE = "\x01",
 }
 
+--- @alias CallbackKey string A key for identifying callbacks (message ID or composite)
+--- @alias CallbackFunction fun(message: table<string, any>, schema: ProtoMessageSchema): void
+
+--- @class CallbackEntry
+--- @field callback CallbackFunction The callback function to invoke
+--- @field timer C4LuaTimer|nil Optional timeout timer for auto-unregistration
+
 --- A class representing the ESPHome API client.
 --- @class ESPHomeClient
 --- @field EntityType EntityType
@@ -43,7 +49,7 @@ local Indicator = {
 --- @field _password string|nil The password for the ESPHome device.
 --- @field _encryptionKey string|nil The encryption key for the ESPHome device.
 --- @field _buffer string The buffer for incoming data.
---- @field _callbacks table<string, (fun(message: table<string, any>, schema: ProtoMessageSchema))|nil> The callback for the next expected response.
+--- @field _callbacks table<CallbackKey, CallbackEntry> Registered callbacks keyed by message ID or composite key.
 --- @field _pingTimer C4LuaTimer|nil The timer for sending ping messages.
 --- @field _hs NoiseConnection|nil The Noise protocol connection for encrypted communication.
 --- @field _hsState NoiseState|nil The current state of the Noise protocol handshake.
@@ -199,24 +205,24 @@ function ESPHomeClient:connect()
   end
 
   -- Add callbacks for any requests we can expect to receive from the device
-  self._callbacks[ESPHomeProtoSchema.Message.PingRequest.options.id] = function(message)
+  self:_registerCallback(self:_makeMessageCallbackKey(ESPHomeProtoSchema.Message.PingRequest), function(message)
     --- @cast message ProtoPingRequest
     log:debug("Received ping request: %s", message)
     self:sendMessage(ESPHomeProtoSchema.Message.PingResponse, {})
-  end
-  self._callbacks[ESPHomeProtoSchema.Message.GetTimeRequest.options.id] = function(message)
+  end)
+  self:_registerCallback(self:_makeMessageCallbackKey(ESPHomeProtoSchema.Message.GetTimeRequest), function(message)
     --- @cast message ProtoGetTimeRequest
     log:debug("Received get time request: %s", message)
     self:sendMessage(ESPHomeProtoSchema.Message.GetTimeResponse, {
       epoch_seconds = os.time(),
     })
-  end
-  self._callbacks[ESPHomeProtoSchema.Message.DisconnectRequest.options.id] = function(message)
+  end)
+  self:_registerCallback(self:_makeMessageCallbackKey(ESPHomeProtoSchema.Message.DisconnectRequest), function(message)
     --- @cast message ProtoDisconnectRequest
     log:warn("Received disconnect request: %s", message)
     self:sendMessage(ESPHomeProtoSchema.Message.DisconnectResponse, {})
     self:disconnect()
-  end
+  end)
 
   -- Create a new TCP client
   self._client = C4:CreateTCPClient()
@@ -327,6 +333,13 @@ function ESPHomeClient:disconnect()
   self._hs = nil
   self._hsState = nil
   self._buffer = ""
+
+  -- Cancel all callback timers before clearing
+  for _, entry in pairs(self._callbacks) do
+    if entry and entry.timer then
+      entry.timer:Cancel()
+    end
+  end
   self._callbacks = {}
   self._pingTimer = nil
 
@@ -355,9 +368,16 @@ function ESPHomeClient:listEntities()
   --- @type table<string, table>
   local entities = {}
 
-  -- Track the callbacks that are added so they can be removed once we receive the done message
-  --- @type number[]
-  local addedCallbacks = {}
+  -- Track the callback keys that are added so they can be removed once we receive the done message
+  --- @type CallbackKey[]
+  local addedCallbackKeys = {}
+
+  --- Remove all registered callbacks for this list entities request
+  local function removeCallbacks()
+    for _, key in ipairs(addedCallbackKeys) do
+      self:_unregisterCallback(key)
+    end
+  end
 
   for _, schema in pairs(ESPHomeProtoSchema.Message) do
     -- HACK: No reliable way to identify list_entity responses from proto definition.
@@ -370,32 +390,28 @@ function ESPHomeClient:listEntities()
       elseif schema.name ~= "ListEntitiesDoneResponse" then
         log:trace("Registering %s entity callback", name)
 
-        table.insert(addedCallbacks, schema.options.id)
-        self._callbacks[schema.options.id] = function(message)
+        local key = self:_registerCallback(self:_makeMessageCallbackKey(schema), function(message)
           log:trace("Received %s entity: %s", entityType, message)
           message.entity_type = entityType
           entities[tostring(message.key)] = message
-        end
-      else
-        table.insert(addedCallbacks, schema.options.id)
-        local function removeCallbacks()
-          -- Remove the callbacks for the entities
-          for _, id in ipairs(addedCallbacks) do
-            self._callbacks[id] = nil
-          end
-        end
-        -- Add a timeout to the list entities request to prevent unresolved promises
-        local timeoutTimer = C4:SetTimer(10 * ONE_SECOND, function()
-          log:warn("Timeout waiting for list entities response")
-          removeCallbacks()
-          d:reject("Timeout waiting for list entities response")
         end)
-        self._callbacks[schema.options.id] = function(_)
-          log:debug("Received %d entities: %s", TableLength(entities), entities)
-          timeoutTimer:Cancel()
-          removeCallbacks()
-          d:resolve(entities)
-        end
+        table.insert(addedCallbackKeys, key)
+      else
+        -- Register callback for ListEntitiesDoneResponse with timeout
+        local key = self:_registerCallback(
+          self:_makeMessageCallbackKey(schema),
+          function(_)
+            log:debug("Received %d entities: %s", TableLength(entities), entities)
+            removeCallbacks()
+            d:resolve(entities)
+          end,
+          10 * ONE_SECOND,
+          function()
+            removeCallbacks()
+            d:reject("Timeout waiting for list entities response")
+          end
+        )
+        table.insert(addedCallbackKeys, key)
       end
     end
   end
@@ -435,7 +451,7 @@ function ESPHomeClient:subscribeStates(callback)
     local name, _ = schema.name:match("^(.+)StateResponse$")
     if not IsEmpty(name) and not EXCLUDED_STATE_RESPONSES[schema.name] then
       log:debug("Registering %s state callback", name)
-      self._callbacks[schema.options.id] = function(message, messageSchema)
+      self:_registerCallback(self:_makeMessageCallbackKey(schema), function(message, messageSchema)
         log:debug("Received %s state update: %s", name, message)
         local callbackSuccess, err = pcall(callback, message, messageSchema)
         if not callbackSuccess then
@@ -444,7 +460,7 @@ function ESPHomeClient:subscribeStates(callback)
           end
           log:error("State callback for %s failed: %s", name, err)
         end
-      end
+      end)
     end
   end
 
@@ -500,17 +516,18 @@ function ESPHomeClient:sendNoiseHello()
   -- Hello message
   local frame = "\x01\x00\x00"
 
-  local timeoutTimer = C4:SetTimer(5 * ONE_SECOND, function()
-    -- Remove the callback for the response
-    self._callbacks[NoiseProtocolCallback.HELLO] = nil
-    self._hsState = NoiseState.ERROR
-    d:reject("Timeout waiting for SERVER_HELLO response")
-  end)
-  self._callbacks[NoiseProtocolCallback.HELLO] = function(message)
-    log:debug("Received SERVER_HELLO: node=%s, mac=%s", message.node, message.mac_address)
-    timeoutTimer:Cancel()
-    d:resolve(nil)
-  end
+  self:_registerCallback(
+    NoiseProtocolCallbackKey.HELLO,
+    function(message)
+      log:debug("Received SERVER_HELLO: node=%s, mac=%s", message.node, message.mac_address)
+      d:resolve(nil)
+    end,
+    5 * ONE_SECOND,
+    function()
+      self._hsState = NoiseState.ERROR
+      d:reject("Timeout waiting for SERVER_HELLO response")
+    end
+  )
 
   self._hsState = NoiseState.HELLO
   log:ultra("Sending CLIENT_HELLO frame (hex): %s", to_hex(frame))
@@ -544,36 +561,36 @@ function ESPHomeClient:sendHandshake()
 
   local frame = Indicator.NOISE .. bit16.u16_to_be_bytes(#handshake) .. handshake
 
-  local timeoutTimer = C4:SetTimer(5 * ONE_SECOND, function()
-    self:checkHandshakeState(NoiseState.HANDSHAKE)
+  self:_registerCallback(
+    NoiseProtocolCallbackKey.HANDSHAKE,
+    function(success, message)
+      self:checkHandshakeState(NoiseState.HANDSHAKE)
 
-    -- Remove the callback for the response
-    self._callbacks[NoiseProtocolCallback.HANDSHAKE] = nil
-    self._hsState = NoiseState.ERROR
-    d:reject("Timeout waiting for HANDSHAKE response")
-  end)
-  self._callbacks[NoiseProtocolCallback.HANDSHAKE] = function(success, message)
-    timeoutTimer:Cancel()
-    self:checkHandshakeState(NoiseState.HANDSHAKE)
+      if not success then
+        log:error("HANDSHAKE failed: %s", message)
+        self._hsState = NoiseState.ERROR
+        return d:reject(message)
+      end
 
-    if not success then
-      log:error("HANDSHAKE failed: %s", message)
+      assert(self._hs):read_handshake_message(message)
+
+      if not self._hs.handshake_complete then
+        log:error("Handshake not completed after reading handshake message")
+        self._hsState = NoiseState.ERROR
+        return d:reject("Handshake not completed")
+      end
+
+      log:debug("Handshake completed successfully")
+      self._hsState = NoiseState.READY
+      d:resolve(nil)
+    end,
+    5 * ONE_SECOND,
+    function()
+      self:checkHandshakeState(NoiseState.HANDSHAKE)
       self._hsState = NoiseState.ERROR
-      return d:reject(message)
+      d:reject("Timeout waiting for HANDSHAKE response")
     end
-
-    assert(self._hs):read_handshake_message(message)
-
-    if not self._hs.handshake_complete then
-      log:error("Handshake not completed after reading handshake message")
-      self._hsState = NoiseState.ERROR
-      return d:reject("Handshake not completed")
-    end
-
-    log:debug("Handshake completed successfully")
-    self._hsState = NoiseState.READY
-    d:resolve(nil)
-  end
+  )
 
   self._hsState = NoiseState.HANDSHAKE
   log:ultra("Sending HANDSHAKE frame (hex): %s", to_hex(frame))
@@ -589,9 +606,10 @@ function ESPHomeClient:sendAuthenticate()
   log:trace("ESPHomeClient:sendAuthenticate()")
 
   -- Register async handler for AuthenticationResponse (sets fatal error on invalid password)
-  self._callbacks[ESPHomeProtoSchema.Message.AuthenticationResponse.options.id] = function(message)
+  local authKey = self:_makeMessageCallbackKey(ESPHomeProtoSchema.Message.AuthenticationResponse)
+  self:_registerCallback(authKey, function(message)
     -- Remove callback immediately
-    self._callbacks[ESPHomeProtoSchema.Message.AuthenticationResponse.options.id] = nil
+    self:_unregisterCallback(authKey)
 
     if message.invalid_password then
       log:error("Connect unsuccessful (invalid password)")
@@ -601,7 +619,7 @@ function ESPHomeClient:sendAuthenticate()
     else
       log:debug("Connect successful")
     end
-  end
+  end)
 
   -- Send AuthenticationRequest without waiting for response
   return self:sendMessage(
@@ -703,16 +721,19 @@ function ESPHomeClient:sendMessage(messageSchema, body, responseSchema, timeout)
   end
 
   -- Store callback for response if one is expected
+  local responseKey
   if responseSchema then
-    local timeoutTimer = C4:SetTimer(timeout or (5 * ONE_SECOND), function()
-      log:warn("Timeout waiting for response to %s", messageSchema.name)
-      d:reject("Timeout waiting for response to " .. messageSchema.name)
-    end)
-    self._callbacks[responseSchema.options.id] = function(message)
-      log:debug("Received response to %s", messageSchema.name)
-      timeoutTimer:Cancel()
-      d:resolve(message)
-    end
+    responseKey = self:_registerCallback(
+      self:_makeMessageCallbackKey(responseSchema),
+      function(message)
+        log:debug("Received response to %s", messageSchema.name)
+        d:resolve(message)
+      end,
+      timeout or (5 * ONE_SECOND),
+      function()
+        d:reject("Timeout waiting for response to " .. messageSchema.name)
+      end
+    )
   else
     -- If no response is expected, resolve immediately after sending
     d:resolve(nil)
@@ -723,20 +744,160 @@ function ESPHomeClient:sendMessage(messageSchema, body, responseSchema, timeout)
   self._client:Write(frame)
 
   return d:next(function(message)
-    if responseSchema then
-      self._callbacks[responseSchema.options.id] = nil
-    end
+    self:_unregisterCallback(responseKey)
     return message
   end, function(err)
-    if responseSchema then
-      self._callbacks[responseSchema.options.id] = nil
-    end
+    self:_unregisterCallback(responseKey)
     return reject(err)
   end)
 end
 
+--
+-- Private Methods
+--
+
+--- Generate a callback key for a message schema.
+--- @param messageSchema ProtoMessageSchema The message schema
+--- @return CallbackKey key The generated callback key
+--- @private
+function ESPHomeClient:_makeMessageCallbackKey(messageSchema)
+  local id = Select(messageSchema, "options", "id")
+  assert(id, "Message schema must have options.id")
+  return tostring(id)
+end
+
+--- Generate a callback key for a message ID and Bluetooth address.
+--- @param messageId integer The message type ID
+--- @param address number|table The Bluetooth device address (uint64 or Int64HighLow)
+--- @return CallbackKey key The generated callback key
+--- @private
+function ESPHomeClient:_makeBluetoothCallbackKey(messageId, address)
+  error("Bluetooth callback keys not yet implemented")
+end
+
+--- Generate a callback key for a message ID, Bluetooth address, and GATT handle.
+--- @param messageId integer The message type ID
+--- @param address number|table The Bluetooth device address (uint64 or Int64HighLow)
+--- @param handle integer The GATT handle
+--- @return CallbackKey key The generated callback key
+--- @private
+function ESPHomeClient:_makeGattCallbackKey(messageId, address, handle)
+  error("GATT callback keys not yet implemented")
+end
+
+--- Register a callback for a given key with optional timeout.
+--- @param key CallbackKey The callback key
+--- @param callback CallbackFunction The callback function
+--- @param timeout? number Optional timeout in milliseconds for auto-unregistration
+--- @param onTimeout? fun(): void Optional callback invoked on timeout (before unregistration)
+--- @return CallbackKey key The registered key (for later unregistration)
+--- @private
+function ESPHomeClient:_registerCallback(key, callback, timeout, onTimeout)
+  log:trace("ESPHomeClient:_registerCallback(%s, <fn>, %s)", key, timeout)
+
+  -- Cancel any existing timer for this key
+  local existing = self._callbacks[key]
+  if existing and existing.timer then
+    existing.timer:Cancel()
+  end
+
+  --- @type CallbackEntry
+  local entry = {
+    callback = callback,
+    timer = nil,
+  }
+
+  -- Set up timeout timer if specified
+  if timeout and timeout > 0 then
+    entry.timer = C4:SetTimer(timeout, function()
+      log:warn("Callback timeout for key: %s", key)
+      if onTimeout then
+        onTimeout()
+      end
+      self:_unregisterCallback(key)
+    end)
+  end
+
+  self._callbacks[key] = entry
+  log:debug("Registered callback for key: %s (timeout: %s ms)", key, timeout or "none")
+  return key
+end
+
+--- Unregister a callback by key. No-op if key is nil.
+--- @param key CallbackKey|nil The callback key to unregister
+--- @private
+function ESPHomeClient:_unregisterCallback(key)
+  if key == nil then
+    return
+  end
+  log:trace("ESPHomeClient:_unregisterCallback(%s)", key)
+
+  local entry = self._callbacks[key]
+  if entry then
+    if entry.timer then
+      entry.timer:Cancel()
+    end
+    self._callbacks[key] = nil
+    log:debug("Unregistered callback for key: %s", key)
+  end
+end
+
+--- Find and invoke a callback for a message.
+--- Uses priority lookup: GATT > Bluetooth > Message ID (most specific wins).
+--- @param messageType integer The message type ID
+--- @param message table<string, any> The decoded message
+--- @param schema ProtoMessageSchema The message schema
+--- @return boolean found True if a callback was found and invoked
+--- @private
+function ESPHomeClient:_invokeCallback(messageType, message, schema)
+  log:trace("ESPHomeClient:_invokeCallback(%s, <msg>, %s)", messageType, schema.name)
+
+  -- Try most specific first: message + address + handle
+  if message.address ~= nil and message.handle ~= nil then
+    local gattKey = self:_makeGattCallbackKey(messageType, message.address, message.handle)
+    if self:_invokeCallbackByKey(gattKey, message, schema) then
+      return true
+    end
+  end
+
+  -- Try message + address
+  if message.address ~= nil then
+    local btKey = self:_makeBluetoothCallbackKey(messageType, message.address)
+    if self:_invokeCallbackByKey(btKey, message, schema) then
+      return true
+    end
+  end
+
+  -- Fall back to message ID only
+  return self:_invokeCallbackByKey(tostring(messageType), message, schema)
+end
+
+--- Invoke a callback by key with variadic arguments.
+--- @param key CallbackKey The callback key
+--- @param ... any Arguments to pass to the callback
+--- @return boolean found True if a callback was found and invoked
+--- @private
+function ESPHomeClient:_invokeCallbackByKey(key, ...)
+  local entry = self._callbacks[key]
+
+  if entry and entry.callback then
+    log:debug("Invoking callback for key: %s", key)
+    local success, err = pcall(entry.callback, ...)
+    if not success then
+      if IsEmpty(err) or type(err) ~= "string" then
+        err = "unknown error"
+      end
+      log:error("Callback for key %s failed: %s", key, err)
+    end
+    return true
+  end
+
+  return false
+end
+
 --- Process the current data buffer and decodes any valid packets recursively.
 --- Currently only plaintext packets are supported.
+--- @private
 function ESPHomeClient:_processBuffer()
   log:trace("ESPHomeClient:_processBuffer()")
   -- We need at least 3 bytes to begin processing a frame
@@ -865,12 +1026,10 @@ function ESPHomeClient:_processBuffer()
       log:debug("SERVER_HELLO message - Node: %s, MAC: %s", nodeName, macAddress)
 
       -- Call the callback for SERVER_HELLO if registered
-      if type(self._callbacks[NoiseProtocolCallback.HELLO]) == "function" then
-        self._callbacks[NoiseProtocolCallback.HELLO]({
-          node = nodeName,
-          mac_address = macAddress,
-        })
-      end
+      self:_invokeCallbackByKey(NoiseProtocolCallbackKey.HELLO, {
+        node = nodeName,
+        mac_address = macAddress,
+      })
     elseif self._hsState == NoiseState.HANDSHAKE then
       -- HANDSHAKE error message structure
       --[[
@@ -890,9 +1049,7 @@ function ESPHomeClient:_processBuffer()
       log:trace("HANDSHAKE message - Success: %s, Message: %s", success, to_hex(message))
 
       -- Call the callback for HANDSHAKE if registered
-      if type(self._callbacks[NoiseProtocolCallback.HANDSHAKE]) == "function" then
-        self._callbacks[NoiseProtocolCallback.HANDSHAKE](success, message)
-      end
+      self:_invokeCallbackByKey(NoiseProtocolCallbackKey.HANDSHAKE, success, message)
     elseif self._hsState == NoiseState.READY then
       local ok, decryptedPayload = pcall(assert(self._hs).receive_message, self._hs, encryptedPayload)
       if not ok or decryptedPayload == nil then
@@ -941,6 +1098,7 @@ end
 
 --- @param messageType integer
 --- @param payload string
+--- @private
 function ESPHomeClient:_processPayload(messageType, payload)
   log:trace("ESPHomeClient:_processPayload(%s, %d bytes)", messageType, #payload)
 
@@ -968,16 +1126,7 @@ function ESPHomeClient:_processPayload(messageType, payload)
   log:trace("Decoded esphome message: %s(%s)", messageSchema.name, message)
 
   -- Call any registered callbacks for the message type
-  if type(self._callbacks[messageType]) == "function" then
-    log:debug("Calling registered callback for message type %s", messageType)
-    local callbackSuccess, err = pcall(self._callbacks[messageType], message, messageSchema)
-    if not callbackSuccess then
-      if IsEmpty(err) or type(err) ~= "string" then
-        err = "unknown error"
-      end
-      log:error("Callback for message type %s failed; %s", messageType, err)
-    end
-  end
+  self:_invokeCallback(messageType, message, messageSchema)
 end
 
 return ESPHomeClient
