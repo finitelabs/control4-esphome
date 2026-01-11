@@ -97,11 +97,12 @@ local function fixFormatArgs(numArgs, args)
   for i = 1, numArgs + 1 do
     if args[i] == nil then
       args[i] = "nil"
-    end
-    if type(args[i]) == "table" then
+    elseif type(args[i]) == "table" then
       args[i] = JSON:encode(args[i])
-    end
-    if type(args[i]) ~= "string" and type(args[i]) ~= "number" then
+    elseif type(args[i]) == "number" then
+      -- Use tostring_return_period to avoid scientific notation for large integers
+      args[i] = tostring_return_period(args[i])
+    elseif type(args[i]) ~= "string" then
       args[i] = tostring(args[i])
     end
   end

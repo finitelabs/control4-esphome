@@ -332,18 +332,26 @@ end
 --- Produces a list containing only unique values from the input table.
 --- Removes duplicate values while maintaining the original order.
 --- @param t table Array-like table to process
+--- @param mapper? fun(value: any): any Optional function to map values before checking for uniqueness.
 --- @return table uniqueList New table containing unique values
-function UniqueList(t)
+function UniqueList(t, mapper)
   if type(t) ~= "table" then
     return {}
   end
+  if type(mapper) ~= "function" then
+    mapper = function(v)
+      return v
+    end
+  end
+
   local seen = {}
   local list = {}
 
   for _, v in ipairs(t) do
-    if not seen[v] then
+    local key = mapper(v)
+    if not seen[key] then
       table.insert(list, v)
-      seen[v] = true
+      seen[key] = true
     end
   end
   return list

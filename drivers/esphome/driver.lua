@@ -71,7 +71,7 @@ function OnDriverLateInit()
     return
   end
 
-  -- Firmaware version is usually an entity and will be picked up by state updates
+  -- Firmware version is usually an entity and will be picked up by state updates
   C4:SetPropertyAttribs("Firmware Version", constants.HIDE_PROPERTY)
 
   C4:FileSetDir("c29tZXNwZWNpYWxrZXk=++11")

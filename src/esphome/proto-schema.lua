@@ -1,12 +1,16 @@
 -- Generated Lua schema from protobuf descriptor set
 -- Do not edit manually
 
+--- Int64 values may be represented as a {high, low} table when the value
+--- exceeds Lua's number precision (values > 2^53).
+--- @alias Int64HighLow {[1]: number, [2]: number}
+
 --- @class ProtoFieldSchema
 --- @field name string The name of the field.
---- @field wireType integer The protobuf wire type (see ProtoSchema.WireType).
---- @field type integer The protobuf type (see ProtoSchema.DataType).
+--- @field wireType ProtoWireType The protobuf wire type (see ProtoSchema.WireType).
+--- @field type ProtoDataType The protobuf type (see ProtoSchema.DataType).
 --- @field repeated boolean? Whether the field is repeated (optional).
---- @field subschema ProtoMessageSchema? The subschema for nested messages (optional).
+--- @field subschema string? The subschema name for nested messages (optional).
 
 --- @class ProtoMessageSchema
 --- @field name string The name of the message type.
@@ -23,14 +27,14 @@
 --- @field [string] ProtoServiceMethodSchema Maps method names to their method definitions.
 
 --- @class ProtoSchema
---- @field WireType WireType Maps protobuf wire types to their integer values.
---- @field DataType DataType Maps protobuf data types to their integer values.
+--- @field WireType ProtoWireType Maps protobuf wire types to their integer values.
+--- @field DataType ProtoDataType Maps protobuf data types to their integer values.
 --- @field Message table<string, ProtoMessageSchema> Maps message names to their definitions.
 --- @field Enum table<string, ProtoEnum> Maps enum names to their definitions.
 --- @field RPC table<string, ProtoServiceSchema> Maps service names to their method definitions.
 local PROTOBUF_SCHEMA = {}
 
---- @enum WireType
+--- @enum ProtoWireType
 PROTOBUF_SCHEMA.WireType = {
   VARINT = 0,
   FIXED64 = 1,
@@ -38,7 +42,7 @@ PROTOBUF_SCHEMA.WireType = {
   FIXED32 = 5,
 }
 
---- @enum DataType
+--- @enum ProtoDataType
 PROTOBUF_SCHEMA.DataType = {
   DOUBLE = 1,
   FLOAT = 2,
@@ -59,48 +63,1073 @@ PROTOBUF_SCHEMA.DataType = {
   SINT64 = 18,
 }
 
+--
+-- Message type annotations for IDE support
+--
+
+--- @class ProtoHelloRequest
+--- @field client_info string?
+--- @field api_version_major number?
+--- @field api_version_minor number?
+
+--- @class ProtoHelloResponse
+--- @field api_version_major number?
+--- @field api_version_minor number?
+--- @field server_info string?
+--- @field name string?
+
+--- @class ProtoAuthenticationRequest
+--- @field password string?
+
+--- @class ProtoAuthenticationResponse
+--- @field invalid_password boolean?
+
+--- @class ProtoDisconnectRequest
+
+--- @class ProtoDisconnectResponse
+
+--- @class ProtoPingRequest
+
+--- @class ProtoPingResponse
+
+--- @class ProtoDeviceInfoRequest
+
+--- @class ProtoAreaInfo
+--- @field area_id number?
+--- @field name string?
+
+--- @class ProtoDeviceInfo
+--- @field device_id number?
+--- @field name string?
+--- @field area_id number?
+
+--- @class ProtoDeviceInfoResponse
+--- @field uses_password boolean?
+--- @field name string?
+--- @field mac_address string?
+--- @field esphome_version string?
+--- @field compilation_time string?
+--- @field model string?
+--- @field has_deep_sleep boolean?
+--- @field project_name string?
+--- @field project_version string?
+--- @field webserver_port number?
+--- @field legacy_bluetooth_proxy_version number?
+--- @field bluetooth_proxy_feature_flags number?
+--- @field manufacturer string?
+--- @field friendly_name string?
+--- @field legacy_voice_assistant_version number?
+--- @field voice_assistant_feature_flags number?
+--- @field suggested_area string?
+--- @field bluetooth_mac_address string?
+--- @field api_encryption_supported boolean?
+--- @field devices ProtoDeviceInfo[]?
+--- @field areas ProtoAreaInfo[]?
+--- @field area ProtoAreaInfo?
+--- @field zwave_proxy_feature_flags number?
+--- @field zwave_home_id number?
+
+--- @class ProtoListEntitiesRequest
+
+--- @class ProtoListEntitiesDoneResponse
+
+--- @class ProtoSubscribeStatesRequest
+
+--- @class ProtoListEntitiesBinarySensorResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field device_class string?
+--- @field is_status_binary_sensor boolean?
+--- @field disabled_by_default boolean?
+--- @field icon string?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_id number?
+
+--- @class ProtoBinarySensorStateResponse
+--- @field key number?
+--- @field state boolean?
+--- @field missing_state boolean?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesCoverResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field assumed_state boolean?
+--- @field supports_position boolean?
+--- @field supports_tilt boolean?
+--- @field device_class string?
+--- @field disabled_by_default boolean?
+--- @field icon string?
+--- @field entity_category ProtoEntityCategory?
+--- @field supports_stop boolean?
+--- @field device_id number?
+
+--- @class ProtoCoverStateResponse
+--- @field key number?
+--- @field legacy_state ProtoLegacyCoverState?
+--- @field position number?
+--- @field tilt number?
+--- @field current_operation ProtoCoverOperation?
+--- @field device_id number?
+
+--- @class ProtoCoverCommandRequest
+--- @field key number?
+--- @field has_legacy_command boolean?
+--- @field legacy_command ProtoLegacyCoverCommand?
+--- @field has_position boolean?
+--- @field position number?
+--- @field has_tilt boolean?
+--- @field tilt number?
+--- @field stop boolean?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesFanResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field supports_oscillation boolean?
+--- @field supports_speed boolean?
+--- @field supports_direction boolean?
+--- @field supported_speed_count number?
+--- @field disabled_by_default boolean?
+--- @field icon string?
+--- @field entity_category ProtoEntityCategory?
+--- @field supported_preset_modes string[]?
+--- @field device_id number?
+
+--- @class ProtoFanStateResponse
+--- @field key number?
+--- @field state boolean?
+--- @field oscillating boolean?
+--- @field speed ProtoFanSpeed?
+--- @field direction ProtoFanDirection?
+--- @field speed_level number?
+--- @field preset_mode string?
+--- @field device_id number?
+
+--- @class ProtoFanCommandRequest
+--- @field key number?
+--- @field has_state boolean?
+--- @field state boolean?
+--- @field has_speed boolean?
+--- @field speed ProtoFanSpeed?
+--- @field has_oscillating boolean?
+--- @field oscillating boolean?
+--- @field has_direction boolean?
+--- @field direction ProtoFanDirection?
+--- @field has_speed_level boolean?
+--- @field speed_level number?
+--- @field has_preset_mode boolean?
+--- @field preset_mode string?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesLightResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field supported_color_modes ProtoColorMode[]?
+--- @field legacy_supports_brightness boolean?
+--- @field legacy_supports_rgb boolean?
+--- @field legacy_supports_white_value boolean?
+--- @field legacy_supports_color_temperature boolean?
+--- @field min_mireds number?
+--- @field max_mireds number?
+--- @field effects string[]?
+--- @field disabled_by_default boolean?
+--- @field icon string?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_id number?
+
+--- @class ProtoLightStateResponse
+--- @field key number?
+--- @field state boolean?
+--- @field brightness number?
+--- @field color_mode ProtoColorMode?
+--- @field color_brightness number?
+--- @field red number?
+--- @field green number?
+--- @field blue number?
+--- @field white number?
+--- @field color_temperature number?
+--- @field cold_white number?
+--- @field warm_white number?
+--- @field effect string?
+--- @field device_id number?
+
+--- @class ProtoLightCommandRequest
+--- @field key number?
+--- @field has_state boolean?
+--- @field state boolean?
+--- @field has_brightness boolean?
+--- @field brightness number?
+--- @field has_color_mode boolean?
+--- @field color_mode ProtoColorMode?
+--- @field has_color_brightness boolean?
+--- @field color_brightness number?
+--- @field has_rgb boolean?
+--- @field red number?
+--- @field green number?
+--- @field blue number?
+--- @field has_white boolean?
+--- @field white number?
+--- @field has_color_temperature boolean?
+--- @field color_temperature number?
+--- @field has_cold_white boolean?
+--- @field cold_white number?
+--- @field has_warm_white boolean?
+--- @field warm_white number?
+--- @field has_transition_length boolean?
+--- @field transition_length number?
+--- @field has_flash_length boolean?
+--- @field flash_length number?
+--- @field has_effect boolean?
+--- @field effect string?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesSensorResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field unit_of_measurement string?
+--- @field accuracy_decimals number?
+--- @field force_update boolean?
+--- @field device_class string?
+--- @field state_class ProtoSensorStateClass?
+--- @field legacy_last_reset_type ProtoSensorLastResetType?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_id number?
+
+--- @class ProtoSensorStateResponse
+--- @field key number?
+--- @field state number?
+--- @field missing_state boolean?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesSwitchResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field assumed_state boolean?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_class string?
+--- @field device_id number?
+
+--- @class ProtoSwitchStateResponse
+--- @field key number?
+--- @field state boolean?
+--- @field device_id number?
+
+--- @class ProtoSwitchCommandRequest
+--- @field key number?
+--- @field state boolean?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesTextSensorResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_class string?
+--- @field device_id number?
+
+--- @class ProtoTextSensorStateResponse
+--- @field key number?
+--- @field state string?
+--- @field missing_state boolean?
+--- @field device_id number?
+
+--- @class ProtoSubscribeLogsRequest
+--- @field level ProtoLogLevel?
+--- @field dump_config boolean?
+
+--- @class ProtoSubscribeLogsResponse
+--- @field level ProtoLogLevel?
+--- @field message string?
+
+--- @class ProtoNoiseEncryptionSetKeyRequest
+--- @field key string?
+
+--- @class ProtoNoiseEncryptionSetKeyResponse
+--- @field success boolean?
+
+--- @class ProtoSubscribeHomeassistantServicesRequest
+
+--- @class ProtoHomeassistantServiceMap
+--- @field key string?
+--- @field value string?
+
+--- @class ProtoHomeassistantActionRequest
+--- @field service string?
+--- @field data ProtoHomeassistantServiceMap[]?
+--- @field data_template ProtoHomeassistantServiceMap[]?
+--- @field variables ProtoHomeassistantServiceMap[]?
+--- @field is_event boolean?
+--- @field call_id number?
+--- @field wants_response boolean?
+--- @field response_template string?
+
+--- @class ProtoHomeassistantActionResponse
+--- @field call_id number?
+--- @field success boolean?
+--- @field error_message string?
+--- @field response_data string?
+
+--- @class ProtoSubscribeHomeAssistantStatesRequest
+
+--- @class ProtoSubscribeHomeAssistantStateResponse
+--- @field entity_id string?
+--- @field attribute string?
+--- @field once boolean?
+
+--- @class ProtoHomeAssistantStateResponse
+--- @field entity_id string?
+--- @field state string?
+--- @field attribute string?
+
+--- @class ProtoGetTimeRequest
+
+--- @class ProtoGetTimeResponse
+--- @field epoch_seconds number?
+--- @field timezone string?
+
+--- @class ProtoListEntitiesServicesArgument
+--- @field name string?
+--- @field type ProtoServiceArgType?
+
+--- @class ProtoListEntitiesServicesResponse
+--- @field name string?
+--- @field key number?
+--- @field args ProtoListEntitiesServicesArgument[]?
+--- @field supports_response ProtoSupportsResponseType?
+
+--- @class ProtoExecuteServiceArgument
+--- @field bool_ boolean?
+--- @field legacy_int number?
+--- @field float_ number?
+--- @field string_ string?
+--- @field int_ number?
+--- @field bool_array boolean[]?
+--- @field int_array number[]?
+--- @field float_array number[]?
+--- @field string_array string[]?
+
+--- @class ProtoExecuteServiceRequest
+--- @field key number?
+--- @field args ProtoExecuteServiceArgument[]?
+--- @field call_id number?
+--- @field return_response boolean?
+
+--- @class ProtoExecuteServiceResponse
+--- @field call_id number?
+--- @field success boolean?
+--- @field error_message string?
+--- @field response_data string?
+
+--- @class ProtoListEntitiesCameraResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field disabled_by_default boolean?
+--- @field icon string?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_id number?
+
+--- @class ProtoCameraImageResponse
+--- @field key number?
+--- @field data string?
+--- @field done boolean?
+--- @field device_id number?
+
+--- @class ProtoCameraImageRequest
+--- @field single boolean?
+--- @field stream boolean?
+
+--- @class ProtoListEntitiesClimateResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field supports_current_temperature boolean?
+--- @field supports_two_point_target_temperature boolean?
+--- @field supported_modes ProtoClimateMode[]?
+--- @field visual_min_temperature number?
+--- @field visual_max_temperature number?
+--- @field visual_target_temperature_step number?
+--- @field legacy_supports_away boolean?
+--- @field supports_action boolean?
+--- @field supported_fan_modes ProtoClimateFanMode[]?
+--- @field supported_swing_modes ProtoClimateSwingMode[]?
+--- @field supported_custom_fan_modes string[]?
+--- @field supported_presets ProtoClimatePreset[]?
+--- @field supported_custom_presets string[]?
+--- @field disabled_by_default boolean?
+--- @field icon string?
+--- @field entity_category ProtoEntityCategory?
+--- @field visual_current_temperature_step number?
+--- @field supports_current_humidity boolean?
+--- @field supports_target_humidity boolean?
+--- @field visual_min_humidity number?
+--- @field visual_max_humidity number?
+--- @field device_id number?
+--- @field feature_flags number?
+
+--- @class ProtoClimateStateResponse
+--- @field key number?
+--- @field mode ProtoClimateMode?
+--- @field current_temperature number?
+--- @field target_temperature number?
+--- @field target_temperature_low number?
+--- @field target_temperature_high number?
+--- @field unused_legacy_away boolean?
+--- @field action ProtoClimateAction?
+--- @field fan_mode ProtoClimateFanMode?
+--- @field swing_mode ProtoClimateSwingMode?
+--- @field custom_fan_mode string?
+--- @field preset ProtoClimatePreset?
+--- @field custom_preset string?
+--- @field current_humidity number?
+--- @field target_humidity number?
+--- @field device_id number?
+
+--- @class ProtoClimateCommandRequest
+--- @field key number?
+--- @field has_mode boolean?
+--- @field mode ProtoClimateMode?
+--- @field has_target_temperature boolean?
+--- @field target_temperature number?
+--- @field has_target_temperature_low boolean?
+--- @field target_temperature_low number?
+--- @field has_target_temperature_high boolean?
+--- @field target_temperature_high number?
+--- @field unused_has_legacy_away boolean?
+--- @field unused_legacy_away boolean?
+--- @field has_fan_mode boolean?
+--- @field fan_mode ProtoClimateFanMode?
+--- @field has_swing_mode boolean?
+--- @field swing_mode ProtoClimateSwingMode?
+--- @field has_custom_fan_mode boolean?
+--- @field custom_fan_mode string?
+--- @field has_preset boolean?
+--- @field preset ProtoClimatePreset?
+--- @field has_custom_preset boolean?
+--- @field custom_preset string?
+--- @field has_target_humidity boolean?
+--- @field target_humidity number?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesNumberResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field min_value number?
+--- @field max_value number?
+--- @field step number?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field unit_of_measurement string?
+--- @field mode ProtoNumberMode?
+--- @field device_class string?
+--- @field device_id number?
+
+--- @class ProtoNumberStateResponse
+--- @field key number?
+--- @field state number?
+--- @field missing_state boolean?
+--- @field device_id number?
+
+--- @class ProtoNumberCommandRequest
+--- @field key number?
+--- @field state number?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesSelectResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field options string[]?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_id number?
+
+--- @class ProtoSelectStateResponse
+--- @field key number?
+--- @field state string?
+--- @field missing_state boolean?
+--- @field device_id number?
+
+--- @class ProtoSelectCommandRequest
+--- @field key number?
+--- @field state string?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesSirenResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field disabled_by_default boolean?
+--- @field tones string[]?
+--- @field supports_duration boolean?
+--- @field supports_volume boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_id number?
+
+--- @class ProtoSirenStateResponse
+--- @field key number?
+--- @field state boolean?
+--- @field device_id number?
+
+--- @class ProtoSirenCommandRequest
+--- @field key number?
+--- @field has_state boolean?
+--- @field state boolean?
+--- @field has_tone boolean?
+--- @field tone string?
+--- @field has_duration boolean?
+--- @field duration number?
+--- @field has_volume boolean?
+--- @field volume number?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesLockResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field assumed_state boolean?
+--- @field supports_open boolean?
+--- @field requires_code boolean?
+--- @field code_format string?
+--- @field device_id number?
+
+--- @class ProtoLockStateResponse
+--- @field key number?
+--- @field state ProtoLockState?
+--- @field device_id number?
+
+--- @class ProtoLockCommandRequest
+--- @field key number?
+--- @field command ProtoLockCommand?
+--- @field has_code boolean?
+--- @field code string?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesButtonResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_class string?
+--- @field device_id number?
+
+--- @class ProtoButtonCommandRequest
+--- @field key number?
+--- @field device_id number?
+
+--- @class ProtoMediaPlayerSupportedFormat
+--- @field format string?
+--- @field sample_rate number?
+--- @field num_channels number?
+--- @field purpose ProtoMediaPlayerFormatPurpose?
+--- @field sample_bytes number?
+
+--- @class ProtoListEntitiesMediaPlayerResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field supports_pause boolean?
+--- @field supported_formats ProtoMediaPlayerSupportedFormat[]?
+--- @field device_id number?
+--- @field feature_flags number?
+
+--- @class ProtoMediaPlayerStateResponse
+--- @field key number?
+--- @field state ProtoMediaPlayerState?
+--- @field volume number?
+--- @field muted boolean?
+--- @field device_id number?
+
+--- @class ProtoMediaPlayerCommandRequest
+--- @field key number?
+--- @field has_command boolean?
+--- @field command ProtoMediaPlayerCommand?
+--- @field has_volume boolean?
+--- @field volume number?
+--- @field has_media_url boolean?
+--- @field media_url string?
+--- @field has_announcement boolean?
+--- @field announcement boolean?
+--- @field device_id number?
+
+--- @class ProtoSubscribeBluetoothLEAdvertisementsRequest
+--- @field flags number?
+
+--- @class ProtoBluetoothServiceData
+--- @field uuid string?
+--- @field legacy_data number[]?
+--- @field data string?
+
+--- @class ProtoBluetoothLEAdvertisementResponse
+--- @field address (number|Int64HighLow)?
+--- @field name string?
+--- @field rssi number?
+--- @field service_uuids string[]?
+--- @field service_data ProtoBluetoothServiceData[]?
+--- @field manufacturer_data ProtoBluetoothServiceData[]?
+--- @field address_type number?
+
+--- @class ProtoBluetoothLERawAdvertisement
+--- @field address (number|Int64HighLow)?
+--- @field rssi number?
+--- @field address_type number?
+--- @field data string?
+
+--- @class ProtoBluetoothLERawAdvertisementsResponse
+--- @field advertisements ProtoBluetoothLERawAdvertisement[]?
+
+--- @class ProtoBluetoothDeviceRequest
+--- @field address (number|Int64HighLow)?
+--- @field request_type ProtoBluetoothDeviceRequestType?
+--- @field has_address_type boolean?
+--- @field address_type number?
+
+--- @class ProtoBluetoothDeviceConnectionResponse
+--- @field address (number|Int64HighLow)?
+--- @field connected boolean?
+--- @field mtu number?
+--- @field error number?
+
+--- @class ProtoBluetoothGATTGetServicesRequest
+--- @field address (number|Int64HighLow)?
+
+--- @class ProtoBluetoothGATTDescriptor
+--- @field uuid (number[]|Int64HighLow[])?
+--- @field handle number?
+--- @field short_uuid number?
+
+--- @class ProtoBluetoothGATTCharacteristic
+--- @field uuid (number[]|Int64HighLow[])?
+--- @field handle number?
+--- @field properties number?
+--- @field descriptors ProtoBluetoothGATTDescriptor[]?
+--- @field short_uuid number?
+
+--- @class ProtoBluetoothGATTService
+--- @field uuid (number[]|Int64HighLow[])?
+--- @field handle number?
+--- @field characteristics ProtoBluetoothGATTCharacteristic[]?
+--- @field short_uuid number?
+
+--- @class ProtoBluetoothGATTGetServicesResponse
+--- @field address (number|Int64HighLow)?
+--- @field services ProtoBluetoothGATTService[]?
+
+--- @class ProtoBluetoothGATTGetServicesDoneResponse
+--- @field address (number|Int64HighLow)?
+
+--- @class ProtoBluetoothGATTReadRequest
+--- @field address (number|Int64HighLow)?
+--- @field handle number?
+
+--- @class ProtoBluetoothGATTReadResponse
+--- @field address (number|Int64HighLow)?
+--- @field handle number?
+--- @field data string?
+
+--- @class ProtoBluetoothGATTWriteRequest
+--- @field address (number|Int64HighLow)?
+--- @field handle number?
+--- @field response boolean?
+--- @field data string?
+
+--- @class ProtoBluetoothGATTReadDescriptorRequest
+--- @field address (number|Int64HighLow)?
+--- @field handle number?
+
+--- @class ProtoBluetoothGATTWriteDescriptorRequest
+--- @field address (number|Int64HighLow)?
+--- @field handle number?
+--- @field data string?
+
+--- @class ProtoBluetoothGATTNotifyRequest
+--- @field address (number|Int64HighLow)?
+--- @field handle number?
+--- @field enable boolean?
+
+--- @class ProtoBluetoothGATTNotifyDataResponse
+--- @field address (number|Int64HighLow)?
+--- @field handle number?
+--- @field data string?
+
+--- @class ProtoSubscribeBluetoothConnectionsFreeRequest
+
+--- @class ProtoBluetoothConnectionsFreeResponse
+--- @field free number?
+--- @field limit number?
+--- @field allocated (number[]|Int64HighLow[])?
+
+--- @class ProtoBluetoothGATTErrorResponse
+--- @field address (number|Int64HighLow)?
+--- @field handle number?
+--- @field error number?
+
+--- @class ProtoBluetoothGATTWriteResponse
+--- @field address (number|Int64HighLow)?
+--- @field handle number?
+
+--- @class ProtoBluetoothGATTNotifyResponse
+--- @field address (number|Int64HighLow)?
+--- @field handle number?
+
+--- @class ProtoBluetoothDevicePairingResponse
+--- @field address (number|Int64HighLow)?
+--- @field paired boolean?
+--- @field error number?
+
+--- @class ProtoBluetoothDeviceUnpairingResponse
+--- @field address (number|Int64HighLow)?
+--- @field success boolean?
+--- @field error number?
+
+--- @class ProtoUnsubscribeBluetoothLEAdvertisementsRequest
+
+--- @class ProtoBluetoothDeviceClearCacheResponse
+--- @field address (number|Int64HighLow)?
+--- @field success boolean?
+--- @field error number?
+
+--- @class ProtoBluetoothScannerStateResponse
+--- @field state ProtoBluetoothScannerState?
+--- @field mode ProtoBluetoothScannerMode?
+--- @field configured_mode ProtoBluetoothScannerMode?
+
+--- @class ProtoBluetoothScannerSetModeRequest
+--- @field mode ProtoBluetoothScannerMode?
+
+--- @class ProtoSubscribeVoiceAssistantRequest
+--- @field subscribe boolean?
+--- @field flags number?
+
+--- @class ProtoVoiceAssistantAudioSettings
+--- @field noise_suppression_level number?
+--- @field auto_gain number?
+--- @field volume_multiplier number?
+
+--- @class ProtoVoiceAssistantRequest
+--- @field start boolean?
+--- @field conversation_id string?
+--- @field flags number?
+--- @field audio_settings ProtoVoiceAssistantAudioSettings?
+--- @field wake_word_phrase string?
+
+--- @class ProtoVoiceAssistantResponse
+--- @field port number?
+--- @field error boolean?
+
+--- @class ProtoVoiceAssistantEventData
+--- @field name string?
+--- @field value string?
+
+--- @class ProtoVoiceAssistantEventResponse
+--- @field event_type ProtoVoiceAssistantEvent?
+--- @field data ProtoVoiceAssistantEventData[]?
+
+--- @class ProtoVoiceAssistantAudio
+--- @field data string?
+--- @field end boolean?
+
+--- @class ProtoVoiceAssistantTimerEventResponse
+--- @field event_type ProtoVoiceAssistantTimerEvent?
+--- @field timer_id string?
+--- @field name string?
+--- @field total_seconds number?
+--- @field seconds_left number?
+--- @field is_active boolean?
+
+--- @class ProtoVoiceAssistantAnnounceRequest
+--- @field media_id string?
+--- @field text string?
+--- @field preannounce_media_id string?
+--- @field start_conversation boolean?
+
+--- @class ProtoVoiceAssistantAnnounceFinished
+--- @field success boolean?
+
+--- @class ProtoVoiceAssistantWakeWord
+--- @field id string?
+--- @field wake_word string?
+--- @field trained_languages string[]?
+
+--- @class ProtoVoiceAssistantExternalWakeWord
+--- @field id string?
+--- @field wake_word string?
+--- @field trained_languages string[]?
+--- @field model_type string?
+--- @field model_size number?
+--- @field model_hash string?
+--- @field url string?
+
+--- @class ProtoVoiceAssistantConfigurationRequest
+--- @field external_wake_words ProtoVoiceAssistantExternalWakeWord[]?
+
+--- @class ProtoVoiceAssistantConfigurationResponse
+--- @field available_wake_words ProtoVoiceAssistantWakeWord[]?
+--- @field active_wake_words string[]?
+--- @field max_active_wake_words number?
+
+--- @class ProtoVoiceAssistantSetConfiguration
+--- @field active_wake_words string[]?
+
+--- @class ProtoListEntitiesAlarmControlPanelResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field supported_features number?
+--- @field requires_code boolean?
+--- @field requires_code_to_arm boolean?
+--- @field device_id number?
+
+--- @class ProtoAlarmControlPanelStateResponse
+--- @field key number?
+--- @field state ProtoAlarmControlPanelState?
+--- @field device_id number?
+
+--- @class ProtoAlarmControlPanelCommandRequest
+--- @field key number?
+--- @field command ProtoAlarmControlPanelStateCommand?
+--- @field code string?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesTextResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field min_length number?
+--- @field max_length number?
+--- @field pattern string?
+--- @field mode ProtoTextMode?
+--- @field device_id number?
+
+--- @class ProtoTextStateResponse
+--- @field key number?
+--- @field state string?
+--- @field missing_state boolean?
+--- @field device_id number?
+
+--- @class ProtoTextCommandRequest
+--- @field key number?
+--- @field state string?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesDateResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_id number?
+
+--- @class ProtoDateStateResponse
+--- @field key number?
+--- @field missing_state boolean?
+--- @field year number?
+--- @field month number?
+--- @field day number?
+--- @field device_id number?
+
+--- @class ProtoDateCommandRequest
+--- @field key number?
+--- @field year number?
+--- @field month number?
+--- @field day number?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesTimeResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_id number?
+
+--- @class ProtoTimeStateResponse
+--- @field key number?
+--- @field missing_state boolean?
+--- @field hour number?
+--- @field minute number?
+--- @field second number?
+--- @field device_id number?
+
+--- @class ProtoTimeCommandRequest
+--- @field key number?
+--- @field hour number?
+--- @field minute number?
+--- @field second number?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesEventResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_class string?
+--- @field event_types string[]?
+--- @field device_id number?
+
+--- @class ProtoEventResponse
+--- @field key number?
+--- @field event_type string?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesValveResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_class string?
+--- @field assumed_state boolean?
+--- @field supports_position boolean?
+--- @field supports_stop boolean?
+--- @field device_id number?
+
+--- @class ProtoValveStateResponse
+--- @field key number?
+--- @field position number?
+--- @field current_operation ProtoValveOperation?
+--- @field device_id number?
+
+--- @class ProtoValveCommandRequest
+--- @field key number?
+--- @field has_position boolean?
+--- @field position number?
+--- @field stop boolean?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesDateTimeResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_id number?
+
+--- @class ProtoDateTimeStateResponse
+--- @field key number?
+--- @field missing_state boolean?
+--- @field epoch_seconds number?
+--- @field device_id number?
+
+--- @class ProtoDateTimeCommandRequest
+--- @field key number?
+--- @field epoch_seconds number?
+--- @field device_id number?
+
+--- @class ProtoListEntitiesUpdateResponse
+--- @field object_id string?
+--- @field key number?
+--- @field name string?
+--- @field icon string?
+--- @field disabled_by_default boolean?
+--- @field entity_category ProtoEntityCategory?
+--- @field device_class string?
+--- @field device_id number?
+
+--- @class ProtoUpdateStateResponse
+--- @field key number?
+--- @field missing_state boolean?
+--- @field in_progress boolean?
+--- @field has_progress boolean?
+--- @field progress number?
+--- @field current_version string?
+--- @field latest_version string?
+--- @field title string?
+--- @field release_summary string?
+--- @field release_url string?
+--- @field device_id number?
+
+--- @class ProtoUpdateCommandRequest
+--- @field key number?
+--- @field command ProtoUpdateCommand?
+--- @field device_id number?
+
+--- @class ProtoZWaveProxyFrame
+--- @field data string?
+
+--- @class ProtoZWaveProxyRequest
+--- @field type ProtoZWaveProxyRequestType?
+--- @field data string?
+
 PROTOBUF_SCHEMA.Enum = {
-  --- @enum APISourceType
+  --- @enum ProtoAPISourceType
   APISourceType = {
     SOURCE_BOTH = 0,
     SOURCE_SERVER = 1,
     SOURCE_CLIENT = 2,
   },
-  --- @enum EntityCategory
+  --- @enum ProtoEntityCategory
   EntityCategory = {
     ENTITY_CATEGORY_NONE = 0,
     ENTITY_CATEGORY_CONFIG = 1,
     ENTITY_CATEGORY_DIAGNOSTIC = 2,
   },
-  --- @enum LegacyCoverState
+  --- @enum ProtoLegacyCoverState
   LegacyCoverState = {
     LEGACY_COVER_STATE_OPEN = 0,
     LEGACY_COVER_STATE_CLOSED = 1,
   },
-  --- @enum CoverOperation
+  --- @enum ProtoCoverOperation
   CoverOperation = {
     COVER_OPERATION_IDLE = 0,
     COVER_OPERATION_IS_OPENING = 1,
     COVER_OPERATION_IS_CLOSING = 2,
   },
-  --- @enum LegacyCoverCommand
+  --- @enum ProtoLegacyCoverCommand
   LegacyCoverCommand = {
     LEGACY_COVER_COMMAND_OPEN = 0,
     LEGACY_COVER_COMMAND_CLOSE = 1,
     LEGACY_COVER_COMMAND_STOP = 2,
   },
-  --- @enum FanSpeed
+  --- @enum ProtoFanSpeed
   FanSpeed = {
     FAN_SPEED_LOW = 0,
     FAN_SPEED_MEDIUM = 1,
     FAN_SPEED_HIGH = 2,
   },
-  --- @enum FanDirection
+  --- @enum ProtoFanDirection
   FanDirection = {
     FAN_DIRECTION_FORWARD = 0,
     FAN_DIRECTION_REVERSE = 1,
   },
-  --- @enum ColorMode
+  --- @enum ProtoColorMode
   ColorMode = {
     COLOR_MODE_UNKNOWN = 0,
     COLOR_MODE_ON_OFF = 1,
@@ -114,20 +1143,21 @@ PROTOBUF_SCHEMA.Enum = {
     COLOR_MODE_RGB_COLOR_TEMPERATURE = 47,
     COLOR_MODE_RGB_COLD_WARM_WHITE = 51,
   },
-  --- @enum SensorStateClass
+  --- @enum ProtoSensorStateClass
   SensorStateClass = {
     STATE_CLASS_NONE = 0,
     STATE_CLASS_MEASUREMENT = 1,
     STATE_CLASS_TOTAL_INCREASING = 2,
     STATE_CLASS_TOTAL = 3,
+    STATE_CLASS_MEASUREMENT_ANGLE = 4,
   },
-  --- @enum SensorLastResetType
+  --- @enum ProtoSensorLastResetType
   SensorLastResetType = {
     LAST_RESET_NONE = 0,
     LAST_RESET_NEVER = 1,
     LAST_RESET_AUTO = 2,
   },
-  --- @enum LogLevel
+  --- @enum ProtoLogLevel
   LogLevel = {
     LOG_LEVEL_NONE = 0,
     LOG_LEVEL_ERROR = 1,
@@ -138,7 +1168,7 @@ PROTOBUF_SCHEMA.Enum = {
     LOG_LEVEL_VERBOSE = 6,
     LOG_LEVEL_VERY_VERBOSE = 7,
   },
-  --- @enum ServiceArgType
+  --- @enum ProtoServiceArgType
   ServiceArgType = {
     SERVICE_ARG_TYPE_BOOL = 0,
     SERVICE_ARG_TYPE_INT = 1,
@@ -149,7 +1179,14 @@ PROTOBUF_SCHEMA.Enum = {
     SERVICE_ARG_TYPE_FLOAT_ARRAY = 6,
     SERVICE_ARG_TYPE_STRING_ARRAY = 7,
   },
-  --- @enum ClimateMode
+  --- @enum ProtoSupportsResponseType
+  SupportsResponseType = {
+    SUPPORTS_RESPONSE_NONE = 0,
+    SUPPORTS_RESPONSE_OPTIONAL = 1,
+    SUPPORTS_RESPONSE_ONLY = 2,
+    SUPPORTS_RESPONSE_STATUS = 100,
+  },
+  --- @enum ProtoClimateMode
   ClimateMode = {
     CLIMATE_MODE_OFF = 0,
     CLIMATE_MODE_HEAT_COOL = 1,
@@ -159,7 +1196,7 @@ PROTOBUF_SCHEMA.Enum = {
     CLIMATE_MODE_DRY = 5,
     CLIMATE_MODE_AUTO = 6,
   },
-  --- @enum ClimateFanMode
+  --- @enum ProtoClimateFanMode
   ClimateFanMode = {
     CLIMATE_FAN_ON = 0,
     CLIMATE_FAN_OFF = 1,
@@ -172,14 +1209,14 @@ PROTOBUF_SCHEMA.Enum = {
     CLIMATE_FAN_DIFFUSE = 8,
     CLIMATE_FAN_QUIET = 9,
   },
-  --- @enum ClimateSwingMode
+  --- @enum ProtoClimateSwingMode
   ClimateSwingMode = {
     CLIMATE_SWING_OFF = 0,
     CLIMATE_SWING_BOTH = 1,
     CLIMATE_SWING_VERTICAL = 2,
     CLIMATE_SWING_HORIZONTAL = 3,
   },
-  --- @enum ClimateAction
+  --- @enum ProtoClimateAction
   ClimateAction = {
     CLIMATE_ACTION_OFF = 0,
     CLIMATE_ACTION_COOLING = 2,
@@ -188,7 +1225,7 @@ PROTOBUF_SCHEMA.Enum = {
     CLIMATE_ACTION_DRYING = 5,
     CLIMATE_ACTION_FAN = 6,
   },
-  --- @enum ClimatePreset
+  --- @enum ProtoClimatePreset
   ClimatePreset = {
     CLIMATE_PRESET_NONE = 0,
     CLIMATE_PRESET_HOME = 1,
@@ -199,13 +1236,13 @@ PROTOBUF_SCHEMA.Enum = {
     CLIMATE_PRESET_SLEEP = 6,
     CLIMATE_PRESET_ACTIVITY = 7,
   },
-  --- @enum NumberMode
+  --- @enum ProtoNumberMode
   NumberMode = {
     NUMBER_MODE_AUTO = 0,
     NUMBER_MODE_BOX = 1,
     NUMBER_MODE_SLIDER = 2,
   },
-  --- @enum LockState
+  --- @enum ProtoLockState
   LockState = {
     LOCK_STATE_NONE = 0,
     LOCK_STATE_LOCKED = 1,
@@ -214,13 +1251,13 @@ PROTOBUF_SCHEMA.Enum = {
     LOCK_STATE_LOCKING = 4,
     LOCK_STATE_UNLOCKING = 5,
   },
-  --- @enum LockCommand
+  --- @enum ProtoLockCommand
   LockCommand = {
     LOCK_UNLOCK = 0,
     LOCK_LOCK = 1,
     LOCK_OPEN = 2,
   },
-  --- @enum MediaPlayerState
+  --- @enum ProtoMediaPlayerState
   MediaPlayerState = {
     MEDIA_PLAYER_STATE_NONE = 0,
     MEDIA_PLAYER_STATE_IDLE = 1,
@@ -230,7 +1267,7 @@ PROTOBUF_SCHEMA.Enum = {
     MEDIA_PLAYER_STATE_OFF = 5,
     MEDIA_PLAYER_STATE_ON = 6,
   },
-  --- @enum MediaPlayerCommand
+  --- @enum ProtoMediaPlayerCommand
   MediaPlayerCommand = {
     MEDIA_PLAYER_COMMAND_PLAY = 0,
     MEDIA_PLAYER_COMMAND_PAUSE = 1,
@@ -247,12 +1284,12 @@ PROTOBUF_SCHEMA.Enum = {
     MEDIA_PLAYER_COMMAND_TURN_ON = 12,
     MEDIA_PLAYER_COMMAND_TURN_OFF = 13,
   },
-  --- @enum MediaPlayerFormatPurpose
+  --- @enum ProtoMediaPlayerFormatPurpose
   MediaPlayerFormatPurpose = {
     MEDIA_PLAYER_FORMAT_PURPOSE_DEFAULT = 0,
     MEDIA_PLAYER_FORMAT_PURPOSE_ANNOUNCEMENT = 1,
   },
-  --- @enum BluetoothDeviceRequestType
+  --- @enum ProtoBluetoothDeviceRequestType
   BluetoothDeviceRequestType = {
     BLUETOOTH_DEVICE_REQUEST_TYPE_CONNECT = 0,
     BLUETOOTH_DEVICE_REQUEST_TYPE_DISCONNECT = 1,
@@ -262,7 +1299,7 @@ PROTOBUF_SCHEMA.Enum = {
     BLUETOOTH_DEVICE_REQUEST_TYPE_CONNECT_V3_WITHOUT_CACHE = 5,
     BLUETOOTH_DEVICE_REQUEST_TYPE_CLEAR_CACHE = 6,
   },
-  --- @enum BluetoothScannerState
+  --- @enum ProtoBluetoothScannerState
   BluetoothScannerState = {
     BLUETOOTH_SCANNER_STATE_IDLE = 0,
     BLUETOOTH_SCANNER_STATE_STARTING = 1,
@@ -271,23 +1308,23 @@ PROTOBUF_SCHEMA.Enum = {
     BLUETOOTH_SCANNER_STATE_STOPPING = 4,
     BLUETOOTH_SCANNER_STATE_STOPPED = 5,
   },
-  --- @enum BluetoothScannerMode
+  --- @enum ProtoBluetoothScannerMode
   BluetoothScannerMode = {
     BLUETOOTH_SCANNER_MODE_PASSIVE = 0,
     BLUETOOTH_SCANNER_MODE_ACTIVE = 1,
   },
-  --- @enum VoiceAssistantSubscribeFlag
+  --- @enum ProtoVoiceAssistantSubscribeFlag
   VoiceAssistantSubscribeFlag = {
     VOICE_ASSISTANT_SUBSCRIBE_NONE = 0,
     VOICE_ASSISTANT_SUBSCRIBE_API_AUDIO = 1,
   },
-  --- @enum VoiceAssistantRequestFlag
+  --- @enum ProtoVoiceAssistantRequestFlag
   VoiceAssistantRequestFlag = {
     VOICE_ASSISTANT_REQUEST_NONE = 0,
     VOICE_ASSISTANT_REQUEST_USE_VAD = 1,
     VOICE_ASSISTANT_REQUEST_USE_WAKE_WORD = 2,
   },
-  --- @enum VoiceAssistantEvent
+  --- @enum ProtoVoiceAssistantEvent
   VoiceAssistantEvent = {
     VOICE_ASSISTANT_ERROR = 0,
     VOICE_ASSISTANT_RUN_START = 1,
@@ -306,14 +1343,14 @@ PROTOBUF_SCHEMA.Enum = {
     VOICE_ASSISTANT_TTS_STREAM_END = 99,
     VOICE_ASSISTANT_INTENT_PROGRESS = 100,
   },
-  --- @enum VoiceAssistantTimerEvent
+  --- @enum ProtoVoiceAssistantTimerEvent
   VoiceAssistantTimerEvent = {
     VOICE_ASSISTANT_TIMER_STARTED = 0,
     VOICE_ASSISTANT_TIMER_UPDATED = 1,
     VOICE_ASSISTANT_TIMER_CANCELLED = 2,
     VOICE_ASSISTANT_TIMER_FINISHED = 3,
   },
-  --- @enum AlarmControlPanelState
+  --- @enum ProtoAlarmControlPanelState
   AlarmControlPanelState = {
     ALARM_STATE_DISARMED = 0,
     ALARM_STATE_ARMED_HOME = 1,
@@ -326,7 +1363,7 @@ PROTOBUF_SCHEMA.Enum = {
     ALARM_STATE_DISARMING = 8,
     ALARM_STATE_TRIGGERED = 9,
   },
-  --- @enum AlarmControlPanelStateCommand
+  --- @enum ProtoAlarmControlPanelStateCommand
   AlarmControlPanelStateCommand = {
     ALARM_CONTROL_PANEL_DISARM = 0,
     ALARM_CONTROL_PANEL_ARM_AWAY = 1,
@@ -336,24 +1373,24 @@ PROTOBUF_SCHEMA.Enum = {
     ALARM_CONTROL_PANEL_ARM_CUSTOM_BYPASS = 5,
     ALARM_CONTROL_PANEL_TRIGGER = 6,
   },
-  --- @enum TextMode
+  --- @enum ProtoTextMode
   TextMode = {
     TEXT_MODE_TEXT = 0,
     TEXT_MODE_PASSWORD = 1,
   },
-  --- @enum ValveOperation
+  --- @enum ProtoValveOperation
   ValveOperation = {
     VALVE_OPERATION_IDLE = 0,
     VALVE_OPERATION_IS_OPENING = 1,
     VALVE_OPERATION_IS_CLOSING = 2,
   },
-  --- @enum UpdateCommand
+  --- @enum ProtoUpdateCommand
   UpdateCommand = {
     UPDATE_COMMAND_NONE = 0,
     UPDATE_COMMAND_UPDATE = 1,
     UPDATE_COMMAND_CHECK = 2,
   },
-  --- @enum ZWaveProxyRequestType
+  --- @enum ProtoZWaveProxyRequestType
   ZWaveProxyRequestType = {
     ZWAVE_PROXY_REQUEST_TYPE_SUBSCRIBE = 0,
     ZWAVE_PROXY_REQUEST_TYPE_UNSUBSCRIBE = 1,
@@ -361,7 +1398,7 @@ PROTOBUF_SCHEMA.Enum = {
   },
 }
 
---- @alias ProtoEnum APISourceType|EntityCategory|LegacyCoverState|CoverOperation|LegacyCoverCommand|FanSpeed|FanDirection|ColorMode|SensorStateClass|SensorLastResetType|LogLevel|ServiceArgType|ClimateMode|ClimateFanMode|ClimateSwingMode|ClimateAction|ClimatePreset|NumberMode|LockState|LockCommand|MediaPlayerState|MediaPlayerCommand|MediaPlayerFormatPurpose|BluetoothDeviceRequestType|BluetoothScannerState|BluetoothScannerMode|VoiceAssistantSubscribeFlag|VoiceAssistantRequestFlag|VoiceAssistantEvent|VoiceAssistantTimerEvent|AlarmControlPanelState|AlarmControlPanelStateCommand|TextMode|ValveOperation|UpdateCommand|ZWaveProxyRequestType
+--- @alias ProtoEnum ProtoAPISourceType|ProtoEntityCategory|ProtoLegacyCoverState|ProtoCoverOperation|ProtoLegacyCoverCommand|ProtoFanSpeed|ProtoFanDirection|ProtoColorMode|ProtoSensorStateClass|ProtoSensorLastResetType|ProtoLogLevel|ProtoServiceArgType|ProtoSupportsResponseType|ProtoClimateMode|ProtoClimateFanMode|ProtoClimateSwingMode|ProtoClimateAction|ProtoClimatePreset|ProtoNumberMode|ProtoLockState|ProtoLockCommand|ProtoMediaPlayerState|ProtoMediaPlayerCommand|ProtoMediaPlayerFormatPurpose|ProtoBluetoothDeviceRequestType|ProtoBluetoothScannerState|ProtoBluetoothScannerMode|ProtoVoiceAssistantSubscribeFlag|ProtoVoiceAssistantRequestFlag|ProtoVoiceAssistantEvent|ProtoVoiceAssistantTimerEvent|ProtoAlarmControlPanelState|ProtoAlarmControlPanelStateCommand|ProtoTextMode|ProtoValveOperation|ProtoUpdateCommand|ProtoZWaveProxyRequestType
 
 PROTOBUF_SCHEMA.Message = {
   void = {
@@ -642,17 +1679,20 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "DeviceInfo",
       },
       [21] = {
         name = "areas",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "AreaInfo",
       },
       [22] = {
         name = "area",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
+        subschema = "AreaInfo",
       },
       [23] = {
         name = "zwave_proxy_feature_flags",
@@ -1892,18 +2932,21 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "HomeassistantServiceMap",
       },
       [3] = {
         name = "data_template",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "HomeassistantServiceMap",
       },
       [4] = {
         name = "variables",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "HomeassistantServiceMap",
       },
       [5] = {
         name = "is_event",
@@ -2049,7 +3092,7 @@ PROTOBUF_SCHEMA.Message = {
   ListEntitiesServicesArgument = {
     name = "ListEntitiesServicesArgument",
     options = {
-      ifdef = "USE_API_SERVICES",
+      ifdef = "USE_API_USER_DEFINED_ACTIONS",
     },
     fields = {
       [1] = {
@@ -2069,7 +3112,7 @@ PROTOBUF_SCHEMA.Message = {
     options = {
       id = 41,
       source = 1,
-      ifdef = "USE_API_SERVICES",
+      ifdef = "USE_API_USER_DEFINED_ACTIONS",
     },
     fields = {
       [1] = {
@@ -2087,13 +3130,19 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "ListEntitiesServicesArgument",
+      },
+      [4] = {
+        name = "supports_response",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.ENUM, -- SupportsResponseType
       },
     },
   },
   ExecuteServiceArgument = {
     name = "ExecuteServiceArgument",
     options = {
-      ifdef = "USE_API_SERVICES",
+      ifdef = "USE_API_USER_DEFINED_ACTIONS",
     },
     fields = {
       [1] = {
@@ -2152,7 +3201,7 @@ PROTOBUF_SCHEMA.Message = {
     options = {
       id = 42,
       source = 2,
-      ifdef = "USE_API_SERVICES",
+      ifdef = "USE_API_USER_DEFINED_ACTIONS",
       no_delay = 1,
     },
     fields = {
@@ -2166,6 +3215,48 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "ExecuteServiceArgument",
+      },
+      [3] = {
+        name = "call_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+      [4] = {
+        name = "return_response",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+    },
+  },
+  ExecuteServiceResponse = {
+    name = "ExecuteServiceResponse",
+    options = {
+      id = 131,
+      source = 1,
+      ifdef = "USE_API_USER_DEFINED_ACTION_RESPONSES",
+      no_delay = 1,
+    },
+    fields = {
+      [1] = {
+        name = "call_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+      [2] = {
+        name = "success",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.BOOL,
+      },
+      [3] = {
+        name = "error_message",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.STRING,
+      },
+      [4] = {
+        name = "response_data",
+        wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
+        type = PROTOBUF_SCHEMA.DataType.BYTES,
       },
     },
   },
@@ -2404,6 +3495,11 @@ PROTOBUF_SCHEMA.Message = {
       },
       [26] = {
         name = "device_id",
+        wireType = PROTOBUF_SCHEMA.WireType.VARINT,
+        type = PROTOBUF_SCHEMA.DataType.UINT32,
+      },
+      [27] = {
+        name = "feature_flags",
         wireType = PROTOBUF_SCHEMA.WireType.VARINT,
         type = PROTOBUF_SCHEMA.DataType.UINT32,
       },
@@ -3315,6 +4411,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "MediaPlayerSupportedFormat",
       },
       [10] = {
         name = "device_id",
@@ -3499,12 +4596,14 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "BluetoothServiceData",
       },
       [6] = {
         name = "manufacturer_data",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "BluetoothServiceData",
       },
       [7] = {
         name = "address_type",
@@ -3553,6 +4652,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "BluetoothLERawAdvertisement",
       },
     },
   },
@@ -3678,6 +4778,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "BluetoothGATTDescriptor",
       },
       [5] = {
         name = "short_uuid",
@@ -3706,6 +4807,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "BluetoothGATTCharacteristic",
       },
       [4] = {
         name = "short_uuid",
@@ -3732,6 +4834,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "BluetoothGATTService",
       },
     },
   },
@@ -4212,6 +5315,7 @@ PROTOBUF_SCHEMA.Message = {
         name = "audio_settings",
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
+        subschema = "VoiceAssistantAudioSettings",
       },
       [5] = {
         name = "wake_word_phrase",
@@ -4274,6 +5378,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "VoiceAssistantEventData",
       },
     },
   },
@@ -4459,6 +5564,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "VoiceAssistantExternalWakeWord",
       },
     },
   },
@@ -4475,6 +5581,7 @@ PROTOBUF_SCHEMA.Message = {
         wireType = PROTOBUF_SCHEMA.WireType.LENGTH_DELIMITED,
         type = PROTOBUF_SCHEMA.DataType.MESSAGE,
         repeated = true,
+        subschema = "VoiceAssistantWakeWord",
       },
       [2] = {
         name = "active_wake_words",

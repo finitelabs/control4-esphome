@@ -1,12 +1,11 @@
---- @module "esphome.client"
 --- ESPHome API Client for Control4.
 --- This module provides a Lua implementation for connecting to ESPHome devices
 --- using the native API protocol over TCP with protobuf encoding.
 --- Supports both plaintext and encrypted (Noise protocol) communication.
 
 local log = require("lib.logging")
-local bit16 = require("lib.bit16")
-local pb = require("lib.protobuf")
+local bit16 = require("vendor.bitn").bit16
+local pb = require("vendor.protobuf")
 local ESPHomeProtoSchema = require("esphome.proto-schema")
 local deferred = require("vendor.deferred")
 local noise = require("vendor.noiseprotocol")
@@ -37,7 +36,20 @@ local Indicator = {
 --- A class representing the ESPHome API client.
 --- @class ESPHomeClient
 --- @field EntityType EntityType
+--- @field _client C4TCPClient|nil The TCP client for the ESPHome connection.
+--- @field _connected boolean Indicates if the client is connected.
+--- @field _ipAddress string|nil The IP address of the ESPHome device.
+--- @field _port number The port of the ESPHome device.
+--- @field _password string|nil The password for the ESPHome device.
+--- @field _encryptionKey string|nil The encryption key for the ESPHome device.
+--- @field _buffer string The buffer for incoming data.
+--- @field _callbacks table<string, (fun(message: table<string, any>, schema: ProtoMessageSchema))|nil> The callback for the next expected response.
+--- @field _pingTimer C4LuaTimer|nil The timer for sending ping messages.
+--- @field _hs NoiseConnection|nil The Noise protocol connection for encrypted communication.
+--- @field _hsState NoiseState|nil The current state of the Noise protocol handshake.
+--- @field _fatalError string|nil Fatal error message (e.g., authentication failure).
 local ESPHomeClient = {}
+ESPHomeClient.__index = ESPHomeClient
 
 --- @enum EntityType
 ESPHomeClient.EntityType = {
@@ -72,24 +84,21 @@ ESPHomeClient.EntityType = {
 --- Create a new instance of the ESPHomeClient.
 --- @return ESPHomeClient client A new instance of the ESPHomeClient client.
 function ESPHomeClient:new()
-  local properties = {
-    _client = nil, --- @type C4TCPClient|nil The TCP client for the ESPHome connection.
-    _connected = false, --- @type boolean Indicates if the client is connected.
-    _ipAddress = nil, --- @type string|nil The IP address of the ESPHome device.
-    _port = 6053, --- @type number The port of the ESPHome device.
-    _password = nil, --- @type string|nil The password for the ESPHome device.
-    _encryptionKey = nil, --- @type string|nil The encryption key for the ESPHome device.
-    _buffer = "", --- @type string The buffer for incoming data.
-    _callbacks = {}, --- @type table<number, (fun(message: table<string, any>, schema: ProtoMessageSchema): void)|nil> The callback for the next expected response.
-    _pingTimer = nil, --- @type C4LuaTimer|nil The timer for sending ping messages.
-    _hs = nil, --- @type NoiseConnection|nil The Noise protocol connection for encrypted communication.
-    _hsState = nil, --- @type NoiseState|nil The current state of the Noise protocol handshake.
-    _fatalError = nil, --- @type string|nil Fatal error message (e.g., authentication failure).
-  }
-  setmetatable(properties, self)
-  self.__index = self
-  --- @cast properties ESPHomeClient
-  return properties
+  log:trace("ESPHomeClient:new()")
+  local instance = setmetatable({}, self)
+  instance._client = nil
+  instance._connected = false
+  instance._ipAddress = nil
+  instance._port = 6053
+  instance._password = nil
+  instance._encryptionKey = nil
+  instance._buffer = ""
+  instance._callbacks = {}
+  instance._pingTimer = nil
+  instance._hs = nil
+  instance._hsState = nil
+  instance._fatalError = nil
+  return instance
 end
 
 --- Parse the base64 encoded encryption key to 32-byte binary data.
@@ -191,16 +200,19 @@ function ESPHomeClient:connect()
 
   -- Add callbacks for any requests we can expect to receive from the device
   self._callbacks[ESPHomeProtoSchema.Message.PingRequest.options.id] = function(message)
+    --- @cast message ProtoPingRequest
     log:debug("Received ping request: %s", message)
     self:sendMessage(ESPHomeProtoSchema.Message.PingResponse, {})
   end
   self._callbacks[ESPHomeProtoSchema.Message.GetTimeRequest.options.id] = function(message)
+    --- @cast message ProtoGetTimeRequest
     log:debug("Received get time request: %s", message)
     self:sendMessage(ESPHomeProtoSchema.Message.GetTimeResponse, {
       epoch_seconds = os.time(),
     })
   end
   self._callbacks[ESPHomeProtoSchema.Message.DisconnectRequest.options.id] = function(message)
+    --- @cast message ProtoDisconnectRequest
     log:warn("Received disconnect request: %s", message)
     self:sendMessage(ESPHomeProtoSchema.Message.DisconnectResponse, {})
     self:disconnect()
@@ -212,7 +224,7 @@ function ESPHomeClient:connect()
       log:debug("Connected to ESPHome device at %s:%s", self._ipAddress, self._port)
       self._connected = true
 
-      ---@type Deferred<void, string>
+      --- @type Deferred<void, string>
       local dConnect
       if not IsEmpty(self._encryptionKey) then
         dConnect = self
@@ -257,8 +269,11 @@ function ESPHomeClient:connect()
           log:debug("Connection established (authentication request sent)")
 
           -- Start ping timer to keep connection alive
-          self._pingTimer = C4:SetTimer(15000, function()
-            self:sendPing()
+          self._pingTimer = C4:SetTimer(15 * ONE_SECOND, function()
+            self:sendPing():next(nil, function()
+              -- If we fail to ping we may need to reinitiate the connection
+              self:disconnect()
+            end)
           end, true)
 
           d:resolve(true)
@@ -282,8 +297,8 @@ function ESPHomeClient:connect()
       d:reject(errMsg)
     end)
     :OnRead(function(client, data)
-      log:debug("Received %d byte(s) from ESPHome device", #data)
-      log:trace("Incoming raw data (hex): %s", to_hex(data))
+      log:trace("Received %d byte(s) from ESPHome device", #data)
+      log:ultra("Incoming raw data (hex): %s", to_hex(data))
       self._buffer = self._buffer .. data
 
       self:_processBuffer()
@@ -301,29 +316,30 @@ function ESPHomeClient:connect()
 end
 
 --- Disconnect from the ESPHome device.
---- @return void
 function ESPHomeClient:disconnect()
   log:trace("ESPHomeClient:disconnect()")
 
-  if self._pingTimer ~= nil then
-    self._pingTimer:Cancel()
-    self._pingTimer = nil
-  end
-
-  if self._client ~= nil then
-    self._client:Close()
-    self._client = nil
-  end
+  local client = self._client
+  local pingTimer = self._pingTimer
 
   self._connected = false
+  self._client = nil
   self._hs = nil
   self._hsState = nil
   self._buffer = ""
   self._callbacks = {}
+  self._pingTimer = nil
+
+  if pingTimer ~= nil then
+    pingTimer:Cancel()
+  end
+  if client ~= nil then
+    client:Close()
+  end
 end
 
 --- Get device information from the ESPHome device.
---- @return Deferred<table<string, any>, string> result A promise that resolves with the device information.
+--- @return Deferred<ProtoDeviceInfoResponse, string> result A promise that resolves with the device information.
 function ESPHomeClient:getDeviceInfo()
   log:trace("ESPHomeClient:getDeviceInfo()")
   return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.device_info, {})
@@ -369,7 +385,7 @@ function ESPHomeClient:listEntities()
           end
         end
         -- Add a timeout to the list entities request to prevent unresolved promises
-        local timeoutTimer = C4:SetTimer(ONE_SECOND * 10, function()
+        local timeoutTimer = C4:SetTimer(10 * ONE_SECOND, function()
           log:warn("Timeout waiting for list entities response")
           removeCallbacks()
           d:reject("Timeout waiting for list entities response")
@@ -391,12 +407,20 @@ function ESPHomeClient:listEntities()
     if IsEmpty(err) or type(err) ~= "string" then
       err = "unknown error"
     end
-    log:error("Failed to send list entities message; %s", err)
+    log:error("Failed to send list entities message: %s", err)
     d:reject(err)
   end)
 
   return d
 end
+
+--- State responses that are handled separately and should not be registered here.
+--- @type table<string,boolean>
+local EXCLUDED_STATE_RESPONSES = {
+  -- Not Used
+  BluetoothScannerStateResponse = true,
+  SubscribeHomeAssistantStateResponse = true,
+}
 
 --- Subscribe to state updates from the ESPHome device.
 --- @param callback (fun(message: table<string, any>, schema: ProtoMessageSchema): void) The callback function to call when a state update is received.
@@ -409,7 +433,7 @@ function ESPHomeClient:subscribeStates(callback)
   for _, schema in pairs(ESPHomeProtoSchema.Message) do
     -- HACK: No reliable way to identify state responses from proto definition.
     local name, _ = schema.name:match("^(.+)StateResponse$")
-    if not IsEmpty(name) then
+    if not IsEmpty(name) and not EXCLUDED_STATE_RESPONSES[schema.name] then
       log:debug("Registering %s state callback", name)
       self._callbacks[schema.options.id] = function(message, messageSchema)
         log:debug("Received %s state update: %s", name, message)
@@ -418,7 +442,7 @@ function ESPHomeClient:subscribeStates(callback)
           if IsEmpty(err) or type(err) ~= "string" then
             err = "unknown error"
           end
-          log:error("State callback for %s failed; %s", name, err)
+          log:error("State callback for %s failed: %s", name, err)
         end
       end
     end
@@ -431,25 +455,22 @@ function ESPHomeClient:subscribeStates(callback)
     if IsEmpty(err) or type(err) ~= "string" then
       err = "unknown error"
     end
-    log:error("Failed to send subscribe states message; %s", err)
-    return d:reject(err)
+    log:error("Failed to send subscribe states message: %s", err)
+    d:reject(err)
   end)
 
   return d
 end
 
 --- Send a hello message to the ESPHome device.
---- @return Deferred<table, string> result A promise that resolves when the hello message is sent.
+--- @return Deferred<ProtoHelloResponse, string> result A promise that resolves when the hello message is sent.
 function ESPHomeClient:sendHello()
   log:trace("ESPHomeClient:sendHello()")
-  local d = self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.hello, {
+  return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.hello, {
     client_info = "Control4",
     api_version_major = 1,
     api_version_minor = 0,
   })
-
-  --- @cast d Deferred<table, string>
-  return d
 end
 
 --- Check if the Noise protocol handshake is in the expected state.
@@ -468,7 +489,7 @@ end
 --- @return Deferred<void, string> result A promise that resolves when the hello message is sent.
 function ESPHomeClient:sendNoiseHello()
   log:trace("ESPHomeClient:sendNoiseHello()")
-  --- @type Deferred<table<string,any>, string>
+  --- @type Deferred<void, string>
   local d = deferred.new()
 
   if not self:isConnected() then
@@ -479,7 +500,7 @@ function ESPHomeClient:sendNoiseHello()
   -- Hello message
   local frame = "\x01\x00\x00"
 
-  local timeoutTimer = C4:SetTimer(ONE_SECOND * 5, function()
+  local timeoutTimer = C4:SetTimer(5 * ONE_SECOND, function()
     -- Remove the callback for the response
     self._callbacks[NoiseProtocolCallback.HELLO] = nil
     self._hsState = NoiseState.ERROR
@@ -523,7 +544,7 @@ function ESPHomeClient:sendHandshake()
 
   local frame = Indicator.NOISE .. bit16.u16_to_be_bytes(#handshake) .. handshake
 
-  local timeoutTimer = C4:SetTimer(ONE_SECOND * 5, function()
+  local timeoutTimer = C4:SetTimer(5 * ONE_SECOND, function()
     self:checkHandshakeState(NoiseState.HANDSHAKE)
 
     -- Remove the callback for the response
@@ -595,25 +616,22 @@ end
 --- @return Deferred<void, string> result A promise that resolves when the ping response is received.
 function ESPHomeClient:sendPing()
   log:trace("ESPHomeClient:sendPing()")
-  local d = self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.ping, {}):next(function()
+  return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.ping, {}):next(function()
     log:info("Ping successful")
   end, function(err)
     if IsEmpty(err) or type(err) ~= "string" then
       err = "unknown error"
     end
-    log:error("Ping failed; %s", err)
+    log:error("Ping failed: %s", err)
     return reject(err)
   end)
-
-  --- @cast d Deferred<void, string>
-  return d
 end
 
 --- Call a service method on the ESPHome device.
 --- @param method ProtoServiceMethodSchema The method to call.
 --- @param body? table The request body (optional).
 --- @param timeout? number The timeout for the request in milliseconds (optional). Only non-void methods support this. Default is 5 seconds.
---- @return Deferred<table|nil, string> result A promise that resolves with the response.
+--- @return Deferred<any, string> result A promise that resolves with the response.
 function ESPHomeClient:callServiceMethod(method, body, timeout)
   log:trace("ESPHomeClient:callServiceMethod(%s, %s, %s)", method.method, body, timeout)
 
@@ -632,10 +650,10 @@ end
 --- @param body? table<string, any> The message body (optional).
 --- @param responseSchema? ProtoMessageSchema The expected response schema (optional).
 --- @param timeout? number The timeout for the response in milliseconds (optional).
---- @return Deferred<table|nil, string> result A promise that resolves when the message is sent (and response received if expected).
+--- @return Deferred<any, string> result A promise that resolves when the message is sent (and response received if expected).
 function ESPHomeClient:sendMessage(messageSchema, body, responseSchema, timeout)
   log:trace("ESPHomeClient:sendMessage(%s, %s, %s, %s)", messageSchema.name, body, responseSchema, timeout)
-  --- @type Deferred<table|nil, string>
+  --- @type Deferred<any, string>
   local d = deferred.new()
 
   -- Check for fatal error first (e.g., authentication failure)
@@ -686,10 +704,8 @@ function ESPHomeClient:sendMessage(messageSchema, body, responseSchema, timeout)
 
   -- Store callback for response if one is expected
   if responseSchema then
-    local timeoutTimer = C4:SetTimer(timeout or ONE_SECOND * 5, function()
+    local timeoutTimer = C4:SetTimer(timeout or (5 * ONE_SECOND), function()
       log:warn("Timeout waiting for response to %s", messageSchema.name)
-      -- Remove the callback for the response
-      self._callbacks[responseSchema.options.id] = nil
       d:reject("Timeout waiting for response to " .. messageSchema.name)
     end)
     self._callbacks[responseSchema.options.id] = function(message)
@@ -705,12 +721,22 @@ function ESPHomeClient:sendMessage(messageSchema, body, responseSchema, timeout)
   log:debug("Sending message %s with %d byte(s) of data", messageSchema.name, #encodedData)
   log:ultra("Outgoing frame (hex): %s", to_hex(frame))
   self._client:Write(frame)
-  return d
+
+  return d:next(function(message)
+    if responseSchema then
+      self._callbacks[responseSchema.options.id] = nil
+    end
+    return message
+  end, function(err)
+    if responseSchema then
+      self._callbacks[responseSchema.options.id] = nil
+    end
+    return reject(err)
+  end)
 end
 
 --- Process the current data buffer and decodes any valid packets recursively.
 --- Currently only plaintext packets are supported.
---- @return void
 function ESPHomeClient:_processBuffer()
   log:trace("ESPHomeClient:_processBuffer()")
   -- We need at least 3 bytes to begin processing a frame
@@ -880,7 +906,7 @@ function ESPHomeClient:_processBuffer()
       end
       --- @cast decryptedPayload string
 
-      log:trace("READY message - %s", success, to_hex(decryptedPayload))
+      log:trace("READY message - %s", to_hex(decryptedPayload))
 
       -- Extract the message type and data length from the decrypted payload
       if #decryptedPayload < 4 then
@@ -913,10 +939,13 @@ function ESPHomeClient:_processBuffer()
   self:_processBuffer()
 end
 
+--- @param messageType integer
+--- @param payload string
 function ESPHomeClient:_processPayload(messageType, payload)
   log:trace("ESPHomeClient:_processPayload(%s, %d bytes)", messageType, #payload)
 
   -- Find the message schema
+  --- @type ProtoMessageSchema|nil
   local messageSchema = nil
   for _, schema in pairs(ESPHomeProtoSchema.Message) do
     if messageType == Select(schema, "options", "id") then
@@ -936,7 +965,7 @@ function ESPHomeClient:_processPayload(messageType, payload)
     return
   end
 
-  log:debug("Decoded esphome message: %s(%s)", messageSchema.name, message)
+  log:trace("Decoded esphome message: %s(%s)", messageSchema.name, message)
 
   -- Call any registered callbacks for the message type
   if type(self._callbacks[messageType]) == "function" then

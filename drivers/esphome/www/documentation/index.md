@@ -1,4 +1,4 @@
-[copyright]: # "Copyright 2025 Finite Labs, LLC. All rights reserved."
+[copyright]: # "Copyright 2026 Finite Labs, LLC. All rights reserved."
 
 <style>
 @media print {
@@ -475,7 +475,7 @@ https://ratgdo.github.io/esphome-ratgdo/webui_documentation.html
 <img alt="Finite Labs" src="./images/finite-labs-logo.png" width="400"/>
 </p>
 
-Copyright © 2025 Finite Labs LLC
+Copyright © 2026 Finite Labs LLC
 
 All information contained herein is, and remains the property of Finite Labs LLC
 and its suppliers, if any. The intellectual and technical concepts contained

@@ -188,6 +188,7 @@ def main():
     repo_root = Path(__file__).parent.parent
     src_dir = repo_root / "src"
     drivers_dir = repo_root / "drivers"
+    vendor_dir = repo_root / "vendor"
     build_dir = repo_root / "build" / condition.lower()
 
     os.makedirs(build_dir, exist_ok=True)
@@ -195,9 +196,11 @@ def main():
     # Clean previous builds
     shutil.rmtree(build_dir / "src", ignore_errors=True)
     shutil.rmtree(build_dir / "drivers", ignore_errors=True)
+    shutil.rmtree(build_dir / "vendor", ignore_errors=True)
 
     shutil.copytree(src_dir, build_dir / "src")
     shutil.copytree(drivers_dir, build_dir / "drivers")
+    shutil.copytree(vendor_dir, build_dir / "vendor")
 
     # Copy and process src directory
     process_directory(build_dir, condition)

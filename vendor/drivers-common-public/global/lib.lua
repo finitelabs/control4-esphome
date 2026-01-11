@@ -111,11 +111,22 @@ do -- LOCALE FIXING FOR tostring AND tonumber
   end
 
   function tostring_return_period(v)
-    local ret = tostring_native(v)
     if type(v) == "number" then
-      ret = string.gsub(ret, "%,", "%.")
+      local ret = tostring_native(v)
+      -- If tostring produced scientific notation, convert back to decimal
+      if ret:find("[eE]") then
+        if v == math.floor(v) then
+          -- Integer: use %.0f to avoid scientific notation
+          ret = string.format("%.0f", v)
+        else
+          -- Float: format with 14 significant digits and trim trailing zeros
+          ret = string.format("%.14f", v)
+          ret = ret:gsub("0+$", ""):gsub("%.$", "")
+        end
+      end
+      return (ret:gsub("%,", "%.")) -- Parentheses force single return value (gsub returns string, count)
     end
-    return ret
+    return tostring_native(v)
   end
 
   function tonumber_expect_comma(e, base)
