@@ -104,6 +104,7 @@ function ESPHomeClient:new()
   instance._hs = nil
   instance._hsState = nil
   instance._fatalError = nil
+  instance._logsSubscribed = false
   return instance
 end
 
@@ -171,6 +172,12 @@ end
 function ESPHomeClient:isConnected()
   log:trace("ESPHomeClient:isConnected()")
   return self._client ~= nil and self._connected
+end
+
+--- Check if the client is subscribed to device logs.
+--- @return boolean subscribed True if subscribed to logs, false otherwise.
+function ESPHomeClient:isLogsSubscribed()
+  return self._logsSubscribed
 end
 
 --- Connect to the ESPHome device.
@@ -333,6 +340,7 @@ function ESPHomeClient:disconnect()
   self._hs = nil
   self._hsState = nil
   self._buffer = ""
+  self._logsSubscribed = false
 
   -- Cancel all callback timers before clearing
   for _, entry in pairs(self._callbacks) do
@@ -474,6 +482,71 @@ function ESPHomeClient:subscribeStates(callback)
     log:error("Failed to send subscribe states message: %s", err)
     d:reject(err)
   end)
+
+  return d
+end
+
+--- Subscribe to log messages from the ESPHome device.
+--- Can only subscribe once per connection. To stop logs, disconnect and reconnect.
+--- @param callback fun(level: number, message: string): void The callback function to call when a log message is received. Level is ProtoLogLevel enum value.
+--- @param level? ProtoLogLevel The minimum log level to receive (default: LOG_LEVEL_DEBUG = 5).
+--- @param dumpConfig? boolean Whether to dump the device config first (default: false).
+--- @return Deferred<nil, string> result A promise that resolves after subscribing to logs.
+function ESPHomeClient:subscribeLogs(callback, level, dumpConfig)
+  log:trace("ESPHomeClient:subscribeLogs(level=%s, dumpConfig=%s)", level, dumpConfig)
+  --- @type Deferred<nil, string>
+  local d = deferred.new()
+
+  -- Guard against duplicate subscriptions
+  if self._logsSubscribed then
+    log:debug("Logs already subscribed")
+    d:resolve(nil)
+    return d
+  end
+  self._logsSubscribed = true
+
+  -- Default to DEBUG level (5)
+  level = level or ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_DEBUG
+
+  -- Register callback for log responses
+  self:_registerCallback(
+    self:_makeMessageCallbackKey(ESPHomeProtoSchema.Message.SubscribeLogsResponse),
+    function(message)
+      --- @cast message ProtoSubscribeLogsResponse
+      local msgLevel = message.level or 0
+      local msgText = message.message or ""
+
+      -- Convert bytes to string if needed (message field is bytes type in proto)
+      if type(msgText) ~= "string" then
+        msgText = tostring(msgText)
+      end
+
+      local callbackSuccess, err = pcall(callback, msgLevel, msgText)
+      if not callbackSuccess then
+        if IsEmpty(err) or type(err) ~= "string" then
+          err = "unknown error"
+        end
+        log:error("Log callback failed: %s", err)
+      end
+    end
+  )
+
+  -- Send subscription request
+  self
+    :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.subscribe_logs, {
+      level = level,
+      dump_config = dumpConfig or false,
+    })
+    :next(function()
+      log:debug("Subscribe logs message sent successfully")
+      d:resolve(nil)
+    end, function(err)
+      if IsEmpty(err) or type(err) ~= "string" then
+        err = "unknown error"
+      end
+      log:error("Failed to send subscribe logs message: %s", err)
+      d:reject(err)
+    end)
 
   return d
 end

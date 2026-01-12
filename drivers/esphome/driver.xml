@@ -97,6 +97,16 @@
         </items>
       </property>
       <property>
+        <name>Device Log Forwarding</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <description>Forward ESPHome device logs to the driver's Lua output at the current Log Level. Changing Log Level or disabling Log Mode will reconnect to apply the new settings.</description>
+      </property>
+      <property>
         <name>Device Settings</name>
         <type>LABEL</type>
         <default>Device Settings</default>

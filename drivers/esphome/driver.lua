@@ -22,6 +22,7 @@ local githubUpdater = require("lib.github-updater")
 local values = require("lib.values")
 
 local ESPHomeClient = require("esphome.client")
+local ESPHomeProtoSchema = require("esphome.proto-schema")
 local BinarySensorEntity = require("esphome.entities.binary_sensor")
 local ButtonEntity = require("esphome.entities.button")
 local CoverEntity = require("esphome.entities.cover")
@@ -100,6 +101,10 @@ function OPC.Log_Mode(propertyValue)
   log:setLogMode(propertyValue)
   CancelTimer("LogMode")
   if not log:isEnabled() then
+    -- If log mode is disabled and we're subscribed to logs, disconnect to stop logs
+    if esphome:isLogsSubscribed() then
+      esphome:disconnect()
+    end
     return
   end
   log:warn("Log mode '%s' will expire in 3 hours", propertyValue)
@@ -122,6 +127,10 @@ function OPC.Log_Level(propertyValue)
     DEBUG_TIMER = false
     DEBUG_RFN = false
     DEBUG_URL = false
+  end
+  -- If subscribed to logs, disconnect to resubscribe at new level
+  if esphome:isLogsSubscribed() then
+    esphome:disconnect()
   end
 end
 
@@ -172,6 +181,79 @@ end
 function OPC.Use_OpenSSL(propertyValue)
   log:trace("OPC.Use_OpenSSL('%s')", propertyValue)
   Connect()
+end
+
+--- Map ESPHome log levels to driver log methods
+--- @type table<number, fun(self: table, format: string, ...: any)>
+local ESPHOME_LOG_LEVEL_MAP = {
+  [ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_ERROR] = log.error,
+  [ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_WARN] = log.warn,
+  [ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_INFO] = log.info,
+  [ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_CONFIG] = log.info,
+  [ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_DEBUG] = log.debug,
+  [ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_VERBOSE] = log.trace,
+  [ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_VERY_VERBOSE] = log.ultra,
+}
+
+--- Map driver log level (0-6) to ESPHome log level for subscription.
+--- Driver levels: 0-Fatal, 1-Error, 2-Warning, 3-Info, 4-Debug, 5-Trace, 6-Ultra
+--- ESPHome levels: 0-NONE, 1-ERROR, 2-WARN, 3-INFO, 4-CONFIG, 5-DEBUG, 6-VERBOSE, 7-VERY_VERBOSE
+--- @type table<number, ProtoLogLevel>
+local DRIVER_TO_ESPHOME_LOG_LEVEL = {
+  [0] = ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_ERROR, -- Fatal -> ERROR
+  [1] = ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_ERROR, -- Error -> ERROR
+  [2] = ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_WARN, -- Warning -> WARN
+  [3] = ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_INFO, -- Info -> INFO
+  [4] = ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_DEBUG, -- Debug -> DEBUG
+  [5] = ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_VERBOSE, -- Trace -> VERBOSE
+  [6] = ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_VERY_VERBOSE, -- Ultra -> VERY_VERBOSE
+}
+
+--- Strip ANSI escape codes from a string.
+--- @param str string The string to strip
+--- @return string stripped The string without ANSI codes
+local function stripAnsiCodes(str)
+  -- Match ANSI escape sequences: ESC [ ... m (where ... is digits/semicolons)
+  return str:gsub("\027%[[0-9;]*m", "")
+end
+
+--- Subscribe to ESPHome device logs and forward them to the driver log.
+--- Uses the current driver log level to determine ESPHome subscription level.
+local function subscribeToDeviceLogs()
+  if not esphome:isConnected() then
+    log:debug("Cannot subscribe to device logs: not connected")
+    return
+  end
+
+  -- Map driver log level to ESPHome log level
+  local driverLevel = log:getLogLevel()
+  local esphomeLevel = DRIVER_TO_ESPHOME_LOG_LEVEL[driverLevel] or ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_DEBUG
+
+  esphome
+    :subscribeLogs(function(level, message)
+      local logMethod = ESPHOME_LOG_LEVEL_MAP[level] or log.debug
+      logMethod(log, "[ESPHome] %s", stripAnsiCodes(message))
+    end, esphomeLevel)
+    :next(function()
+      log:info("Subscribed to ESPHome device logs at level %d", esphomeLevel)
+    end, function(err)
+      log:error("Failed to subscribe to device logs: %s", err)
+    end)
+end
+
+function OPC.Device_Log_Forwarding(propertyValue)
+  log:trace("OPC.Device_Log_Forwarding('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+
+  if toboolean(propertyValue) and log:isEnabled() then
+    subscribeToDeviceLogs()
+  elseif esphome:isLogsSubscribed() then
+    -- Disconnect to stop the log stream (no API to unsubscribe)
+    -- Heartbeat timer will automatically reconnect without log subscription
+    esphome:disconnect()
+  end
 end
 
 local function updateStatus(status)
@@ -318,6 +400,12 @@ function RefreshStatus()
             log:debug("No Entities['%s']:updated() handler", entity.entity_type)
           end
         end)
+      end)
+      :next(function()
+        -- Subscribe to device logs if forwarding is enabled and log mode is on
+        if toboolean(Properties["Device Log Forwarding"]) and log:isEnabled() then
+          subscribeToDeviceLogs()
+        end
       end)
       :next(function()
         log:info("Successfully refreshed device status")
