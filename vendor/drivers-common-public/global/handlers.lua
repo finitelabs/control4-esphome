@@ -1,6 +1,6 @@
 -- Copyright 2022 Snap One, LLC. All rights reserved.
 
-require("vendor.drivers-common-public.global.lib")
+require("drivers-common-public.global.lib")
 
 COMMON_HANDLERS_VER = 17
 

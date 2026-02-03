@@ -1,4 +1,3 @@
---- @module "lib.bindings"
 --- Bindings module for managing dynamic bindings.
 --- This module provides functionality to create, retrieve, delete, and restore dynamic bindings.
 --- It also handles persistent storage of bindings and ensures unique binding IDs.
@@ -7,10 +6,10 @@ local log = require("lib.logging")
 local persist = require("lib.persist")
 
 --- Create a binding between two devices if it doesn't already exist.
---- @param idDeviceProvider number Provider device ID
---- @param idBindingProvider number Provider binding ID
---- @param idDeviceConsumer number Consumer device ID
---- @param idBindingConsumer number Consumer binding ID
+--- @param idDeviceProvider integer Provider device ID
+--- @param idBindingProvider integer Provider binding ID
+--- @param idDeviceConsumer integer Consumer device ID
+--- @param idBindingConsumer integer Consumer binding ID
 --- @param strClass string Binding class
 --- @return boolean true if binding was created, false if it already existed
 function Bind(idDeviceProvider, idBindingProvider, idDeviceConsumer, idBindingConsumer, strClass)
@@ -33,30 +32,31 @@ end
 --- @class Bindings
 --- A class representing dynamic bindings.
 local Bindings = {}
+Bindings.__index = Bindings
 
 --- Persistent storage key for connection bindings.
 --- @type string
 local CONNECTION_BINDINGS_PERSIST_KEY = "ConnectionBindings"
 
 --- The starting ID for control bindings.
---- @type number
+--- @type integer
 local CONTROL_BINDING_START = 10
 
 --- The ending ID for control bindings.
---- @type number
+--- @type integer
 local CONTROL_BINDING_END = 999
 
 --- The starting ID for proxy bindings.
---- @type number
+--- @type integer
 local PROXY_BINDING_START = 5012
 
 --- The ending ID for proxy bindings.
---- @type number
+--- @type integer
 local PROXY_BINDING_END = 5999
 
 --- @class Binding
 --- @field key string
---- @field bindingId number
+--- @field bindingId integer
 --- @field type string
 --- @field provider boolean
 --- @field displayName string
@@ -66,11 +66,8 @@ local PROXY_BINDING_END = 5999
 --- @return Bindings bindings A new Bindings instance.
 function Bindings:new()
   log:trace("Binding:new()")
-  local properties = {}
-  setmetatable(properties, self)
-  self.__index = self
-  --- @cast properties Bindings
-  return properties
+  local instance = setmetatable({}, self)
+  return instance
 end
 
 --- Retrieves or adds a dynamic binding.
@@ -146,7 +143,7 @@ end
 function Bindings:deleteBinding(namespace, key)
   log:trace("Binding:deleteBinding(%s, %s)", namespace, key)
   local bindings = self:getBindings()
-  --- @type number|nil
+  --- @type integer|nil
   local bindingId = Select(bindings, namespace, key, "bindingId")
   if IsEmpty(bindingId) then
     return
@@ -169,11 +166,42 @@ function Bindings:deleteBinding(namespace, key)
   self:_saveBindings(bindings)
 end
 
+--- Delete all bindings in a namespace.
+--- @param namespace string The namespace to delete all bindings from.
+function Bindings:deleteAllBindings(namespace)
+  log:trace("Binding:deleteAllBindings(%s)", namespace)
+  local bindings = self:getBindings()
+  local nsBindings = bindings[namespace]
+
+  if IsEmpty(nsBindings) then
+    return
+  end
+
+  -- Collect keys first to avoid modifying table while iterating
+  local keys = {}
+  for key in pairs(nsBindings) do
+    table.insert(keys, key)
+  end
+
+  -- Delete each binding
+  for _, key in ipairs(keys) do
+    self:deleteBinding(namespace, key)
+  end
+end
+
+--- Check if a binding ID is within the managed dynamic binding ranges.
+--- @param bindingId integer The binding ID to check.
+--- @return boolean True if the binding ID is within a managed range.
+local function isInManagedRange(bindingId)
+  return (bindingId >= CONTROL_BINDING_START and bindingId <= CONTROL_BINDING_END)
+    or (bindingId >= PROXY_BINDING_START and bindingId <= PROXY_BINDING_END)
+end
+
 --- Restores all dynamic bindings from persistent storage. Ensures that all
---- bindings are re-added and removes unknown bindings.
+--- bindings are re-added and removes unknown bindings within managed ranges.
 function Bindings:restoreBindings()
   log:trace("Binding:restoreBindings()")
-  local deviceBindings = GetDeviceBindings(C4:GetDeviceID())
+  local deviceBindings = GetDeviceBindings(tointeger(C4:GetDeviceID()))
   for _, keys in pairs(self:getBindings()) do
     for _, binding in pairs(keys) do
       deviceBindings[binding.bindingId] = nil
@@ -189,19 +217,24 @@ function Bindings:restoreBindings()
       )
     end
   end
+  -- Only remove unknown bindings that are within our managed ranges
+  -- This preserves static bindings defined in driver.xml
   for bindingId, _ in pairs(deviceBindings) do
-    log:debug("Deleting unknown binding %s", bindingId)
-    C4:RemoveDynamicBinding(bindingId)
+    if isInManagedRange(bindingId) then
+      log:debug("Deleting unknown binding %s", bindingId)
+      C4:RemoveDynamicBinding(bindingId)
+    end
   end
 end
 
 --- Retrieves the next available binding ID for a given type. Ensures that the
 --- ID is unique and within the allowed range.
+--- @private
 --- @param type string The type of the binding (e.g., "CONTROL" or "PROXY").
---- @return number|nil bindingId The next available binding ID or nil if the maximum is exceeded.
+--- @return integer|nil bindingId The next available binding ID or nil if the maximum is exceeded.
 function Bindings:_getNextBindingId(type)
   log:trace("Binding:_getNextBindingId(%s)", type)
-  --- @type table<number, boolean>
+  --- @type table<integer, boolean>
   local currentBindings = {}
   for _, keys in pairs(self:getBindings()) do
     for _, binding in pairs(keys) do
@@ -224,16 +257,34 @@ end
 
 --- Retrieves all bindings from persistent storage.
 --- @return table<string, table<string, Binding>> bindings A table of all bindings mapped by namespace then key.
+--- @diagnostic disable-next-line: unused
 function Bindings:getBindings()
   log:trace("Binding:getBindings()")
   return persist:get(CONNECTION_BINDINGS_PERSIST_KEY, {}) or {}
 end
 
 --- Saves the bindings to persistent storage.
+--- @private
 --- @param bindings table<string, table<string, Binding>>? The bindings table to save.
+--- @diagnostic disable-next-line: unused
 function Bindings:_saveBindings(bindings)
   log:trace("Binding:_saveBindings(%s)", bindings)
   persist:set(CONNECTION_BINDINGS_PERSIST_KEY, not IsEmpty(bindings) and bindings or nil)
+end
+
+--- Resets all dynamic bindings, removing them from the system and clearing persisted storage.
+--- This does not affect static bindings defined in driver.xml.
+function Bindings:reset()
+  log:trace("Bindings:reset()")
+  for _, nsBindings in pairs(self:getBindings()) do
+    for _, binding in pairs(nsBindings) do
+      log:debug("Removing binding '%s' (id=%s)", binding.displayName, binding.bindingId)
+      C4:RemoveDynamicBinding(binding.bindingId)
+      RFP[binding.bindingId] = nil
+      OBC[binding.bindingId] = nil
+    end
+  end
+  self:_saveBindings(nil)
 end
 
 return Bindings:new()

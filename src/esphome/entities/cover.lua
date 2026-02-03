@@ -2,24 +2,21 @@ local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local values = require("lib.values")
 local ESPHomeClient = require("esphome.client")
-local ESPHomeProtoSchema = require("esphome.proto-schema")
+local ESPHomeProtoSchema = require("esphome.proto_schema")
 
 --- @class CoverEntity:Entity
 local CoverEntity = {
   TYPE = ESPHomeClient.EntityType.COVER,
 }
+CoverEntity.__index = CoverEntity
 
 --- Create a new instance of the cover entity.
 --- @param client ESPHomeClient The ESPHome client instance.
 --- @return CoverEntity entity A new instance of the CoverEntity entity.
 function CoverEntity:new(client)
-  local properties = {
-    client = client,
-  }
-  setmetatable(properties, self)
-  self.__index = self
-  --- @cast properties CoverEntity
-  return properties
+  local instance = setmetatable({}, self)
+  instance.client = client
+  return instance
 end
 
 --- Handle the discovery of a cover entity.

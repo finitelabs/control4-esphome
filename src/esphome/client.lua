@@ -3,12 +3,16 @@
 --- using the native API protocol over TCP with protobuf encoding.
 --- Supports both plaintext and encrypted (Noise protocol) communication.
 
+local bit16 = require("bitn").bit16
+local pb = require("protobuf")
+local deferred = require("deferred")
+local noise = require("noiseprotocol")
+
 local log = require("lib.logging")
-local bit16 = require("vendor.bitn").bit16
-local pb = require("vendor.protobuf")
-local ESPHomeProtoSchema = require("esphome.proto-schema")
-local deferred = require("vendor.deferred")
-local noise = require("vendor.noiseprotocol")
+
+local ESPHomeProtoSchema = require("esphome.proto_schema")
+local BLEAdvertisementParser = require("esphome.ble.parsers.advertisement")
+local BLEAddress = require("esphome.ble.address")
 
 local NULL_BYTE = "\x00"
 
@@ -33,7 +37,7 @@ local Indicator = {
 }
 
 --- @alias CallbackKey string A key for identifying callbacks (message ID or composite)
---- @alias CallbackFunction fun(message: table<string, any>, schema: ProtoMessageSchema): void
+--- @alias CallbackFunction fun(message: table<string, any>, schema?: ProtoMessageSchema): void
 
 --- @class CallbackEntry
 --- @field callback CallbackFunction The callback function to invoke
@@ -49,11 +53,18 @@ local Indicator = {
 --- @field _password string|nil The password for the ESPHome device.
 --- @field _encryptionKey string|nil The encryption key for the ESPHome device.
 --- @field _buffer string The buffer for incoming data.
---- @field _callbacks table<CallbackKey, CallbackEntry> Registered callbacks keyed by message ID or composite key.
+--- @field _callbacks table<CallbackKey, CallbackEntry?> Registered callbacks keyed by message ID or composite key.
 --- @field _pingTimer C4LuaTimer|nil The timer for sending ping messages.
 --- @field _hs NoiseConnection|nil The Noise protocol connection for encrypted communication.
 --- @field _hsState NoiseState|nil The current state of the Noise protocol handshake.
 --- @field _fatalError string|nil Fatal error message (e.g., authentication failure).
+--- @field _logsSubscribed boolean Whether log subscription is active.
+--- @field _btConnections BluetoothConnectionState Cached Bluetooth connection state.
+--- @field _btConnectionsCallbacks table<string, fun(state: BluetoothConnectionState)?> Callbacks for Bluetooth connection changes.
+--- @field _btScannerState BluetoothScannerState Cached scanner state.
+--- @field _btScannerStateCallbacks table<string, fun(state: BluetoothScannerState)?> Callbacks for scanner state changes.
+--- @field _btAdvertisementsCallbacks table<string, fun(advertisement: BLEAdvertisement)?> Callbacks for BLE advertisements.
+--- @field _btProxyInitDeferred Deferred|nil In-flight deferred for initBluetoothProxy (re-entrancy guard).
 local ESPHomeClient = {}
 ESPHomeClient.__index = ESPHomeClient
 
@@ -87,6 +98,17 @@ ESPHomeClient.EntityType = {
   UPDATE = "update",
 }
 
+--- @class BluetoothConnectionState
+--- @field free number Number of available connection slots
+--- @field limit number Maximum number of connection slots
+--- @field allocated string[] Array of MAC addresses (as "AA:BB:CC:DD:EE:FF" strings) currently connected
+--- @field initialized boolean Whether the subscription has been set up
+
+--- @class BluetoothScannerState
+--- @field state ProtoBluetoothScannerState BluetoothScannerState enum value
+--- @field mode ProtoBluetoothScannerMode BluetoothScannerMode enum value
+--- @field initialized boolean Whether state has been received from ESPHome
+
 --- Create a new instance of the ESPHomeClient.
 --- @return ESPHomeClient client A new instance of the ESPHomeClient client.
 function ESPHomeClient:new()
@@ -105,6 +127,16 @@ function ESPHomeClient:new()
   instance._hsState = nil
   instance._fatalError = nil
   instance._logsSubscribed = false
+  instance._btConnections = { free = 0, limit = 0, allocated = {}, initialized = false }
+  instance._btConnectionsCallbacks = {}
+  instance._btScannerState = {
+    state = ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_IDLE,
+    mode = ESPHomeProtoSchema.Enum.BluetoothScannerMode.BLUETOOTH_SCANNER_MODE_PASSIVE,
+    initialized = false,
+  }
+  instance._btScannerStateCallbacks = {}
+  instance._btAdvertisementsCallbacks = {}
+  instance._btProxyInitDeferred = nil
   return instance
 end
 
@@ -157,6 +189,7 @@ function ESPHomeClient:setConfig(ipAddress, port, password, encryptionKey, useOp
   self._port = toport(port) or 6053
   self._password = not IsEmpty(password) and password or nil
   self._encryptionKey = parseEncryptionKey(encryptionKey)
+  self._fatalError = nil -- Clear fatal error when config changes
   return self
 end
 
@@ -172,6 +205,12 @@ end
 function ESPHomeClient:isConnected()
   log:trace("ESPHomeClient:isConnected()")
   return self._client ~= nil and self._connected
+end
+
+--- Get the fatal error message if one occurred (e.g., authentication failure).
+--- @return string|nil error The fatal error message, or nil if no fatal error.
+function ESPHomeClient:getFatalError()
+  return self._fatalError
 end
 
 --- Check if the client is subscribed to device logs.
@@ -279,12 +318,24 @@ function ESPHomeClient:connect()
           return reject(err)
         end)
         :next(function()
-          log:debug("Connection established (authentication request sent)")
+          log:debug("Connection established")
 
-          -- Start ping timer to keep connection alive
+          -- Start ping timer to keep connection alive (only ping when idle)
+          self._lastDataReceived = os.time()
           self._pingTimer = C4:SetTimer(15 * ONE_SECOND, function()
+            local secondsSinceData = os.time() - (self._lastDataReceived or 0)
+            if secondsSinceData < 10 then
+              -- Received data recently, connection is alive, skip ping
+              log:trace("Skipping ping - received data %ds ago", secondsSinceData)
+              return
+            end
             self:sendPing():next(nil, function()
-              -- If we fail to ping we may need to reinitiate the connection
+              -- Only disconnect if we haven't received data recently
+              local secondsSinceData = os.time() - (self._lastDataReceived or 0)
+              if secondsSinceData < 10 then
+                log:debug("Ignoring ping failure - received data %ds ago", secondsSinceData)
+                return
+              end
               self:disconnect()
             end)
           end, true)
@@ -310,8 +361,17 @@ function ESPHomeClient:connect()
       d:reject(errMsg)
     end)
     :OnRead(function(client, data)
+      -- Ignore stale data from old connections
+      if not self._connected or client ~= self._client then
+        log:trace("Ignoring %d byte(s) from stale connection", #data)
+        return
+      end
+
+      -- Track last data received for keepalive logic
+      self._lastDataReceived = os.time()
+
       log:trace("Received %d byte(s) from ESPHome device", #data)
-      log:ultra("Incoming raw data (hex): %s", to_hex(data))
+      --log:ultra("Incoming raw data (hex): %s", to_hex(data))
       self._buffer = self._buffer .. data
 
       self:_processBuffer()
@@ -351,6 +411,17 @@ function ESPHomeClient:disconnect()
   self._callbacks = {}
   self._pingTimer = nil
 
+  -- Reset Bluetooth state so subscriptions can be re-established on reconnect
+  -- Note: We keep the callbacks registered by capabilities (they persist across reconnects)
+  -- Only reset the cached state which will be refreshed after reconnect
+  self._btConnections = { free = 0, limit = 0, allocated = {}, initialized = false }
+  self._btScannerState = {
+    state = ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_IDLE,
+    mode = ESPHomeProtoSchema.Enum.BluetoothScannerMode.BLUETOOTH_SCANNER_MODE_PASSIVE,
+    initialized = false,
+  }
+  self._btProxyInitDeferred = nil
+
   if pingTimer ~= nil then
     pingTimer:Cancel()
   end
@@ -366,26 +437,27 @@ function ESPHomeClient:getDeviceInfo()
   return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.device_info, {})
 end
 
+--- Press a button entity by its key.
+--- @param key number The button entity key
+--- @return Deferred<nil, string> result A promise that resolves when the button is pressed.
+function ESPHomeClient:pressButton(key)
+  log:trace("ESPHomeClient:pressButton(%s)", key)
+  return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.button_command, { key = key })
+end
+
 --- List entities from the ESPHome device.
---- @return Deferred<table<string, table>, string> result A promise that resolves with a table of entities.
+--- @return Deferred<table<string, table?>, string> result A promise that resolves with a table of entities.
 function ESPHomeClient:listEntities()
   log:trace("ESPHomeClient:listEntities()")
-  --- @type Deferred<table<string, table>, string>
+  --- @type Deferred<table<string, table?>, string>
   local d = deferred.new()
 
-  --- @type table<string, table>
+  --- @type table<string, table?>
   local entities = {}
 
   -- Track the callback keys that are added so they can be removed once we receive the done message
   --- @type CallbackKey[]
   local addedCallbackKeys = {}
-
-  --- Remove all registered callbacks for this list entities request
-  local function removeCallbacks()
-    for _, key in ipairs(addedCallbackKeys) do
-      self:_unregisterCallback(key)
-    end
-  end
 
   for _, schema in pairs(ESPHomeProtoSchema.Message) do
     -- HACK: No reliable way to identify list_entity responses from proto definition.
@@ -410,12 +482,12 @@ function ESPHomeClient:listEntities()
           self:_makeMessageCallbackKey(schema),
           function(_)
             log:debug("Received %d entities: %s", TableLength(entities), entities)
-            removeCallbacks()
+            self:_unregisterCallbacks(addedCallbackKeys)
             d:resolve(entities)
           end,
           10 * ONE_SECOND,
           function()
-            removeCallbacks()
+            self:_unregisterCallbacks(addedCallbackKeys)
             d:reject("Timeout waiting for list entities response")
           end
         )
@@ -439,15 +511,14 @@ function ESPHomeClient:listEntities()
 end
 
 --- State responses that are handled separately and should not be registered here.
---- @type table<string,boolean>
+--- @type table<string, boolean?>
 local EXCLUDED_STATE_RESPONSES = {
-  -- Not Used
-  BluetoothScannerStateResponse = true,
-  SubscribeHomeAssistantStateResponse = true,
+  BluetoothScannerStateResponse = true, -- Managed in initBluetoothProxy()
+  SubscribeHomeAssistantStateResponse = true, -- Not used
 }
 
 --- Subscribe to state updates from the ESPHome device.
---- @param callback (fun(message: table<string, any>, schema: ProtoMessageSchema): void) The callback function to call when a state update is received.
+--- @param callback (fun(message: table<string, any>, schema: ProtoMessageSchema?): void) The callback function to call when a state update is received.
 --- @return Deferred<void, string> result A promise that resolves after subscribing to states.
 function ESPHomeClient:subscribeStates(callback)
   log:trace("ESPHomeClient:subscribeStates()")
@@ -463,10 +534,7 @@ function ESPHomeClient:subscribeStates(callback)
         log:debug("Received %s state update: %s", name, message)
         local callbackSuccess, err = pcall(callback, message, messageSchema)
         if not callbackSuccess then
-          if IsEmpty(err) or type(err) ~= "string" then
-            err = "unknown error"
-          end
-          log:error("State callback for %s failed: %s", name, err)
+          log:error("State callback for %s failed: %s", name, err or "unknown error")
         end
       end)
     end
@@ -488,7 +556,7 @@ end
 
 --- Subscribe to log messages from the ESPHome device.
 --- Can only subscribe once per connection. To stop logs, disconnect and reconnect.
---- @param callback fun(level: number, message: string): void The callback function to call when a log message is received. Level is ProtoLogLevel enum value.
+--- @param callback fun(level: ProtoLogLevel?, message: string?): void The callback function to call when a log message is received. Level is ProtoLogLevel enum value.
 --- @param level? ProtoLogLevel The minimum log level to receive (default: LOG_LEVEL_DEBUG = 5).
 --- @param dumpConfig? boolean Whether to dump the device config first (default: false).
 --- @return Deferred<nil, string> result A promise that resolves after subscribing to logs.
@@ -513,20 +581,9 @@ function ESPHomeClient:subscribeLogs(callback, level, dumpConfig)
     self:_makeMessageCallbackKey(ESPHomeProtoSchema.Message.SubscribeLogsResponse),
     function(message)
       --- @cast message ProtoSubscribeLogsResponse
-      local msgLevel = message.level or 0
-      local msgText = message.message or ""
-
-      -- Convert bytes to string if needed (message field is bytes type in proto)
-      if type(msgText) ~= "string" then
-        msgText = tostring(msgText)
-      end
-
-      local callbackSuccess, err = pcall(callback, msgLevel, msgText)
+      local callbackSuccess, err = pcall(callback, message.level, message.message)
       if not callbackSuccess then
-        if IsEmpty(err) or type(err) ~= "string" then
-          err = "unknown error"
-        end
-        log:error("Log callback failed: %s", err)
+        log:error("Log callback failed: %s", err or "unknown error")
       end
     end
   )
@@ -551,12 +608,827 @@ function ESPHomeClient:subscribeLogs(callback, level, dumpConfig)
   return d
 end
 
+--- @class BluetoothConnectionResult
+--- @field connected boolean Whether the device is connected
+--- @field mtu number|nil The MTU if connected
+--- @field error number|nil Error code if failed
+
+--- Connect to a Bluetooth device via the ESPHome proxy.
+--- ESPHome sends multiple responses: intermediate (connected=nil), then final (connected=true/false).
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param addressType? BLEAddressType The address type (optional).
+--- @param withCache? boolean Use cached services (default true).
+--- @return Deferred<BluetoothConnectionResult, string> result A promise that resolves when connected or rejects on failure.
+function ESPHomeClient:bluetoothDeviceConnect(address, addressType, withCache)
+  log:trace("ESPHomeClient:bluetoothDeviceConnect(%s)", address)
+
+  local d = deferred.new()
+
+  -- Register callback for connection responses
+  local callbackKey = self:_registerCallback(
+    self:_makeBluetoothCallbackKey(ESPHomeProtoSchema.Message.BluetoothDeviceConnectionResponse, address),
+    function(message)
+      --- @cast message ProtoBluetoothDeviceConnectionResponse
+      log:debug(
+        "Bluetooth device connection response for %s: connected=%s, mtu=%s, error=%s",
+        address,
+        message.connected,
+        message.mtu,
+        message.error
+      )
+
+      -- ESPHome sends multiple responses:
+      -- - Intermediate: connected=nil (connection in progress)
+      -- - Final: connected=true (success) or connected=false with error (failure)
+      if message.connected == false or message.error ~= nil then
+        d:reject(string.format("Connection failed with code %s", message.error or -1))
+      elseif message.connected == true then
+        d:resolve({ connected = true, mtu = message.mtu })
+      end
+      -- Ignore intermediate responses (connected=nil)
+    end,
+    30 * ONE_SECOND, -- timeout for BLE connections
+    function()
+      d:reject("Connection timeout")
+    end
+  )
+
+  local requestType = (withCache == false)
+      and ESPHomeProtoSchema.Enum.BluetoothDeviceRequestType.BLUETOOTH_DEVICE_REQUEST_TYPE_CONNECT_V3_WITHOUT_CACHE
+    or ESPHomeProtoSchema.Enum.BluetoothDeviceRequestType.BLUETOOTH_DEVICE_REQUEST_TYPE_CONNECT_V3_WITH_CACHE
+
+  --- @type ProtoBluetoothDeviceRequest
+  local body = {
+    address = address,
+    request_type = requestType,
+  }
+
+  if addressType ~= nil then
+    --- @cast addressType number
+    body.has_address_type = true
+    body.address_type = addressType
+  end
+
+  self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.bluetooth_device_request, body):next(nil, function(err)
+    d:reject(err or "Failed to send connection request")
+  end)
+
+  return d:next(function(message)
+    self:_unregisterCallback(callbackKey)
+    return message
+  end, function(err)
+    self:_unregisterCallback(callbackKey)
+    return reject(err)
+  end)
+end
+
+--- Disconnect from a Bluetooth device.
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @return Deferred<nil, string> result A promise that resolves when the disconnect request is sent.
+function ESPHomeClient:bluetoothDeviceDisconnect(address)
+  log:trace("ESPHomeClient:bluetoothDeviceDisconnect(%s)", address)
+
+  return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.bluetooth_device_request, {
+    address = address,
+    request_type = ESPHomeProtoSchema.Enum.BluetoothDeviceRequestType.BLUETOOTH_DEVICE_REQUEST_TYPE_DISCONNECT,
+  })
+end
+
+--- Get GATT services for a Bluetooth device.
+--- Auto-connects if the device is not already connected.
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param addressType? BLEAddressType The address type for auto-connect (default: 0 = PUBLIC).
+--- @return Deferred<ProtoBluetoothGATTService[], string> result A promise that resolves with all services or rejects with error.
+function ESPHomeClient:bluetoothGattGetServices(address, addressType)
+  log:trace("ESPHomeClient:bluetoothGattGetServices(%s)", address)
+
+  -- Ensure device is connected before GATT operation
+  return self:_ensureBleConnected(address, addressType):next(function()
+    return self:_bluetoothGattGetServicesInternal(address)
+  end)
+end
+
+--- Internal implementation of GATT service discovery (assumes device is connected).
+--- @private
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @return Deferred<ProtoBluetoothGATTService[], string> result A promise that resolves with all services or rejects with error.
+function ESPHomeClient:_bluetoothGattGetServicesInternal(address)
+  --- @type Deferred<ProtoBluetoothGATTService[], string>
+  local d = deferred.new()
+
+  --- @type string[]
+  local callbackKeys = {}
+
+  -- Accumulate services from multiple responses
+  --- @type ProtoBluetoothGATTService[]
+  local allServices = {}
+
+  table.insert(
+    callbackKeys,
+    self:_registerCallback(
+      self:_makeBluetoothCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTGetServicesResponse, address),
+      function(message)
+        --- @cast message ProtoBluetoothGATTGetServicesResponse
+        local services = message.services or {}
+        log:debug("Bluetooth GATT services response for %s: %d services", address, #services)
+        for _, service in ipairs(services) do
+          table.insert(allServices, service)
+        end
+      end
+    )
+  )
+
+  table.insert(
+    callbackKeys,
+    self:_registerCallback(
+      self:_makeBluetoothCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTGetServicesDoneResponse, address),
+      function(message)
+        --- @cast message ProtoBluetoothGATTGetServicesDoneResponse
+        log:debug("Bluetooth GATT service discovery done for %s: %d total services", address, #allServices)
+        d:resolve(allServices)
+      end,
+      30 * ONE_SECOND,
+      function()
+        d:reject("GATT service discovery timeout")
+      end
+    )
+  )
+
+  table.insert(
+    callbackKeys,
+    self:_registerCallback(
+      self:_makeBluetoothCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address),
+      function(message)
+        --- @cast message ProtoBluetoothGATTErrorResponse
+        log:warn("Bluetooth GATT error for %s: error=%s", address, message.error)
+        d:reject(string.format("Getting GATT services failed with code %s", message.error or -1))
+      end
+    )
+  )
+
+  self
+    :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.bluetooth_gatt_get_services, { address = address })
+    :next(nil, function(err)
+      d:reject(err)
+    end)
+
+  return d:next(function(message)
+    self:_unregisterCallbacks(callbackKeys)
+    return message
+  end, function(err)
+    self:_unregisterCallbacks(callbackKeys)
+    return reject(err)
+  end)
+end
+
+--- Read a GATT characteristic.
+--- Auto-connects if the device is not already connected.
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param handle number The characteristic handle.
+--- @param addressType? BLEAddressType The address type for auto-connect (default: 0 = PUBLIC).
+--- @return Deferred<string, string> result A promise that resolves with data or rejects with GATT error code.
+function ESPHomeClient:bluetoothGattRead(address, handle, addressType)
+  log:trace("ESPHomeClient:bluetoothGattRead(%s, %s)", address, handle)
+
+  -- Ensure device is connected before GATT operation
+  return self:_ensureBleConnected(address, addressType):next(function()
+    return self:_bluetoothGattReadInternal(address, handle)
+  end)
+end
+
+--- Internal implementation of GATT read (assumes device is connected).
+--- @private
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param handle number The characteristic handle.
+--- @return Deferred<string, string> result A promise that resolves with data or rejects with GATT error code.
+function ESPHomeClient:_bluetoothGattReadInternal(address, handle)
+  --- @type Deferred<string, string>
+  local d = deferred.new()
+
+  --- @type string[]
+  local callbackKeys = {}
+
+  table.insert(
+    callbackKeys,
+    self:_registerCallback(
+      self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTReadResponse, address, handle),
+      function(message)
+        --- @cast message ProtoBluetoothGATTReadResponse
+        log:debug("Bluetooth GATT read response for %s handle %s: %d bytes", address, handle, #(message.data or ""))
+        d:resolve(message.data or "")
+      end,
+      10 * ONE_SECOND,
+      function()
+        d:reject("GATT read timeout")
+      end
+    )
+  )
+
+  table.insert(
+    callbackKeys,
+    self:_registerCallback(
+      self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
+      function(message)
+        --- @cast message ProtoBluetoothGATTErrorResponse
+        log:warn("Bluetooth GATT error for %s handle %s: error=%s", address, handle, message.error)
+        d:reject(string.format("GATT read failed with code %s", message.error or -1))
+      end
+    )
+  )
+
+  self
+    :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.bluetooth_gatt_read, { address = address, handle = handle })
+    :next(nil, function(err)
+      -- Service method failed (e.g., not connected)
+      d:reject(err)
+    end)
+
+  return d:next(function(message)
+    self:_unregisterCallbacks(callbackKeys)
+    return message
+  end, function(err)
+    self:_unregisterCallbacks(callbackKeys)
+    return reject(err)
+  end)
+end
+
+--- Write to a GATT characteristic.
+--- Auto-connects if the device is not already connected.
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param handle number The characteristic handle.
+--- @param data string The data to write (binary string).
+--- @param response? boolean Whether to wait for a write response (default false).
+--- @param addressType? BLEAddressType The address type for auto-connect (default: 0 = PUBLIC).
+--- @return Deferred<nil, string> result A promise that resolves on success or rejects with GATT error code.
+function ESPHomeClient:bluetoothGattWrite(address, handle, data, response, addressType)
+  log:trace("ESPHomeClient:bluetoothGattWrite(%s, %s, %d bytes, response=%s)", address, handle, #data, response)
+
+  -- Ensure device is connected before GATT operation
+  return self:_ensureBleConnected(address, addressType):next(function()
+    return self:_bluetoothGattWriteInternal(address, handle, data, response)
+  end)
+end
+
+--- Internal implementation of GATT write (assumes device is connected).
+--- @private
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param handle number The characteristic handle.
+--- @param data string The data to write (binary string).
+--- @param response? boolean Whether to wait for a write response (default false).
+--- @return Deferred<nil, string> result A promise that resolves on success or rejects with GATT error code.
+function ESPHomeClient:_bluetoothGattWriteInternal(address, handle, data, response)
+  --- @type Deferred<nil, string>
+  local d = deferred.new()
+
+  --- @type string[]
+  local callbackKeys = {}
+
+  if response then
+    table.insert(
+      callbackKeys,
+      self:_registerCallback(
+        self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTWriteResponse, address, handle),
+        function(message)
+          --- @cast message ProtoBluetoothGATTWriteResponse
+          log:debug("Bluetooth GATT write response for %s handle %s", address, handle)
+          d:resolve(nil)
+        end,
+        10 * ONE_SECOND,
+        function()
+          d:reject("GATT write timeout")
+        end
+      )
+    )
+
+    table.insert(
+      callbackKeys,
+      self:_registerCallback(
+        self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
+        function(message)
+          --- @cast message ProtoBluetoothGATTErrorResponse
+          log:warn("Bluetooth GATT write error for %s handle %s: error=%s", address, handle, message.error)
+          d:reject(string.format("GATT write failed with code %s", message.error or -1))
+        end
+      )
+    )
+  end
+
+  self
+    :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.bluetooth_gatt_write, {
+      address = address,
+      handle = handle,
+      response = response or false,
+      data = data,
+    })
+    :next(function()
+      -- For no-response mode, resolve immediately on success, otherwise wait for callback
+      if not response then
+        d:resolve(nil)
+      end
+    end, function(err)
+      d:reject(err)
+    end)
+
+  return d:next(function(message)
+    self:_unregisterCallbacks(callbackKeys)
+    return message
+  end, function(err)
+    self:_unregisterCallbacks(callbackKeys)
+    return reject(err)
+  end)
+end
+
+--- Subscribe to GATT characteristic notifications.
+--- Auto-connects if the device is not already connected.
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param handle number The characteristic handle.
+--- @param enable boolean Enable or disable notifications.
+--- @param callback? fun(data: string) The callback for notification data (required when enable=true).
+--- @param addressType? BLEAddressType The address type for auto-connect (default: 0 = PUBLIC).
+--- @return Deferred<nil, string> result A promise that resolves when subscription is confirmed or rejects with GATT error.
+function ESPHomeClient:bluetoothGattNotify(address, handle, enable, callback, addressType)
+  log:trace("ESPHomeClient:bluetoothGattNotify(%s, %s, %s)", address, handle, enable)
+
+  -- Ensure device is connected before GATT operation
+  return self:_ensureBleConnected(address, addressType):next(function()
+    return self:_bluetoothGattNotifyInternal(address, handle, enable, callback)
+  end)
+end
+
+--- Internal implementation of GATT notify subscription (assumes device is connected).
+--- @private
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param handle number The characteristic handle.
+--- @param enable boolean Enable or disable notifications.
+--- @param callback? fun(data: string) The callback for notification data (required when enable=true).
+--- @return Deferred<nil, string> result A promise that resolves when subscription is confirmed or rejects with GATT error.
+function ESPHomeClient:_bluetoothGattNotifyInternal(address, handle, enable, callback)
+  --- @type Deferred<nil, string>
+  local d = deferred.new()
+
+  --- @type string[]
+  local confirmCallbackKeys = {}
+  local notifyCallbackKey =
+    self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTNotifyDataResponse, address, handle)
+
+  if enable then
+    -- Register persistent callback for notification data
+    if callback then
+      self:_registerCallback(notifyCallbackKey, function(message)
+        --- @cast message ProtoBluetoothGATTNotifyDataResponse
+        log:debug("Bluetooth GATT notify data for %s handle %s: %d bytes", address, handle, #(message.data or ""))
+        local callbackSuccess, err = pcall(callback, message.data or "")
+        if not callbackSuccess then
+          log:error(
+            "Bluetooth GATT notify callback for %s handle %s failed: %s",
+            address,
+            handle,
+            err or "unknown error"
+          )
+        end
+      end)
+    end
+
+    -- Register one-time confirmation callback
+    table.insert(
+      confirmCallbackKeys,
+      self:_registerCallback(
+        self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTNotifyResponse, address, handle),
+        function(message)
+          --- @cast message ProtoBluetoothGATTNotifyResponse
+          log:debug("Bluetooth GATT notify subscription confirmed for %s handle %s", address, handle)
+          d:resolve(nil)
+        end,
+        10 * ONE_SECOND,
+        function()
+          d:reject("GATT notify subscription timeout")
+        end
+      )
+    )
+
+    -- Register error callback
+    table.insert(
+      confirmCallbackKeys,
+      self:_registerCallback(
+        self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
+        function(message)
+          --- @cast message ProtoBluetoothGATTErrorResponse
+          log:warn("Bluetooth GATT notify error for %s handle %s: error=%s", address, handle, message.error)
+          d:reject(string.format("GATT notify failed with code %s", message.error or -1))
+        end
+      )
+    )
+  else
+    -- Unsubscribe - clear the data callback
+    self:_unregisterCallback(notifyCallbackKey)
+
+    -- Register one-time confirmation callback for unsubscribe
+    table.insert(
+      confirmCallbackKeys,
+      self:_registerCallback(
+        self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTNotifyResponse, address, handle),
+        function(message)
+          --- @cast message ProtoBluetoothGATTNotifyResponse
+          log:debug("Bluetooth GATT notify unsubscribe confirmed for %s handle %s", address, handle)
+          d:resolve(nil)
+        end,
+        10 * ONE_SECOND,
+        function()
+          d:reject("GATT notify unsubscription timeout")
+        end
+      )
+    )
+
+    -- Register error callback
+    table.insert(
+      confirmCallbackKeys,
+      self:_registerCallback(
+        self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
+        function(message)
+          --- @cast message ProtoBluetoothGATTErrorResponse
+          log:warn("Bluetooth GATT notify unsubscribe error for %s handle %s: error=%s", address, handle, message.error)
+          d:reject(string.format("GATT notify failed with code %s", message.error or -1))
+        end
+      )
+    )
+  end
+
+  self
+    :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.bluetooth_gatt_notify, {
+      address = address,
+      handle = handle,
+      enable = enable,
+    })
+    :next(nil, function(err)
+      d:reject(err)
+    end)
+
+  return d:next(function(message)
+    self:_unregisterCallbacks(confirmCallbackKeys)
+    return message
+  end, function(err)
+    self:_unregisterCallbacks(confirmCallbackKeys)
+    self:_unregisterCallback(notifyCallbackKey)
+    return reject(err)
+  end)
+end
+
+--- Subscribe to Bluetooth connection slot updates.
+--- This tells us how many BLE connection slots are available/in use.
+--- Updates cached state and notifies all registered callbacks.
+--- Use addBluetoothConnectionsCallback() to register for updates.
+--- @return Deferred<nil, string> result A promise that resolves when subscribed.
+function ESPHomeClient:subscribeBluetoothConnectionsFree()
+  log:trace("ESPHomeClient:subscribeBluetoothConnectionsFree()")
+
+  --- @type Deferred<nil, string>
+  local d = deferred.new()
+
+  -- Timeout for initial response (callback persists for ongoing updates)
+  local initialResponseTimer = C4:SetTimer(10 * ONE_SECOND, function()
+    d:reject("Bluetooth connections subscription timeout")
+  end)
+
+  self:_registerCallback(
+    self:_makeMessageCallbackKey(ESPHomeProtoSchema.Message.BluetoothConnectionsFreeResponse),
+    function(message)
+      --- @cast message ProtoBluetoothConnectionsFreeResponse
+      local free = message.free or 0
+      local limit = message.limit or 0
+      local allocated = message.allocated or {}
+
+      log:trace("Bluetooth connections free: %d/%d (connected devices: %d)", free, limit, #allocated)
+
+      -- Convert uint64 addresses to MAC strings
+      local allocatedMacs = {}
+      for i, addr in ipairs(allocated) do
+        local mac = BLEAddress.toString(addr) or "INVALID ADDRESS"
+        table.insert(allocatedMacs, mac)
+        log:trace("  Allocated slot %d: %s", i, mac)
+      end
+
+      -- Update cached state
+      self._btConnections = {
+        free = free,
+        limit = limit,
+        allocated = allocatedMacs,
+        initialized = true,
+      }
+
+      log:trace(
+        "Bluetooth connections updated: %d/%d free, %d allocated: %s",
+        free,
+        limit,
+        #allocatedMacs,
+        table.concat(allocatedMacs, ", ")
+      )
+
+      -- Notify all registered callbacks
+      for callbackId, callback in pairs(self._btConnectionsCallbacks) do
+        local callbackSuccess, err = pcall(callback, self._btConnections)
+        if not callbackSuccess then
+          log:error("Bluetooth connections callback '%s' failed: %s", callbackId, err or "unknown error")
+        end
+      end
+
+      -- Resolve the deferred only after we have received our first update
+      d:resolve(nil)
+    end
+  )
+
+  -- Send subscription request
+  self:sendMessage(ESPHomeProtoSchema.RPC.APIConnection.subscribe_bluetooth_connections_free.inputType):next(function()
+    initialResponseTimer:Cancel()
+  end, function(err)
+    initialResponseTimer:Cancel()
+    d:reject(err)
+  end)
+
+  return d
+end
+
+--- Initialize Bluetooth proxy functionality.
+--- Subscribes to BLE advertisements and connection slot updates.
+--- CRITICAL: The advertisement subscription establishes api_connection_ in ESPHome's
+--- bluetooth_proxy. Without this, the proxy's loop() treats BLE connections as orphaned
+--- and disconnects them. This subscription must remain active for BLE device connections.
+--- Safe to call multiple times - only subscribes once.
+--- @return Deferred<nil, string> result A promise that resolves when subscription is set up.
+function ESPHomeClient:initBluetoothProxy()
+  log:trace("ESPHomeClient:initBluetoothProxy()")
+
+  -- Already fully initialized (real data received from subscription)
+  if self._btConnections.initialized then
+    log:debug("Bluetooth proxy already initialized")
+    return deferred.new():resolve(nil)
+  end
+
+  -- Initialization already in flight - return existing deferred
+  if self._btProxyInitDeferred then
+    log:debug("Bluetooth proxy initialization already in progress")
+    return self._btProxyInitDeferred
+  end
+
+  -- Register callback for scanner state updates
+  -- ESPHome sends these when the scanner state changes (running, stopped, etc.)
+  self:_registerCallback(
+    self:_makeMessageCallbackKey(ESPHomeProtoSchema.Message.BluetoothScannerStateResponse),
+    function(message)
+      --- @cast message ProtoBluetoothScannerStateResponse
+      log:debug(
+        "Received BluetoothScannerStateResponse: state=%s, mode=%s, configured_mode=%s",
+        message.state,
+        message.mode,
+        message.configured_mode
+      )
+
+      --- @type BluetoothScannerState
+      self._btScannerState = {
+        state = message.state or ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_IDLE,
+        mode = message.mode or ESPHomeProtoSchema.Enum.BluetoothScannerMode.BLUETOOTH_SCANNER_MODE_PASSIVE,
+        initialized = true,
+      }
+
+      -- Notify all registered callbacks
+      for callbackId, callback in pairs(self._btScannerStateCallbacks) do
+        local callbackSuccess, err = pcall(callback, self._btScannerState)
+        if not callbackSuccess then
+          log:error("Bluetooth scanner state callback '%s' failed: %s", callbackId, err or "unknown error")
+        end
+      end
+    end
+  )
+
+  -- Subscribe to BLE advertisements to establish api_connection_ in ESPHome's bluetooth_proxy.
+  -- CRITICAL: Without this subscription, the proxy's loop() treats BLE connections as orphaned
+  -- and disconnects them. This subscription must remain active for BLE device connections.
+  -- See: https://github.com/esphome/esphome/blob/dev/esphome/components/bluetooth_proxy/bluetooth_proxy.cpp
+
+  -- Helper to process a parsed advertisement and dispatch to all registered callbacks
+  --- @param advertisement BLEAdvertisement
+  local function processAdvertisement(advertisement)
+    --log:trace("BLE advertisement: %s", BLEAdvertisementParser.toString(advertisement))
+
+    -- Dispatch to all registered callbacks
+    for callbackId, callback in pairs(self._btAdvertisementsCallbacks) do
+      local success, err = pcall(callback, advertisement)
+      if not success then
+        log:error("Bluetooth advertisement callback '%s' failed: %s", callbackId, err or "unknown error")
+      end
+    end
+  end
+
+  -- Register callback for decoded advertisement responses (older ESPHome format)
+  self:_registerCallback(
+    self:_makeMessageCallbackKey(ESPHomeProtoSchema.Message.BluetoothLEAdvertisementResponse),
+    function(message)
+      --- @cast message ProtoBluetoothLEAdvertisementResponse
+      local advertisement = BLEAdvertisementParser.parse(message)
+      if not advertisement then
+        log:warn("Invalid BLE advertisement: %s", message)
+        return
+      end
+      processAdvertisement(advertisement)
+    end
+  )
+
+  -- Register callback for raw advertisement responses (modern ESPHome format)
+  self:_registerCallback(
+    self:_makeMessageCallbackKey(ESPHomeProtoSchema.Message.BluetoothLERawAdvertisementsResponse),
+    function(message)
+      --- @cast message ProtoBluetoothLERawAdvertisementsResponse
+      for _, rawAdvertisement in ipairs(message.advertisements or {}) do
+        local advertisement = BLEAdvertisementParser.parseRaw(rawAdvertisement)
+        if not advertisement then
+          log:warn("Invalid raw BLE advertisement packet: %s", rawAdvertisement)
+          return
+        end
+        processAdvertisement(advertisement)
+      end
+    end
+  )
+
+  -- Chain all subscription operations so the returned deferred
+  -- only resolves after everything is established.
+  -- Store the deferred as re-entrancy guard: concurrent calls return the same
+  -- deferred, and on failure we clear it so the next call can retry.
+
+  -- Step 1: Subscribe to BLE advertisements
+  self._btProxyInitDeferred = self
+    :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.subscribe_bluetooth_le_advertisements)
+    :next(function()
+      log:debug("BLE advertisement subscription established")
+
+      -- Step 2: Set scanner mode to active (required for BTHome devices that include
+      -- service data in scan responses rather than advertising packets)
+      return self:setBluetoothScannerMode(true)
+    end)
+    :next(function()
+      log:debug("Scanner mode set to active")
+
+      -- Step 3: Subscribe to connection slot updates
+      return self:subscribeBluetoothConnectionsFree()
+    end)
+    :next(function()
+      -- Success: _btConnections.initialized is now true (set by subscription callback).
+      -- Clear the in-flight deferred; future calls will see initialized=true and short-circuit.
+      self._btProxyInitDeferred = nil
+    end, function(err)
+      -- Failed: clear the in-flight deferred so the next call can retry
+      log:warn("Bluetooth proxy initialization failed, will retry on next attempt: %s", err or "unknown")
+      self._btProxyInitDeferred = nil
+      return deferred.new():reject(err)
+    end)
+
+  return self._btProxyInitDeferred
+end
+
+--- Get the current Bluetooth connection state (cached).
+--- @return BluetoothConnectionState state The cached connection state.
+function ESPHomeClient:getBluetoothConnectionState()
+  log:trace("ESPHomeClient:getBluetoothConnectionState()")
+  return self._btConnections
+end
+
+--- Check if a Bluetooth device is currently allocated (connected via proxy).
+--- "Allocated" means the device has an active BLE connection and is using one of the
+--- limited connection slots (typically 3-4 on ESP32).
+--- @param mac string? MAC address
+--- @return boolean isAllocated True if the device is currently connected.
+function ESPHomeClient:isBluetoothDeviceAllocated(mac)
+  log:trace("ESPHomeClient:isBluetoothDeviceAllocated(%s)", mac)
+  if not mac then
+    return false
+  end
+  for _, allocatedMac in ipairs(self._btConnections.allocated) do
+    if allocatedMac == mac then
+      return true
+    end
+  end
+  return false
+end
+
+--- Ensure a BLE device is connected before performing GATT operations.
+--- If the device already has an active connection (allocated slot), resolves immediately.
+--- Otherwise, initiates a new BLE connection first. This enables on-demand connection for GATT
+--- operations.
+--- @private
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param addressType? BLEAddressType The address type (default: 0 = PUBLIC).
+--- @return Deferred<nil, string> result A promise that resolves when connected.
+function ESPHomeClient:_ensureBleConnected(address, addressType)
+  local mac = BLEAddress.toString(address)
+  log:trace("ESPHomeClient:_ensureBleConnected(%s)", mac)
+
+  -- Check if device already has an active connection slot
+  if self:isBluetoothDeviceAllocated(mac) then
+    log:debug("BLE device %s already connected", mac)
+    return deferred.new():resolve(nil)
+  end
+
+  -- Device not connected - initiate connection
+  log:info("BLE device %s not connected, auto-connecting for GATT operation", mac)
+  return self:bluetoothDeviceConnect(address, addressType or BLEAddress.Type.PUBLIC, true):next(function()
+    log:debug("BLE auto-connect successful for %s", mac)
+  end)
+end
+
+--- Register a callback for Bluetooth connection state changes.
+--- If state is already available, the callback is fired immediately with current state.
+--- @param callbackId string Unique identifier for this callback (used for unregistering).
+--- @param callback fun(state: BluetoothConnectionState) The callback function.
+function ESPHomeClient:addBluetoothConnectionsCallback(callbackId, callback)
+  log:trace("ESPHomeClient:addBluetoothConnectionsCallback(%s)", callbackId)
+  self._btConnectionsCallbacks[callbackId] = callback
+
+  -- Fire callback immediately if we already have state
+  if self._btConnections.initialized then
+    local success, err = pcall(callback, self._btConnections)
+    if not success then
+      log:error("Bluetooth connections callback '%s' failed: %s", callbackId, err or "unknown error")
+    end
+  end
+end
+
+--- Unregister a Bluetooth connection state change callback.
+--- @param callbackId string The callback identifier to remove.
+function ESPHomeClient:removeBluetoothConnectionsCallback(callbackId)
+  log:trace("ESPHomeClient:removeBluetoothConnectionsCallback(%s)", callbackId)
+  self._btConnectionsCallbacks[callbackId] = nil
+end
+
+--- Get the current Bluetooth scanner state (cached).
+--- @return BluetoothScannerState state The cached scanner state { state, mode, initialized }.
+function ESPHomeClient:getBluetoothScannerState()
+  log:trace("ESPHomeClient:getBluetoothScannerState()")
+  return self._btScannerState
+end
+
+--- Register a callback for Bluetooth scanner state changes.
+--- If state is already available, the callback is fired immediately with current state.
+--- @param callbackId string Unique identifier for this callback (used for unregistering).
+--- @param callback fun(state: BluetoothScannerState) The callback function.
+function ESPHomeClient:addBluetoothScannerStateCallback(callbackId, callback)
+  log:trace("ESPHomeClient:addBluetoothScannerStateCallback(%s)", callbackId)
+  self._btScannerStateCallbacks[callbackId] = callback
+
+  -- Fire callback immediately if we already have state
+  if self._btScannerState.initialized then
+    local success, err = pcall(callback, self._btScannerState)
+    if not success then
+      log:error("Bluetooth scanner state callback '%s' failed: %s", callbackId, err or "unknown error")
+    end
+  end
+end
+
+--- Unregister a Bluetooth scanner state change callback.
+--- @param callbackId string The callback identifier to remove.
+function ESPHomeClient:removeBluetoothScannerStateCallback(callbackId)
+  log:trace("ESPHomeClient:removeBluetoothScannerStateCallback(%s)", callbackId)
+  self._btScannerStateCallbacks[callbackId] = nil
+end
+
+--- Register a callback for BLE advertisement notifications.
+--- Advertisements are received after initBluetoothProxy() is called.
+--- @param callbackId string Unique identifier for this callback.
+--- @param callback fun(advertisement: BLEAdvertisement) The callback function.
+function ESPHomeClient:addBluetoothAdvertisementCallback(callbackId, callback)
+  log:trace("ESPHomeClient:addBluetoothAdvertisementCallback(%s)", callbackId)
+  self._btAdvertisementsCallbacks[callbackId] = callback
+end
+
+--- Unregister a BLE advertisement callback.
+--- @param callbackId string The callback identifier to remove.
+function ESPHomeClient:removeBluetoothAdvertisementCallback(callbackId)
+  log:trace("ESPHomeClient:removeBluetoothAdvertisementCallback(%s)", callbackId)
+  self._btAdvertisementsCallbacks[callbackId] = nil
+end
+
+--- Set the Bluetooth scanner mode.
+--- @param active boolean True for active scanning, false for passive scanning.
+--- @return Deferred<nil, string> result A promise that resolves when mode is set.
+function ESPHomeClient:setBluetoothScannerMode(active)
+  log:trace("ESPHomeClient:setBluetoothScannerMode(%s)", active)
+
+  local mode = active and ESPHomeProtoSchema.Enum.BluetoothScannerMode.BLUETOOTH_SCANNER_MODE_ACTIVE
+    or ESPHomeProtoSchema.Enum.BluetoothScannerMode.BLUETOOTH_SCANNER_MODE_PASSIVE
+
+  return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.bluetooth_scanner_set_mode, {
+    mode = mode,
+  })
+end
+
 --- Send a hello message to the ESPHome device.
 --- @return Deferred<ProtoHelloResponse, string> result A promise that resolves when the hello message is sent.
 function ESPHomeClient:sendHello()
   log:trace("ESPHomeClient:sendHello()")
+  local deviceId = C4:GetDeviceID()
   return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.hello, {
-    client_info = "Control4",
+    client_info = string.format(
+      "Control4 - %s (ID: %d)",
+      C4:GetDeviceData(deviceId, "name") or "Unknown Device",
+      deviceId
+    ),
     api_version_major = 1,
     api_version_minor = 0,
   })
@@ -592,6 +1464,8 @@ function ESPHomeClient:sendNoiseHello()
   self:_registerCallback(
     NoiseProtocolCallbackKey.HELLO,
     function(message)
+      --- @diagnostic disable-next-line: cast-type-mismatch
+      --- @cast message { node: string, mac_address: string }
       log:debug("Received SERVER_HELLO: node=%s, mac=%s", message.node, message.mac_address)
       d:resolve(nil)
     end,
@@ -636,21 +1510,25 @@ function ESPHomeClient:sendHandshake()
 
   self:_registerCallback(
     NoiseProtocolCallbackKey.HANDSHAKE,
-    function(success, message)
+    function(message)
+      --- @diagnostic disable-next-line: cast-type-mismatch
+      --- @cast message { success: boolean, message: string? }
       self:checkHandshakeState(NoiseState.HANDSHAKE)
 
-      if not success then
-        log:error("HANDSHAKE failed: %s", message)
+      if not message.success or not message.message then
+        log:error("HANDSHAKE failed: %s", message.message or "empty response")
         self._hsState = NoiseState.ERROR
-        return d:reject(message)
+        d:reject(message.message or "empty handshake response")
+        return
       end
 
-      assert(self._hs):read_handshake_message(message)
+      assert(self._hs):read_handshake_message(message.message)
 
       if not self._hs.handshake_complete then
         log:error("Handshake not completed after reading handshake message")
         self._hsState = NoiseState.ERROR
-        return d:reject("Handshake not completed")
+        d:reject("Handshake not completed")
+        return
       end
 
       log:debug("Handshake completed successfully")
@@ -813,7 +1691,7 @@ function ESPHomeClient:sendMessage(messageSchema, body, responseSchema, timeout)
   end
 
   log:debug("Sending message %s with %d byte(s) of data", messageSchema.name, #encodedData)
-  log:ultra("Outgoing frame (hex): %s", to_hex(frame))
+  -- log:ultra("Outgoing frame (hex): %s", to_hex(frame))
   self._client:Write(frame)
 
   return d:next(function(message)
@@ -833,29 +1711,33 @@ end
 --- @param messageSchema ProtoMessageSchema The message schema
 --- @return CallbackKey key The generated callback key
 --- @private
+--- @diagnostic disable-next-line: unused
 function ESPHomeClient:_makeMessageCallbackKey(messageSchema)
   local id = Select(messageSchema, "options", "id")
   assert(id, "Message schema must have options.id")
   return tostring(id)
 end
 
---- Generate a callback key for a message ID and Bluetooth address.
---- @param messageId integer The message type ID
+--- Generate a callback key for a message schema and Bluetooth address.
+--- @param messageSchema ProtoMessageSchema The message schema
 --- @param address number|table The Bluetooth device address (uint64 or Int64HighLow)
 --- @return CallbackKey key The generated callback key
 --- @private
-function ESPHomeClient:_makeBluetoothCallbackKey(messageId, address)
-  error("Bluetooth callback keys not yet implemented")
+function ESPHomeClient:_makeBluetoothCallbackKey(messageSchema, address)
+  local messageKey = self:_makeMessageCallbackKey(messageSchema)
+  local addrStr = BLEAddress.toString(address)
+  return string.format("%s_%s", messageKey, addrStr)
 end
 
---- Generate a callback key for a message ID, Bluetooth address, and GATT handle.
---- @param messageId integer The message type ID
+--- Generate a callback key for a message schema, Bluetooth address, and GATT handle.
+--- @param messageSchema ProtoMessageSchema The message schema
 --- @param address number|table The Bluetooth device address (uint64 or Int64HighLow)
---- @param handle integer The GATT handle
+--- @param handle number GATT handle
 --- @return CallbackKey key The generated callback key
 --- @private
-function ESPHomeClient:_makeGattCallbackKey(messageId, address, handle)
-  error("GATT callback keys not yet implemented")
+function ESPHomeClient:_makeGattCallbackKey(messageSchema, address, handle)
+  local bluetoothKey = self:_makeBluetoothCallbackKey(messageSchema, address)
+  return string.format("%s_%d", bluetoothKey, handle)
 end
 
 --- Register a callback for a given key with optional timeout.
@@ -892,7 +1774,7 @@ function ESPHomeClient:_registerCallback(key, callback, timeout, onTimeout)
   end
 
   self._callbacks[key] = entry
-  log:debug("Registered callback for key: %s (timeout: %s ms)", key, timeout or "none")
+  log:trace("Registered callback for key: %s (timeout: %s ms)", key, timeout or "none")
   return key
 end
 
@@ -900,10 +1782,10 @@ end
 --- @param key CallbackKey|nil The callback key to unregister
 --- @private
 function ESPHomeClient:_unregisterCallback(key)
+  log:trace("ESPHomeClient:_unregisterCallback(%s)", key)
   if key == nil then
     return
   end
-  log:trace("ESPHomeClient:_unregisterCallback(%s)", key)
 
   local entry = self._callbacks[key]
   if entry then
@@ -911,7 +1793,16 @@ function ESPHomeClient:_unregisterCallback(key)
       entry.timer:Cancel()
     end
     self._callbacks[key] = nil
-    log:debug("Unregistered callback for key: %s", key)
+    log:trace("Unregistered callback for key: %s", key)
+  end
+end
+
+--- Unregister multiple callbacks by key. Convenience wrapper around _unregisterCallback.
+--- @param keys CallbackKey[] Array of callback keys to unregister
+--- @private
+function ESPHomeClient:_unregisterCallbacks(keys)
+  for _, key in ipairs(keys) do
+    self:_unregisterCallback(key)
   end
 end
 
@@ -927,7 +1818,7 @@ function ESPHomeClient:_invokeCallback(messageType, message, schema)
 
   -- Try most specific first: message + address + handle
   if message.address ~= nil and message.handle ~= nil then
-    local gattKey = self:_makeGattCallbackKey(messageType, message.address, message.handle)
+    local gattKey = self:_makeGattCallbackKey(schema, message.address, message.handle)
     if self:_invokeCallbackByKey(gattKey, message, schema) then
       return true
     end
@@ -935,14 +1826,14 @@ function ESPHomeClient:_invokeCallback(messageType, message, schema)
 
   -- Try message + address
   if message.address ~= nil then
-    local btKey = self:_makeBluetoothCallbackKey(messageType, message.address)
+    local btKey = self:_makeBluetoothCallbackKey(schema, message.address)
     if self:_invokeCallbackByKey(btKey, message, schema) then
       return true
     end
   end
 
   -- Fall back to message ID only
-  return self:_invokeCallbackByKey(tostring(messageType), message, schema)
+  return self:_invokeCallbackByKey(self:_makeMessageCallbackKey(schema), message, schema)
 end
 
 --- Invoke a callback by key with variadic arguments.
@@ -954,13 +1845,17 @@ function ESPHomeClient:_invokeCallbackByKey(key, ...)
   local entry = self._callbacks[key]
 
   if entry and entry.callback then
-    log:debug("Invoking callback for key: %s", key)
+    log:trace("Invoking callback for key: %s", key)
+
+    -- Cancel the timeout timer if present (callback was invoked before timeout)
+    if entry.timer then
+      entry.timer:Cancel()
+      entry.timer = nil
+    end
+
     local success, err = pcall(entry.callback, ...)
     if not success then
-      if IsEmpty(err) or type(err) ~= "string" then
-        err = "unknown error"
-      end
-      log:error("Callback for key %s failed: %s", key, err)
+      log:error("Callback for key %s failed: %s", key, err or "unknown error")
     end
     return true
   end
@@ -977,7 +1872,7 @@ function ESPHomeClient:_processBuffer()
   if self._buffer == nil or #self._buffer < 3 then
     return
   end
-  log:ultra("Processing buffer (hex): %s", to_hex(self._buffer))
+  -- log:ultra("Processing buffer (hex): %s", to_hex(self._buffer))
 
   -- Process the indicator
   local indicator, indicatorEndPos = string.byte(self._buffer, 1), 2
@@ -998,6 +1893,16 @@ function ESPHomeClient:_processBuffer()
       | Data         | bytes  | Variable  | -        | Protocol buffer payload    |
       +--------------+--------+-----------+----------+----------------------------+
     --]]
+
+    -- Check for protocol mismatch: client expects encryption but device sent plaintext
+    if self._encryptionKey ~= nil then
+      log:error("Protocol mismatch: driver configured for encryption but device sent plaintext data")
+      log:error("Check that the ESPHome device has 'api: encryption: key:' configured in its YAML")
+      self._fatalError = "Encryption mismatch: device not configured for encryption"
+      self:disconnect()
+      return
+    end
+
     -- Process the payload size and message type
     local payloadSize, payloadSizeEndPos = pb.decode_varint(self._buffer, indicatorEndPos)
     local messageType, messageTypeEndPos = pb.decode_varint(self._buffer, payloadSizeEndPos)
@@ -1006,7 +1911,7 @@ function ESPHomeClient:_processBuffer()
     local totalFrameSize = messageTypeEndPos + payloadSize - 1
     if #self._buffer < totalFrameSize then
       -- This can happen if the message is split across multiple tcp reads
-      log:debug("Incomplete plaintext frame (%d bytes expected, %d bytes received)", totalFrameSize, #self._buffer)
+      log:trace("Incomplete plaintext frame (%d bytes expected, %d bytes received)", totalFrameSize, #self._buffer)
       return
     end
     local payload = string.sub(self._buffer, messageTypeEndPos, totalFrameSize)
@@ -1014,6 +1919,9 @@ function ESPHomeClient:_processBuffer()
 
     -- Remove the processed data from the buffer
     self._buffer = string.sub(self._buffer, payloadEndPos)
+
+    -- Update keepalive timestamp for each processed frame
+    self._lastDataReceived = os.time()
 
     log:ultra("Plaintext frame - Message type: %d, Payload size: %d", messageType, payloadSize)
     self:_processPayload(messageType, payload)
@@ -1043,6 +1951,15 @@ function ESPHomeClient:_processBuffer()
             0x01      2B      0x01         Variable
     --]]
 
+    -- Check for protocol mismatch: device sent noise but client not configured for encryption
+    if self._encryptionKey == nil then
+      log:error("Protocol mismatch: device sent encrypted data but driver not configured for encryption")
+      log:error("Set Authentication Mode to 'Encryption Key' and enter the key from your ESPHome device")
+      self._fatalError = "Encryption mismatch: device requires encryption key"
+      self:disconnect()
+      return
+    end
+
     local encryptedSize = bit16.be_bytes_to_u16(self._buffer:sub(indicatorEndPos, indicatorEndPos + 1))
     local encryptedSizeEndPos = indicatorEndPos + 2
 
@@ -1050,7 +1967,7 @@ function ESPHomeClient:_processBuffer()
     local totalFrameSize = encryptedSizeEndPos + encryptedSize - 1
     if #self._buffer < totalFrameSize then
       -- This can happen if the message is split across multiple tcp reads
-      log:debug("Incomplete noise frame (%d bytes expected, %d bytes received)", totalFrameSize, #self._buffer)
+      log:trace("Incomplete noise frame (%d bytes expected, %d bytes received)", totalFrameSize, #self._buffer)
       return
     end
 
@@ -1058,8 +1975,20 @@ function ESPHomeClient:_processBuffer()
     local encryptedPayload = string.sub(self._buffer, encryptedSizeEndPos, totalFrameSize)
     local encryptedPayloadEndPos = totalFrameSize + 1
 
+    -- TODO: Lower logging level
+    log:debug(
+      "Noise frame: size=%d, totalFrameSize=%d, bufferLen=%d, remaining=%d",
+      encryptedSize,
+      totalFrameSize,
+      #self._buffer,
+      #self._buffer - totalFrameSize
+    )
+
     -- Remove the processed data from the buffer
     self._buffer = string.sub(self._buffer, encryptedPayloadEndPos)
+
+    -- Update keepalive timestamp for each processed frame (not just on OnRead)
+    self._lastDataReceived = os.time()
 
     if self._hsState == NoiseState.HELLO then
       -- SERVER_HELLO message structure
@@ -1094,14 +2023,14 @@ function ESPHomeClient:_processBuffer()
         return
       end
       -- Extract mac address
-      local macAddress = string.sub(encryptedPayload, nodeNullTermPos + 1, macNullTermPos - 1)
+      local mac = string.sub(encryptedPayload, nodeNullTermPos + 1, macNullTermPos - 1)
 
-      log:debug("SERVER_HELLO message - Node: %s, MAC: %s", nodeName, macAddress)
+      log:debug("SERVER_HELLO message - Node: %s, MAC: %s", nodeName, mac)
 
       -- Call the callback for SERVER_HELLO if registered
       self:_invokeCallbackByKey(NoiseProtocolCallbackKey.HELLO, {
         node = nodeName,
-        mac_address = macAddress,
+        mac_address = mac,
       })
     elseif self._hsState == NoiseState.HANDSHAKE then
       -- HANDSHAKE error message structure
@@ -1122,7 +2051,10 @@ function ESPHomeClient:_processBuffer()
       log:trace("HANDSHAKE message - Success: %s, Message: %s", success, to_hex(message))
 
       -- Call the callback for HANDSHAKE if registered
-      self:_invokeCallbackByKey(NoiseProtocolCallbackKey.HANDSHAKE, success, message)
+      self:_invokeCallbackByKey(NoiseProtocolCallbackKey.HANDSHAKE, {
+        success = success,
+        message = message,
+      })
     elseif self._hsState == NoiseState.READY then
       local ok, decryptedPayload = pcall(assert(self._hs).receive_message, self._hs, encryptedPayload)
       if not ok or decryptedPayload == nil then
@@ -1136,7 +2068,7 @@ function ESPHomeClient:_processBuffer()
       end
       --- @cast decryptedPayload string
 
-      log:trace("READY message - %s", to_hex(decryptedPayload))
+      -- log:trace("READY message - %s", to_hex(decryptedPayload))
 
       -- Extract the message type and data length from the decrypted payload
       if #decryptedPayload < 4 then
@@ -1160,8 +2092,11 @@ function ESPHomeClient:_processBuffer()
       return
     end
   else
-    -- Unknown indicator
-    log:warn("Invalid esphome frame (unsupported indicator %02X)", indicator)
+    -- Unknown indicator - buffer is corrupted, clear it and disconnect
+    log:error("Invalid esphome frame (unsupported indicator %02X)", indicator)
+    log:error("Buffer corruption detected - first 32 bytes: %s", to_hex(self._buffer:sub(1, 32)))
+    self._fatalError = "Protocol error: corrupted frame data"
+    self:disconnect()
     return
   end
 
@@ -1192,11 +2127,12 @@ function ESPHomeClient:_processPayload(messageType, payload)
   -- Decode the payload data
   local success, message = pcall(pb.decode, ESPHomeProtoSchema, messageSchema, payload)
   if not success then
-    log:warn("Invalid esphome frame (failed to decode message type %s): %s", messageType, message)
+    log:warn("Invalid esphome frame (failed to decode message type %s): %s", messageType, message or "unknown error")
     return
   end
+  --- @cast message -string
 
-  log:trace("Decoded esphome message: %s(%s)", messageSchema.name, message)
+  log:ultra("Decoded esphome message: %s(%s)", messageSchema.name, message)
 
   -- Call any registered callbacks for the message type
   self:_invokeCallback(messageType, message, messageSchema)

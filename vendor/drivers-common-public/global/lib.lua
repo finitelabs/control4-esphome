@@ -2,7 +2,7 @@
 
 COMMON_LIB_VER = 34
 
-JSON = require("vendor.JSON")
+JSON = require("JSON")
 
 pcall(require, "drivers-common-internal.global.production")
 

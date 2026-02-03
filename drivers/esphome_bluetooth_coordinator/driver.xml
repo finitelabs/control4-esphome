@@ -1,0 +1,222 @@
+<devicedata>
+  <name>ESPHome Bluetooth Coordinator</name>
+  <version>20260120</version>
+  <manufacturer>Finite Labs</manufacturer>
+  <model>ESPHome Bluetooth Coordinator</model>
+  <creator>Derek Miller</creator>
+  <small image_source="c4z">icons/device_sm.png</small>
+  <large image_source="c4z">icons/device_lg.png</large>
+  <control>lua_gen</control>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 Finite Labs, LLC. All rights reserved.</copyright>
+  <created>01/20/2026 12:00:00 PM</created>
+  <modified/>
+  <combo>true</combo>
+  <minimum_os_version>3.3.0</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals/>
+  <events/>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <properties>
+      <!-- #ifdef DRIVERCENTRAL -->
+      <property>
+        <name>Cloud Settings</name>
+        <type>LABEL</type>
+        <default>Cloud Settings</default>
+      </property>
+      <property>
+        <name>Cloud Status</name>
+        <default/>
+        <type>STRING</type>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Automatic Updates</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <default>On</default>
+      </property>
+      <!-- #endif -->
+      <property>
+        <name>Driver Settings</name>
+        <type>LABEL</type>
+        <default>Driver Settings</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <default>3 - Info</default>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+      </property>
+      <property>
+        <name>Coordinator Status</name>
+        <type>LABEL</type>
+        <default>Coordinator Status</default>
+      </property>
+      <property>
+        <name>Connected Proxies</name>
+        <type>STRING</type>
+        <default>0</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Selected Devices</name>
+        <type>STRING</type>
+        <default>0</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Device Settings</name>
+        <type>LABEL</type>
+        <default>Device Settings</default>
+      </property>
+      <property>
+        <name>Select Bluetooth Devices</name>
+        <type>DYNAMIC_LIST</type>
+        <default>(Select)</default>
+        <description>Select Bluetooth devices to track and control via the coordinator</description>
+      </property>
+      <property>
+        <name>Scan Duration (seconds)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>5</minimum>
+        <maximum>60</maximum>
+        <default>30</default>
+        <description>Seconds to scan for BLE devices when refreshing the device list</description>
+      </property>
+      <property>
+        <name>RSSI Freshness (seconds)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>10</minimum>
+        <maximum>300</maximum>
+        <default>60</default>
+        <description>How long RSSI readings remain valid for proxy selection</description>
+      </property>
+      <property>
+        <name>Presence Settings</name>
+        <type>LABEL</type>
+        <default>Presence Settings</default>
+      </property>
+      <property>
+        <name>Select Presence Devices</name>
+        <type>DYNAMIC_LIST</type>
+        <default>(Select)</default>
+        <description>Select Bluetooth devices to track for room presence detection</description>
+      </property>
+      <property>
+        <name>RSSI Smoothing Factor</name>
+        <type>RANGED_FLOAT</type>
+        <minimum>0.1</minimum>
+        <maximum>0.5</maximum>
+        <default>0.2</default>
+        <description>Lower = smoother/slower, Higher = more responsive. 0.2 recommended.</description>
+      </property>
+      <property>
+        <name>Room Change Hysteresis (dBm)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>3</minimum>
+        <maximum>15</maximum>
+        <default>6</default>
+        <description>RSSI improvement required to change rooms. Higher = more stable.</description>
+      </property>
+      <property>
+        <name>Room Change Dwell Time (seconds)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>2</minimum>
+        <maximum>30</maximum>
+        <default>5</default>
+        <description>Seconds new room must be "best" before committing change.</description>
+      </property>
+      <property>
+        <name>Away Timeout (seconds)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>30</minimum>
+        <maximum>600</maximum>
+        <default>120</default>
+        <description>Seconds without signal before marking device as away.</description>
+      </property>
+      <property>
+        <name>Minimum Room RSSI (dBm)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>-100</minimum>
+        <maximum>-40</maximum>
+        <default>-100</default>
+        <description>Minimum signal strength to assign a device to a room. -100 disables threshold (any signal assigns room). Devices with weaker signals are "home" but not in any room.</description>
+      </property>
+    </properties>
+    <commands/>
+    <actions>
+      <action>
+        <name>Reset Driver</name>
+        <command>ResetDriver</command>
+        <params>
+          <param>
+            <name>Are You Sure?</name>
+            <type>LIST</type>
+            <items>
+              <item>No</item>
+              <item>Yes</item>
+            </items>
+          </param>
+        </params>
+      </action>
+    </actions>
+  </config>
+  <capabilities/>
+  <connections>
+    <!-- Single provider binding - multiple ESPHome proxies connect as consumers -->
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>Bluetooth Proxies</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <linelevel>True</linelevel>
+      <classes>
+        <class>
+          <classname>ESPHOME_BLUETOOTH</classname>
+        </class>
+      </classes>
+      <hidden>False</hidden>
+    </connection>
+    <!-- Dynamic provider bindings for BLE devices start at 5012 -->
+  </connections>
+</devicedata>

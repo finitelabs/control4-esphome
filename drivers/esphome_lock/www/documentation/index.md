@@ -13,7 +13,7 @@
 }
 </style>
 
-<img alt="ESPHome" src="./images/header.png" width="500"/>
+<img alt="ESPHome Lock" src="./images/header.png" width="500"/>
 
 ---
 
@@ -29,54 +29,101 @@
 This driver provides specialized support for ESPHome devices with lock entities,
 allowing them to be controlled through the Control4 lock proxy.
 
+# <span style="color:#17BCF2">Index</span>
+
+<div style="font-size: small">
+
+- [System Requirements](#system-requirements)
+- [Features](#features)
+- [Installer Setup](#installer-setup)
+  - [Driver Properties](#driver-properties)
+    <!-- #ifdef DRIVERCENTRAL -->
+    - [Cloud Settings](#cloud-settings)
+    <!-- #endif -->
+    - [Driver Settings](#driver-settings)
+    - [Device Settings](#device-settings)
+  - [Connections](#connections)
+  <!-- #ifdef DRIVERCENTRAL -->
+- [Developer Information](#developer-information)
+<!-- #endif -->
+- [Support](#support)
+- [Changelog](#changelog)
+
+</div>
+
+<div style="page-break-after: always"></div>
+
+# <span style="color:#17BCF2">System Requirements</span>
+
+- Control4 OS 3.3+
+- ESPHome driver configured and connected to an ESPHome device with lock
+  entities
+
+# <span style="color:#17BCF2">Features</span>
+
+- Control4 Lock Proxy integration for native Control4 lock control
+- Lock/unlock commands with optional lock code support
+- Real-time state synchronization with ESPHome device
+
 # <span style="color:#17BCF2">Installer Setup</span>
 
 Refer to the main ESPHome driver documentation for setup instructions. Once the
 main driver is configured and connected to your ESPHome device, bind the ESPHome
-lock driver to the lock entity exposed by the main driver.
+Lock driver to the lock entity exposed by the main driver.
 
-## Driver Setup
-
-### Driver Properties
+## Driver Properties
 
 <!-- #ifdef DRIVERCENTRAL -->
 
-#### Cloud Settings
+### Cloud Settings
 
-##### Cloud Status
+#### Cloud Status (read-only)
 
 Displays the DriverCentral cloud license status.
 
-##### Automatic Updates
+#### Automatic Updates [ Off | **_On_** ]
 
-Turns on/off the DriverCentral cloud automatic updates.
+Enables or disables automatic driver updates via DriverCentral.
 
 <!-- #endif -->
 
-#### Driver Settings
+### Driver Settings
 
-##### Driver Status (read-only)
+#### Driver Status (read-only)
 
 Displays the current status of the driver.
 
-##### Driver Version (read-only)
+#### Driver Version (read-only)
 
 Displays the current version of the driver.
 
-##### Log Level [ Fatal | Error | Warning | **_Info_** | Debug | Trace | Ultra ]
+#### Log Level [ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra ]
 
-Sets the logging level. Default is `Info`.
+Sets the logging level. Default is `3 - Info`.
 
-##### Log Mode [ **_Off_** | Print | Log | Print and Log ]
+#### Log Mode [ **_Off_** | Print | Log | Print and Log ]
 
 Sets the logging mode. Default is `Off`.
 
-#### Device Settings
+### Device Settings
 
-##### Lock Code
+#### Lock Code
 
 Sets the lock code to be used for locking and unlocking the device. If the
 device does not require a code to lock/unlock, leave this field blank.
+
+## Connections
+
+### Lock (provider)
+
+The Control4 Lock proxy connection. This is automatically managed by the driver
+and provides the lock functionality to Control4.
+
+### ESPHome Lock (consumer)
+
+Bind this connection to the lock entity exposed by the main ESPHome driver.
+
+<div style="page-break-after: always"></div>
 
 <!-- #ifdef DRIVERCENTRAL -->
 

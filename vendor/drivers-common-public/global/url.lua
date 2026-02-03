@@ -2,9 +2,9 @@
 
 COMMON_URL_VER = 23
 
-JSON = require("vendor.JSON")
+JSON = require("JSON")
 
-require("vendor.drivers-common-public.global.lib")
+require("drivers-common-public.global.lib")
 
 do --Globals
   GlobalTicketHandlers = GlobalTicketHandlers or {}

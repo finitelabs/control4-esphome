@@ -1,0 +1,590 @@
+<devicedata>
+  <name>ESPHome BTHome</name>
+  <version/>
+  <manufacturer>Finite Labs</manufacturer>
+  <model>ESPHome BTHome Sensor</model>
+  <creator>Derek Miller</creator>
+  <small image_source="c4z">icons/device_sm.png</small>
+  <large image_source="c4z">icons/device_lg.png</large>
+  <control>lua_gen</control>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 Finite Labs, LLC. All rights reserved.</copyright>
+  <created>01/12/2026 12:00:00 PM</created>
+  <modified/>
+  <combo>true</combo>
+  <minimum_os_version>3.3.0</minimum_os_version>
+  <composer_categories>
+    <category>Sensors</category>
+  </composer_categories>
+  <conditionals/>
+  <events/>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <properties>
+      <!-- #ifdef DRIVERCENTRAL -->
+      <property>
+        <name>Cloud Settings</name>
+        <type>LABEL</type>
+        <default>Cloud Settings</default>
+      </property>
+      <property>
+        <name>Cloud Status</name>
+        <default/>
+        <type>STRING</type>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Automatic Updates</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <default>On</default>
+      </property>
+      <!-- #endif -->
+      <property>
+        <name>Driver Settings</name>
+        <type>LABEL</type>
+        <default>Driver Settings</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <default>3 - Info</default>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+      </property>
+      <!-- Device Settings -->
+      <property>
+        <name>Device Settings</name>
+        <type>LABEL</type>
+        <default>Device Settings</default>
+      </property>
+      <property>
+        <name>Bind Key</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>false</readonly>
+        <description>Optional: 32-character hex key for encrypted BTHome devices</description>
+      </property>
+      <property>
+        <name>Device Info</name>
+        <type>LABEL</type>
+        <default>Device Info</default>
+      </property>
+      <property>
+        <name>Name</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Device Type</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Device Type ID</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Firmware Version</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>MAC Address</name>
+        <type>STRING</type>
+        <default>Unknown</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Last Seen</name>
+        <type>STRING</type>
+        <default>Never</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Last Received</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <!-- Optional Properties -->
+      <property>
+        <name>Device Data</name>
+        <type>LABEL</type>
+        <default>Device Data</default>
+      </property>
+      <!-- Primary sensors -->
+      <property>
+        <name>Battery</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Temperature C</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Temperature F</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Humidity</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Illuminance</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Pressure</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Dew Point</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Moisture</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <!-- Binary sensors -->
+      <property>
+        <name>Light Detected</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Motion</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Door</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Window</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Opening</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Occupancy</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Presence</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Vibration Detected</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Smoke Detected</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Gas Detected</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Carbon Monoxide Detected</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Moisture Detected</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Tamper</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Moving</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Lock Unlocked</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Garage Door</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Cold</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Heat</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Running</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Safety</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Problem</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Sound Detected</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Plug</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Power On</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Generic Boolean</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Battery Low</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Battery Charging</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Connectivity</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <!-- Power/energy -->
+      <property>
+        <name>Voltage</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Current</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Power</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Energy</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <!-- Air quality -->
+      <property>
+        <name>CO2</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>TVOC</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>PM2.5</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>PM10</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <!-- Distance/volume -->
+      <property>
+        <name>Distance</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Volume</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Volume Storage</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Volume Flow Rate</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Water</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Gas</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <!-- Motion/orientation -->
+      <property>
+        <name>Acceleration</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Gyroscope</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Speed</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Rotational Speed</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Direction</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Rotation</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <!-- Misc -->
+      <property>
+        <name>Count</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Duration</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>UV Index</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Mass</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Conductivity</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Timestamp</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Precipitation</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Text</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>RSSI</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+    </properties>
+    <commands/>
+    <actions>
+      <action>
+        <name>Reset Driver</name>
+        <command>ResetDriver</command>
+        <params>
+          <param>
+            <name>Are You Sure?</name>
+            <type>LIST</type>
+            <items>
+              <item>No</item>
+              <item>Yes</item>
+            </items>
+          </param>
+        </params>
+      </action>
+    </actions>
+  </config>
+  <capabilities/>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>ESPHome BTHome</connectionname>
+      <type>2</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>ESPHOME_BTHOME</classname>
+        </class>
+      </classes>
+      <hidden>False</hidden>
+    </connection>
+  </connections>
+</devicedata>

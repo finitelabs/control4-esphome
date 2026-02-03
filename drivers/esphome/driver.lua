@@ -1,28 +1,42 @@
-DRIVER_GITHUB_REPO = "finitelabs/control4-esphome"
-DRIVER_FILENAMES = {
-  "esphome.c4z",
-  "esphome_light.c4z",
-  "esphome_lock.c4z",
-}
---
 --#ifdef DRIVERCENTRAL
 DC_PID = 819
 DC_X = nil
 DC_FILENAME = "esphome.c4z"
+--#else
+DRIVER_GITHUB_REPO = "finitelabs/control4-esphome"
+DRIVER_FILENAMES = {
+  "esphome.c4z",
+  "esphome_bluetooth_coordinator.c4z",
+  "esphome_govee.c4z",
+  "esphome_bthome.c4z",
+  "esphome_light.c4z",
+  "esphome_lock.c4z",
+  "esphome_switchbot.c4z",
+}
 --#endif
+
 require("lib.utils")
-require("vendor.drivers-common-public.global.handlers")
-require("vendor.drivers-common-public.global.lib")
-require("vendor.drivers-common-public.global.timer")
-require("vendor.drivers-common-public.global.url")
+require("drivers-common-public.global.handlers")
+require("drivers-common-public.global.lib")
+require("drivers-common-public.global.timer")
+require("drivers-common-public.global.url")
 
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
+--#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
+--#endif
 local values = require("lib.values")
 
 local ESPHomeClient = require("esphome.client")
-local ESPHomeProtoSchema = require("esphome.proto-schema")
+local ESPHomeProtoSchema = require("esphome.proto_schema")
+local LocalScannerNode = require("esphome.ble.local_scanner_node")
+
+local bleScanner = require("esphome.ble.scanner")
+local bleScannerProperties = require("esphome.ble.scanner_properties")
+
+local BluetoothProxyCapability = require("esphome.capabilities.bluetooth_proxy")
+
 local BinarySensorEntity = require("esphome.entities.binary_sensor")
 local ButtonEntity = require("esphome.entities.button")
 local CoverEntity = require("esphome.entities.cover")
@@ -37,6 +51,14 @@ local TextSensorEntity = require("esphome.entities.text_sensor")
 local constants = require("constants")
 
 local esphome = ESPHomeClient:new()
+local localScannerNode = LocalScannerNode:new(esphome)
+
+bleScanner:addNode(localScannerNode)
+
+local bluetoothProxyCapability = BluetoothProxyCapability:new(esphome)
+
+--- @type boolean
+local isLeaderInstance = false
 
 --- @type table<EntityType, Entity>
 local Entities = {
@@ -52,9 +74,37 @@ local Entities = {
   [TextSensorEntity.TYPE] = TextSensorEntity:new(esphome),
 }
 
+--- Get all ESPHome driver instances sorted by device ID
+--- @return integer[] deviceIds Sorted list of device IDs
+local function getESPHomeDriverIds()
+  local drivers = C4:GetDevicesByC4iName(C4:GetDriverFileName()) or {}
+  --- @type integer[]
+  local ids = {}
+  for id, _ in pairs(drivers) do
+    table.insert(ids, tointeger(id))
+  end
+  table.sort(ids)
+  return ids
+end
+
+--- Sync a property value to all other ESPHome driver instances
+--- Only syncs if the other instance has a different value (avoids infinite loops)
+--- @param propertyName string The property name to sync
+--- @param propertyValue string The property value to sync
+local function syncPropertyToOtherInstances(propertyName, propertyValue)
+  local ids = getESPHomeDriverIds()
+  local myId = C4:GetDeviceID()
+  for _, deviceId in ipairs(ids) do
+    if deviceId ~= myId then
+      log:info("Syncing property '%s' = '%s' to device %d", propertyName, propertyValue, deviceId)
+      SetDeviceProperties(deviceId, { [propertyName] = propertyValue }, true)
+    end
+  end
+end
+
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
-  require("vendor.cloud-client-byte")
+  require("cloud-client-byte")
   C4:AllowExecute(false)
   --#else
   C4:AllowExecute(true)
@@ -71,9 +121,13 @@ function OnDriverLateInit()
   if not CheckMinimumVersion("Driver Status") then
     return
   end
+  isLeaderInstance = Select(getESPHomeDriverIds(), 1) == C4:GetDeviceID()
 
   -- Firmware version is usually an entity and will be picked up by state updates
   C4:SetPropertyAttribs("Firmware Version", constants.HIDE_PROPERTY)
+
+  -- Hide Bluetooth Proxy properties until we detect support
+  bluetoothProxyCapability:setPropertiesAttribs(constants.HIDE_PROPERTY)
 
   C4:FileSetDir("c29tZXNwZWNpYWxrZXk=++11")
   bindings:restoreBindings()
@@ -83,13 +137,33 @@ function OnDriverLateInit()
   -- global sets, they'll change if Property is changed.
   for p, _ in pairs(Properties) do
     local status, err = pcall(OnPropertyChanged, p)
-    if not status and err ~= nil then
-      log:error(err)
+    if not status and err then
+      log:error("Error in OnPropertyChanged for property '%s': %s", p, err or "unknown error")
     end
   end
   gInitialized = true
   Connect()
 end
+
+function OPC.Automatic_Updates(propertyValue)
+  log:trace("OPC.Automatic_Updates('%s')", propertyValue)
+  --#ifndef DRIVERCENTRAL
+  if not gInitialized and not isLeaderInstance then
+    return
+  end
+  syncPropertyToOtherInstances("Automatic Updates", propertyValue)
+  --#endif
+end
+
+--#ifndef DRIVERCENTRAL
+function OPC.Update_Channel(propertyValue)
+  log:trace("OPC.Update_Channel('%s')", propertyValue)
+  if not gInitialized and not isLeaderInstance then
+    return
+  end
+  syncPropertyToOtherInstances("Update Channel", propertyValue)
+end
+--#endif
 
 function OPC.Driver_Version(propertyValue)
   log:trace("OPC.Driver_Version('%s')", propertyValue)
@@ -105,6 +179,7 @@ function OPC.Log_Mode(propertyValue)
     if esphome:isLogsSubscribed() then
       esphome:disconnect()
     end
+    UpdateProperty("Log Level", "3 - Info", true)
     return
   end
   log:warn("Log mode '%s' will expire in 3 hours", propertyValue)
@@ -112,6 +187,7 @@ function OPC.Log_Mode(propertyValue)
     log:warn("Setting log mode to 'Off' (timer expired)")
     UpdateProperty("Log Mode", "Off", true)
   end)
+  OnPropertyChanged("Log Level")
 end
 
 function OPC.Log_Level(propertyValue)
@@ -122,11 +198,13 @@ function OPC.Log_Level(propertyValue)
     DEBUG_TIMER = true
     DEBUG_RFN = true
     DEBUG_URL = true
+    DEBUG_WEBSOCKET = true
   else
     DEBUGPRINT = false
     DEBUG_TIMER = false
     DEBUG_RFN = false
     DEBUG_URL = false
+    DEBUG_WEBSOCKET = false
   end
   -- If subscribed to logs, disconnect to resubscribe at new level
   if esphome:isLogsSubscribed() then
@@ -136,11 +214,17 @@ end
 
 function OPC.IP_Address(propertyValue)
   log:trace("OPC.IP_Address('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
   Connect()
 end
 
 function OPC.Port(propertyValue)
-  log:trace("OPC.IP_Address('%s')", propertyValue)
+  log:trace("OPC.Port('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
   Connect()
 end
 
@@ -165,26 +249,38 @@ function OPC.Authentication_Mode(propertyValue)
     C4:SetPropertyAttribs("Encryption Key", constants.SHOW_PROPERTY)
     C4:SetPropertyAttribs("Use OpenSSL", constants.SHOW_PROPERTY)
   end
+  if not gInitialized then
+    return
+  end
   Connect()
 end
 
 function OPC.Password(propertyValue)
   log:trace("OPC.Password('%s')", not IsEmpty(propertyValue) and "****" or "")
+  if not gInitialized then
+    return
+  end
   Connect()
 end
 
 function OPC.Encryption_Key(propertyValue)
   log:trace("OPC.Encryption_Key('%s')", not IsEmpty(propertyValue) and "****" or "")
+  if not gInitialized then
+    return
+  end
   Connect()
 end
 
 function OPC.Use_OpenSSL(propertyValue)
   log:trace("OPC.Use_OpenSSL('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
   Connect()
 end
 
 --- Map ESPHome log levels to driver log methods
---- @type table<number, fun(self: table, format: string, ...: any)>
+--- @type table<ProtoLogLevel, fun(log: Log, format: string, ...: any)>
 local ESPHOME_LOG_LEVEL_MAP = {
   [ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_ERROR] = log.error,
   [ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_WARN] = log.warn,
@@ -198,7 +294,7 @@ local ESPHOME_LOG_LEVEL_MAP = {
 --- Map driver log level (0-6) to ESPHome log level for subscription.
 --- Driver levels: 0-Fatal, 1-Error, 2-Warning, 3-Info, 4-Debug, 5-Trace, 6-Ultra
 --- ESPHome levels: 0-NONE, 1-ERROR, 2-WARN, 3-INFO, 4-CONFIG, 5-DEBUG, 6-VERBOSE, 7-VERY_VERBOSE
---- @type table<number, ProtoLogLevel>
+--- @type table<integer, ProtoLogLevel?>
 local DRIVER_TO_ESPHOME_LOG_LEVEL = {
   [0] = ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_ERROR, -- Fatal -> ERROR
   [1] = ESPHomeProtoSchema.Enum.LogLevel.LOG_LEVEL_ERROR, -- Error -> ERROR
@@ -214,7 +310,7 @@ local DRIVER_TO_ESPHOME_LOG_LEVEL = {
 --- @return string stripped The string without ANSI codes
 local function stripAnsiCodes(str)
   -- Match ANSI escape sequences: ESC [ ... m (where ... is digits/semicolons)
-  return str:gsub("\027%[[0-9;]*m", "")
+  return (str:gsub("\027%[[0-9;]*m", ""))
 end
 
 --- Subscribe to ESPHome device logs and forward them to the driver log.
@@ -231,8 +327,8 @@ local function subscribeToDeviceLogs()
 
   esphome
     :subscribeLogs(function(level, message)
-      local logMethod = ESPHOME_LOG_LEVEL_MAP[level] or log.debug
-      logMethod(log, "[ESPHome] %s", stripAnsiCodes(message))
+      local logMethod = level and ESPHOME_LOG_LEVEL_MAP[level] or log.debug
+      logMethod(log, "[ESPHome] %s", stripAnsiCodes(message or ""))
     end, esphomeLevel)
     :next(function()
       log:info("Subscribed to ESPHome device logs at level %d", esphomeLevel)
@@ -256,9 +352,45 @@ function OPC.Device_Log_Forwarding(propertyValue)
   end
 end
 
+function OPC.Select_Bluetooth_Devices(propertyValue)
+  log:trace("OPC.Select_Bluetooth_Devices('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+
+  bleScannerProperties:handleSelection(BluetoothProxyCapability.PROPERTY_NAME, propertyValue)
+end
+
+function OPC.Bluetooth_Scan_Duration(propertyValue)
+  log:trace("OPC.Bluetooth_Scan_Duration('%s')", propertyValue)
+  bleScanner:setScanDuration(propertyValue)
+end
+
+function OPC.Bluetooth_Proxy_Room(propertyValue)
+  log:trace("OPC.Bluetooth_Proxy_Room('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  -- Notify coordinator of room change
+  bluetoothProxyCapability:onRoomChanged()
+end
+
+function OPC.Minimum_Room_RSSI_Override_dBm(propertyValue)
+  log:trace("OPC.Minimum_Room_RSSI_Override_dBm('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  -- Notify coordinator of minRssiOverride change
+  bluetoothProxyCapability:onMinRssiOverrideChanged()
+end
+
 local function updateStatus(status)
+  log:trace("updateStatus(%s)", status)
   UpdateProperty("Driver Status", not IsEmpty(status) and status or "Unknown")
 end
+
+--- Backoff period in seconds after a fatal connection error before retrying.
+local FATAL_ERROR_BACKOFF = 120
 
 function Connect()
   log:trace("Connect()")
@@ -276,6 +408,7 @@ function Connect()
   )
 
   local lastUpdateTime = os.time() -- Don't check for updates on the first cycle
+  local lastFatalErrorTime = 0 -- Track when the last fatal error occurred
 
   local heartbeat = function()
     --#ifdef DRIVERCENTRAL
@@ -294,13 +427,32 @@ function Connect()
 
     local now = os.time()
     local secondsSinceLastUpdate = now - lastUpdateTime
-    if toboolean(Properties["Automatic Updates"]) and secondsSinceLastUpdate > (30 * 60) then
-      log:info("Checking for driver update (timer expired)")
+    -- Only the leader instance (lowest device ID) performs update checks
+    if isLeaderInstance and toboolean(Properties["Automatic Updates"]) and secondsSinceLastUpdate > (30 * 60) then
+      log:info("Checking for driver update (leader instance)")
       lastUpdateTime = now
       UpdateDrivers()
     elseif not esphome:isConnected() then
+      -- Check for fatal error and apply backoff
+      local fatalError = esphome:getFatalError()
+      if fatalError then
+        if lastFatalErrorTime == 0 then
+          -- First time seeing this error, record the time
+          lastFatalErrorTime = now
+        end
+        local secondsSinceFailure = now - lastFatalErrorTime
+        if secondsSinceFailure < FATAL_ERROR_BACKOFF then
+          local remaining = FATAL_ERROR_BACKOFF - secondsSinceFailure
+          updateStatus(fatalError .. " (retry in " .. remaining .. "s)")
+          return
+        end
+        -- Backoff period elapsed, reset and try again
+        lastFatalErrorTime = 0
+      end
+
       updateStatus("Connecting")
       esphome:connect():next(function()
+        lastFatalErrorTime = 0 -- Clear on successful connection
         -- If using password authentication, show "waiting for authentication" status
         -- until first successful operation confirms auth succeeded
         if Properties["Authentication Mode"] == "Password" and not IsEmpty(Properties["Password"]) then
@@ -335,6 +487,8 @@ function RefreshStatus()
         values:update("Model", Select(deviceInfo, "model") or "N/A", "STRING")
         values:update("Manufacturer", Select(deviceInfo, "manufacturer") or "N/A", "STRING")
         values:update("MAC Address", Select(deviceInfo, "mac_address") or "N/A", "STRING")
+
+        bluetoothProxyCapability:discovered(deviceInfo)
       end)
       :next(function()
         return esphome:listEntities()
@@ -356,6 +510,15 @@ function RefreshStatus()
             end
           else
             log:debug("No Entities['%s']:discovered() handler", entity.entity_type)
+          end
+
+          -- Detect restart button for scanner recovery
+          if entity.entity_type == "button" then
+            local objectId = entity.object_id or ""
+            if objectId:lower():find("restart") then
+              log:info("Found restart button entity: %s (key=%s)", objectId, entity.key)
+              bluetoothProxyCapability:setRestartButtonKey(entity.key)
+            end
           end
         end
 
@@ -420,28 +583,94 @@ function RefreshStatus()
   end)
 end
 
-function EC.ResetConnectionsAndVariables(params)
-  log:trace("EC.ResetConnectionsAndVariables(%s)", params)
+--- Property values for reset.
+--- @type table<string, string>
+local RESET_PROPERTY_VALUES = {
+  ["Driver Status"] = "Reset - Reconnecting...",
+  ["Driver Version"] = "",
+  ["Log Level"] = "3 - Info",
+  ["Log Mode"] = "Off",
+  ["Automatic Updates"] = "On",
+  ["Update Channel"] = "Production",
+  ["Device Log Forwarding"] = "Off",
+  ["Use OpenSSL"] = "Yes",
+  ["Bluetooth Proxy Status"] = "",
+  ["Bluetooth Scan Duration"] = "30",
+  ["Name"] = "N/A",
+  ["Model"] = "N/A",
+  ["Manufacturer"] = "N/A",
+  ["MAC Address"] = "N/A",
+  ["Firmware Version"] = "N/A",
+}
+
+function EC.ResetDriver(params)
+  log:trace("EC.ResetDriver(%s)", params)
   if Select(params, "Are You Sure?") ~= "Yes" then
     return
   end
-  log:print("Resetting connections and variables")
+  log:print("Resetting driver to initial state")
 
-  for ns, nsBindings in pairs(bindings:getBindings()) do
-    for bindingKey, binding in pairs(nsBindings) do
-      log:info("Deleting connection '%s'", binding.displayName)
-      bindings:deleteBinding(ns, bindingKey)
-    end
+  -- Reset all dynamic bindings
+  bindings:reset()
+
+  -- Reset all values (variables and properties)
+  values:reset()
+
+  -- Reset BLE scanner state
+  bleScanner:cancelScan()
+  bleScanner:reset()
+
+  -- Reset scanner properties (clears device selections)
+  bleScannerProperties:reset()
+
+  -- Reset properties to default values
+  for propName, defaultValue in pairs(RESET_PROPERTY_VALUES) do
+    UpdateProperty(propName, defaultValue, true)
   end
 
-  for name, _ in pairs(Variables or {}) do
-    log:info("Deleting variable '%s'", name)
-    values:delete(name)
-  end
+  -- Hide Bluetooth Proxy properties until capability is re-detected
+  bluetoothProxyCapability:setPropertiesAttribs(constants.HIDE_PROPERTY)
+
+  -- Hide Firmware Version property (usually comes from entity)
+  C4:SetPropertyAttribs("Firmware Version", constants.HIDE_PROPERTY)
+
+  -- Trigger Authentication Mode handler to set correct visibility for
+  -- Password, Encryption Key, and Use OpenSSL based on preserved setting
+  OnPropertyChanged("Authentication Mode")
 
   RefreshStatus()
 end
 
+-- GATT command handlers for Bluetooth Coordinator
+-- These route ExecuteCommand calls to the bluetooth_proxy capability
+
+function EC.GATT_CONNECT(tParams)
+  log:trace("EC.GATT_CONNECT(%s)", tParams)
+  bluetoothProxyCapability:handleCoordinatorCommand("GATT_CONNECT", tParams)
+end
+
+function EC.GATT_DISCONNECT(tParams)
+  log:trace("EC.GATT_DISCONNECT(%s)", tParams)
+  bluetoothProxyCapability:handleCoordinatorCommand("GATT_DISCONNECT", tParams)
+end
+
+function EC.GATT_WRITE(tParams)
+  log:trace("EC.GATT_WRITE(%s)", tParams)
+  bluetoothProxyCapability:handleCoordinatorCommand("GATT_WRITE", tParams)
+end
+
+function EC.GATT_READ(tParams)
+  log:trace("EC.GATT_READ(%s)", tParams)
+  bluetoothProxyCapability:handleCoordinatorCommand("GATT_READ", tParams)
+end
+
+function EC.GATT_NOTIFY(tParams)
+  log:trace("EC.GATT_NOTIFY(%s)", tParams)
+  bluetoothProxyCapability:handleCoordinatorCommand("GATT_NOTIFY", tParams)
+end
+
+--#ifndef DRIVERCENTRAL
+-- Action: Update Drivers
 function EC.UpdateDrivers()
   log:trace("EC.UpdateDrivers()")
   log:print("Updating drivers")
@@ -464,3 +693,4 @@ function UpdateDrivers(forceUpdate)
       log:error("An error occurred updating drivers: %s", error)
     end)
 end
+--#endif

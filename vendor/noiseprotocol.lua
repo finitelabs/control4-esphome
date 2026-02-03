@@ -2,24 +2,40 @@ do
 local _ENV = _ENV
 package.preload[ "noiseprotocol.crypto" ] = function( ... ) local arg = _G.arg;
 --- @module "noiseprotocol.crypto"
+--- Cryptographic primitives for the Noise Protocol Framework
+--- @class noiseprotocol.crypto
 local crypto = {
   -- Hash functions
+
+  --- @type noiseprotocol.crypto.sha256
   sha256 = require("noiseprotocol.crypto.sha256"),
+  --- @type noiseprotocol.crypto.sha512
   sha512 = require("noiseprotocol.crypto.sha512"),
+  --- @type noiseprotocol.crypto.blake2
   blake2 = require("noiseprotocol.crypto.blake2"),
 
   -- AEAD ciphers
+
+  --- @type noiseprotocol.crypto.chacha20_poly1305
   chacha20_poly1305 = require("noiseprotocol.crypto.chacha20_poly1305"),
+  --- @type noiseprotocol.crypto.aes_gcm
   aes_gcm = require("noiseprotocol.crypto.aes_gcm"),
 
   -- Stream ciphers
+
+  --- @type noiseprotocol.crypto.chacha20
   chacha20 = require("noiseprotocol.crypto.chacha20"),
 
   -- MAC
+
+  --- @type noiseprotocol.crypto.poly1305
   poly1305 = require("noiseprotocol.crypto.poly1305"),
 
   -- DH functions
+
+  --- @type noiseprotocol.crypto.x25519
   x25519 = require("noiseprotocol.crypto.x25519"),
+  --- @type noiseprotocol.crypto.x448
   x448 = require("noiseprotocol.crypto.x448"),
 }
 
@@ -32,14 +48,27 @@ local _ENV = _ENV
 package.preload[ "noiseprotocol.crypto.aes_gcm" ] = function( ... ) local arg = _G.arg;
 --- @module "noiseprotocol.crypto.aes_gcm"
 --- AES-GCM Authenticated Encryption with Associated Data (AEAD) Implementation for portability.
+--- @class noiseprotocol.crypto.aes_gcm
 local aes_gcm = {}
 
-local bit32 = require("vendor.bitn").bit32
+local bit32 = require("bitn").bit32
 
 local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
 local utils = require("noiseprotocol.utils")
 local bytes = utils.bytes
 local benchmark_op = utils.benchmark.benchmark_op
+
+-- Local references for performance
+local bit32_raw_band = bit32.raw_band
+local bit32_raw_bor = bit32.raw_bor
+local bit32_raw_bxor = bit32.raw_bxor
+local bit32_raw_lshift = bit32.raw_lshift
+local bit32_raw_rshift = bit32.raw_rshift
+local string_byte = string.byte
+local string_char = string.char
+local string_rep = string.rep
+local string_sub = string.sub
+local table_concat = table.concat
 
 -- ============================================================================
 -- AES CORE IMPLEMENTATION
@@ -321,33 +350,59 @@ local RCON = {
   0x36,
 }
 
---- @alias AESGCMWord [integer, integer, integer, integer]
---- @alias AESGCMBlock [integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer]
---- @alias AESGCMState [AESGCMWord, AESGCMWord, AESGCMWord, AESGCMWord]
+--- @alias AESWord [integer, integer, integer, integer]
+--- @alias AESBlock [integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer]
+--- @alias AESState [AESWord, AESWord, AESWord, AESWord]
+
+--- Initialize a 4-element AES word with zeros
+--- @return AESWord word Initialized word
+local function create_aes_word()
+  --- @type AESState
+  return { 0, 0, 0, 0 }
+end
+
+--- Initialize a 4x4 AES state array with zeros
+--- @return AESState state Initialized state
+local function create_aes_state()
+  --- @type AESState
+  return {
+    create_aes_word(),
+    create_aes_word(),
+    create_aes_word(),
+    create_aes_word(),
+  }
+end
+
+-- Pre-allocated state array for aes_encrypt_block()
+local aes_state = create_aes_state()
+
+-- Pre-allocated arrays for mix_columns()
+local mix_a = create_aes_word()
+local mix_b = create_aes_word()
 
 --- XOR two 4-byte words
---- @param a AESGCMWord 4-byte array
---- @param b AESGCMWord 4-byte array
---- @return table Word 4-byte array
+--- @param a AESWord 4-byte array
+--- @param b AESWord 4-byte array
+--- @return AESWord result 4-byte array
 local function xor_words(a, b)
   return {
-    bit32.bxor(a[1], b[1]),
-    bit32.bxor(a[2], b[2]),
-    bit32.bxor(a[3], b[3]),
-    bit32.bxor(a[4], b[4]),
+    bit32_raw_bxor(a[1], b[1]),
+    bit32_raw_bxor(a[2], b[2]),
+    bit32_raw_bxor(a[3], b[3]),
+    bit32_raw_bxor(a[4], b[4]),
   }
 end
 
 --- Rotate word (circular left shift by 1 byte)
---- @param word AESGCMWord 4-byte array
---- @return AESGCMWord result Rotated 4-byte array
+--- @param word AESWord 4-byte array
+--- @return AESWord result Rotated 4-byte array
 local function rot_word(word)
   return { word[2], word[3], word[4], word[1] }
 end
 
 --- Apply S-box substitution to a word
---- @param word AESGCMWord 4-byte array
---- @return AESGCMWord result Substituted 4-byte array
+--- @param word AESWord 4-byte array
+--- @return AESWord result Substituted 4-byte array
 local function sub_word(word)
   local s_1 = assert(SBOX[word[1] + 1], "Invalid SBOX index " .. (word[1] + 1))
   local s_2 = assert(SBOX[word[2] + 1], "Invalid SBOX index " .. (word[2] + 1))
@@ -379,24 +434,25 @@ local function key_expansion(key)
   end
 
   -- Convert key to words
-  --- @type AESGCMWord
+  --- @type AESState
   local w = {}
-  for i = 0, nk - 1 do
+  for i = 1, nk do
     w[i] = {
-      string.byte(key, i * 4 + 1),
-      string.byte(key, i * 4 + 2),
-      string.byte(key, i * 4 + 3),
-      string.byte(key, i * 4 + 4),
+      string_byte(key, (i - 1) * 4 + 1),
+      string_byte(key, (i - 1) * 4 + 2),
+      string_byte(key, (i - 1) * 4 + 3),
+      string_byte(key, (i - 1) * 4 + 4),
     }
   end
 
   -- Expand key
-  for i = nk, 4 * (nr + 1) - 1 do
+  for i = nk + 1, 4 * (nr + 1) do
     local temp = w[i - 1]
-    if i % nk == 0 then
-      local t = assert(RCON[i / nk], "Invalid RCON index " .. (i / nk))
+    local idx = i - 1 -- 0-based index for modulo arithmetic
+    if idx % nk == 0 then
+      local t = assert(RCON[idx / nk], "Invalid RCON index " .. (idx / nk))
       temp = xor_words(sub_word(rot_word(temp)), { t, 0, 0, 0 })
-    elseif nk > 6 and i % nk == 4 then
+    elseif nk > 6 and idx % nk == 4 then
       temp = sub_word(temp)
     end
     w[i] = xor_words(w[i - nk], temp)
@@ -406,31 +462,31 @@ local function key_expansion(key)
 end
 
 --- MixColumns transformation
---- @param state AESGCMState 4x4 state matrix
+--- @param state AESState 4x4 state matrix
 local function mix_columns(state)
-  for c = 0, 3 do
-    --- @type AESGCMWord
-    local a = {}
-    --- @type AESGCMWord
-    local b = {}
-    for i = 0, 3 do
+  -- Reuse pre-allocated arrays
+  local a = mix_a
+  local b = mix_b
+  for c = 1, 4 do
+    for i = 1, 4 do
       a[i] = state[i][c]
-      b[i] = bit32.band(state[i][c], 0x80) ~= 0 and bit32.bxor(bit32.band(bit32.lshift(state[i][c], 1), 0xFF), 0x1B)
-        or bit32.band(bit32.lshift(state[i][c], 1), 0xFF)
+      b[i] = bit32_raw_band(state[i][c], 0x80) ~= 0
+          and bit32_raw_bxor(bit32_raw_band(bit32_raw_lshift(state[i][c], 1), 0xFF), 0x1B)
+        or bit32_raw_band(bit32_raw_lshift(state[i][c], 1), 0xFF)
     end
 
-    state[0][c] = bit32.bxor(bit32.bxor(bit32.bxor(b[0], a[1]), bit32.bxor(b[1], a[2])), a[3])
-    state[1][c] = bit32.bxor(bit32.bxor(bit32.bxor(a[0], b[1]), bit32.bxor(a[2], b[2])), a[3])
-    state[2][c] = bit32.bxor(bit32.bxor(bit32.bxor(a[0], a[1]), bit32.bxor(b[2], a[3])), b[3])
-    state[3][c] = bit32.bxor(bit32.bxor(bit32.bxor(a[0], b[0]), bit32.bxor(a[1], a[2])), b[3])
+    state[1][c] = bit32_raw_bxor(bit32_raw_bxor(bit32_raw_bxor(b[1], a[2]), bit32_raw_bxor(b[2], a[3])), a[4])
+    state[2][c] = bit32_raw_bxor(bit32_raw_bxor(bit32_raw_bxor(a[1], b[2]), bit32_raw_bxor(a[3], b[3])), a[4])
+    state[3][c] = bit32_raw_bxor(bit32_raw_bxor(bit32_raw_bxor(a[1], a[2]), bit32_raw_bxor(b[3], a[4])), b[4])
+    state[4][c] = bit32_raw_bxor(bit32_raw_bxor(bit32_raw_bxor(a[1], b[1]), bit32_raw_bxor(a[2], a[3])), b[4])
   end
 end
 
 --- SubBytes transformation
---- @param state AESGCMState 4x4 state matrix
+--- @param state AESState 4x4 state matrix
 local function sub_bytes(state)
-  for i = 0, 3 do
-    for j = 0, 3 do
+  for i = 1, 4 do
+    for j = 1, 4 do
       local s_index = state[i][j] + 1
       state[i][j] = assert(SBOX[s_index], "Invalid SBOX index " .. s_index)
     end
@@ -438,41 +494,41 @@ local function sub_bytes(state)
 end
 
 --- ShiftRows transformation
---- @param state AESGCMState 4x4 state matrix
+--- @param state AESState 4x4 state matrix
 local function shift_rows(state)
-  -- Row 0: no shift
-  -- Row 1: shift left by 1
-  local temp = state[1][0]
-  state[1][0] = state[1][1]
-  state[1][1] = state[1][2]
-  state[1][2] = state[1][3]
-  state[1][3] = temp
+  -- Row 1: no shift
+  -- Row 2: shift left by 1
+  local temp = state[2][1]
+  state[2][1] = state[2][2]
+  state[2][2] = state[2][3]
+  state[2][3] = state[2][4]
+  state[2][4] = temp
 
-  -- Row 2: shift left by 2
-  temp = state[2][0]
-  state[2][0] = state[2][2]
-  state[2][2] = temp
-  temp = state[2][1]
-  state[2][1] = state[2][3]
-  state[2][3] = temp
+  -- Row 3: shift left by 2
+  temp = state[3][1]
+  state[3][1] = state[3][3]
+  state[3][3] = temp
+  temp = state[3][2]
+  state[3][2] = state[3][4]
+  state[3][4] = temp
 
-  -- Row 3: shift left by 3 (or right by 1)
-  temp = state[3][3]
-  state[3][3] = state[3][2]
-  state[3][2] = state[3][1]
-  state[3][1] = state[3][0]
-  state[3][0] = temp
+  -- Row 4: shift left by 3 (or right by 1)
+  temp = state[4][4]
+  state[4][4] = state[4][3]
+  state[4][3] = state[4][2]
+  state[4][2] = state[4][1]
+  state[4][1] = temp
 end
 
 --- AddRoundKey transformation
---- @param state AESGCMState 4x4 state matrix
+--- @param state AESState 4x4 state matrix
 --- @param round_key table Round key words
 --- @param round integer Round number
 local function add_round_key(state, round_key, round)
-  for c = 0, 3 do
+  for c = 1, 4 do
     local key_word = round_key[round * 4 + c]
-    for r = 0, 3 do
-      state[r][c] = bit32.bxor(state[r][c], key_word[r + 1])
+    for r = 1, 4 do
+      state[r][c] = bit32_raw_bxor(state[r][c], key_word[r])
     end
   end
 end
@@ -483,14 +539,11 @@ end
 --- @param nr integer Number of rounds
 --- @return string ciphertext 16-byte encrypted block
 local function aes_encrypt_block(input, expanded_key, nr)
-  -- Initialize state from input
-  --- @type AESGCMState
-  local state = {}
-  for i = 0, 3 do
-    --- @type AESGCMWord
-    state[i] = {}
-    for j = 0, 3 do
-      state[i][j] = string.byte(input, j * 4 + i + 1)
+  -- Reuse pre-allocated state array
+  local state = aes_state
+  for i = 1, 4 do
+    for j = 1, 4 do
+      state[i][j] = string_byte(input, (j - 1) * 4 + i)
     end
   end
 
@@ -513,59 +566,74 @@ local function aes_encrypt_block(input, expanded_key, nr)
   -- Convert state to output (optimized with table)
   local output_bytes = {}
   local idx = 1
-  for j = 0, 3 do
-    for i = 0, 3 do
-      output_bytes[idx] = string.char(state[i][j])
+  for j = 1, 4 do
+    for i = 1, 4 do
+      output_bytes[idx] = string_char(state[i][j])
       idx = idx + 1
     end
   end
 
-  return table.concat(output_bytes)
+  return table_concat(output_bytes)
 end
 
 -- ============================================================================
 -- GCM MODE IMPLEMENTATION
 -- ============================================================================
 
+--- Initialize a 16-element GCM block with zeros
+--- @return AESBlock block Initialized block
+local function create_gcm_block()
+  local arr = {}
+  for i = 1, 16 do
+    arr[i] = 0
+  end
+  --- @cast arr AESBlock
+  return arr
+end
+
+-- Pre-allocated arrays for gcm_multiply() to avoid repeated allocation
+local gcm_z = create_gcm_block()
+local gcm_v = create_gcm_block()
+
 --- GCM field multiplication
 --- @param x string 16-byte block
 --- @param y string 16-byte block
 --- @return string result Product in GF(2^128)
 local function gcm_multiply(x, y)
-  -- Convert to bit arrays for easier manipulation
-  --- @type AESGCMBlock
-  local z = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
-  --- @type AESGCMBlock
-  local v = {}
+  -- Reuse pre-allocated arrays
+  local z = gcm_z
+  local v = gcm_v
+  -- Reset z and initialize v
   for i = 1, 16 do
-    v[i] = string.byte(y, i)
+    z[i] = 0
+    v[i] = string_byte(y, i)
   end
 
   -- Process each bit of x from MSB to LSB
   for i = 1, 16 do
-    local byte = string.byte(x, i)
+    local byte = string_byte(x, i)
     for bit = 7, 0, -1 do
-      if bit32.band(byte, bit32.lshift(1, bit)) ~= 0 then
+      if bit32_raw_band(byte, bit32_raw_lshift(1, bit)) ~= 0 then
         -- z = z XOR v
         for j = 1, 16 do
-          z[j] = bit32.bxor(z[j], v[j])
+          z[j] = bit32_raw_bxor(z[j], v[j])
         end
       end
 
       -- Check if LSB of v is 1 (bit 0 of last byte)
-      local lsb = bit32.band(v[16], 1)
+      local lsb = bit32_raw_band(v[16], 1)
 
       -- v = v >> 1 (right shift entire 128-bit value by 1)
       local carry = 0
       for j = 1, 16 do
-        local new_carry = bit32.band(v[j], 1)
-        v[j] = bit32.bor(bit32.rshift(v[j], 1), bit32.lshift(carry, 7))
+        local new_carry = bit32_raw_band(v[j], 1)
+        v[j] = bit32_raw_bor(bit32_raw_rshift(v[j], 1), bit32_raw_lshift(carry, 7))
         carry = new_carry
       end
 
       -- If LSB was 1, XOR with R = 0xE1000000000000000000000000000000
       if lsb ~= 0 then
-        v[1] = bit32.bxor(v[1], 0xE1)
+        v[1] = bit32_raw_bxor(v[1], 0xE1)
       end
     end
   end
@@ -573,7 +641,7 @@ local function gcm_multiply(x, y)
   -- Convert result back to string
   local result = ""
   for i = 1, 16 do
-    result = result .. string.char(z[i])
+    result = result .. string_char(z[i])
   end
   return result
 end
@@ -583,16 +651,16 @@ end
 --- @param data string Data to hash (multiple of 16 bytes)
 --- @return string result 16-byte hash
 local function ghash(h, data)
-  local y = string.rep("\0", 16)
+  local y = string_rep("\0", 16)
 
   -- Process each 16-byte block
   for i = 1, #data, 16 do
-    local block = string.sub(data, i, i + 15)
+    local block = string_sub(data, i, i + 15)
 
     -- y = (y XOR block) * h
     local y_xor = ""
     for j = 1, 16 do
-      y_xor = y_xor .. string.char(bit32.bxor(string.byte(y, j), string.byte(block, j)))
+      y_xor = y_xor .. string_char(bit32_raw_bxor(string_byte(y, j), string_byte(block, j)))
     end
 
     y = gcm_multiply(y_xor, h)
@@ -605,19 +673,19 @@ end
 --- @param counter string 16-byte counter block
 --- @return string result Incremented counter
 local function inc_counter(counter)
-  local result = string.sub(counter, 1, 12) -- Keep first 12 bytes
+  local result = string_sub(counter, 1, 12) -- Keep first 12 bytes
 
   -- Increment last 4 bytes (big-endian)
   local val = 0
   for i = 13, 16 do
-    val = val * 256 + string.byte(counter, i)
+    val = val * 256 + string_byte(counter, i)
   end
 
   val = (val + 1) % 0x100000000
 
   -- Convert back to bytes (big-endian)
   for i = 3, 0, -1 do
-    result = result .. string.char(bit32.band(bit32.rshift(val, i * 8), 0xFF))
+    result = result .. string_char(bit32_raw_band(bit32_raw_rshift(val, i * 8), 0xFF))
   end
 
   return result
@@ -634,7 +702,7 @@ local function generate_keystream(key, iv, length)
   local total_length = 0
 
   -- Initial counter value: IV || 0x00000002
-  local counter = iv .. string.rep("\0", 3) .. string.char(0x02)
+  local counter = iv .. string_rep("\0", 3) .. string_char(0x02)
 
   while total_length < length do
     local block = aes_encrypt_block(counter, expanded_key, nr)
@@ -643,8 +711,8 @@ local function generate_keystream(key, iv, length)
     counter = inc_counter(counter)
   end
 
-  local keystream = table.concat(keystream_blocks)
-  return string.sub(keystream, 1, length)
+  local keystream = table_concat(keystream_blocks)
+  return string_sub(keystream, 1, length)
 end
 
 -- ============================================================================
@@ -661,12 +729,12 @@ local function format_gcm_data(aad, ciphertext)
   -- Add AAD and padding
   result = result .. aad
   local aad_pad = (16 - (#aad % 16)) % 16
-  result = result .. string.rep("\0", aad_pad)
+  result = result .. string_rep("\0", aad_pad)
 
   -- Add ciphertext and padding
   result = result .. ciphertext
   local ct_pad = (16 - (#ciphertext % 16)) % 16
-  result = result .. string.rep("\0", ct_pad)
+  result = result .. string_rep("\0", ct_pad)
 
   -- Add lengths (in bits) as 64-bit big-endian integers
   -- For messages under 2^61 bytes, high 32 bits are always 0
@@ -674,11 +742,11 @@ local function format_gcm_data(aad, ciphertext)
   local ct_bits_low = #ciphertext * 8
 
   -- AAD length (64 bits big-endian)
-  result = result .. string.rep("\0", 4) -- High 32 bits
+  result = result .. string_rep("\0", 4) -- High 32 bits
   result = result .. bytes.u32_to_be_bytes(aad_bits_low) -- Low 32 bits
 
   -- Ciphertext length (64 bits big-endian)
-  result = result .. string.rep("\0", 4) -- High 32 bits
+  result = result .. string_rep("\0", 4) -- High 32 bits
   result = result .. bytes.u32_to_be_bytes(ct_bits_low) -- Low 32 bits
 
   return result
@@ -728,16 +796,16 @@ function aes_gcm.encrypt(key, nonce, plaintext, aad)
   local expanded_key, nr = key_expansion(key)
 
   -- Generate hash key H = E(K, 0^128)
-  local h = aes_encrypt_block(string.rep("\0", 16), expanded_key, nr)
+  local h = aes_encrypt_block(string_rep("\0", 16), expanded_key, nr)
 
   -- Initial counter: nonce || 0x00000001
-  local j0 = nonce .. string.rep("\0", 3) .. string.char(0x01)
+  local j0 = nonce .. string_rep("\0", 3) .. string_char(0x01)
 
   -- Encrypt plaintext using CTR mode
   local keystream = generate_keystream(key, nonce, #plaintext)
   local ciphertext = ""
   for i = 1, #plaintext do
-    ciphertext = ciphertext .. string.char(bit32.bxor(string.byte(plaintext, i), string.byte(keystream, i)))
+    ciphertext = ciphertext .. string_char(bit32_raw_bxor(string_byte(plaintext, i), string_byte(keystream, i)))
   end
 
   -- Calculate authentication tag
@@ -748,7 +816,7 @@ function aes_gcm.encrypt(key, nonce, plaintext, aad)
   local encrypted_j0 = aes_encrypt_block(j0, expanded_key, nr)
   local tag = ""
   for i = 1, 16 do
-    tag = tag .. string.char(bit32.bxor(string.byte(s, i), string.byte(encrypted_j0, i)))
+    tag = tag .. string_char(bit32_raw_bxor(string_byte(s, i), string_byte(encrypted_j0, i)))
   end
 
   return ciphertext .. tag
@@ -773,8 +841,8 @@ function aes_gcm.decrypt(key, nonce, ciphertext_and_tag, aad)
 
   -- Split ciphertext and tag
   local ciphertext_len = #ciphertext_and_tag - 16
-  local ciphertext = string.sub(ciphertext_and_tag, 1, ciphertext_len)
-  local received_tag = string.sub(ciphertext_and_tag, ciphertext_len + 1)
+  local ciphertext = string_sub(ciphertext_and_tag, 1, ciphertext_len)
+  local received_tag = string_sub(ciphertext_and_tag, ciphertext_len + 1)
 
   local openssl = openssl_wrapper.get(openssl_wrapper.Feature.AAD)
   if openssl then
@@ -803,10 +871,10 @@ function aes_gcm.decrypt(key, nonce, ciphertext_and_tag, aad)
   local expanded_key, nr = key_expansion(key)
 
   -- Generate hash key H = E(K, 0^128)
-  local h = aes_encrypt_block(string.rep("\0", 16), expanded_key, nr)
+  local h = aes_encrypt_block(string_rep("\0", 16), expanded_key, nr)
 
   -- Initial counter: nonce || 0x00000001
-  local j0 = nonce .. string.rep("\0", 3) .. string.char(0x01)
+  local j0 = nonce .. string_rep("\0", 3) .. string_char(0x01)
 
   -- Calculate expected authentication tag
   local gcm_data = format_gcm_data(aad, ciphertext)
@@ -816,7 +884,7 @@ function aes_gcm.decrypt(key, nonce, ciphertext_and_tag, aad)
   local encrypted_j0 = aes_encrypt_block(j0, expanded_key, nr)
   local expected_tag = ""
   for i = 1, 16 do
-    expected_tag = expected_tag .. string.char(bit32.bxor(string.byte(s, i), string.byte(encrypted_j0, i)))
+    expected_tag = expected_tag .. string_char(bit32_raw_bxor(string_byte(s, i), string_byte(encrypted_j0, i)))
   end
 
   -- Verify tag (constant-time comparison)
@@ -828,7 +896,7 @@ function aes_gcm.decrypt(key, nonce, ciphertext_and_tag, aad)
   local keystream = generate_keystream(key, nonce, #ciphertext)
   local plaintext = ""
   for i = 1, #ciphertext do
-    plaintext = plaintext .. string.char(bit32.bxor(string.byte(ciphertext, i), string.byte(keystream, i)))
+    plaintext = plaintext .. string_char(bit32_raw_bxor(string_byte(ciphertext, i), string_byte(keystream, i)))
   end
 
   return plaintext
@@ -838,8 +906,8 @@ end
 local test_vectors = {
   {
     name = "NIST Test Case 1 (AES-128-GCM)",
-    key = string.rep("\0", 16),
-    nonce = string.rep("\0", 12),
+    key = string_rep("\0", 16),
+    nonce = string_rep("\0", 12),
     plaintext = "",
     aad = "",
     ciphertext = "",
@@ -847,9 +915,9 @@ local test_vectors = {
   },
   {
     name = "NIST Test Case 2 (AES-128-GCM)",
-    key = string.rep("\0", 16),
-    nonce = string.rep("\0", 12),
-    plaintext = string.rep("\0", 16),
+    key = string_rep("\0", 16),
+    nonce = string_rep("\0", 12),
+    plaintext = string_rep("\0", 16),
     aad = "",
     ciphertext = bytes.from_hex("0388dace60b6a392f328c2b971b2fe78"),
     tag = bytes.from_hex("ab6e47d42cec13bdf53a67b21257bddf"),
@@ -890,8 +958,8 @@ function aes_gcm.selftest()
       if test.ciphertext then
         -- Test with known ciphertext and tag
         local result = aes_gcm.encrypt(test.key, test.nonce, test.plaintext, test.aad)
-        local result_ct = string.sub(result, 1, #test.ciphertext)
-        local result_tag = string.sub(result, #test.ciphertext + 1)
+        local result_ct = string_sub(result, 1, #test.ciphertext)
+        local result_tag = string_sub(result, #test.ciphertext + 1)
 
         if result_ct == test.ciphertext and result_tag == test.tag then
           print("  ✅ PASS: Encryption")
@@ -910,7 +978,7 @@ function aes_gcm.selftest()
           print("  ❌ FAIL: Encryption")
           print("    Expected CT: " .. bytes.to_hex(test.ciphertext))
           print("    Got CT:      " .. bytes.to_hex(result_ct))
-          print("    Expected Tag: " .. bytes.to_hex(test.tag))
+          print("    Expected Tag: " .. (test.tag and bytes.to_hex(test.tag) or "none"))
           print("    Got Tag:      " .. bytes.to_hex(result_tag))
         end
       else
@@ -940,8 +1008,8 @@ function aes_gcm.selftest()
 
     -- Test 1: Basic encryption/decryption with AES-128
     total = total + 1
-    local key128 = string.rep(string.char(0x42), 16)
-    local nonce = string.rep("\0", 11) .. string.char(0x01)
+    local key128 = string_rep(string_char(0x42), 16)
+    local nonce = string_rep("\0", 11) .. string_char(0x01)
     local aad = "user@example.com|2024-01-01"
     local plaintext = "This is a secret message that needs both encryption and authentication."
 
@@ -957,7 +1025,7 @@ function aes_gcm.selftest()
 
     -- Test 2: Basic encryption/decryption with AES-256
     total = total + 1
-    local key256 = string.rep(string.char(0x43), 32)
+    local key256 = string_rep(string_char(0x43), 32)
     local ct256 = aes_gcm.encrypt(key256, nonce, plaintext, aad)
     local pt256 = aes_gcm.decrypt(key256, nonce, ct256, aad)
 
@@ -970,7 +1038,7 @@ function aes_gcm.selftest()
 
     -- Test 3: Authentication tag tampering detection
     total = total + 1
-    local tampered = ciphertext_and_tag:sub(1, -2) .. string.char(255)
+    local tampered = ciphertext_and_tag:sub(1, -2) .. string_char(255)
     local tampered_result = aes_gcm.decrypt(key128, nonce, tampered, aad)
 
     if tampered_result == nil then
@@ -994,7 +1062,7 @@ function aes_gcm.selftest()
 
     -- Test 5: Nonce uniqueness
     total = total + 1
-    local nonce2 = string.rep("\0", 11) .. string.char(0x02)
+    local nonce2 = string_rep("\0", 11) .. string_char(0x02)
     local ciphertext2 = aes_gcm.encrypt(key128, nonce2, plaintext, aad)
 
     if ciphertext_and_tag ~= ciphertext2 then
@@ -1030,7 +1098,7 @@ function aes_gcm.selftest()
 
     -- Test 8: Ciphertext tampering detection
     total = total + 1
-    local tampered_ct = string.char(255) .. ciphertext_and_tag:sub(2)
+    local tampered_ct = string_char(255) .. ciphertext_and_tag:sub(2)
     local tampered_ct_result = aes_gcm.decrypt(key128, nonce, tampered_ct, aad)
 
     if tampered_ct_result == nil then
@@ -1042,7 +1110,7 @@ function aes_gcm.selftest()
 
     -- Test 9: Wrong key detection
     total = total + 1
-    local wrong_key = string.rep(string.char(0x99), 16)
+    local wrong_key = string_rep(string_char(0x99), 16)
     local wrong_key_result = aes_gcm.decrypt(wrong_key, nonce, ciphertext_and_tag, aad)
 
     if wrong_key_result == nil then
@@ -1054,7 +1122,7 @@ function aes_gcm.selftest()
 
     -- Test 10: Large plaintext (multiple blocks)
     total = total + 1
-    local large_plaintext = string.rep("A", 1000)
+    local large_plaintext = string_rep("A", 1000)
     local large_ct = aes_gcm.encrypt(key128, nonce, large_plaintext, aad)
     local large_pt = aes_gcm.decrypt(key128, nonce, large_ct, aad)
 
@@ -1067,7 +1135,7 @@ function aes_gcm.selftest()
 
     -- Test 11: Different key sizes produce different outputs
     total = total + 1
-    local key192 = string.rep(string.char(0x44), 24)
+    local key192 = string_rep(string_char(0x44), 24)
     local ct128 = aes_gcm.encrypt(key128, nonce, plaintext, aad)
     local ct192 = aes_gcm.encrypt(key192, nonce, plaintext, aad)
     local ct256_2 = aes_gcm.encrypt(key256, nonce, plaintext, aad)
@@ -1099,9 +1167,9 @@ function aes_gcm.benchmark()
   local key256 = bytes.from_hex("feffe9928665731c6d6a8f9467308308feffe9928665731c6d6a8f9467308308")
   local nonce = bytes.from_hex("cafebabefacedbaddecaf888")
   local aad = "feedfacedeadbeeffeedfacedeadbeefabaddad2"
-  local plaintext_64 = string.rep("a", 64)
-  local plaintext_1k = string.rep("a", 1024)
-  local plaintext_8k = string.rep("a", 8192)
+  local plaintext_64 = string_rep("a", 64)
+  local plaintext_1k = string_rep("a", 1024)
+  local plaintext_8k = string_rep("a", 8192)
 
   print("AES-128-GCM Encryption:")
   benchmark_op("aes128_encrypt_64_bytes", function()
@@ -1152,9 +1220,10 @@ local _ENV = _ENV
 package.preload[ "noiseprotocol.crypto.blake2" ] = function( ... ) local arg = _G.arg;
 --- @module "noiseprotocol.crypto.blake2"
 --- Pure Lua BLAKE2s and BLAKE2b Implementation for portability.
+--- @class noiseprotocol.crypto.blake2
 local blake2 = {}
 
-local bitn = require("vendor.bitn")
+local bitn = require("bitn")
 local bit32 = bitn.bit32
 local bit64 = bitn.bit64
 
@@ -1162,6 +1231,19 @@ local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
 local utils = require("noiseprotocol.utils")
 local bytes = utils.bytes
 local benchmark_op = utils.benchmark.benchmark_op
+
+-- Local references for performance
+local bit32_raw_add = bit32.raw_add
+local bit32_raw_bxor = bit32.raw_bxor
+local bit32_raw_ror = bit32.raw_ror
+local bit64_raw_add = bit64.raw_add
+local bit64_raw_bxor = bit64.raw_bxor
+local bit64_raw_ror = bit64.raw_ror
+local bit64_new = bit64.new
+local string_byte = string.byte
+local string_char = string.char
+local string_rep = string.rep
+local table_concat = table.concat
 
 -- BLAKE2s initialization vectors (first 32 bits of fractional parts of square roots of first 8 primes)
 --- @type HashState
@@ -1210,6 +1292,34 @@ local BLAKE2S_SIGMA = {
 -- BLAKE2b permutation table (same as BLAKE2s)
 local BLAKE2B_SIGMA = BLAKE2S_SIGMA
 
+--- Initialize a 16-element BLAKE2s working vector with zeros
+--- @return Blake2sVector16 array Initialized array
+local function create_blake2s_vector()
+  local arr = {}
+  for i = 1, 16 do
+    arr[i] = 0
+  end
+  --- @cast arr Blake2sVector16
+  return arr
+end
+
+--- Initialize a 16-element BLAKE2b working vector with zeros
+--- @return Blake2bVector16 array Initialized array
+local function create_blake2b_vector()
+  local arr = {}
+  for i = 1, 16 do
+    arr[i] = bit64_new(0, 0)
+  end
+  --- @cast arr Blake2bVector16
+  return arr
+end
+
+-- Pre-allocated arrays for blake2s_compress() to avoid repeated allocation
+local blake2s_v = create_blake2s_vector()
+
+-- Pre-allocated arrays for blake2b_compress() to avoid repeated allocation
+local blake2b_v = create_blake2b_vector()
+
 --- BLAKE2s G function
 --- @param v Blake2sVector16 Working vector
 --- @param a integer Index a
@@ -1219,14 +1329,14 @@ local BLAKE2B_SIGMA = BLAKE2S_SIGMA
 --- @param x integer Message word x
 --- @param y integer Message word y
 local function blake2s_g(v, a, b, c, d, x, y)
-  v[a] = bit32.add(bit32.add(v[a], v[b]), x)
-  v[d] = bit32.ror(bit32.bxor(v[d], v[a]), 16)
-  v[c] = bit32.add(v[c], v[d])
-  v[b] = bit32.ror(bit32.bxor(v[b], v[c]), 12)
-  v[a] = bit32.add(bit32.add(v[a], v[b]), y)
-  v[d] = bit32.ror(bit32.bxor(v[d], v[a]), 8)
-  v[c] = bit32.add(v[c], v[d])
-  v[b] = bit32.ror(bit32.bxor(v[b], v[c]), 7)
+  v[a] = bit32_raw_add(bit32_raw_add(v[a], v[b]), x)
+  v[d] = bit32_raw_ror(bit32_raw_bxor(v[d], v[a]), 16)
+  v[c] = bit32_raw_add(v[c], v[d])
+  v[b] = bit32_raw_ror(bit32_raw_bxor(v[b], v[c]), 12)
+  v[a] = bit32_raw_add(bit32_raw_add(v[a], v[b]), y)
+  v[d] = bit32_raw_ror(bit32_raw_bxor(v[d], v[a]), 8)
+  v[c] = bit32_raw_add(v[c], v[d])
+  v[b] = bit32_raw_ror(bit32_raw_bxor(v[b], v[c]), 7)
 end
 
 --- BLAKE2b G function
@@ -1238,14 +1348,14 @@ end
 --- @param x table Message word x
 --- @param y table Message word y
 local function blake2b_g(v, a, b, c, d, x, y)
-  v[a] = bit64.add(bit64.add(v[a], v[b]), x)
-  v[d] = bit64.ror(bit64.xor(v[d], v[a]), 32)
-  v[c] = bit64.add(v[c], v[d])
-  v[b] = bit64.ror(bit64.xor(v[b], v[c]), 24)
-  v[a] = bit64.add(bit64.add(v[a], v[b]), y)
-  v[d] = bit64.ror(bit64.xor(v[d], v[a]), 16)
-  v[c] = bit64.add(v[c], v[d])
-  v[b] = bit64.ror(bit64.xor(v[b], v[c]), 63)
+  v[a] = bit64_raw_add(bit64_raw_add(v[a], v[b]), x)
+  v[d] = bit64_raw_ror(bit64_raw_bxor(v[d], v[a]), 32)
+  v[c] = bit64_raw_add(v[c], v[d])
+  v[b] = bit64_raw_ror(bit64_raw_bxor(v[b], v[c]), 24)
+  v[a] = bit64_raw_add(bit64_raw_add(v[a], v[b]), y)
+  v[d] = bit64_raw_ror(bit64_raw_bxor(v[d], v[a]), 16)
+  v[c] = bit64_raw_add(v[c], v[d])
+  v[b] = bit64_raw_ror(bit64_raw_bxor(v[b], v[c]), 63)
 end
 
 --- BLAKE2s compression function
@@ -1255,9 +1365,8 @@ end
 --- @param th integer Counter (high 32 bits)
 --- @param f boolean Final block flag
 local function blake2s_compress(h, m, t, th, f)
-  -- Initialize working vector
-  --- @type Blake2sVector16
-  local v = {}
+  -- Reuse pre-allocated working vector
+  local v = blake2s_v
 
   -- First half from hash state
   for i = 1, 8 do
@@ -1270,10 +1379,10 @@ local function blake2s_compress(h, m, t, th, f)
   end
 
   -- Mix in counter and final flag
-  v[13] = bit32.bxor(v[13], t) -- Low 32 bits of counter
-  v[14] = bit32.bxor(v[14], th) -- High 32 bits of counter
+  v[13] = bit32_raw_bxor(v[13], t) -- Low 32 bits of counter
+  v[14] = bit32_raw_bxor(v[14], th) -- High 32 bits of counter
   if f then
-    v[15] = bit32.bxor(v[15], 0xFFFFFFFF) -- Invert all bits for final block
+    v[15] = bit32_raw_bxor(v[15], 0xFFFFFFFF) -- Invert all bits for final block
   end
 
   -- 10 rounds
@@ -1296,7 +1405,7 @@ local function blake2s_compress(h, m, t, th, f)
 
   -- Finalize
   for i = 1, 8 do
-    h[i] = bit32.bxor(bit32.bxor(h[i], v[i]), v[i + 8])
+    h[i] = bit32_raw_bxor(bit32_raw_bxor(h[i], v[i]), v[i + 8])
   end
 end
 
@@ -1306,25 +1415,24 @@ end
 --- @param t table Counter (64-bit)
 --- @param f boolean Final block flag
 local function blake2b_compress(h, m, t, f)
-  -- Initialize working vector
-  --- @type Blake2bVector16
-  local v = {}
+  -- Reuse pre-allocated working vector
+  local v = blake2b_v
 
   -- First half from hash state
   for i = 1, 8 do
-    v[i] = { h[i][1], h[i][2] }
+    v[i][1], v[i][2] = h[i][1], h[i][2]
   end
 
   -- Second half from IV
   for i = 1, 8 do
-    v[8 + i] = { BLAKE2B_IV[i][1], BLAKE2B_IV[i][2] }
+    v[8 + i][1], v[8 + i][2] = BLAKE2B_IV[i][1], BLAKE2B_IV[i][2]
   end
 
   -- Mix in counter and final flag
-  v[13] = bit64.xor(v[13], t)
-  v[14] = bit64.xor(v[14], { 0, 0 }) -- High 64 bits of counter (always 0 for messages < 2^64 bytes)
+  v[13] = bit64_raw_bxor(v[13], t)
+  v[14] = bit64_raw_bxor(v[14], bit64_new(0, 0)) -- High 64 bits of counter (always 0 for messages < 2^64 bytes)
   if f then
-    v[15] = bit64.xor(v[15], { 0xffffffff, 0xffffffff })
+    v[15] = bit64_raw_bxor(v[15], bit64_new(0xffffffff, 0xffffffff))
   end
 
   -- 12 rounds
@@ -1347,7 +1455,7 @@ local function blake2b_compress(h, m, t, f)
 
   -- Finalize
   for i = 1, 8 do
-    h[i] = bit64.xor(bit64.xor(h[i], v[i]), v[i + 8])
+    h[i] = bit64_raw_bxor(bit64_raw_bxor(h[i], v[i]), v[i + 8])
   end
 end
 
@@ -1372,7 +1480,7 @@ function blake2.blake2s(data)
   -- Parameter block: digest length = 32, key length = 0, fanout = 1, depth = 1
   -- All other parameters are 0 (no salt, no personalization, etc.)
   local param = 32 + (0 * 256) + (1 * 65536) + (1 * 16777216) -- 0x01010020
-  h[1] = bit32.bxor(h[1], param)
+  h[1] = bit32_raw_bxor(h[1], param)
 
   local data_len = #data
   local offset = 1
@@ -1405,7 +1513,7 @@ function blake2.blake2s(data)
 
     -- Pad final block with zeros
     local final_data = data:sub(offset)
-    local final_block = final_data .. string.rep("\0", 64 - remaining)
+    local final_block = final_data .. string_rep("\0", 64 - remaining)
 
     --- @type Blake2sVector16
     local m = {}
@@ -1431,7 +1539,7 @@ function blake2.blake2s(data)
     result_bytes[i] = bytes.u32_to_le_bytes(h[i])
   end
 
-  return table.concat(result_bytes)
+  return table_concat(result_bytes)
 end
 
 --- Compute BLAKE2b hash of input data
@@ -1459,15 +1567,15 @@ function blake2.blake2b(data)
   -- In little-endian 64-bit: 0x0000000001010040
   -- Split into two 32-bit words (little-endian): low=0x01010040, high=0x00000000
   -- But our u64 format is {high, low}, so we need {0x00000000, 0x01010040}
-  h[1] = bit64.xor(h[1], { 0x00000000, 0x01010040 })
+  h[1] = bit64_raw_bxor(h[1], bit64_new(0x00000000, 0x01010040))
 
   local data_len = #data
   local offset = 1
-  local counter = { 0, 0 }
+  local counter = bit64_new(0, 0)
 
   -- Process full 128-byte blocks
   while offset + 127 <= data_len do
-    counter = bit64.add(counter, { 0, 128 })
+    counter = bit64_raw_add(counter, bit64_new(0, 128))
 
     -- Check if this is the last block
     local is_last_block = (offset + 128 > data_len)
@@ -1486,10 +1594,10 @@ function blake2.blake2b(data)
   -- Process final block (if there's remaining data)
   local remaining = data_len - offset + 1
   if remaining > 0 then
-    counter = bit64.add(counter, { 0, remaining })
+    counter = bit64_raw_add(counter, bit64_new(0, remaining))
 
     -- Pad final block with zeros
-    local final_block = data:sub(offset) .. string.rep("\0", 128 - remaining)
+    local final_block = data:sub(offset) .. string_rep("\0", 128 - remaining)
 
     --- @type Blake2bVector16
     local m = {}
@@ -1503,9 +1611,9 @@ function blake2.blake2b(data)
     --- @type Blake2bVector16
     local m = {}
     for i = 1, 16 do
-      m[i] = { 0, 0 }
+      m[i] = bit64_new(0, 0)
     end
-    blake2b_compress(h, m, { 0, 0 }, true)
+    blake2b_compress(h, m, bit64_new(0, 0), true)
   end
 
   -- Produce final hash value as binary string (optimized with table)
@@ -1514,7 +1622,7 @@ function blake2.blake2b(data)
     result_bytes[i] = bytes.u64_to_le_bytes(h[i])
   end
 
-  return table.concat(result_bytes)
+  return table_concat(result_bytes)
 end
 
 --- Compute BLAKE2s hash and return as hex string
@@ -1555,19 +1663,19 @@ function blake2.hmac_blake2s(key, data)
 
   -- Keys shorter than blocksize are right-padded with zeros
   if #key < block_size then
-    key = key .. string.rep("\0", block_size - #key)
+    key = key .. string_rep("\0", block_size - #key)
   end
 
   -- Compute inner and outer padding (optimized with table)
   local ipad_bytes = {}
   local opad_bytes = {}
   for i = 1, block_size do
-    local byte = string.byte(key, i)
-    ipad_bytes[i] = string.char(bit32.bxor(byte, 0x36))
-    opad_bytes[i] = string.char(bit32.bxor(byte, 0x5C))
+    local byte = string_byte(key, i)
+    ipad_bytes[i] = string_char(bit32_raw_bxor(byte, 0x36))
+    opad_bytes[i] = string_char(bit32_raw_bxor(byte, 0x5C))
   end
-  local ipad = table.concat(ipad_bytes)
-  local opad = table.concat(opad_bytes)
+  local ipad = table_concat(ipad_bytes)
+  local opad = table_concat(opad_bytes)
 
   -- Compute HMAC = H(opad || H(ipad || data))
   local inner_hash = blake2.blake2s(ipad .. data)
@@ -1598,19 +1706,19 @@ function blake2.hmac_blake2b(key, data)
 
   -- Keys shorter than blocksize are right-padded with zeros
   if #key < block_size then
-    key = key .. string.rep("\0", block_size - #key)
+    key = key .. string_rep("\0", block_size - #key)
   end
 
   -- Compute inner and outer padding (optimized with table)
   local ipad_bytes = {}
   local opad_bytes = {}
   for i = 1, block_size do
-    local byte = string.byte(key, i)
-    ipad_bytes[i] = string.char(bit32.bxor(byte, 0x36))
-    opad_bytes[i] = string.char(bit32.bxor(byte, 0x5C))
+    local byte = string_byte(key, i)
+    ipad_bytes[i] = string_char(bit32_raw_bxor(byte, 0x36))
+    opad_bytes[i] = string_char(bit32_raw_bxor(byte, 0x5C))
   end
-  local ipad = table.concat(ipad_bytes)
-  local opad = table.concat(opad_bytes)
+  local ipad = table_concat(ipad_bytes)
+  local opad = table_concat(opad_bytes)
 
   -- Compute HMAC = H(opad || H(ipad || data))
   local inner_hash = blake2.blake2b(ipad .. data)
@@ -1688,7 +1796,7 @@ local hmac_blake2s_test_vectors = {
   },
   {
     name = "RFC 4231 Test Case 1 pattern",
-    key = string.rep(string.char(0x0b), 20),
+    key = string_rep(string_char(0x0b), 20),
     message = "Hi There",
     expected = "65a8b7c5cc9136d424e82c37e2707e74e913c0655b99c75f40edf387453a3260",
   },
@@ -1700,13 +1808,13 @@ local hmac_blake2s_test_vectors = {
   },
   {
     name = "Key = block size (64 bytes)",
-    key = string.rep("a", 64),
+    key = string_rep("a", 64),
     message = "Test message",
     expected = "12d0e782ae473d8007d33ae6e5244afcaf9239f6a7d5476c69060c01383d6b58",
   },
   {
     name = "Key > block size (80 bytes)",
-    key = string.rep("a", 80),
+    key = string_rep("a", 80),
     message = "Test message",
     expected = "41da357bda1107f9fad1a504b5afbe75f5ead5ed7cf8f82e59e18c5e9e653882",
   },
@@ -1727,7 +1835,7 @@ local hmac_blake2b_test_vectors = {
   },
   {
     name = "RFC 4231 Test Case 1 pattern",
-    key = string.rep(string.char(0x0b), 20),
+    key = string_rep(string_char(0x0b), 20),
     message = "Hi There",
     expected = "358a6a184924894fc34bee5680eedf57d84a37bb38832f288e3b27dc63a98cc8c91e76da476b508bc6b2d408a248857452906e4a20b48c6b4b55d2df0fe1dd24",
   },
@@ -1739,13 +1847,13 @@ local hmac_blake2b_test_vectors = {
   },
   {
     name = "Key = block size (128 bytes)",
-    key = string.rep("a", 128),
+    key = string_rep("a", 128),
     message = "Test message",
     expected = "021a22a3ecf0f1f7a15aca6a5d9704fc99b6a84a627fa53f7ac932a961ffb69b1e68c46981d5b44fd00a7cae75e4ee63d393eec844a8de2dd00e45b5a0d4e275",
   },
   {
     name = "Key > block size (80 bytes)",
-    key = string.rep("a", 80),
+    key = string_rep("a", 80),
     message = "Test message",
     expected = "1c8fb6f426d7800000e8d03c141905b33d10a4da16f9c018140955c5cedfa7a017204aaea1f141c1c0d3d942dee04a795a6e589898c1328b717ad6053a7b4790",
   },
@@ -1897,9 +2005,9 @@ end
 --- including BLAKE2s and BLAKE2b hash computation for various message sizes.
 function blake2.benchmark()
   -- Test data
-  local message_64 = string.rep("a", 64)
-  local message_1k = string.rep("a", 1024)
-  local message_8k = string.rep("a", 8192)
+  local message_64 = string_rep("a", 64)
+  local message_1k = string_rep("a", 1024)
+  local message_8k = string_rep("a", 8192)
   local hmac_key = "benchmark_key"
 
   print("BLAKE2s Hash Operations:")
@@ -1947,14 +2055,26 @@ local _ENV = _ENV
 package.preload[ "noiseprotocol.crypto.chacha20" ] = function( ... ) local arg = _G.arg;
 --- @module "noiseprotocol.crypto.chacha20"
 --- ChaCha20 Stream Cipher Implementation for portability.
+--- @class noiseprotocol.crypto.chacha20
 local chacha20 = {}
 
-local bit32 = require("vendor.bitn").bit32
+local bit32 = require("bitn").bit32
 
 local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
 local utils = require("noiseprotocol.utils")
 local bytes = utils.bytes
 local benchmark_op = utils.benchmark.benchmark_op
+
+-- Local references for performance
+local bit32_raw_add = bit32.raw_add
+local bit32_raw_bxor = bit32.raw_bxor
+local bit32_raw_rol = bit32.raw_rol
+local floor = math.floor
+local min = math.min
+local string_byte = string.byte
+local string_char = string.char
+local string_rep = string.rep
+local table_concat = table.concat
 
 -- Type definitions for better type checking
 
@@ -1988,16 +2108,20 @@ local function create_word_array()
   return arr
 end
 
+-- Pre-allocated arrays for chacha20_block() to avoid repeated allocation
+local block_state = create_word_array()
+local block_working = create_word_array()
+
 --- Convert 32-bit word to 4 bytes (little-endian)
 --- @param word integer 32-bit word
 --- @return integer, integer, integer, integer bytes Four bytes in little-endian order
 local function word_to_bytes(word)
   local byte1 = word % 256
-  word = math.floor(word / 256)
+  word = floor(word * 0.00390625) -- / 256
   local byte2 = word % 256
-  word = math.floor(word / 256)
+  word = floor(word * 0.00390625)
   local byte3 = word % 256
-  word = math.floor(word / 256)
+  word = floor(word * 0.00390625)
   local byte4 = word % 256
 
   return byte1, byte2, byte3, byte4
@@ -2020,30 +2144,33 @@ end
 --- @param c integer Index of third word
 --- @param d integer Index of fourth word
 local function quarter_round(state, a, b, c, d)
-  state[a] = bit32.add(state[a], state[b])
-  state[d] = bit32.rol(bit32.bxor(state[d], state[a]), 16)
+  state[a] = bit32_raw_add(state[a], state[b])
+  state[d] = bit32_raw_rol(bit32_raw_bxor(state[d], state[a]), 16)
 
-  state[c] = bit32.add(state[c], state[d])
-  state[b] = bit32.rol(bit32.bxor(state[b], state[c]), 12)
+  state[c] = bit32_raw_add(state[c], state[d])
+  state[b] = bit32_raw_rol(bit32_raw_bxor(state[b], state[c]), 12)
 
-  state[a] = bit32.add(state[a], state[b])
-  state[d] = bit32.rol(bit32.bxor(state[d], state[a]), 8)
+  state[a] = bit32_raw_add(state[a], state[b])
+  state[d] = bit32_raw_rol(bit32_raw_bxor(state[d], state[a]), 8)
 
-  state[c] = bit32.add(state[c], state[d])
-  state[b] = bit32.rol(bit32.bxor(state[b], state[c]), 7)
+  state[c] = bit32_raw_add(state[c], state[d])
+  state[b] = bit32_raw_rol(bit32_raw_bxor(state[b], state[c]), 7)
 end
 
---- Initialize ChaCha20 state with key, nonce, and counter
+--- Generate one 64-byte block of ChaCha20 keystream
 --- @param key string 32-byte key
 --- @param nonce string 12-byte nonce
 --- @param counter integer 32-bit counter value
---- @return Word32Array state Initialized 16-word state
-local function chacha20_init(key, nonce, counter)
+--- @return string keystream 64-byte keystream block
+local function chacha20_block(key, nonce, counter)
+  -- Reuse pre-allocated arrays
+  local state = block_state
+  local working_state = block_working
+
+  -- Initialize state inline (avoiding function call overhead)
   assert(#key == 32, "Key must be exactly 32 bytes")
   assert(#nonce == 12, "Nonce must be exactly 12 bytes")
   assert(counter >= 0 and counter < 0x100000000, "Counter must be a valid 32-bit integer")
-
-  local state = create_word_array()
 
   -- ChaCha20 constants "expand 32-byte k"
   state[1] = 0x61707865 -- "expa"
@@ -2055,10 +2182,10 @@ local function chacha20_init(key, nonce, counter)
   for i = 1, 8 do
     local base = (i - 1) * 4
     state[4 + i] = bytes_to_word(
-      string.byte(key, base + 1),
-      string.byte(key, base + 2),
-      string.byte(key, base + 3),
-      string.byte(key, base + 4)
+      string_byte(key, base + 1),
+      string_byte(key, base + 2),
+      string_byte(key, base + 3),
+      string_byte(key, base + 4)
     )
   end
 
@@ -2069,26 +2196,14 @@ local function chacha20_init(key, nonce, counter)
   for i = 1, 3 do
     local base = (i - 1) * 4
     state[13 + i] = bytes_to_word(
-      string.byte(nonce, base + 1),
-      string.byte(nonce, base + 2),
-      string.byte(nonce, base + 3),
-      string.byte(nonce, base + 4)
+      string_byte(nonce, base + 1),
+      string_byte(nonce, base + 2),
+      string_byte(nonce, base + 3),
+      string_byte(nonce, base + 4)
     )
   end
 
-  return state
-end
-
---- Generate one 64-byte block of ChaCha20 keystream
---- @param key string 32-byte key
---- @param nonce string 12-byte nonce
---- @param counter integer 32-bit counter value
---- @return string keystream 64-byte keystream block
-local function chacha20_block(key, nonce, counter)
-  local state = chacha20_init(key, nonce, counter)
-
   -- Create working copy of state
-  local working_state = create_word_array()
   for i = 1, 16 do
     working_state[i] = state[i]
   end
@@ -2110,17 +2225,17 @@ local function chacha20_block(key, nonce, counter)
 
   -- Add original state to working state
   for i = 1, 16 do
-    working_state[i] = bit32.add(working_state[i], state[i])
+    working_state[i] = bit32_raw_add(working_state[i], state[i])
   end
 
-  -- Convert state to byte string (little-endian) - optimized with table
+  -- Convert state to byte string (little-endian) - optimized with local references
   local result_bytes = {}
   for i = 1, 16 do
     local b1, b2, b3, b4 = word_to_bytes(working_state[i])
-    result_bytes[i] = string.char(b1, b2, b3, b4)
+    result_bytes[i] = string_char(b1, b2, b3, b4)
   end
 
-  return table.concat(result_bytes)
+  return table_concat(result_bytes)
 end
 
 --- ChaCha20 encryption/decryption (same operation)
@@ -2141,12 +2256,12 @@ function chacha20.crypt(key, nonce, plaintext, counter)
     -- Generate keystream block
     local keystream = chacha20_block(key, nonce, counter)
 
-    -- XOR with plaintext (optimized with table)
-    local block_size = math.min(64, data_len - offset + 1)
+    -- XOR with plaintext (optimized with local references)
+    local block_size = min(64, data_len - offset + 1)
     for i = 1, block_size do
-      local plaintext_byte = string.byte(plaintext, offset + i - 1)
-      local keystream_byte = string.byte(keystream, i)
-      result_bytes[result_idx] = string.char(bit32.bxor(plaintext_byte, keystream_byte))
+      local plaintext_byte = string_byte(plaintext, offset + i - 1)
+      local keystream_byte = string_byte(keystream, i)
+      result_bytes[result_idx] = string_char(bit32_raw_bxor(plaintext_byte, keystream_byte))
       result_idx = result_idx + 1
     end
 
@@ -2154,7 +2269,7 @@ function chacha20.crypt(key, nonce, plaintext, counter)
     counter = counter + 1
   end
 
-  return table.concat(result_bytes)
+  return table_concat(result_bytes)
 end
 
 --- Convenience function for encryption (same as crypt)
@@ -2168,7 +2283,7 @@ function chacha20.encrypt(key, nonce, plaintext, counter)
   local openssl = openssl_wrapper.get()
   if openssl and #plaintext > 0 then
     -- Prepend 32-bit counter to 96-bit nonce for complete 128-bit nonce
-    nonce = utils.bytes.u32_to_le_bytes(counter or 1) .. nonce
+    nonce = bytes.u32_to_le_bytes(counter or 1) .. nonce
     return openssl.cipher.encrypt("chacha20", plaintext, key, nonce)
   end
   return chacha20.crypt(key, nonce, plaintext, counter)
@@ -2185,7 +2300,7 @@ function chacha20.decrypt(key, nonce, ciphertext, counter)
   local openssl = openssl_wrapper.get()
   if openssl and #ciphertext > 0 then
     -- Prepend 32-bit counter to 96-bit nonce for complete 128-bit nonce
-    nonce = utils.bytes.u32_to_le_bytes(counter or 1) .. nonce
+    nonce = bytes.u32_to_le_bytes(counter or 1) .. nonce
     return openssl.cipher.decrypt("chacha20", ciphertext, key, nonce)
   end
   return chacha20.crypt(key, nonce, ciphertext, counter)
@@ -2225,10 +2340,10 @@ local test_vectors = {
   },
   {
     name = "Zero key test",
-    key = string.rep("\0", 32),
-    nonce = string.rep("\0", 12),
+    key = string_rep("\0", 32),
+    nonce = string_rep("\0", 12),
     counter = 0,
-    plaintext = string.rep("\0", 64),
+    plaintext = string_rep("\0", 64),
     expected_ciphertext = bytes.from_hex(
       "76b8e0ada0f13d90405d6ae55386bd28bdd219b8a08ded1aa836efcc8b770dc7da41597c5157488d7724e03fb8d84a376a43b8f41518a11cc387b669b2ee6586"
     ),
@@ -2269,11 +2384,11 @@ function chacha20.selftest()
           -- Show first few bytes for debugging
           local expected_hex = ""
           local result_hex = ""
-          local show_bytes = math.min(16, #test.expected_keystream)
+          local show_bytes = min(16, #test.expected_keystream)
 
           for j = 1, show_bytes do
-            expected_hex = expected_hex .. string.format("%02x", string.byte(test.expected_keystream, j))
-            result_hex = result_hex .. string.format("%02x", string.byte(keystream, j))
+            expected_hex = expected_hex .. string.format("%02x", string_byte(assert(test.expected_keystream), j))
+            result_hex = result_hex .. string.format("%02x", string_byte(keystream, j))
           end
 
           print("  Expected (first " .. show_bytes .. " bytes): " .. expected_hex)
@@ -2298,11 +2413,11 @@ function chacha20.selftest()
           -- Show first few bytes for debugging
           local expected_hex = ""
           local result_hex = ""
-          local show_bytes = math.min(16, #test.expected_ciphertext)
+          local show_bytes = min(16, #test.expected_ciphertext)
 
           for j = 1, show_bytes do
-            expected_hex = expected_hex .. string.format("%02x", string.byte(test.expected_ciphertext, j))
-            result_hex = result_hex .. string.format("%02x", string.byte(result, j))
+            expected_hex = expected_hex .. string.format("%02x", string_byte(assert(test.expected_ciphertext), j))
+            result_hex = result_hex .. string.format("%02x", string_byte(result, j))
           end
 
           print("  Expected (first " .. show_bytes .. " bytes): " .. expected_hex)
@@ -2326,8 +2441,8 @@ function chacha20.selftest()
 
     -- Test 1: Basic encryption/decryption
     total = total + 1
-    local key = string.rep(string.char(0x42), 32)
-    local nonce = string.rep("\0", 12)
+    local key = string_rep(string_char(0x42), 32)
+    local nonce = string_rep("\0", 12)
     local counter = 1
     local plaintext = "Hello, ChaCha20! This is a test message for encryption."
 
@@ -2354,7 +2469,7 @@ function chacha20.selftest()
 
     -- Test 3: Different nonces produce different output
     total = total + 1
-    local nonce2 = string.char(0x01) .. string.rep("\0", 11)
+    local nonce2 = string_char(0x01) .. string_rep("\0", 11)
     local ciphertext3 = chacha20.encrypt(key, nonce2, plaintext, counter)
 
     if ciphertext ~= ciphertext3 then
@@ -2389,7 +2504,7 @@ function chacha20.selftest()
 
     -- Test 6: Large plaintext (multi-block)
     total = total + 1
-    local large_plaintext = string.rep("A", 256) -- 4 blocks
+    local large_plaintext = string_rep("A", 256) -- 4 blocks
     local large_ct = chacha20.encrypt(key, nonce, large_plaintext, counter)
     local large_pt = chacha20.decrypt(key, nonce, large_ct, counter)
 
@@ -2402,7 +2517,7 @@ function chacha20.selftest()
 
     -- Test 7: Partial block
     total = total + 1
-    local partial_plaintext = string.rep("B", 100) -- Not a multiple of 64
+    local partial_plaintext = string_rep("B", 100) -- Not a multiple of 64
     local partial_ct = chacha20.encrypt(key, nonce, partial_plaintext, counter)
     local partial_pt = chacha20.decrypt(key, nonce, partial_ct, counter)
 
@@ -2432,9 +2547,9 @@ function chacha20.benchmark()
   -- Test data
   local key = bytes.from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
   local nonce = bytes.from_hex("000000090000004a00000000")
-  local plaintext_64 = string.rep("a", 64)
-  local plaintext_1k = string.rep("a", 1024)
-  local plaintext_8k = string.rep("a", 8192)
+  local plaintext_64 = string_rep("a", 64)
+  local plaintext_1k = string_rep("a", 1024)
+  local plaintext_8k = string_rep("a", 8192)
 
   print("Encryption Operations:")
   benchmark_op("encrypt_64_bytes", function()
@@ -2459,6 +2574,7 @@ local _ENV = _ENV
 package.preload[ "noiseprotocol.crypto.chacha20_poly1305" ] = function( ... ) local arg = _G.arg;
 --- @module "noiseprotocol.crypto.chacha20_poly1305"
 --- ChaCha20-Poly1305 Authenticated Encryption with Associated Data (AEAD) Implementation for portability.
+--- @class noiseprotocol.crypto.chacha20_poly1305
 local chacha20_poly1305 = {}
 
 local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
@@ -2468,6 +2584,12 @@ local benchmark_op = utils.benchmark.benchmark_op
 local chacha20 = require("noiseprotocol.crypto.chacha20")
 local poly1305 = require("noiseprotocol.crypto.poly1305")
 
+-- Local references for performance
+local string_char = string.char
+local string_rep = string.rep
+local string_sub = string.sub
+local table_concat = table.concat
+
 --- Generate Poly1305 one-time key using ChaCha20
 --- @param key string 32-byte ChaCha20 key
 --- @param nonce string 12-byte nonce
@@ -2475,7 +2597,7 @@ local poly1305 = require("noiseprotocol.crypto.poly1305")
 local function poly1305_key_gen(key, nonce)
   -- Generate Poly1305 key by encrypting 32 zero bytes with ChaCha20
   -- Counter starts at 0 for key generation
-  local zero_block = string.rep("\0", 32)
+  local zero_block = string_rep("\0", 32)
   return chacha20.crypt(key, nonce, zero_block, 0)
 end
 
@@ -2496,7 +2618,7 @@ local function construct_aad_data(aad, ciphertext)
     bytes.u64_to_le_bytes(ciphertext_len),
   }
 
-  return table.concat(auth_parts)
+  return table_concat(auth_parts)
 end
 
 -- ============================================================================
@@ -2578,8 +2700,8 @@ function chacha20_poly1305.decrypt(key, nonce, ciphertext_and_tag, aad)
 
   -- Step 1: Split ciphertext and tag
   local ciphertext_len = #ciphertext_and_tag - 16
-  local ciphertext = string.sub(ciphertext_and_tag, 1, ciphertext_len)
-  local received_tag = string.sub(ciphertext_and_tag, ciphertext_len + 1)
+  local ciphertext = string_sub(ciphertext_and_tag, 1, ciphertext_len)
+  local received_tag = string_sub(ciphertext_and_tag, ciphertext_len + 1)
 
   local openssl = openssl_wrapper.get(openssl_wrapper.Feature.AAD)
   if openssl then
@@ -2657,14 +2779,14 @@ local test_vectors = {
   },
   {
     name = "Empty AAD roundtrip test",
-    key = string.char(0x42) .. string.rep("\0", 31),
-    nonce = string.rep("\0", 12),
+    key = string_char(0x42) .. string_rep("\0", 31),
+    nonce = string_rep("\0", 12),
     aad = "",
     plaintext = "No additional data",
   },
   {
     name = "Empty plaintext roundtrip test",
-    key = string.rep(string.char(0xff), 32),
+    key = string_rep(string_char(0xff), 32),
     nonce = bytes.from_hex("0102030405060708090a0b0c"),
     aad = "Only authenticating this data",
     plaintext = "",
@@ -2770,8 +2892,8 @@ function chacha20_poly1305.selftest()
 
     -- Test 1: Basic encryption/decryption
     total = total + 1
-    local key = string.rep(string.char(0x42), 32)
-    local nonce = string.rep("\0", 11) .. string.char(0x01)
+    local key = string_rep(string_char(0x42), 32)
+    local nonce = string_rep("\0", 11) .. string_char(0x01)
     local aad = "user@example.com|2024-01-01"
     local plaintext = "This is a secret message that needs both encryption and authentication."
 
@@ -2787,7 +2909,7 @@ function chacha20_poly1305.selftest()
 
     -- Test 2: Authentication tag tampering detection
     total = total + 1
-    local tampered = ciphertext_and_tag:sub(1, -2) .. string.char(255)
+    local tampered = ciphertext_and_tag:sub(1, -2) .. string_char(255)
     local tampered_result = chacha20_poly1305.decrypt(key, nonce, tampered, aad)
 
     if tampered_result == nil then
@@ -2811,7 +2933,7 @@ function chacha20_poly1305.selftest()
 
     -- Test 4: Nonce uniqueness
     total = total + 1
-    local nonce2 = string.rep("\0", 11) .. string.char(0x02)
+    local nonce2 = string_rep("\0", 11) .. string_char(0x02)
     local ciphertext2 = chacha20_poly1305.encrypt(key, nonce2, plaintext, aad)
 
     if ciphertext_and_tag ~= ciphertext2 then
@@ -2847,7 +2969,7 @@ function chacha20_poly1305.selftest()
 
     -- Test 7: Ciphertext tampering detection
     total = total + 1
-    local tampered_ct = string.char(255) .. ciphertext_and_tag:sub(2)
+    local tampered_ct = string_char(255) .. ciphertext_and_tag:sub(2)
     local tampered_ct_result = chacha20_poly1305.decrypt(key, nonce, tampered_ct, aad)
 
     if tampered_ct_result == nil then
@@ -2877,9 +2999,9 @@ function chacha20_poly1305.benchmark()
   local key = bytes.from_hex("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f")
   local nonce = bytes.from_hex("070000004041424344454647")
   local aad = "Additional authenticated data"
-  local plaintext_64 = string.rep("a", 64)
-  local plaintext_1k = string.rep("a", 1024)
-  local plaintext_8k = string.rep("a", 8192)
+  local plaintext_64 = string_rep("a", 64)
+  local plaintext_1k = string_rep("a", 1024)
+  local plaintext_8k = string_rep("a", 8192)
 
   print("Authenticated Encryption Operations:")
   benchmark_op("encrypt_64_bytes", function()
@@ -2922,13 +3044,23 @@ local _ENV = _ENV
 package.preload[ "noiseprotocol.crypto.poly1305" ] = function( ... ) local arg = _G.arg;
 --- @module "noiseprotocol.crypto.poly1305"
 --- Poly1305 Message Authentication Code (MAC) Implementation for portability.
+--- @class noiseprotocol.crypto.poly1305
 local poly1305 = {}
 
-local bit32 = require("vendor.bitn").bit32
+local bit32 = require("bitn").bit32
 
 local utils = require("noiseprotocol.utils")
 local bytes = utils.bytes
 local benchmark_op = utils.benchmark.benchmark_op
+
+-- Local references for performance
+local bit32_raw_band = bit32.raw_band
+local bit32_raw_lshift = bit32.raw_lshift
+local floor = math.floor
+local string_byte = string.byte
+local string_char = string.char
+local string_rep = string.rep
+local table_concat = table.concat
 
 -- Type definitions for better type checking
 
@@ -2957,11 +3089,11 @@ local function reduce_high_order_terms(prod, start_pos, end_pos)
       local reduction_multiplier = 5
 
       -- Calculate target byte position for the reduction
-      local target_byte = 1 + math.floor(excess_bits / 8)
+      local target_byte = 1 + floor(excess_bits / 8)
       local bit_offset = excess_bits % 8
 
       if bit_offset > 0 then
-        reduction_multiplier = bit32.lshift(reduction_multiplier, bit_offset)
+        reduction_multiplier = bit32_raw_lshift(reduction_multiplier, bit_offset)
       end
 
       -- Add reduced value to target position
@@ -2986,7 +3118,7 @@ local function propagate_carries(h)
     assert(h[i] ~= nil, "Limb array must have at least 17 non-nil elements")
     carry = carry + h[i]
     h[i] = carry % 256
-    carry = math.floor(carry / 256)
+    carry = floor(carry / 256)
   end
   return carry
 end
@@ -3015,7 +3147,7 @@ end
 --- @param h Limb17Array Limb array (modified in place)
 local function reduce_position_17(h)
   while h[17] >= 4 do
-    local high_bits = math.floor(h[17] / 4)
+    local high_bits = floor(h[17] / 4)
     h[17] = h[17] % 4
 
     -- high_bits represents coefficient of 2^130, so multiply by 5
@@ -3039,7 +3171,7 @@ end
 
 --- Initialize a 33-element product array with zeros
 --- @return Limb33Array array Initialized array
-local function create_product_array()
+local function create_limb33_array()
   local arr = {}
   for i = 1, 33 do
     arr[i] = 0
@@ -3047,6 +3179,11 @@ local function create_product_array()
   --- @cast arr Limb33Array
   return arr
 end
+
+-- Pre-allocated arrays for authenticate() hot loop
+local auth_c = create_limb17_array() -- Message block array (17 elements)
+local auth_prod = create_limb33_array() -- Product array (33 elements)
+local auth_g = create_limb17_array() -- Final reduction array (17 elements)
 
 --- Initialize a 16-element key array
 --- @param source integer[] Source array to copy from
@@ -3080,7 +3217,7 @@ function poly1305.authenticate(key, msg)
   --- @type integer[]
   local key_bytes = {}
   for i = 1, #key do
-    key_bytes[i] = string.byte(key, i)
+    key_bytes[i] = string_byte(key, i)
   end
 
   -- Extract and clamp r (first 16 bytes) per RFC 7539
@@ -3088,13 +3225,13 @@ function poly1305.authenticate(key, msg)
 
   -- Apply RFC 7539 clamping to ensure r has specific bit patterns
   -- This prevents certain classes of attacks and ensures key validity
-  r[4] = bit32.band(r[4], 15) -- Clear top 4 bits of 4th byte
-  r[5] = bit32.band(r[5], 252) -- Clear bottom 2 bits of 5th byte
-  r[8] = bit32.band(r[8], 15) -- Clear top 4 bits of 8th byte
-  r[9] = bit32.band(r[9], 252) -- Clear bottom 2 bits of 9th byte
-  r[12] = bit32.band(r[12], 15) -- Clear top 4 bits of 12th byte
-  r[13] = bit32.band(r[13], 252) -- Clear bottom 2 bits of 13th byte
-  r[16] = bit32.band(r[16], 15) -- Clear top 4 bits of 16th byte
+  r[4] = bit32_raw_band(r[4], 15) -- Clear top 4 bits of 4th byte
+  r[5] = bit32_raw_band(r[5], 252) -- Clear bottom 2 bits of 5th byte
+  r[8] = bit32_raw_band(r[8], 15) -- Clear top 4 bits of 8th byte
+  r[9] = bit32_raw_band(r[9], 252) -- Clear bottom 2 bits of 9th byte
+  r[12] = bit32_raw_band(r[12], 15) -- Clear top 4 bits of 12th byte
+  r[13] = bit32_raw_band(r[13], 252) -- Clear bottom 2 bits of 13th byte
+  r[16] = bit32_raw_band(r[16], 15) -- Clear top 4 bits of 16th byte
 
   -- Extract s (second 16 bytes) - used for final addition
   local s = create_key_array(key_bytes, 17)
@@ -3105,12 +3242,15 @@ function poly1305.authenticate(key, msg)
   local msglen = #msg
   local offset = 1
 
+  -- Reuse pre-allocated arrays for hot loop
+  local c = auth_c
+  local prod = auth_prod
+
   -- Process message in 16-byte blocks
   while msglen >= 16 do
-    -- Load current 16-byte block
-    local c = create_limb17_array()
+    -- Load current 16-byte block (reset and fill)
     for i = 1, 16 do
-      c[i] = string.byte(msg, offset + i - 1)
+      c[i] = string_byte(msg, offset + i - 1)
     end
     c[17] = 1 -- Add high bit (represents 2^128 for full blocks)
 
@@ -3119,13 +3259,15 @@ function poly1305.authenticate(key, msg)
     for i = 1, 17 do
       carry = carry + h[i] + c[i]
       h[i] = carry % 256
-      carry = math.floor(carry / 256)
+      carry = floor(carry / 256)
     end
 
     -- Multiply by r: h = (h * r) mod (2^130 - 5)
 
-    -- Step 1: Compute full precision product h * r
-    local prod = create_product_array()
+    -- Step 1: Compute full precision product h * r (reset prod first)
+    for i = 1, 33 do
+      prod[i] = 0
+    end
 
     for i = 1, 17 do
       for j = 1, 16 do
@@ -3154,11 +3296,14 @@ function poly1305.authenticate(key, msg)
 
   -- Process final partial block (if any)
   if msglen > 0 then
-    local c = create_limb17_array()
+    -- Reset c array for partial block
+    for i = 1, 17 do
+      c[i] = 0
+    end
 
     -- Load partial block
     for i = 1, msglen do
-      c[i] = string.byte(msg, offset + i - 1)
+      c[i] = string_byte(msg, offset + i - 1)
     end
     c[msglen + 1] = 1 -- Add padding bit at end of message
 
@@ -3167,11 +3312,13 @@ function poly1305.authenticate(key, msg)
     for i = 1, 17 do
       carry = carry + h[i] + c[i]
       h[i] = carry % 256
-      carry = math.floor(carry / 256)
+      carry = floor(carry / 256)
     end
 
-    -- Multiply by r
-    local prod = create_product_array()
+    -- Multiply by r (reset prod first)
+    for i = 1, 33 do
+      prod[i] = 0
+    end
 
     for i = 1, 17 do
       for j = 1, 16 do
@@ -3193,14 +3340,15 @@ function poly1305.authenticate(key, msg)
   -- Final reduction: conditionally subtract (2^130 - 5) if h >= 2^130 - 5
   -- This ensures the result is in canonical form
 
-  local g = create_limb17_array()
+  -- Reuse pre-allocated g array
+  local g = auth_g
   for i = 1, 17 do
     g[i] = h[i]
   end
 
   -- Test reduction by computing h + 5
   g[1] = g[1] + 5
-  local carry = math.floor(g[1] / 256)
+  local carry = floor(g[1] / 256)
   g[1] = g[1] % 256
 
   for i = 2, 17 do
@@ -3209,7 +3357,7 @@ function poly1305.authenticate(key, msg)
     end
     carry = carry + g[i]
     g[i] = carry % 256
-    carry = math.floor(carry / 256)
+    carry = floor(carry / 256)
   end
 
   -- Use mask-based selection for constant-time operation
@@ -3225,37 +3373,37 @@ function poly1305.authenticate(key, msg)
   carry = 0
   for i = 1, 16 do
     local sum = h[i] + s[i] + carry
-    result_bytes[i] = string.char(sum % 256)
-    carry = math.floor(sum / 256)
+    result_bytes[i] = string_char(sum % 256)
+    carry = floor(sum / 256)
   end
 
-  return table.concat(result_bytes)
+  return table_concat(result_bytes)
 end
 
 --- Test vectors from RFC 8439, RFC 7539, and other reference implementations
 local test_vectors = {
   {
     name = "RFC 8439 Test Vector #1 (all zeros)",
-    key = string.rep("\0", 32),
-    message = string.rep("\0", 64),
-    expected = string.rep("\0", 16),
+    key = string_rep("\0", 32),
+    message = string_rep("\0", 64),
+    expected = string_rep("\0", 16),
   },
   {
     name = "RFC 8439 Test Vector #2 (r=0, long message)",
-    key = string.rep("\0", 16) .. bytes.from_hex("36e5f6b5c5e06070f0efca96227a863e"),
+    key = string_rep("\0", 16) .. bytes.from_hex("36e5f6b5c5e06070f0efca96227a863e"),
     message = 'Any submission to the IETF intended by the Contributor for publication as all or part of an IETF Internet-Draft or RFC and any statement made within the context of an IETF activity is considered an "IETF Contribution". Such statements include oral statements in IETF sessions, as well as written and electronic communications made at any time or place, which are addressed to',
     expected = bytes.from_hex("36e5f6b5c5e06070f0efca96227a863e"),
   },
   {
     name = "RFC 8439 Test Vector #3 (r!=0, s=0)",
-    key = bytes.from_hex("36e5f6b5c5e06070f0efca96227a863e") .. string.rep("\0", 16),
+    key = bytes.from_hex("36e5f6b5c5e06070f0efca96227a863e") .. string_rep("\0", 16),
     message = 'Any submission to the IETF intended by the Contributor for publication as all or part of an IETF Internet-Draft or RFC and any statement made within the context of an IETF activity is considered an "IETF Contribution". Such statements include oral statements in IETF sessions, as well as written and electronic communications made at any time or place, which are addressed to',
     expected = bytes.from_hex("f3477e7cd95417af89a6b8794c310cf0"),
   },
   {
     name = "Wrap test vector (tests modular reduction edge case)",
     key = bytes.from_hex("0200000000000000000000000000000000000000000000000000000000000000"),
-    message = string.rep(string.char(255), 16),
+    message = string_rep(string_char(255), 16),
     expected = bytes.from_hex("03000000000000000000000000000000"),
   },
   {
@@ -3297,11 +3445,11 @@ function poly1305.selftest()
       local expected_hex = ""
 
       for j = 1, #result do
-        result_hex = result_hex .. string.format("%02x", string.byte(result, j))
+        result_hex = result_hex .. string.format("%02x", string_byte(result, j))
       end
 
       for j = 1, #test.expected do
-        expected_hex = expected_hex .. string.format("%02x", string.byte(test.expected, j))
+        expected_hex = expected_hex .. string.format("%02x", string_byte(test.expected, j))
       end
 
       if result == test.expected then
@@ -3327,8 +3475,8 @@ function poly1305.selftest()
 
     -- Test 1: Different keys produce different tags
     total = total + 1
-    local key1 = string.rep(string.char(0x42), 32)
-    local key2 = string.rep(string.char(0x43), 32)
+    local key1 = string_rep(string_char(0x42), 32)
+    local key2 = string_rep(string_char(0x43), 32)
     local message = "Test message for MAC verification"
 
     local tag1 = poly1305.authenticate(key1, message)
@@ -3369,7 +3517,7 @@ function poly1305.selftest()
 
     -- Test 4: Large message handling (multi-block)
     total = total + 1
-    local large_msg = string.rep("A", 256) -- 16 full blocks
+    local large_msg = string_rep("A", 256) -- 16 full blocks
     local large_tag = poly1305.authenticate(key1, large_msg)
 
     if #large_tag == 16 then
@@ -3381,7 +3529,7 @@ function poly1305.selftest()
 
     -- Test 5: Partial block handling
     total = total + 1
-    local partial_msg = string.rep("B", 33) -- 2 blocks + 1 byte
+    local partial_msg = string_rep("B", 33) -- 2 blocks + 1 byte
     local partial_tag = poly1305.authenticate(key1, partial_msg)
 
     if #partial_tag == 16 then
@@ -3436,9 +3584,9 @@ end
 function poly1305.benchmark()
   -- Test data
   local key = bytes.from_hex("85d6be7857556d337f4452fe42d506a80103808afb0db2fd4abff6af4149f51b")
-  local message_64 = string.rep("a", 64)
-  local message_1k = string.rep("a", 1024)
-  local message_8k = string.rep("a", 8192)
+  local message_64 = string_rep("a", 64)
+  local message_1k = string_rep("a", 1024)
+  local message_8k = string_rep("a", 8192)
 
   print("MAC Operations:")
   benchmark_op("mac_64_bytes", function()
@@ -3463,14 +3611,29 @@ local _ENV = _ENV
 package.preload[ "noiseprotocol.crypto.sha256" ] = function( ... ) local arg = _G.arg;
 --- @module "noiseprotocol.crypto.sha256"
 --- Pure Lua SHA-256 Implementation for portability.
+--- @class noiseprotocol.crypto.sha256
 local sha256 = {}
 
-local bit32 = require("vendor.bitn").bit32
+local bit32 = require("bitn").bit32
 
 local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
 local utils = require("noiseprotocol.utils")
 local bytes = utils.bytes
 local benchmark_op = utils.benchmark.benchmark_op
+
+-- Local references for performance
+local bit32_raw_bxor = bit32.raw_bxor
+local bit32_raw_band = bit32.raw_band
+local bit32_raw_bnot = bit32.raw_bnot
+local bit32_raw_ror = bit32.raw_ror
+local bit32_raw_rshift = bit32.raw_rshift
+local bit32_raw_add = bit32.raw_add
+local bytes_be_bytes_to_u32 = bytes.be_bytes_to_u32
+local bytes_u32_to_be_bytes = bytes.u32_to_be_bytes
+local string_char = string.char
+local string_rep = string.rep
+local string_byte = string.byte
+local table_concat = table.concat
 
 -- SHA-256 constants (first 32 bits of fractional parts of cube roots of first 64 primes)
 --- @type integer[64]
@@ -3556,59 +3719,72 @@ local H0 = {
   0x5be0cd19,
 }
 
+--- Initialize a 64-element message schedule array with zeros
+--- @return integer[] array Initialized array
+local function create_message_schedule()
+  local arr = {}
+  for i = 1, 64 do
+    arr[i] = 0
+  end
+  return arr
+end
+
+-- Pre-allocated message schedule array for sha256_chunk()
+local chunk_W = create_message_schedule()
+
 --- SHA-256 core compression function
 --- @param chunk string 64-byte chunk
 --- @param H HashState Hash state (8 integers)
 local function sha256_chunk(chunk, H)
-  -- Prepare message schedule W (pre-allocate full array)
-  local W = {}
+  -- Reuse pre-allocated message schedule W
+  local W = chunk_W
 
-  -- First 16 words are the message chunk
+  -- First 16 words are the message chunk (use local reference)
   for i = 1, 16 do
-    W[i] = bytes.be_bytes_to_u32(chunk, (i - 1) * 4 + 1)
+    W[i] = bytes_be_bytes_to_u32(chunk, (i - 1) * 4 + 1)
   end
 
   -- Extend the first 16 words into the remaining 48 words
   for i = 17, 64 do
     local w15 = W[i - 15]
     local w2 = W[i - 2]
-    local s0 = bit32.bxor(bit32.ror(w15, 7), bit32.bxor(bit32.ror(w15, 18), bit32.rshift(w15, 3)))
-    local s1 = bit32.bxor(bit32.ror(w2, 17), bit32.bxor(bit32.ror(w2, 19), bit32.rshift(w2, 10)))
-    W[i] = bit32.add(bit32.add(bit32.add(W[i - 16], s0), W[i - 7]), s1)
+    local s0 = bit32_raw_bxor(bit32_raw_ror(w15, 7), bit32_raw_bxor(bit32_raw_ror(w15, 18), bit32_raw_rshift(w15, 3)))
+    local s1 = bit32_raw_bxor(bit32_raw_ror(w2, 17), bit32_raw_bxor(bit32_raw_ror(w2, 19), bit32_raw_rshift(w2, 10)))
+    W[i] = bit32_raw_add(bit32_raw_add(bit32_raw_add(W[i - 16], s0), W[i - 7]), s1)
   end
 
   -- Initialize working variables
   local a, b, c, d, e, f, g, h = H[1], H[2], H[3], H[4], H[5], H[6], H[7], H[8]
 
-  -- Main loop (optimized with local variables)
+  -- Main loop (optimized with local references)
   for i = 1, 64 do
-    local prime = K[i]
-    local S1 = bit32.bxor(bit32.ror(e, 6), bit32.bxor(bit32.ror(e, 11), bit32.ror(e, 25)))
-    local ch = bit32.bxor(bit32.band(e, f), bit32.band(bit32.bnot(e), g))
-    local temp1 = bit32.add(bit32.add(bit32.add(bit32.add(h, S1), ch), prime), W[i])
-    local S0 = bit32.bxor(bit32.ror(a, 2), bit32.bxor(bit32.ror(a, 13), bit32.ror(a, 22)))
-    local maj = bit32.bxor(bit32.band(a, b), bit32.bxor(bit32.band(a, c), bit32.band(b, c)))
-    local temp2 = bit32.add(S0, maj)
+    local ki = K[i]
+    local S1 = bit32_raw_bxor(bit32_raw_ror(e, 6), bit32_raw_bxor(bit32_raw_ror(e, 11), bit32_raw_ror(e, 25)))
+    local ch = bit32_raw_bxor(bit32_raw_band(e, f), bit32_raw_band(bit32_raw_bnot(e), g))
+    local temp1 = bit32_raw_add(bit32_raw_add(bit32_raw_add(bit32_raw_add(h, S1), ch), ki), W[i])
+    local S0 = bit32_raw_bxor(bit32_raw_ror(a, 2), bit32_raw_bxor(bit32_raw_ror(a, 13), bit32_raw_ror(a, 22)))
+    local maj = bit32_raw_bxor(bit32_raw_band(a, b), bit32_raw_bxor(bit32_raw_band(a, c), bit32_raw_band(b, c)))
+    local temp2 = bit32_raw_add(S0, maj)
 
     h = g
     g = f
     f = e
-    e = bit32.add(d, temp1)
+    e = bit32_raw_add(d, temp1)
     d = c
     c = b
     b = a
-    a = bit32.add(temp1, temp2)
+    a = bit32_raw_add(temp1, temp2)
   end
 
   -- Add compressed chunk to current hash value
-  H[1] = bit32.add(H[1], a)
-  H[2] = bit32.add(H[2], b)
-  H[3] = bit32.add(H[3], c)
-  H[4] = bit32.add(H[4], d)
-  H[5] = bit32.add(H[5], e)
-  H[6] = bit32.add(H[6], f)
-  H[7] = bit32.add(H[7], g)
-  H[8] = bit32.add(H[8], h)
+  H[1] = bit32_raw_add(H[1], a)
+  H[2] = bit32_raw_add(H[2], b)
+  H[3] = bit32_raw_add(H[3], c)
+  H[4] = bit32_raw_add(H[4], d)
+  H[5] = bit32_raw_add(H[5], e)
+  H[6] = bit32_raw_add(H[6], f)
+  H[7] = bit32_raw_add(H[7], g)
+  H[8] = bit32_raw_add(H[8], h)
 end
 
 -- ============================================================================
@@ -3635,18 +3811,18 @@ function sha256.sha256(data)
   local msg_len_bits = msg_len * 8
 
   -- Append '1' bit (plus zero padding to make it a byte)
-  data = data .. string.char(0x80)
+  data = data .. string_char(0x80)
 
   -- Append zeros to make message length ≡ 448 (mod 512) bits = 56 (mod 64) bytes
   -- Current length is msg_len + 1 (for the 0x80 byte)
   local current_len = msg_len + 1
   local target_len = 56 -- We want to reach 56 bytes before adding the 8-byte length
   local padding_len = (target_len - current_len) % 64
-  data = data .. string.rep("\0", padding_len)
+  data = data .. string_rep("\0", padding_len)
 
   -- Append original length as 64-bit big-endian integer
   -- For simplicity, we only support messages < 2^32 bits
-  data = data .. string.rep("\0", 4) .. bytes.u32_to_be_bytes(msg_len_bits)
+  data = data .. string_rep("\0", 4) .. bytes_u32_to_be_bytes(msg_len_bits)
 
   -- Process message in 64-byte chunks
   for i = 1, #data, 64 do
@@ -3659,10 +3835,10 @@ function sha256.sha256(data)
   -- Produce final hash value as binary string (optimized with table)
   local result_bytes = {}
   for i = 1, 8 do
-    result_bytes[i] = bytes.u32_to_be_bytes(H[i])
+    result_bytes[i] = bytes_u32_to_be_bytes(H[i])
   end
 
-  return table.concat(result_bytes)
+  return table_concat(result_bytes)
 end
 
 --- Compute SHA-256 hash and return as hex string
@@ -3694,19 +3870,19 @@ function sha256.hmac_sha256(key, data)
 
   -- Keys shorter than blocksize are right-padded with zeros
   if #key < block_size then
-    key = key .. string.rep("\0", block_size - #key)
+    key = key .. string_rep("\0", block_size - #key)
   end
 
-  -- Compute inner and outer padding (optimized with table)
+  -- Compute inner and outer padding (optimized with local references)
   local ipad_bytes = {}
   local opad_bytes = {}
   for i = 1, block_size do
-    local byte = string.byte(key, i)
-    ipad_bytes[i] = string.char(bit32.bxor(byte, 0x36))
-    opad_bytes[i] = string.char(bit32.bxor(byte, 0x5C))
+    local byte = string_byte(key, i)
+    ipad_bytes[i] = string_char(bit32_raw_bxor(byte, 0x36))
+    opad_bytes[i] = string_char(bit32_raw_bxor(byte, 0x5C))
   end
-  local ipad = table.concat(ipad_bytes)
-  local opad = table.concat(opad_bytes)
+  local ipad = table_concat(ipad_bytes)
+  local opad = table_concat(opad_bytes)
 
   -- Compute HMAC = H(opad || H(ipad || data))
   local inner_hash = sha256.sha256(ipad .. data)
@@ -3767,7 +3943,7 @@ local test_vectors = {
 if os.getenv("INCLUDE_SLOW_TESTS") == "1" then
   table.insert(test_vectors, {
     name = "Million 'a' characters",
-    input = string.rep("a", 1000000),
+    input = string_rep("a", 1000000),
     expected = "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0",
   })
 end
@@ -3776,7 +3952,7 @@ end
 local hmac_test_vectors = {
   {
     name = "HMAC Test Case 1",
-    key = string.rep(string.char(0x0b), 20),
+    key = string_rep(string_char(0x0b), 20),
     data = "Hi There",
     expected = "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
   },
@@ -3788,8 +3964,8 @@ local hmac_test_vectors = {
   },
   {
     name = "HMAC Test Case 3",
-    key = string.rep(string.char(0xaa), 20),
-    data = string.rep(string.char(0xdd), 50),
+    key = string_rep(string_char(0xaa), 20),
+    data = string_rep(string_char(0xdd), 50),
     expected = "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe",
   },
 }
@@ -3909,9 +4085,9 @@ end
 --- including hash computation and HMAC for various message sizes.
 function sha256.benchmark()
   -- Test data
-  local message_64 = string.rep("a", 64)
-  local message_1k = string.rep("a", 1024)
-  local message_8k = string.rep("a", 8192)
+  local message_64 = string_rep("a", 64)
+  local message_1k = string_rep("a", 1024)
+  local message_8k = string_rep("a", 8192)
   local hmac_key = "benchmark_key"
 
   print("Hash Operations:")
@@ -3950,9 +4126,10 @@ local _ENV = _ENV
 package.preload[ "noiseprotocol.crypto.sha512" ] = function( ... ) local arg = _G.arg;
 --- @module "noiseprotocol.crypto.sha512"
 --- Pure Lua SHA-512 Implementation for portability.
+--- @class noiseprotocol.crypto.sha512
 local sha512 = {}
 
-local bitn = require("vendor.bitn")
+local bitn = require("bitn")
 local bit32 = bitn.bit32
 local bit64 = bitn.bit64
 
@@ -3960,6 +4137,21 @@ local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
 local utils = require("noiseprotocol.utils")
 local bytes = utils.bytes
 local benchmark_op = utils.benchmark.benchmark_op
+
+-- Local references for performance
+local bit64_raw_add = bit64.raw_add
+local bit64_raw_bxor = bit64.raw_bxor
+local bit64_raw_band = bit64.raw_band
+local bit64_raw_bnot = bit64.raw_bnot
+local bit64_raw_ror = bit64.raw_ror
+local bit64_raw_rshift = bit64.raw_rshift
+local bit64_new = bit64.new
+local bit32_raw_bxor = bit32.raw_bxor
+local string_char = string.char
+local string_rep = string.rep
+local string_byte = string.byte
+local table_concat = table.concat
+local floor = math.floor
 
 -- SHA-512 uses 64-bit words, but Lua numbers are limited to 2^53-1
 -- We'll work with 32-bit high/low pairs for 64-bit arithmetic
@@ -4064,32 +4256,45 @@ local H0 = {
   { 0x5be0cd19, 0x137e2179 },
 }
 
+--- Initialize an 80-element message schedule array with zeros (64-bit values)
+--- @return Int64HighLow[] array Initialized array
+local function create_message_schedule_64()
+  local arr = {}
+  for i = 1, 80 do
+    arr[i] = bit64_new(0, 0)
+  end
+  return arr
+end
+
+-- Pre-allocated message schedule array for sha512_chunk()
+local chunk_W = create_message_schedule_64()
+
 --- SHA-512 Sigma0 function
 --- @param x Int64HighLow {high, low} input
 --- @return Int64HighLow {high, low} result
 local function Sigma0(x)
-  return bit64.xor(bit64.xor(bit64.ror(x, 28), bit64.ror(x, 34)), bit64.ror(x, 39))
+  return bit64_raw_bxor(bit64_raw_bxor(bit64_raw_ror(x, 28), bit64_raw_ror(x, 34)), bit64_raw_ror(x, 39))
 end
 
 --- SHA-512 Sigma1 function
 --- @param x Int64HighLow {high, low} input
 --- @return Int64HighLow {high, low} result
 local function Sigma1(x)
-  return bit64.xor(bit64.xor(bit64.ror(x, 14), bit64.ror(x, 18)), bit64.ror(x, 41))
+  return bit64_raw_bxor(bit64_raw_bxor(bit64_raw_ror(x, 14), bit64_raw_ror(x, 18)), bit64_raw_ror(x, 41))
 end
 
 --- SHA-512 sigma0 function
 --- @param x Int64HighLow {high, low} input
 --- @return Int64HighLow {high, low} result
 local function sigma0(x)
-  return bit64.xor(bit64.xor(bit64.ror(x, 1), bit64.ror(x, 8)), bit64.shr(x, 7))
+  return bit64_raw_bxor(bit64_raw_bxor(bit64_raw_ror(x, 1), bit64_raw_ror(x, 8)), bit64_raw_rshift(x, 7))
 end
 
 --- SHA-512 sigma1 function
 --- @param x Int64HighLow {high, low} input
 --- @return Int64HighLow {high, low} result
 local function sigma1(x)
-  return bit64.xor(bit64.xor(bit64.ror(x, 19), bit64.ror(x, 61)), bit64.shr(x, 6))
+  return bit64_raw_bxor(bit64_raw_bxor(bit64_raw_ror(x, 19), bit64_raw_ror(x, 61)), bit64_raw_rshift(x, 6))
 end
 
 --- SHA-512 Ch function
@@ -4098,7 +4303,7 @@ end
 --- @param z Int64HighLow {high, low} input
 --- @return Int64HighLow {high, low} result
 local function Ch(x, y, z)
-  return bit64.xor(bit64.band(x, y), bit64.band(bit64.bnot(x), z))
+  return bit64_raw_bxor(bit64_raw_band(x, y), bit64_raw_band(bit64_raw_bnot(x), z))
 end
 
 --- SHA-512 Maj function
@@ -4107,19 +4312,20 @@ end
 --- @param z Int64HighLow {high, low} input
 --- @return Int64HighLow {high, low} result
 local function Maj(x, y, z)
-  return bit64.xor(bit64.xor(bit64.band(x, y), bit64.band(x, z)), bit64.band(y, z))
+  return bit64_raw_bxor(bit64_raw_bxor(bit64_raw_band(x, y), bit64_raw_band(x, z)), bit64_raw_band(y, z))
 end
 
 --- SHA-512 core compression function
 --- @param chunk string 128-byte chunk
 --- @param H HashState64 Hash state (8 64-bit values)
 local function sha512_chunk(chunk, H)
-  -- Prepare message schedule W (pre-allocate full array)
-  local W = {}
+  -- Reuse pre-allocated message schedule W
+  local W = chunk_W
 
   -- First 16 words are the message chunk
   for i = 1, 16 do
-    W[i] = bytes.be_bytes_to_u64(chunk, (i - 1) * 8 + 1)
+    local val = bytes.be_bytes_to_u64(chunk, (i - 1) * 8 + 1)
+    W[i][1], W[i][2] = val[1], val[2]
   end
 
   -- Extend the first 16 words into the remaining 64 words
@@ -4128,7 +4334,8 @@ local function sha512_chunk(chunk, H)
     local w2 = W[i - 2]
     local s0 = sigma0(w15)
     local s1 = sigma1(w2)
-    W[i] = bit64.add(bit64.add(bit64.add(W[i - 16], s0), W[i - 7]), s1)
+    local result = bit64_raw_add(bit64_raw_add(bit64_raw_add(W[i - 16], s0), W[i - 7]), s1)
+    W[i][1], W[i][2] = result[1], result[2]
   end
 
   -- Initialize working variables
@@ -4139,30 +4346,30 @@ local function sha512_chunk(chunk, H)
     local prime = K[i]
     local S1 = Sigma1(e)
     local ch = Ch(e, f, g)
-    local temp1 = bit64.add(bit64.add(bit64.add(bit64.add(h, S1), ch), prime), W[i])
+    local temp1 = bit64_raw_add(bit64_raw_add(bit64_raw_add(bit64_raw_add(h, S1), ch), prime), W[i])
     local S0 = Sigma0(a)
     local maj = Maj(a, b, c)
-    local temp2 = bit64.add(S0, maj)
+    local temp2 = bit64_raw_add(S0, maj)
 
     h = g
     g = f
     f = e
-    e = bit64.add(d, temp1)
+    e = bit64_raw_add(d, temp1)
     d = c
     c = b
     b = a
-    a = bit64.add(temp1, temp2)
+    a = bit64_raw_add(temp1, temp2)
   end
 
   -- Add compressed chunk to current hash value
-  H[1] = bit64.add(H[1], a)
-  H[2] = bit64.add(H[2], b)
-  H[3] = bit64.add(H[3], c)
-  H[4] = bit64.add(H[4], d)
-  H[5] = bit64.add(H[5], e)
-  H[6] = bit64.add(H[6], f)
-  H[7] = bit64.add(H[7], g)
-  H[8] = bit64.add(H[8], h)
+  H[1] = bit64_raw_add(H[1], a)
+  H[2] = bit64_raw_add(H[2], b)
+  H[3] = bit64_raw_add(H[3], c)
+  H[4] = bit64_raw_add(H[4], d)
+  H[5] = bit64_raw_add(H[5], e)
+  H[6] = bit64_raw_add(H[6], f)
+  H[7] = bit64_raw_add(H[7], g)
+  H[8] = bit64_raw_add(H[8], h)
 end
 
 --- Compute SHA-512 hash of input data
@@ -4188,19 +4395,19 @@ function sha512.sha512(data)
   local msg_len_bits = msg_len * 8
 
   -- Append '1' bit (plus zero padding to make it a byte)
-  data = data .. string.char(0x80)
+  data = data .. string_char(0x80)
 
   -- Append zeros to make message length ≡ 896 (mod 1024) bits = 112 (mod 128) bytes
   local current_len = msg_len + 1
   local target_len = 112 -- We want to reach 112 bytes before adding the 16-byte length
   local padding_len = (target_len - current_len) % 128
-  data = data .. string.rep("\0", padding_len)
+  data = data .. string_rep("\0", padding_len)
 
   -- Append original length as 128-bit big-endian integer
   -- For simplicity, we only support messages < 2^64 bits
-  data = data .. string.rep("\0", 8) -- High 64 bits (always 0)
+  data = data .. string_rep("\0", 8) -- High 64 bits (always 0)
   -- Low 64 bits of length
-  local len_high = math.floor(msg_len_bits / 0x100000000)
+  local len_high = floor(msg_len_bits / 0x100000000)
   local len_low = msg_len_bits % 0x100000000
   data = data .. bytes.u64_to_be_bytes({ len_high, len_low })
 
@@ -4218,7 +4425,7 @@ function sha512.sha512(data)
     result_bytes[i] = bytes.u64_to_be_bytes(H[i])
   end
 
-  return table.concat(result_bytes)
+  return table_concat(result_bytes)
 end
 
 --- Compute SHA-512 hash and return as hex string
@@ -4249,19 +4456,19 @@ function sha512.hmac_sha512(key, data)
 
   -- Keys shorter than blocksize are right-padded with zeros
   if #key < block_size then
-    key = key .. string.rep("\0", block_size - #key)
+    key = key .. string_rep("\0", block_size - #key)
   end
 
   -- Compute inner and outer padding (optimized with table)
   local ipad_bytes = {}
   local opad_bytes = {}
   for i = 1, block_size do
-    local byte = string.byte(key, i)
-    ipad_bytes[i] = string.char(bit32.bxor(byte, 0x36))
-    opad_bytes[i] = string.char(bit32.bxor(byte, 0x5C))
+    local byte = string_byte(key, i)
+    ipad_bytes[i] = string_char(bit32_raw_bxor(byte, 0x36))
+    opad_bytes[i] = string_char(bit32_raw_bxor(byte, 0x5C))
   end
-  local ipad = table.concat(ipad_bytes)
-  local opad = table.concat(opad_bytes)
+  local ipad = table_concat(ipad_bytes)
+  local opad = table_concat(opad_bytes)
 
   -- Compute HMAC = H(opad || H(ipad || data))
   local inner_hash = sha512.sha512(ipad .. data)
@@ -4302,7 +4509,7 @@ local test_vectors = {
 if os.getenv("INCLUDE_SLOW_TESTS") == "1" then
   table.insert(test_vectors, {
     name = "RFC 4634 Test 5 - One million 'a' characters",
-    input = string.rep("a", 1000000),
+    input = string_rep("a", 1000000),
     expected = "e718483d0ce769644e2e42c7bc15b4638e1f98b13b2044285632a803afa973ebde0ff244877ea60a4cb0432ce577c31beb009c5c2c49aa2e4eadb217ad8cc09b",
   })
 end
@@ -4311,7 +4518,7 @@ end
 local hmac_test_vectors = {
   {
     name = "RFC 4231 Test Case 1",
-    key = string.rep(string.char(0x0b), 20),
+    key = string_rep(string_char(0x0b), 20),
     data = "Hi There",
     expected = "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854",
   },
@@ -4323,14 +4530,14 @@ local hmac_test_vectors = {
   },
   {
     name = "RFC 4231 Test Case 3",
-    key = string.rep(string.char(0xaa), 20),
-    data = string.rep(string.char(0xdd), 50),
+    key = string_rep(string_char(0xaa), 20),
+    data = string_rep(string_char(0xdd), 50),
     expected = "fa73b0089d56a284efb0f0756c890be9b1b5dbdd8ee81a3655f83e33b2279d39bf3e848279a722c806b485a47e67c807b946a337bee8942674278859e13292fb",
   },
   {
     name = "RFC 4231 Test Case 4",
     key = bytes.from_hex("0102030405060708090a0b0c0d0e0f10111213141516171819"),
-    data = string.rep(string.char(0xcd), 50),
+    data = string_rep(string_char(0xcd), 50),
     expected = "b0ba465637458c6990e5a8c5f61d4af7e576d97ff94b872de76f8050361ee3dba91ca5c11aa25eb4d679275cc5788063a5f19741120c4f2de2adebeb10a298dd",
   },
 }
@@ -4450,9 +4657,9 @@ end
 --- including hash computation and HMAC for various message sizes.
 function sha512.benchmark()
   -- Test data
-  local message_64 = string.rep("a", 64)
-  local message_1k = string.rep("a", 1024)
-  local message_8k = string.rep("a", 8192)
+  local message_64 = string_rep("a", 64)
+  local message_1k = string_rep("a", 1024)
+  local message_8k = string_rep("a", 8192)
   local hmac_key = "benchmark_key"
 
   print("Hash Operations:")
@@ -4491,30 +4698,99 @@ local _ENV = _ENV
 package.preload[ "noiseprotocol.crypto.x25519" ] = function( ... ) local arg = _G.arg;
 --- @module "noiseprotocol.crypto.x25519"
 --- X25519 Curve25519 Elliptic Curve Diffie-Hellman Implementation for portability.
+--- @class noiseprotocol.crypto.x25519
 local x25519 = {}
 
-local bit32 = require("vendor.bitn").bit32
+local bit32 = require("bitn").bit32
 
 local utils = require("noiseprotocol.utils")
 local bytes = utils.bytes
 local benchmark_op = utils.benchmark.benchmark_op
 
+-- Local references for performance
+local bit32_raw_band = bit32.raw_band
+local bit32_raw_rshift = bit32.raw_rshift
+local floor = math.floor
+local string_byte = string.byte
+local string_char = string.char
+local string_rep = string.rep
+local table_concat = table.concat
+
 -- ============================================================================
 -- CURVE25519 FIELD ARITHMETIC
 -- ============================================================================
 
+--- @alias FieldElement integer[] 16-element array (indices 1-16) representing a field element
+--- @alias ProductArray integer[] 31-element array (indices 1-31) for multiplication products
+--- @alias ScalarArray integer[] 32-element array (indices 1-32) for scalar bytes
+
+--- Initialize a 16-element field element with zeros
+--- @return FieldElement fe Initialized field element
+local function create_field_element()
+  local arr = {}
+  for i = 1, 16 do
+    arr[i] = 0
+  end
+  return arr
+end
+
+--- Initialize a 31-element product array with zeros
+--- @return ProductArray arr Initialized array
+local function create_product_array()
+  local arr = {}
+  for i = 1, 31 do
+    arr[i] = 0
+  end
+  return arr
+end
+
+--- Initialize a 32-element scalar array with zeros
+--- @return ScalarArray arr Initialized array
+local function create_scalar_array()
+  local arr = {}
+  for i = 1, 32 do
+    arr[i] = 0
+  end
+  return arr
+end
+
+-- Pre-allocated constant for Montgomery ladder (a24 = 121665 = 0xdb41 + 1*0x10000)
+-- This is (A-2)/4 where A=486662 for Curve25519
+local A24 = { 0xdb41, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+
+-- Pre-allocated product array for mul() to avoid repeated allocation
+local mul_prod = create_product_array()
+
+-- Pre-allocated arrays for pack() to avoid repeated allocation
+local pack_t = create_field_element()
+local pack_m = create_field_element()
+
+-- Pre-allocated arrays for inv() to avoid repeated allocation
+local inv_c = create_field_element()
+
+-- Pre-allocated arrays for scalarmult() Montgomery ladder
+-- These are the most critical - 8 arrays created per DH operation
+local sm_a = create_field_element()
+local sm_b = create_field_element()
+local sm_c = create_field_element()
+local sm_d = create_field_element()
+local sm_e = create_field_element()
+local sm_f = create_field_element()
+local sm_x = create_field_element()
+local sm_clam = create_scalar_array()
+
 --- Carry operation for 64-bit arithmetic
 --- @param out integer[] Array to perform carry on
 local function carry(out)
-  for i = 0, 15 do
-    out[i] = out[i] + 0x10000
-    local c = out[i] / 0x10000 - (out[i] / 0x10000) % 1
-    if i < 15 then
+  for i = 1, 16 do
+    local v = out[i] + 0x10000
+    local c = floor(v * 0.0000152587890625) -- 1/0x10000 = 0.0000152587890625
+    if i < 16 then
       out[i + 1] = out[i + 1] + c - 1
     else
-      out[0] = out[0] + 38 * (c - 1)
+      out[1] = out[1] + 38 * (c - 1)
     end
-    out[i] = out[i] - c * 0x10000
+    out[i] = v - c * 0x10000
   end
 end
 
@@ -4523,7 +4799,7 @@ end
 --- @param b integer[] Second array
 --- @param bit integer Bit value (0 or 1)
 local function swap(a, b, bit)
-  for i = 0, 15 do
+  for i = 1, 16 do
     a[i], b[i] = a[i] * ((bit - 1) % 2) + b[i] * bit, b[i] * ((bit - 1) % 2) + a[i] * bit
   end
 end
@@ -4532,39 +4808,58 @@ end
 --- @param out integer[] Output limb array
 --- @param a integer[] Input byte array
 local function unpack(out, a)
-  for i = 0, 15 do
-    out[i] = a[2 * i] + a[2 * i + 1] * 0x100
+  for i = 1, 16 do
+    out[i] = a[2 * i - 1] + a[2 * i] * 0x100
   end
-  out[15] = out[15] % 0x8000
+  out[16] = out[16] % 0x8000
 end
+
+-- Pre-allocated prime constant for pack()
+local PRIME = {
+  0xffed,
+  0xffff,
+  0xffff,
+  0xffff,
+  0xffff,
+  0xffff,
+  0xffff,
+  0xffff,
+  0xffff,
+  0xffff,
+  0xffff,
+  0xffff,
+  0xffff,
+  0xffff,
+  0xffff,
+  0x7fff,
+}
 
 --- Pack limb array to byte array with modular reduction
 --- @param out integer[] Output byte array
 --- @param a integer[] Input limb array
 local function pack(out, a)
-  local t, m = {}, {}
-  for i = 0, 15 do
+  -- Reuse pre-allocated arrays
+  local t, m = pack_t, pack_m
+  for i = 1, 16 do
     t[i] = a[i]
   end
   carry(t)
   carry(t)
   carry(t)
-  local prime = { [0] = 0xffed, [15] = 0x7fff }
-  for i = 1, 14 do
-    prime[i] = 0xffff
-  end
-  for _ = 0, 1 do
-    m[0] = t[0] - prime[0]
-    for i = 1, 15 do
-      m[i] = t[i] - prime[i] - ((m[i - 1] / 0x10000 - (m[i - 1] / 0x10000) % 1) % 2)
-      m[i - 1] = (m[i - 1] + 0x10000) % 0x10000
+  for _ = 1, 2 do
+    m[1] = t[1] - PRIME[1]
+    for i = 2, 16 do
+      local prev = m[i - 1]
+      m[i] = t[i] - PRIME[i] - (floor(prev * 0.0000152587890625) % 2)
+      m[i - 1] = (prev + 0x10000) % 0x10000
     end
-    local c = (m[15] / 0x10000 - (m[15] / 0x10000) % 1) % 2
+    local c = floor(m[16] * 0.0000152587890625) % 2
     swap(t, m, 1 - c)
   end
-  for i = 0, 15 do
-    out[2 * i] = t[i] % 0x100
-    out[2 * i + 1] = t[i] / 0x100 - (t[i] / 0x100) % 1
+  for i = 1, 16 do
+    local ti = t[i]
+    out[2 * i - 1] = ti % 0x100
+    out[2 * i] = floor(ti * 0.00390625) -- 1/256
   end
 end
 
@@ -4573,7 +4868,7 @@ end
 --- @param a integer[] First input array
 --- @param b integer[] Second input array
 local function add(out, a, b)
-  for i = 0, 15 do
+  for i = 1, 16 do
     out[i] = a[i] + b[i]
   end
 end
@@ -4583,7 +4878,7 @@ end
 --- @param a integer[] First input array
 --- @param b integer[] Second input array
 local function sub(out, a, b)
-  for i = 0, 15 do
+  for i = 1, 16 do
     out[i] = a[i] - b[i]
   end
 end
@@ -4593,19 +4888,23 @@ end
 --- @param a integer[] First input array
 --- @param b integer[] Second input array
 local function mul(out, a, b)
-  local prod = {}
-  for i = 0, 31 do
+  -- Reuse pre-allocated array and clear it
+  local prod = mul_prod
+  for i = 1, 31 do
     prod[i] = 0
   end
-  for i = 0, 15 do
-    for j = 0, 15 do
-      prod[i + j] = prod[i + j] + a[i] * b[j]
+  -- Schoolbook multiplication
+  for i = 1, 16 do
+    local ai = a[i]
+    for j = 1, 16 do
+      prod[i + j - 1] = prod[i + j - 1] + ai * b[j]
     end
   end
-  for i = 0, 14 do
+  -- Reduce mod 2^255-19 (multiply high limbs by 38 and add to low)
+  for i = 1, 15 do
     prod[i] = prod[i] + 38 * prod[i + 16]
   end
-  for i = 0, 15 do
+  for i = 1, 16 do
     out[i] = prod[i]
   end
   carry(out)
@@ -4616,8 +4915,9 @@ end
 --- @param out integer[] Output array
 --- @param a integer[] Input array
 local function inv(out, a)
-  local c = {}
-  for i = 0, 15 do
+  -- Reuse pre-allocated array
+  local c = inv_c
+  for i = 1, 16 do
     c[i] = a[i]
   end
   for i = 253, 0, -1 do
@@ -4626,7 +4926,7 @@ local function inv(out, a)
       mul(c, c, a)
     end
   end
-  for i = 0, 15 do
+  for i = 1, 16 do
     out[i] = c[i]
   end
 end
@@ -4636,21 +4936,23 @@ end
 --- @param scalar integer[] Input scalar
 --- @param point integer[] Input point
 local function scalarmult(out, scalar, point)
-  local a, b, c, d, e, f, x, clam = {}, {}, {}, {}, {}, {}, {}, {}
+  -- Reuse pre-allocated arrays for Montgomery ladder state
+  local a, b, c, d, e, f, x, clam = sm_a, sm_b, sm_c, sm_d, sm_e, sm_f, sm_x, sm_clam
   unpack(x, point)
-  for i = 0, 15 do
+  for i = 1, 16 do
     a[i], b[i], c[i], d[i] = 0, x[i], 0, 0
   end
-  a[0], d[0] = 1, 1
-  for i = 0, 30 do
+  a[1], d[1] = 1, 1
+  for i = 1, 31 do
     clam[i] = scalar[i]
   end
-  clam[0] = clam[0] - (clam[0] % 8)
-  clam[31] = scalar[31] % 64 + 64
+  clam[1] = clam[1] - (clam[1] % 8)
+  clam[32] = scalar[32] % 64 + 64
   for i = 254, 0, -1 do
-    local byte_idx = math.floor(i / 8)
+    -- Optimized bit extraction
+    local byte_idx = floor(i * 0.125) + 1 -- i / 8 + 1
     local bit_idx = i % 8
-    local bit = bit32.band(bit32.rshift(clam[byte_idx], bit_idx), 1)
+    local bit = bit32_raw_band(bit32_raw_rshift(clam[byte_idx], bit_idx), 1)
     swap(a, b, bit)
     swap(c, d, bit)
     add(e, a, c)
@@ -4665,7 +4967,7 @@ local function scalarmult(out, scalar, point)
     sub(a, a, c)
     mul(b, a, a)
     sub(c, d, f)
-    mul(a, c, { [0] = 0xdb41, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 })
+    mul(a, c, A24) -- Use pre-allocated constant
     add(a, a, d)
     mul(c, c, a)
     mul(a, d, f)
@@ -4685,7 +4987,7 @@ end
 local function string_to_bytes(s)
   local b = {}
   for i = 1, #s do
-    b[i - 1] = string.byte(s, i)
+    b[i] = string_byte(s, i)
   end
   return b
 end
@@ -4696,10 +4998,10 @@ end
 --- @return string result Output string
 local function bytes_to_string(b, len)
   local result_bytes = {}
-  for i = 0, len - 1 do
-    result_bytes[i + 1] = string.char(b[i] or 0)
+  for i = 1, len do
+    result_bytes[i] = string_char(b[i] or 0)
   end
-  return table.concat(result_bytes)
+  return table_concat(result_bytes)
 end
 
 -- ============================================================================
@@ -4716,9 +5018,9 @@ function x25519.generate_private_key()
 
   local key_bytes = {}
   for i = 1, 32 do
-    key_bytes[i] = string.char(math.random(0, 255))
+    key_bytes[i] = string_char(math.random(0, 255))
   end
-  return table.concat(key_bytes)
+  return table_concat(key_bytes)
 end
 
 --- Derive public key from private key
@@ -4729,8 +5031,8 @@ function x25519.derive_public_key(private_key)
 
   local sk = string_to_bytes(private_key)
   local pk = {}
-  local base = { [0] = 9 }
-  for i = 1, 31 do
+  local base = { 9 }
+  for i = 2, 32 do
     base[i] = 0
   end
 
@@ -4771,15 +5073,15 @@ end
 local test_vectors = {
   {
     name = "RFC 7748 Test Vector 1",
-    scalar = utils.bytes.from_hex("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4"),
-    u_coord = utils.bytes.from_hex("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c"),
-    expected = utils.bytes.from_hex("c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552"),
+    scalar = bytes.from_hex("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4"),
+    u_coord = bytes.from_hex("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c"),
+    expected = bytes.from_hex("c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552"),
   },
   {
     name = "RFC 7748 Test Vector 2",
-    scalar = utils.bytes.from_hex("4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d"),
-    u_coord = utils.bytes.from_hex("e5210f12786811d3f4b7959d0538ae2c31dbe7106fc03c3efc4cd549c715a493"),
-    expected = utils.bytes.from_hex("95cbde9476e8907d7aade45cb4b873f88b595a68799fa152e6f8f7647aac7957"),
+    scalar = bytes.from_hex("4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d"),
+    u_coord = bytes.from_hex("e5210f12786811d3f4b7959d0538ae2c31dbe7106fc03c3efc4cd549c715a493"),
+    expected = bytes.from_hex("95cbde9476e8907d7aade45cb4b873f88b595a68799fa152e6f8f7647aac7957"),
   },
 }
 
@@ -4811,10 +5113,10 @@ function x25519.selftest()
         local result_hex = ""
         local expected_hex = ""
         for j = 1, #result do
-          result_hex = result_hex .. string.format("%02x", string.byte(result, j))
+          result_hex = result_hex .. string.format("%02x", string_byte(result, j))
         end
         for j = 1, #test.expected do
-          expected_hex = expected_hex .. string.format("%02x", string.byte(test.expected, j))
+          expected_hex = expected_hex .. string.format("%02x", string_byte(test.expected, j))
         end
         print("  Expected: " .. expected_hex)
         print("  Got:      " .. result_hex)
@@ -4909,7 +5211,7 @@ function x25519.selftest()
     -- Test 5: Edge case - all zero input (should not fail)
     total = total + 1
     success, err = pcall(function()
-      local zero_key = string.rep("\0", 32)
+      local zero_key = string_rep("\0", 32)
       local priv, _pub = x25519.generate_keypair()
 
       -- This should not crash, though result may be predictable
@@ -4976,20 +5278,25 @@ package.preload[ "noiseprotocol.crypto.x448" ] = function( ... ) local arg = _G.
 --- - Field arithmetic modulo p = 2^448 - 2^224 - 1
 --- - Scalar multiplication on Curve448
 --- - Key generation and Diffie-Hellman operations
+--- @class noiseprotocol.crypto.x448
 local x448 = {}
 
-local bitn = require("vendor.bitn")
-local band = bitn.bit32.band
-local bor = bitn.bit32.bor
-local bxor = bitn.bit32.bxor
-local rshift = bitn.bit32.rshift
-
+local bitn = require("bitn")
 local utils = require("noiseprotocol.utils")
+
 local bytes = utils.bytes
 local benchmark_op = utils.benchmark.benchmark_op
-local floor = math.floor
-local char = string.char
+
+-- Local references for performance
+local bit32_raw_band = bitn.bit32.raw_band
+local bit32_raw_bor = bitn.bit32.raw_bor
+local bit32_raw_bxor = bitn.bit32.raw_bxor
+local bit32_raw_rshift = bitn.bit32.raw_rshift
 local byte = string.byte
+local char = string.char
+local floor = math.floor
+local string_rep = string.rep
+local table_concat = table.concat
 
 -- Constants for X448 implementation
 -- Field prime p = 2^448 - 2^224 - 1 (Goldilocks prime)
@@ -5034,7 +5341,7 @@ local function fe_reduce(a)
   local carry = 0
   for i = 1, NUM_LIMBS do
     carry = carry + (a[i] or 0)
-    a[i] = band(carry, LIMB_MASK)
+    a[i] = bit32_raw_band(carry, LIMB_MASK)
     carry = floor(carry / 256)
   end
 
@@ -5047,7 +5354,7 @@ local function fe_reduce(a)
     local new_carry = 0
     for i = 1, NUM_LIMBS do
       new_carry = new_carry + a[i]
-      a[i] = band(new_carry, LIMB_MASK)
+      a[i] = bit32_raw_band(new_carry, LIMB_MASK)
       new_carry = floor(new_carry / 256)
     end
     carry = new_carry
@@ -5092,17 +5399,17 @@ local function fe_sub(a, b)
     local carry = 0
     for i = 1, 28 do
       local sum = r[i] + 0xFF + carry
-      r[i] = band(sum, LIMB_MASK)
+      r[i] = bit32_raw_band(sum, LIMB_MASK)
       carry = floor(sum / 256)
     end
 
     local sum = r[29] + 0xFE + carry
-    r[29] = band(sum, LIMB_MASK)
+    r[29] = bit32_raw_band(sum, LIMB_MASK)
     carry = floor(sum / 256)
 
     for i = 30, NUM_LIMBS do
       sum = r[i] + 0xFF + carry
-      r[i] = band(sum, LIMB_MASK)
+      r[i] = bit32_raw_band(sum, LIMB_MASK)
       carry = floor(sum / 256)
     end
   end
@@ -5141,7 +5448,7 @@ local function fe_mul(a, b)
   local carry = 0
   for i = 1, 2 * NUM_LIMBS do
     local sum = r[i] + carry
-    r[i] = band(sum, LIMB_MASK)
+    r[i] = bit32_raw_band(sum, LIMB_MASK)
     carry = floor(sum / 256)
   end
 
@@ -5177,7 +5484,7 @@ local function fe_mul(a, b)
   carry = 0
   for i = 1, NUM_LIMBS do
     local sum = r[i] + carry
-    r[i] = band(sum, LIMB_MASK)
+    r[i] = bit32_raw_band(sum, LIMB_MASK)
     carry = floor(sum / 256)
   end
 
@@ -5189,7 +5496,7 @@ local function fe_mul(a, b)
     carry = 0
     for i = 1, NUM_LIMBS do
       local sum = r[i] + carry
-      r[i] = band(sum, LIMB_MASK)
+      r[i] = bit32_raw_band(sum, LIMB_MASK)
       carry = floor(sum / 256)
     end
   end
@@ -5298,7 +5605,7 @@ local function cswap(swap, a, b)
 end
 
 --- Convert bytes to field element (little-endian)
---- @param bytes string 56-byte string
+--- @param b string 56-byte string
 --- @return table fe Field element
 local function fe_frombytes(b)
   local r = fe_zero()
@@ -5320,10 +5627,10 @@ local function fe_tobytes(a)
   -- Convert to bytes - with 8-bit limbs it's direct
   local b = {}
   for i = 1, NUM_LIMBS do
-    b[i] = char(band(t[i] or 0, 0xFF))
+    b[i] = char(bit32_raw_band(t[i] or 0, 0xFF))
   end
 
-  return table.concat(b)
+  return table_concat(b)
 end
 
 --- X448 scalar multiplication
@@ -5339,8 +5646,8 @@ local function x448_scalarmult(scalar, base)
   for i = 1, 56 do
     k[i] = byte(scalar, i) or 0
   end
-  k[1] = band(k[1], 252) -- Clear low 2 bits
-  k[56] = bor(k[56], 128) -- Set high bit
+  k[1] = bit32_raw_band(k[1], 252) -- Clear low 2 bits
+  k[56] = bit32_raw_bor(k[56], 128) -- Set high bit
 
   -- Initialize Montgomery ladder
   local x_1 = fe_copy(u)
@@ -5352,12 +5659,12 @@ local function x448_scalarmult(scalar, base)
 
   -- Montgomery ladder
   for t = 447, 0, -1 do
-    local byte_idx = rshift(t, 3) + 1 -- t // 8 + 1
-    local bit_idx = band(t, 7) -- t % 8
-    local kt = band(rshift(k[byte_idx], bit_idx), 1)
+    local byte_idx = bit32_raw_rshift(t, 3) + 1 -- t // 8 + 1
+    local bit_idx = bit32_raw_band(t, 7) -- t % 8
+    local kt = bit32_raw_band(bit32_raw_rshift(k[byte_idx], bit_idx), 1)
 
     -- Conditional swap
-    swap = bxor(swap, kt)
+    swap = bit32_raw_bxor(swap, kt)
     x_2, x_3 = cswap(swap, x_2, x_3)
     z_2, z_3 = cswap(swap, z_2, z_3)
     swap = kt
@@ -5379,8 +5686,8 @@ local function x448_scalarmult(scalar, base)
 
     -- z_2 = e * (aa + a24 * e)
     local a24_limbs = fe_zero()
-    a24_limbs[1] = band(A24, 0xFF)
-    a24_limbs[2] = band(rshift(A24, 8), 0xFF)
+    a24_limbs[1] = bit32_raw_band(A24, 0xFF)
+    a24_limbs[2] = bit32_raw_band(bit32_raw_rshift(A24, 8), 0xFF)
 
     local a24_e = fe_mul(a24_limbs, e)
     z_2 = fe_mul(e, fe_add(aa, a24_e))
@@ -5423,7 +5730,7 @@ function x448.derive_public_key(private_key)
   assert(#private_key == 56, "Private key must be exactly 56 bytes")
 
   -- Base point for X448 (u = 5)
-  local base = char(5) .. string.rep(char(0), 55)
+  local base = char(5) .. string_rep(char(0), 55)
 
   return x448_scalarmult(private_key, base)
 end
@@ -5594,7 +5901,7 @@ function x448.selftest()
     ok = pcall(function()
       -- Test with all-zero public key
       local private_key = x448.generate_private_key()
-      local zero_public = string.rep(char(0), 56)
+      local zero_public = string_rep(char(0), 56)
       local shared = x448.diffie_hellman(private_key, zero_public)
       assert(#shared == 56, "Should handle zero public key")
     end)
@@ -5674,6 +5981,7 @@ package.preload[ "noiseprotocol.openssl_wrapper" ] = function( ... ) local arg =
 ---
 --- Note: X25519 and X448 currently use native implementations only as they are
 --- not currently supported by lua-openssl.
+--- @class noiseprotocol.openssl_wrapper
 local openssl_wrapper = {}
 
 --- OpenSSL Feature Enum
@@ -5799,8 +6107,11 @@ local _ENV = _ENV
 package.preload[ "noiseprotocol.utils" ] = function( ... ) local arg = _G.arg;
 --- @module "noiseprotocol.utils"
 --- Common utility functions for the Noise Protocol Framework
+--- @class noiseprotocol.utils
 local utils = {
+  --- @type noiseprotocol.utils.bytes
   bytes = require("noiseprotocol.utils.bytes"),
+  --- @type noiseprotocol.utils.benchmark
   benchmark = require("noiseprotocol.utils.benchmark"),
 }
 
@@ -5813,6 +6124,7 @@ local _ENV = _ENV
 package.preload[ "noiseprotocol.utils.benchmark" ] = function( ... ) local arg = _G.arg;
 --- @module "noiseprotocol.utils.benchmark"
 --- Common benchmarking utilities for performance testing
+--- @class noiseprotocol.utils.benchmark
 local benchmark = {}
 
 --- Run a benchmarked operation with warmup and timing
@@ -5852,16 +6164,31 @@ local _ENV = _ENV
 package.preload[ "noiseprotocol.utils.bytes" ] = function( ... ) local arg = _G.arg;
 --- @module "noiseprotocol.utils.bytes"
 --- Byte manipulation and conversion utilities
+--- @class noiseprotocol.utils.bytes
 local bytes = {}
 
-local bit32 = require("vendor.bitn").bit32
+local bitn = require("bitn")
+local bit32 = bitn.bit32
+local bit64 = bitn.bit64
+
+-- Local references for performance
+local bit32_mask = bit32.mask
+local bit32_raw_bor = bit32.raw_bor
+local bit32_raw_bxor = bit32.raw_bxor
+local bit64_new = bit64.new
+local floor = math.floor
+local string_byte = string.byte
+local string_char = string.char
+local string_format = string.format
+local string_rep = string.rep
+local table_concat = table.concat
 
 --- Convert binary string to hexadecimal string
 --- @param str string Binary string
 --- @return string hex Hexadecimal representation
 function bytes.to_hex(str)
   return (str:gsub(".", function(c)
-    return string.format("%02x", string.byte(c))
+    return string_format("%02x", string_byte(c))
   end))
 end
 
@@ -5870,7 +6197,7 @@ end
 --- @return string str Binary string
 function bytes.from_hex(hex)
   return (hex:gsub("..", function(cc)
-    return string.char(tonumber(cc, 16))
+    return string_char(tonumber(cc, 16))
   end))
 end
 
@@ -5878,20 +6205,20 @@ end
 --- @param n integer 32-bit unsigned integer
 --- @return string bytes 4-byte string in little-endian order
 function bytes.u32_to_le_bytes(n)
-  n = bit32.mask(n)
-  return string.char(n % 256, math.floor(n / 256) % 256, math.floor(n / 65536) % 256, math.floor(n / 16777216) % 256)
+  n = bit32_mask(n)
+  return string_char(n % 256, floor(n / 256) % 256, floor(n / 65536) % 256, floor(n / 16777216) % 256)
 end
 
 --- Convert 32-bit unsigned integer to 4 bytes (big-endian)
 --- @param n integer 32-bit unsigned integer
 --- @return string bytes 4-byte string in big-endian order
 function bytes.u32_to_be_bytes(n)
-  n = bit32.mask(n)
-  return string.char(math.floor(n / 16777216) % 256, math.floor(n / 65536) % 256, math.floor(n / 256) % 256, n % 256)
+  n = bit32_mask(n)
+  return string_char(floor(n / 16777216) % 256, floor(n / 65536) % 256, floor(n / 256) % 256, n % 256)
 end
 
 --- Convert 64-bit value to 8 bytes (big-endian)
---- @param x Int64HighLow|table {high, low} 64-bit value
+--- @param x Int64HighLow {high, low} 64-bit value
 --- @return string bytes 8-byte string in big-endian order
 function bytes.u64_to_be_bytes(x)
   local high, low = x[1], x[2]
@@ -5899,13 +6226,13 @@ function bytes.u64_to_be_bytes(x)
 end
 
 --- Convert 64-bit value to 8 bytes (little-endian)
---- @param x Int64HighLow|table|integer {high, low} 64-bit value or simple integer
+--- @param x Int64HighLow|integer {high, low} 64-bit value or simple integer
 --- @return string bytes 8-byte string in little-endian order
 function bytes.u64_to_le_bytes(x)
   -- Handle simple integer case (< 2^53)
   if type(x) == "number" then
     local low = x % 0x100000000
-    local high = math.floor(x / 0x100000000)
+    local high = floor(x / 0x100000000)
     return bytes.u32_to_le_bytes(low) .. bytes.u32_to_le_bytes(high)
   else
     -- Handle {high, low} pair
@@ -5921,7 +6248,7 @@ end
 function bytes.le_bytes_to_u32(str, offset)
   offset = offset or 1
   assert(#str >= offset + 3, "Insufficient bytes for u32")
-  local b1, b2, b3, b4 = string.byte(str, offset, offset + 3)
+  local b1, b2, b3, b4 = string_byte(str, offset, offset + 3)
   return b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
 end
 
@@ -5932,7 +6259,7 @@ end
 function bytes.be_bytes_to_u32(str, offset)
   offset = offset or 1
   assert(#str >= offset + 3, "Insufficient bytes for u32")
-  local b1, b2, b3, b4 = string.byte(str, offset, offset + 3)
+  local b1, b2, b3, b4 = string_byte(str, offset, offset + 3)
   return b1 * 16777216 + b2 * 65536 + b3 * 256 + b4
 end
 
@@ -5967,10 +6294,11 @@ end
 function bytes.xor_bytes(a, b)
   assert(#a == #b, "Strings must be same length for XOR")
   local result = {}
+  -- Using raw_bxor for performance; XOR on bytes (0-255) is always safe
   for i = 1, #a do
-    result[i] = string.char(bit32.bxor(string.byte(a, i), string.byte(b, i)))
+    result[i] = string_char(bit32_raw_bxor(string_byte(a, i), string_byte(b, i)))
   end
-  return table.concat(result)
+  return table_concat(result)
 end
 
 --- Constant-time comparison of two strings
@@ -5983,7 +6311,7 @@ function bytes.constant_time_compare(a, b)
   end
   local result = 0
   for i = 1, #a do
-    result = bit32.bor(result, bit32.bxor(string.byte(a, i), string.byte(b, i)))
+    result = bit32_raw_bor(result, bit32_raw_bxor(string_byte(a, i), string_byte(b, i)))
   end
   return result == 0
 end
@@ -5997,7 +6325,7 @@ function bytes.pad_to_16(data)
   if padding_len == 0 then
     return data
   end
-  return data .. string.rep("\0", padding_len)
+  return data .. string_rep("\0", padding_len)
 end
 
 --- Run comprehensive self-test with test vectors
@@ -6030,7 +6358,7 @@ function bytes.selftest()
     {
       name = "hex - single byte min",
       test = function()
-        local data = string.char(0x00)
+        local data = string_char(0x00)
         local hex = bytes.to_hex(data)
         return hex == "00"
       end,
@@ -6038,7 +6366,7 @@ function bytes.selftest()
     {
       name = "hex - single byte max",
       test = function()
-        local data = string.char(0xFF)
+        local data = string_char(0xFF)
         local hex = bytes.to_hex(data)
         return hex == "ff"
       end,
@@ -6047,7 +6375,7 @@ function bytes.selftest()
       name = "hex - all byte values",
       test = function()
         -- Test a few representative byte values
-        local data = string.char(0x00, 0x01, 0x7F, 0x80, 0xFE, 0xFF)
+        local data = string_char(0x00, 0x01, 0x7F, 0x80, 0xFE, 0xFF)
         local hex = bytes.to_hex(data)
         return hex == "00017f80feff"
       end,
@@ -6063,7 +6391,7 @@ function bytes.selftest()
     {
       name = "hex - binary data",
       test = function()
-        local data = string.char(0x80, 0x90, 0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0)
+        local data = string_char(0x80, 0x90, 0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0)
         local hex = bytes.to_hex(data)
         local back = bytes.from_hex(hex)
         return hex == "8090a0b0c0d0e0f0" and back == data
@@ -6077,7 +6405,7 @@ function bytes.selftest()
         local n = 0x12345678
         local bytes_str = bytes.u32_to_le_bytes(n)
         local back = bytes.le_bytes_to_u32(bytes_str)
-        local b1, b2, b3, b4 = string.byte(bytes_str, 1, 4)
+        local b1, b2, b3, b4 = string_byte(bytes_str, 1, 4)
         return back == n and b1 == 0x78 and b2 == 0x56 and b3 == 0x34 and b4 == 0x12
       end,
     },
@@ -6087,7 +6415,7 @@ function bytes.selftest()
         local n = 0
         local bytes_str = bytes.u32_to_le_bytes(n)
         local back = bytes.le_bytes_to_u32(bytes_str)
-        return back == 0 and bytes_str == string.char(0, 0, 0, 0)
+        return back == 0 and bytes_str == string_char(0, 0, 0, 0)
       end,
     },
     {
@@ -6096,7 +6424,7 @@ function bytes.selftest()
         local n = 0xFFFFFFFF
         local bytes_str = bytes.u32_to_le_bytes(n)
         local back = bytes.le_bytes_to_u32(bytes_str)
-        return back == 0xFFFFFFFF and bytes_str == string.char(0xFF, 0xFF, 0xFF, 0xFF)
+        return back == 0xFFFFFFFF and bytes_str == string_char(0xFF, 0xFF, 0xFF, 0xFF)
       end,
     },
     {
@@ -6104,7 +6432,7 @@ function bytes.selftest()
       test = function()
         local n = 0x100000000 -- Should be masked to 0
         local bytes_str = bytes.u32_to_le_bytes(n)
-        return bytes_str == string.char(0, 0, 0, 0)
+        return bytes_str == string_char(0, 0, 0, 0)
       end,
     },
     {
@@ -6113,13 +6441,13 @@ function bytes.selftest()
         local n = 0x80000000
         local bytes_str = bytes.u32_to_le_bytes(n)
         local back = bytes.le_bytes_to_u32(bytes_str)
-        return back == 0x80000000 and bytes_str == string.char(0, 0, 0, 0x80)
+        return back == 0x80000000 and bytes_str == string_char(0, 0, 0, 0x80)
       end,
     },
     {
       name = "u32 LE - with offset",
       test = function()
-        local data = "XXX" .. string.char(0x78, 0x56, 0x34, 0x12) .. "YYY"
+        local data = "XXX" .. string_char(0x78, 0x56, 0x34, 0x12) .. "YYY"
         local n = bytes.le_bytes_to_u32(data, 4)
         return n == 0x12345678
       end,
@@ -6130,7 +6458,7 @@ function bytes.selftest()
         local n = 0x12345678
         local bytes_str = bytes.u32_to_be_bytes(n)
         local back = bytes.be_bytes_to_u32(bytes_str)
-        local b1, b2, b3, b4 = string.byte(bytes_str, 1, 4)
+        local b1, b2, b3, b4 = string_byte(bytes_str, 1, 4)
         return back == n and b1 == 0x12 and b2 == 0x34 and b3 == 0x56 and b4 == 0x78
       end,
     },
@@ -6140,7 +6468,7 @@ function bytes.selftest()
         local n = 0
         local bytes_str = bytes.u32_to_be_bytes(n)
         local back = bytes.be_bytes_to_u32(bytes_str)
-        return back == 0 and bytes_str == string.char(0, 0, 0, 0)
+        return back == 0 and bytes_str == string_char(0, 0, 0, 0)
       end,
     },
     {
@@ -6149,13 +6477,13 @@ function bytes.selftest()
         local n = 0xFFFFFFFF
         local bytes_str = bytes.u32_to_be_bytes(n)
         local back = bytes.be_bytes_to_u32(bytes_str)
-        return back == 0xFFFFFFFF and bytes_str == string.char(0xFF, 0xFF, 0xFF, 0xFF)
+        return back == 0xFFFFFFFF and bytes_str == string_char(0xFF, 0xFF, 0xFF, 0xFF)
       end,
     },
     {
       name = "u32 BE - with offset",
       test = function()
-        local data = "XXX" .. string.char(0x12, 0x34, 0x56, 0x78) .. "YYY"
+        local data = "XXX" .. string_char(0x12, 0x34, 0x56, 0x78) .. "YYY"
         local n = bytes.be_bytes_to_u32(data, 4)
         return n == 0x12345678
       end,
@@ -6165,10 +6493,10 @@ function bytes.selftest()
     {
       name = "u64 LE - basic table",
       test = function()
-        local n = { 0x12345678, 0x9ABCDEF0 }
+        local n = bit64_new(0x12345678, 0x9ABCDEF0)
         local bytes_str = bytes.u64_to_le_bytes(n)
         local back = bytes.le_bytes_to_u64(bytes_str)
-        local b1, b2, b3, b4, b5, b6, b7, b8 = string.byte(bytes_str, 1, 8)
+        local b1, b2, b3, b4, b5, b6, b7, b8 = string_byte(bytes_str, 1, 8)
         return back[1] == n[1]
           and back[2] == n[2]
           and b1 == 0xF0
@@ -6189,32 +6517,32 @@ function bytes.selftest()
         local back = bytes.le_bytes_to_u64(bytes_str)
         -- Check the conversion worked correctly
         local expected_low = n % 0x100000000
-        local expected_high = math.floor(n / 0x100000000)
+        local expected_high = floor(n / 0x100000000)
         return back[1] == expected_high and back[2] == expected_low
       end,
     },
     {
       name = "u64 LE - zero",
       test = function()
-        local n = { 0, 0 }
+        local n = bit64_new(0, 0)
         local bytes_str = bytes.u64_to_le_bytes(n)
         local back = bytes.le_bytes_to_u64(bytes_str)
-        return back[1] == 0 and back[2] == 0 and bytes_str == string.rep(string.char(0), 8)
+        return back[1] == 0 and back[2] == 0 and bytes_str == string_rep(string_char(0), 8)
       end,
     },
     {
       name = "u64 LE - max value",
       test = function()
-        local n = { 0xFFFFFFFF, 0xFFFFFFFF }
+        local n = bit64_new(0xFFFFFFFF, 0xFFFFFFFF)
         local bytes_str = bytes.u64_to_le_bytes(n)
         local back = bytes.le_bytes_to_u64(bytes_str)
-        return back[1] == 0xFFFFFFFF and back[2] == 0xFFFFFFFF and bytes_str == string.rep(string.char(0xFF), 8)
+        return back[1] == 0xFFFFFFFF and back[2] == 0xFFFFFFFF and bytes_str == string_rep(string_char(0xFF), 8)
       end,
     },
     {
       name = "u64 LE - high word only",
       test = function()
-        local n = { 0x12345678, 0 }
+        local n = bit64_new(0x12345678, 0)
         local bytes_str = bytes.u64_to_le_bytes(n)
         local back = bytes.le_bytes_to_u64(bytes_str)
         return back[1] == 0x12345678 and back[2] == 0
@@ -6223,7 +6551,7 @@ function bytes.selftest()
     {
       name = "u64 LE - low word only",
       test = function()
-        local n = { 0, 0x12345678 }
+        local n = bit64_new(0, 0x12345678)
         local bytes_str = bytes.u64_to_le_bytes(n)
         local back = bytes.le_bytes_to_u64(bytes_str)
         return back[1] == 0 and back[2] == 0x12345678
@@ -6232,7 +6560,7 @@ function bytes.selftest()
     {
       name = "u64 LE - with offset",
       test = function()
-        local data = "XXX" .. bytes.u64_to_le_bytes({ 0x12345678, 0x9ABCDEF0 }) .. "YYY"
+        local data = "XXX" .. bytes.u64_to_le_bytes(bit64_new(0x12345678, 0x9ABCDEF0)) .. "YYY"
         local n = bytes.le_bytes_to_u64(data, 4)
         return n[1] == 0x12345678 and n[2] == 0x9ABCDEF0
       end,
@@ -6240,10 +6568,10 @@ function bytes.selftest()
     {
       name = "u64 BE - basic",
       test = function()
-        local n = { 0x12345678, 0x9ABCDEF0 }
+        local n = bit64_new(0x12345678, 0x9ABCDEF0)
         local bytes_str = bytes.u64_to_be_bytes(n)
         local back = bytes.be_bytes_to_u64(bytes_str)
-        local b1, b2, b3, b4, b5, b6, b7, b8 = string.byte(bytes_str, 1, 8)
+        local b1, b2, b3, b4, b5, b6, b7, b8 = string_byte(bytes_str, 1, 8)
         return back[1] == n[1]
           and back[2] == n[2]
           and b1 == 0x12
@@ -6259,16 +6587,16 @@ function bytes.selftest()
     {
       name = "u64 BE - zero",
       test = function()
-        local n = { 0, 0 }
+        local n = bit64_new(0, 0)
         local bytes_str = bytes.u64_to_be_bytes(n)
         local back = bytes.be_bytes_to_u64(bytes_str)
-        return back[1] == 0 and back[2] == 0 and bytes_str == string.rep(string.char(0), 8)
+        return back[1] == 0 and back[2] == 0 and bytes_str == string_rep(string_char(0), 8)
       end,
     },
     {
       name = "u64 BE - with offset",
       test = function()
-        local data = "XXX" .. bytes.u64_to_be_bytes({ 0x12345678, 0x9ABCDEF0 }) .. "YYY"
+        local data = "XXX" .. bytes.u64_to_be_bytes(bit64_new(0x12345678, 0x9ABCDEF0)) .. "YYY"
         local n = bytes.be_bytes_to_u64(data, 4)
         return n[1] == 0x12345678 and n[2] == 0x9ABCDEF0
       end,
@@ -6278,10 +6606,10 @@ function bytes.selftest()
     {
       name = "xor - basic",
       test = function()
-        local a = string.char(0x01, 0x02, 0x03, 0x04)
-        local b = string.char(0xFF, 0xFE, 0xFD, 0xFC)
+        local a = string_char(0x01, 0x02, 0x03, 0x04)
+        local b = string_char(0xFF, 0xFE, 0xFD, 0xFC)
         local result = bytes.xor_bytes(a, b)
-        local r1, r2, r3, r4 = string.byte(result, 1, 4)
+        local r1, r2, r3, r4 = string_byte(result, 1, 4)
         return r1 == 0xFE and r2 == 0xFC and r3 == 0xFE and r4 == 0xF8
       end,
     },
@@ -6297,10 +6625,10 @@ function bytes.selftest()
     {
       name = "xor - single byte",
       test = function()
-        local a = string.char(0x00)
-        local b = string.char(0xFF)
+        local a = string_char(0x00)
+        local b = string_char(0xFF)
         local result = bytes.xor_bytes(a, b)
-        return result == string.char(0xFF)
+        return result == string_char(0xFF)
       end,
     },
     {
@@ -6308,23 +6636,23 @@ function bytes.selftest()
       test = function()
         local a = "test"
         local result = bytes.xor_bytes(a, a)
-        return result == string.char(0, 0, 0, 0)
+        return result == string_char(0, 0, 0, 0)
       end,
     },
     {
       name = "xor - all zeros pattern",
       test = function()
-        local a = string.char(0xAA, 0xBB, 0xCC, 0xDD)
-        local b = string.char(0xAA, 0xBB, 0xCC, 0xDD)
+        local a = string_char(0xAA, 0xBB, 0xCC, 0xDD)
+        local b = string_char(0xAA, 0xBB, 0xCC, 0xDD)
         local result = bytes.xor_bytes(a, b)
-        return result == string.char(0, 0, 0, 0)
+        return result == string_char(0, 0, 0, 0)
       end,
     },
     {
       name = "xor - identity with zeros",
       test = function()
-        local a = string.char(0x12, 0x34, 0x56, 0x78)
-        local b = string.char(0, 0, 0, 0)
+        local a = string_char(0x12, 0x34, 0x56, 0x78)
+        local b = string_char(0, 0, 0, 0)
         local result = bytes.xor_bytes(a, b)
         return result == a
       end,
@@ -6382,8 +6710,8 @@ function bytes.selftest()
     {
       name = "constant_time_compare - binary with nulls",
       test = function()
-        local a = string.char(0x00, 0x01, 0xFF)
-        local b = string.char(0x00, 0x01, 0xFF)
+        local a = string_char(0x00, 0x01, 0xFF)
+        local b = string_char(0x00, 0x01, 0xFF)
         return bytes.constant_time_compare(a, b) == true
       end,
     },
@@ -6392,7 +6720,7 @@ function bytes.selftest()
     {
       name = "pad_to_16 - no padding needed",
       test = function()
-        local data = string.rep("a", 16)
+        local data = string_rep("a", 16)
         local padded = bytes.pad_to_16(data)
         return padded == data and #padded == 16
       end,
@@ -6402,7 +6730,7 @@ function bytes.selftest()
       test = function()
         local data = "Hello"
         local padded = bytes.pad_to_16(data)
-        return #padded == 16 and padded:sub(1, 5) == "Hello" and padded:sub(6) == string.rep("\0", 11)
+        return #padded == 16 and padded:sub(1, 5) == "Hello" and padded:sub(6) == string_rep("\0", 11)
       end,
     },
     {
@@ -6416,7 +6744,7 @@ function bytes.selftest()
     {
       name = "pad_to_16 - exactly 32 bytes",
       test = function()
-        local data = string.rep("a", 32)
+        local data = string_rep("a", 32)
         local padded = bytes.pad_to_16(data)
         return padded == data and #padded == 32
       end,
@@ -6424,7 +6752,7 @@ function bytes.selftest()
     {
       name = "pad_to_16 - one byte short",
       test = function()
-        local data = string.rep("a", 15)
+        local data = string_rep("a", 15)
         local padded = bytes.pad_to_16(data)
         return #padded == 16 and padded:sub(1, 15) == data and padded:sub(16) == "\0"
       end,
@@ -6432,15 +6760,15 @@ function bytes.selftest()
     {
       name = "pad_to_16 - one byte over",
       test = function()
-        local data = string.rep("a", 17)
+        local data = string_rep("a", 17)
         local padded = bytes.pad_to_16(data)
-        return #padded == 32 and padded:sub(1, 17) == data and padded:sub(18) == string.rep("\0", 15)
+        return #padded == 32 and padded:sub(1, 17) == data and padded:sub(18) == string_rep("\0", 15)
       end,
     },
     {
       name = "pad_to_16 - large data",
       test = function()
-        local data = string.rep("a", 1000)
+        local data = string_rep("a", 1000)
         local padded = bytes.pad_to_16(data)
         local expected_len = math.ceil(1000 / 16) * 16
         return #padded == expected_len and padded:sub(1, 1000) == data
@@ -6454,35 +6782,35 @@ function bytes.selftest()
       name = "u32 LE - insufficient bytes",
       test = function()
         local ok, err = pcall(bytes.le_bytes_to_u32, "XX")
-        return not ok and err:match("Insufficient bytes")
+        return not ok and type(err) == "string" and err:match("Insufficient bytes")
       end,
     },
     {
       name = "u32 BE - insufficient bytes",
       test = function()
         local ok, err = pcall(bytes.be_bytes_to_u32, "XX")
-        return not ok and err:match("Insufficient bytes")
+        return not ok and type(err) == "string" and err:match("Insufficient bytes")
       end,
     },
     {
       name = "u64 LE - insufficient bytes",
       test = function()
         local ok, err = pcall(bytes.le_bytes_to_u64, "XXXXXX")
-        return not ok and err:match("Insufficient bytes")
+        return not ok and type(err) == "string" and err:match("Insufficient bytes")
       end,
     },
     {
       name = "u64 BE - insufficient bytes",
       test = function()
         local ok, err = pcall(bytes.be_bytes_to_u64, "XXXXXX")
-        return not ok and err:match("Insufficient bytes")
+        return not ok and type(err) == "string" and err:match("Insufficient bytes")
       end,
     },
     {
       name = "xor - length mismatch",
       test = function()
         local ok, err = pcall(bytes.xor_bytes, "abc", "abcd")
-        return not ok and err:match("same length")
+        return not ok and type(err) == "string" and err:match("same length")
       end,
     },
   }
@@ -6509,1630 +6837,11 @@ function bytes.selftest()
     end
   end
 
-  print(string.format("\nByte operations result: %d/%d tests passed\n", passed, total))
+  print(string_format("\nByte operations result: %d/%d tests passed\n", passed, total))
   return passed == total
 end
 
 return bytes
-end
-end
-
-do
-local _ENV = _ENV
-package.preload[ "vendor.bitn" ] = function( ... ) local arg = _G.arg;
-do
-local _ENV = _ENV
-package.preload[ "bitn.bit16" ] = function( ... ) local arg = _G.arg;
---- @module "bitn.bit16"
---- Pure Lua 16-bit bitwise operations library.
---- This module provides a complete, version-agnostic implementation of 16-bit
---- bitwise operations that works across Lua 5.1, 5.2, 5.3, 5.4, and LuaJIT
---- without depending on any built-in bit libraries.
---- @class bit16
-local bit16 = {}
-
--- 16-bit mask constant
-local MASK16 = 0xFFFF
-
---- Ensure value fits in 16-bit unsigned integer.
---- @param n number Input value
---- @return integer result 16-bit unsigned integer (0 to 0xFFFF)
-function bit16.mask(n)
-  return math.floor(n % 0x10000)
-end
-
---- Bitwise AND operation.
---- @param a integer First operand (16-bit)
---- @param b integer Second operand (16-bit)
---- @return integer result Result of a AND b
-function bit16.band(a, b)
-  a = bit16.mask(a)
-  b = bit16.mask(b)
-
-  local result = 0
-  local bit_val = 1
-
-  for _ = 0, 15 do
-    if (a % 2 == 1) and (b % 2 == 1) then
-      result = result + bit_val
-    end
-    a = math.floor(a / 2)
-    b = math.floor(b / 2)
-    bit_val = bit_val * 2
-
-    if a == 0 and b == 0 then
-      break
-    end
-  end
-
-  return result
-end
-
---- Bitwise OR operation.
---- @param a integer First operand (16-bit)
---- @param b integer Second operand (16-bit)
---- @return integer result Result of a OR b
-function bit16.bor(a, b)
-  a = bit16.mask(a)
-  b = bit16.mask(b)
-
-  local result = 0
-  local bit_val = 1
-
-  for _ = 0, 15 do
-    if (a % 2 == 1) or (b % 2 == 1) then
-      result = result + bit_val
-    end
-    a = math.floor(a / 2)
-    b = math.floor(b / 2)
-    bit_val = bit_val * 2
-
-    if a == 0 and b == 0 then
-      break
-    end
-  end
-
-  return result
-end
-
---- Bitwise XOR operation.
---- @param a integer First operand (16-bit)
---- @param b integer Second operand (16-bit)
---- @return integer result Result of a XOR b
-function bit16.bxor(a, b)
-  a = bit16.mask(a)
-  b = bit16.mask(b)
-
-  local result = 0
-  local bit_val = 1
-
-  for _ = 0, 15 do
-    if (a % 2) ~= (b % 2) then
-      result = result + bit_val
-    end
-    a = math.floor(a / 2)
-    b = math.floor(b / 2)
-    bit_val = bit_val * 2
-
-    if a == 0 and b == 0 then
-      break
-    end
-  end
-
-  return result
-end
-
---- Bitwise NOT operation.
---- @param a integer Operand (16-bit)
---- @return integer result Result of NOT a
-function bit16.bnot(a)
-  return bit16.mask(MASK16 - bit16.mask(a))
-end
-
---- Left shift operation.
---- @param a integer Value to shift (16-bit)
---- @param n integer Number of positions to shift (must be >= 0)
---- @return integer result Result of a << n
-function bit16.lshift(a, n)
-  assert(n >= 0, "Shift amount must be non-negative")
-  if n >= 16 then
-    return 0
-  end
-  return bit16.mask(bit16.mask(a) * math.pow(2, n))
-end
-
---- Logical right shift operation (fills with 0s).
---- @param a integer Value to shift (16-bit)
---- @param n integer Number of positions to shift (must be >= 0)
---- @return integer result Result of a >> n (logical)
-function bit16.rshift(a, n)
-  assert(n >= 0, "Shift amount must be non-negative")
-  a = bit16.mask(a)
-  if n >= 16 then
-    return 0
-  end
-  return math.floor(a / math.pow(2, n))
-end
-
---- Arithmetic right shift operation (sign-extending, fills with sign bit).
---- @param a integer Value to shift (16-bit, treated as signed)
---- @param n integer Number of positions to shift (must be >= 0)
---- @return integer result Result of a >> n with sign extension
-function bit16.arshift(a, n)
-  assert(n >= 0, "Shift amount must be non-negative")
-  a = bit16.mask(a)
-
-  -- Check if sign bit is set (bit 15)
-  local is_negative = a >= 0x8000
-
-  if n >= 16 then
-    -- All bits shift out, result is all 1s if negative, all 0s if positive
-    return is_negative and 0xFFFF or 0
-  end
-
-  -- Perform logical right shift first
-  local result = math.floor(a / math.pow(2, n))
-
-  -- If original was negative, fill high bits with 1s
-  if is_negative then
-    -- Create mask for high bits that need to be 1
-    local fill_mask = MASK16 - (math.pow(2, 16 - n) - 1)
-    result = bit16.bor(result, fill_mask)
-  end
-
-  return result
-end
-
---- Left rotate operation.
---- @param x integer Value to rotate (16-bit)
---- @param n integer Number of positions to rotate
---- @return integer result Result of rotating x left by n positions
-function bit16.rol(x, n)
-  n = n % 16
-  x = bit16.mask(x)
-  return bit16.mask(bit16.lshift(x, n) + bit16.rshift(x, 16 - n))
-end
-
---- Right rotate operation.
---- @param x integer Value to rotate (16-bit)
---- @param n integer Number of positions to rotate
---- @return integer result Result of rotating x right by n positions
-function bit16.ror(x, n)
-  n = n % 16
-  x = bit16.mask(x)
-  return bit16.mask(bit16.rshift(x, n) + bit16.lshift(x, 16 - n))
-end
-
---- 16-bit addition with overflow handling.
---- @param a integer First operand (16-bit)
---- @param b integer Second operand (16-bit)
---- @return integer result Result of (a + b) mod 2^16
-function bit16.add(a, b)
-  return bit16.mask(bit16.mask(a) + bit16.mask(b))
-end
-
---------------------------------------------------------------------------------
--- Byte conversion functions
---------------------------------------------------------------------------------
-
---- Convert 16-bit unsigned integer to 2 bytes (big-endian).
---- @param n integer 16-bit unsigned integer
---- @return string bytes 2-byte string in big-endian order
-function bit16.u16_to_be_bytes(n)
-  n = bit16.mask(n)
-  return string.char(math.floor(n / 256), n % 256)
-end
-
---- Convert 16-bit unsigned integer to 2 bytes (little-endian).
---- @param n integer 16-bit unsigned integer
---- @return string bytes 2-byte string in little-endian order
-function bit16.u16_to_le_bytes(n)
-  n = bit16.mask(n)
-  return string.char(n % 256, math.floor(n / 256))
-end
-
---- Convert 2 bytes to 16-bit unsigned integer (big-endian).
---- @param str string Binary string (at least 2 bytes from offset)
---- @param offset? integer Starting position (default: 1)
---- @return integer n 16-bit unsigned integer
-function bit16.be_bytes_to_u16(str, offset)
-  offset = offset or 1
-  assert(#str >= offset + 1, "Insufficient bytes for u16")
-  local b1, b2 = string.byte(str, offset, offset + 1)
-  return b1 * 256 + b2
-end
-
---- Convert 2 bytes to 16-bit unsigned integer (little-endian).
---- @param str string Binary string (at least 2 bytes from offset)
---- @param offset? integer Starting position (default: 1)
---- @return integer n 16-bit unsigned integer
-function bit16.le_bytes_to_u16(str, offset)
-  offset = offset or 1
-  assert(#str >= offset + 1, "Insufficient bytes for u16")
-  local b1, b2 = string.byte(str, offset, offset + 1)
-  return b1 + b2 * 256
-end
-
---------------------------------------------------------------------------------
--- Self-test
---------------------------------------------------------------------------------
-
--- Compatibility for unpack
-local unpack_fn = unpack or table.unpack
-
---- Run comprehensive self-test with test vectors.
---- @return boolean result True if all tests pass, false otherwise
-function bit16.selftest()
-  print("Running 16-bit operations test vectors...")
-  local passed = 0
-  local total = 0
-
-  local test_vectors = {
-    -- mask tests
-    { name = "mask(0)", fn = bit16.mask, inputs = { 0 }, expected = 0 },
-    { name = "mask(1)", fn = bit16.mask, inputs = { 1 }, expected = 1 },
-    { name = "mask(0xFFFF)", fn = bit16.mask, inputs = { 0xFFFF }, expected = 0xFFFF },
-    { name = "mask(0x10000)", fn = bit16.mask, inputs = { 0x10000 }, expected = 0 },
-    { name = "mask(0x10001)", fn = bit16.mask, inputs = { 0x10001 }, expected = 1 },
-    { name = "mask(-1)", fn = bit16.mask, inputs = { -1 }, expected = 0xFFFF },
-    { name = "mask(-256)", fn = bit16.mask, inputs = { -256 }, expected = 0xFF00 },
-
-    -- band tests
-    { name = "band(0xFF00, 0x00FF)", fn = bit16.band, inputs = { 0xFF00, 0x00FF }, expected = 0 },
-    { name = "band(0xFFFF, 0xFFFF)", fn = bit16.band, inputs = { 0xFFFF, 0xFFFF }, expected = 0xFFFF },
-    { name = "band(0xAAAA, 0x5555)", fn = bit16.band, inputs = { 0xAAAA, 0x5555 }, expected = 0 },
-    { name = "band(0xF0F0, 0xFF00)", fn = bit16.band, inputs = { 0xF0F0, 0xFF00 }, expected = 0xF000 },
-
-    -- bor tests
-    { name = "bor(0xFF00, 0x00FF)", fn = bit16.bor, inputs = { 0xFF00, 0x00FF }, expected = 0xFFFF },
-    { name = "bor(0, 0)", fn = bit16.bor, inputs = { 0, 0 }, expected = 0 },
-    { name = "bor(0xAAAA, 0x5555)", fn = bit16.bor, inputs = { 0xAAAA, 0x5555 }, expected = 0xFFFF },
-
-    -- bxor tests
-    { name = "bxor(0xFF00, 0x00FF)", fn = bit16.bxor, inputs = { 0xFF00, 0x00FF }, expected = 0xFFFF },
-    { name = "bxor(0xFFFF, 0xFFFF)", fn = bit16.bxor, inputs = { 0xFFFF, 0xFFFF }, expected = 0 },
-    { name = "bxor(0xAAAA, 0x5555)", fn = bit16.bxor, inputs = { 0xAAAA, 0x5555 }, expected = 0xFFFF },
-    { name = "bxor(0x1234, 0x1234)", fn = bit16.bxor, inputs = { 0x1234, 0x1234 }, expected = 0 },
-
-    -- bnot tests
-    { name = "bnot(0)", fn = bit16.bnot, inputs = { 0 }, expected = 0xFFFF },
-    { name = "bnot(0xFFFF)", fn = bit16.bnot, inputs = { 0xFFFF }, expected = 0 },
-    { name = "bnot(0xAAAA)", fn = bit16.bnot, inputs = { 0xAAAA }, expected = 0x5555 },
-    { name = "bnot(0x1234)", fn = bit16.bnot, inputs = { 0x1234 }, expected = 0xEDCB },
-
-    -- lshift tests
-    { name = "lshift(1, 0)", fn = bit16.lshift, inputs = { 1, 0 }, expected = 1 },
-    { name = "lshift(1, 1)", fn = bit16.lshift, inputs = { 1, 1 }, expected = 2 },
-    { name = "lshift(1, 15)", fn = bit16.lshift, inputs = { 1, 15 }, expected = 0x8000 },
-    { name = "lshift(1, 16)", fn = bit16.lshift, inputs = { 1, 16 }, expected = 0 },
-    { name = "lshift(0xFF, 8)", fn = bit16.lshift, inputs = { 0xFF, 8 }, expected = 0xFF00 },
-    { name = "lshift(0x8000, 1)", fn = bit16.lshift, inputs = { 0x8000, 1 }, expected = 0 },
-
-    -- rshift tests
-    { name = "rshift(1, 0)", fn = bit16.rshift, inputs = { 1, 0 }, expected = 1 },
-    { name = "rshift(2, 1)", fn = bit16.rshift, inputs = { 2, 1 }, expected = 1 },
-    { name = "rshift(0x8000, 15)", fn = bit16.rshift, inputs = { 0x8000, 15 }, expected = 1 },
-    { name = "rshift(0x8000, 16)", fn = bit16.rshift, inputs = { 0x8000, 16 }, expected = 0 },
-    { name = "rshift(0xFF00, 8)", fn = bit16.rshift, inputs = { 0xFF00, 8 }, expected = 0xFF },
-    { name = "rshift(0xFFFF, 8)", fn = bit16.rshift, inputs = { 0xFFFF, 8 }, expected = 0xFF },
-
-    -- arshift tests (arithmetic shift - sign extending)
-    { name = "arshift(0x8000, 1)", fn = bit16.arshift, inputs = { 0x8000, 1 }, expected = 0xC000 },
-    { name = "arshift(0x8000, 15)", fn = bit16.arshift, inputs = { 0x8000, 15 }, expected = 0xFFFF },
-    { name = "arshift(0x8000, 16)", fn = bit16.arshift, inputs = { 0x8000, 16 }, expected = 0xFFFF },
-    { name = "arshift(0x7FFF, 1)", fn = bit16.arshift, inputs = { 0x7FFF, 1 }, expected = 0x3FFF },
-    { name = "arshift(0x7FFF, 15)", fn = bit16.arshift, inputs = { 0x7FFF, 15 }, expected = 0 },
-    { name = "arshift(0xFF00, 8)", fn = bit16.arshift, inputs = { 0xFF00, 8 }, expected = 0xFFFF },
-    { name = "arshift(0x0F00, 8)", fn = bit16.arshift, inputs = { 0x0F00, 8 }, expected = 0x000F },
-
-    -- rol tests
-    { name = "rol(1, 0)", fn = bit16.rol, inputs = { 1, 0 }, expected = 1 },
-    { name = "rol(1, 1)", fn = bit16.rol, inputs = { 1, 1 }, expected = 2 },
-    { name = "rol(0x8000, 1)", fn = bit16.rol, inputs = { 0x8000, 1 }, expected = 1 },
-    { name = "rol(1, 16)", fn = bit16.rol, inputs = { 1, 16 }, expected = 1 },
-    { name = "rol(0x1234, 8)", fn = bit16.rol, inputs = { 0x1234, 8 }, expected = 0x3412 },
-    { name = "rol(0x1234, 4)", fn = bit16.rol, inputs = { 0x1234, 4 }, expected = 0x2341 },
-
-    -- ror tests
-    { name = "ror(1, 0)", fn = bit16.ror, inputs = { 1, 0 }, expected = 1 },
-    { name = "ror(1, 1)", fn = bit16.ror, inputs = { 1, 1 }, expected = 0x8000 },
-    { name = "ror(2, 1)", fn = bit16.ror, inputs = { 2, 1 }, expected = 1 },
-    { name = "ror(1, 16)", fn = bit16.ror, inputs = { 1, 16 }, expected = 1 },
-    { name = "ror(0x1234, 8)", fn = bit16.ror, inputs = { 0x1234, 8 }, expected = 0x3412 },
-    { name = "ror(0x1234, 4)", fn = bit16.ror, inputs = { 0x1234, 4 }, expected = 0x4123 },
-
-    -- add tests
-    { name = "add(0, 0)", fn = bit16.add, inputs = { 0, 0 }, expected = 0 },
-    { name = "add(1, 1)", fn = bit16.add, inputs = { 1, 1 }, expected = 2 },
-    { name = "add(0xFFFF, 1)", fn = bit16.add, inputs = { 0xFFFF, 1 }, expected = 0 },
-    { name = "add(0xFFFF, 2)", fn = bit16.add, inputs = { 0xFFFF, 2 }, expected = 1 },
-    { name = "add(0x8000, 0x8000)", fn = bit16.add, inputs = { 0x8000, 0x8000 }, expected = 0 },
-
-    -- u16_to_be_bytes tests
-    { name = "u16_to_be_bytes(0)", fn = bit16.u16_to_be_bytes, inputs = { 0 }, expected = string.char(0x00, 0x00) },
-    { name = "u16_to_be_bytes(1)", fn = bit16.u16_to_be_bytes, inputs = { 1 }, expected = string.char(0x00, 0x01) },
-    {
-      name = "u16_to_be_bytes(0x1234)",
-      fn = bit16.u16_to_be_bytes,
-      inputs = { 0x1234 },
-      expected = string.char(0x12, 0x34),
-    },
-    {
-      name = "u16_to_be_bytes(0xFFFF)",
-      fn = bit16.u16_to_be_bytes,
-      inputs = { 0xFFFF },
-      expected = string.char(0xFF, 0xFF),
-    },
-
-    -- u16_to_le_bytes tests
-    { name = "u16_to_le_bytes(0)", fn = bit16.u16_to_le_bytes, inputs = { 0 }, expected = string.char(0x00, 0x00) },
-    { name = "u16_to_le_bytes(1)", fn = bit16.u16_to_le_bytes, inputs = { 1 }, expected = string.char(0x01, 0x00) },
-    {
-      name = "u16_to_le_bytes(0x1234)",
-      fn = bit16.u16_to_le_bytes,
-      inputs = { 0x1234 },
-      expected = string.char(0x34, 0x12),
-    },
-    {
-      name = "u16_to_le_bytes(0xFFFF)",
-      fn = bit16.u16_to_le_bytes,
-      inputs = { 0xFFFF },
-      expected = string.char(0xFF, 0xFF),
-    },
-
-    -- be_bytes_to_u16 tests
-    {
-      name = "be_bytes_to_u16(0x0000)",
-      fn = bit16.be_bytes_to_u16,
-      inputs = { string.char(0x00, 0x00) },
-      expected = 0,
-    },
-    {
-      name = "be_bytes_to_u16(0x0001)",
-      fn = bit16.be_bytes_to_u16,
-      inputs = { string.char(0x00, 0x01) },
-      expected = 1,
-    },
-    {
-      name = "be_bytes_to_u16(0x1234)",
-      fn = bit16.be_bytes_to_u16,
-      inputs = { string.char(0x12, 0x34) },
-      expected = 0x1234,
-    },
-    {
-      name = "be_bytes_to_u16(0xFFFF)",
-      fn = bit16.be_bytes_to_u16,
-      inputs = { string.char(0xFF, 0xFF) },
-      expected = 0xFFFF,
-    },
-
-    -- le_bytes_to_u16 tests
-    {
-      name = "le_bytes_to_u16(0x0000)",
-      fn = bit16.le_bytes_to_u16,
-      inputs = { string.char(0x00, 0x00) },
-      expected = 0,
-    },
-    {
-      name = "le_bytes_to_u16(0x0001)",
-      fn = bit16.le_bytes_to_u16,
-      inputs = { string.char(0x01, 0x00) },
-      expected = 1,
-    },
-    {
-      name = "le_bytes_to_u16(0x1234)",
-      fn = bit16.le_bytes_to_u16,
-      inputs = { string.char(0x34, 0x12) },
-      expected = 0x1234,
-    },
-    {
-      name = "le_bytes_to_u16(0xFFFF)",
-      fn = bit16.le_bytes_to_u16,
-      inputs = { string.char(0xFF, 0xFF) },
-      expected = 0xFFFF,
-    },
-  }
-
-  for _, test in ipairs(test_vectors) do
-    total = total + 1
-    local result = test.fn(unpack_fn(test.inputs))
-    if result == test.expected then
-      print("  PASS: " .. test.name)
-      passed = passed + 1
-    else
-      print("  FAIL: " .. test.name)
-      if type(test.expected) == "string" then
-        local exp_hex, got_hex = "", ""
-        for i = 1, #test.expected do
-          exp_hex = exp_hex .. string.format("%02X", string.byte(test.expected, i))
-        end
-        for i = 1, #result do
-          got_hex = got_hex .. string.format("%02X", string.byte(result, i))
-        end
-        print("    Expected: " .. exp_hex)
-        print("    Got:      " .. got_hex)
-      else
-        print(string.format("    Expected: 0x%04X", test.expected))
-        print(string.format("    Got:      0x%04X", result))
-      end
-    end
-  end
-
-  print(string.format("\n16-bit operations: %d/%d tests passed\n", passed, total))
-  return passed == total
-end
-
-return bit16
-end
-end
-
-do
-local _ENV = _ENV
-package.preload[ "bitn.bit32" ] = function( ... ) local arg = _G.arg;
---- @module "bitn.bit32"
---- Pure Lua 32-bit bitwise operations library.
---- This module provides a complete, version-agnostic implementation of 32-bit
---- bitwise operations that works across Lua 5.1, 5.2, 5.3, 5.4, and LuaJIT
---- without depending on any built-in bit libraries.
---- @class bit32
-local bit32 = {}
-
--- 32-bit mask constant
-local MASK32 = 0xFFFFFFFF
-
---- Ensure value fits in 32-bit unsigned integer.
---- @param n number Input value
---- @return integer result 32-bit unsigned integer (0 to 0xFFFFFFFF)
-function bit32.mask(n)
-  return math.floor(n % 0x100000000)
-end
-
---- Bitwise AND operation.
---- @param a integer First operand (32-bit)
---- @param b integer Second operand (32-bit)
---- @return integer result Result of a AND b
-function bit32.band(a, b)
-  a = bit32.mask(a)
-  b = bit32.mask(b)
-
-  local result = 0
-  local bit_val = 1
-
-  for _ = 0, 31 do
-    if (a % 2 == 1) and (b % 2 == 1) then
-      result = result + bit_val
-    end
-    a = math.floor(a / 2)
-    b = math.floor(b / 2)
-    bit_val = bit_val * 2
-
-    if a == 0 and b == 0 then
-      break
-    end
-  end
-
-  return result
-end
-
---- Bitwise OR operation.
---- @param a integer First operand (32-bit)
---- @param b integer Second operand (32-bit)
---- @return integer result Result of a OR b
-function bit32.bor(a, b)
-  a = bit32.mask(a)
-  b = bit32.mask(b)
-
-  local result = 0
-  local bit_val = 1
-
-  for _ = 0, 31 do
-    if (a % 2 == 1) or (b % 2 == 1) then
-      result = result + bit_val
-    end
-    a = math.floor(a / 2)
-    b = math.floor(b / 2)
-    bit_val = bit_val * 2
-
-    if a == 0 and b == 0 then
-      break
-    end
-  end
-
-  return result
-end
-
---- Bitwise XOR operation.
---- @param a integer First operand (32-bit)
---- @param b integer Second operand (32-bit)
---- @return integer result Result of a XOR b
-function bit32.bxor(a, b)
-  a = bit32.mask(a)
-  b = bit32.mask(b)
-
-  local result = 0
-  local bit_val = 1
-
-  for _ = 0, 31 do
-    if (a % 2) ~= (b % 2) then
-      result = result + bit_val
-    end
-    a = math.floor(a / 2)
-    b = math.floor(b / 2)
-    bit_val = bit_val * 2
-
-    if a == 0 and b == 0 then
-      break
-    end
-  end
-
-  return result
-end
-
---- Bitwise NOT operation.
---- @param a integer Operand (32-bit)
---- @return integer result Result of NOT a
-function bit32.bnot(a)
-  return bit32.mask(MASK32 - bit32.mask(a))
-end
-
---- Left shift operation.
---- @param a integer Value to shift (32-bit)
---- @param n integer Number of positions to shift (must be >= 0)
---- @return integer result Result of a << n
-function bit32.lshift(a, n)
-  assert(n >= 0, "Shift amount must be non-negative")
-  if n >= 32 then
-    return 0
-  end
-  return bit32.mask(bit32.mask(a) * math.pow(2, n))
-end
-
---- Logical right shift operation (fills with 0s).
---- @param a integer Value to shift (32-bit)
---- @param n integer Number of positions to shift (must be >= 0)
---- @return integer result Result of a >> n (logical)
-function bit32.rshift(a, n)
-  assert(n >= 0, "Shift amount must be non-negative")
-  a = bit32.mask(a)
-  if n >= 32 then
-    return 0
-  end
-  return math.floor(a / math.pow(2, n))
-end
-
---- Arithmetic right shift operation (sign-extending, fills with sign bit).
---- @param a integer Value to shift (32-bit, treated as signed)
---- @param n integer Number of positions to shift (must be >= 0)
---- @return integer result Result of a >> n with sign extension
-function bit32.arshift(a, n)
-  assert(n >= 0, "Shift amount must be non-negative")
-  a = bit32.mask(a)
-
-  -- Check if sign bit is set (bit 31)
-  local is_negative = a >= 0x80000000
-
-  if n >= 32 then
-    -- All bits shift out, result is all 1s if negative, all 0s if positive
-    return is_negative and 0xFFFFFFFF or 0
-  end
-
-  -- Perform logical right shift first
-  local result = math.floor(a / math.pow(2, n))
-
-  -- If original was negative, fill high bits with 1s
-  if is_negative then
-    -- Create mask for high bits that need to be 1
-    local fill_mask = MASK32 - (math.pow(2, 32 - n) - 1)
-    result = bit32.bor(result, fill_mask)
-  end
-
-  return result
-end
-
---- Left rotate operation.
---- @param x integer Value to rotate (32-bit)
---- @param n integer Number of positions to rotate
---- @return integer result Result of rotating x left by n positions
-function bit32.rol(x, n)
-  n = n % 32
-  x = bit32.mask(x)
-  return bit32.mask(bit32.lshift(x, n) + bit32.rshift(x, 32 - n))
-end
-
---- Right rotate operation.
---- @param x integer Value to rotate (32-bit)
---- @param n integer Number of positions to rotate
---- @return integer result Result of rotating x right by n positions
-function bit32.ror(x, n)
-  n = n % 32
-  x = bit32.mask(x)
-  return bit32.mask(bit32.rshift(x, n) + bit32.lshift(x, 32 - n))
-end
-
---- 32-bit addition with overflow handling.
---- @param a integer First operand (32-bit)
---- @param b integer Second operand (32-bit)
---- @return integer result Result of (a + b) mod 2^32
-function bit32.add(a, b)
-  return bit32.mask(bit32.mask(a) + bit32.mask(b))
-end
-
---------------------------------------------------------------------------------
--- Byte conversion functions
---------------------------------------------------------------------------------
-
---- Convert 32-bit unsigned integer to 4 bytes (big-endian).
---- @param n integer 32-bit unsigned integer
---- @return string bytes 4-byte string in big-endian order
-function bit32.u32_to_be_bytes(n)
-  n = bit32.mask(n)
-  return string.char(math.floor(n / 16777216) % 256, math.floor(n / 65536) % 256, math.floor(n / 256) % 256, n % 256)
-end
-
---- Convert 32-bit unsigned integer to 4 bytes (little-endian).
---- @param n integer 32-bit unsigned integer
---- @return string bytes 4-byte string in little-endian order
-function bit32.u32_to_le_bytes(n)
-  n = bit32.mask(n)
-  return string.char(n % 256, math.floor(n / 256) % 256, math.floor(n / 65536) % 256, math.floor(n / 16777216) % 256)
-end
-
---- Convert 4 bytes to 32-bit unsigned integer (big-endian).
---- @param str string Binary string (at least 4 bytes from offset)
---- @param offset? integer Starting position (default: 1)
---- @return integer n 32-bit unsigned integer
-function bit32.be_bytes_to_u32(str, offset)
-  offset = offset or 1
-  assert(#str >= offset + 3, "Insufficient bytes for u32")
-  local b1, b2, b3, b4 = string.byte(str, offset, offset + 3)
-  return b1 * 16777216 + b2 * 65536 + b3 * 256 + b4
-end
-
---- Convert 4 bytes to 32-bit unsigned integer (little-endian).
---- @param str string Binary string (at least 4 bytes from offset)
---- @param offset? integer Starting position (default: 1)
---- @return integer n 32-bit unsigned integer
-function bit32.le_bytes_to_u32(str, offset)
-  offset = offset or 1
-  assert(#str >= offset + 3, "Insufficient bytes for u32")
-  local b1, b2, b3, b4 = string.byte(str, offset, offset + 3)
-  return b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
-end
-
---------------------------------------------------------------------------------
--- Self-test
---------------------------------------------------------------------------------
-
--- Compatibility for unpack
-local unpack_fn = unpack or table.unpack
-
---- Run comprehensive self-test with test vectors.
---- @return boolean result True if all tests pass, false otherwise
-function bit32.selftest()
-  print("Running 32-bit operations test vectors...")
-  local passed = 0
-  local total = 0
-
-  local test_vectors = {
-    -- mask tests
-    { name = "mask(0)", fn = bit32.mask, inputs = { 0 }, expected = 0 },
-    { name = "mask(1)", fn = bit32.mask, inputs = { 1 }, expected = 1 },
-    { name = "mask(0xFFFFFFFF)", fn = bit32.mask, inputs = { 0xFFFFFFFF }, expected = 0xFFFFFFFF },
-    { name = "mask(0x100000000)", fn = bit32.mask, inputs = { 0x100000000 }, expected = 0 },
-    { name = "mask(0x100000001)", fn = bit32.mask, inputs = { 0x100000001 }, expected = 1 },
-    { name = "mask(-1)", fn = bit32.mask, inputs = { -1 }, expected = 0xFFFFFFFF },
-    { name = "mask(-256)", fn = bit32.mask, inputs = { -256 }, expected = 0xFFFFFF00 },
-
-    -- band tests
-    { name = "band(0xFF00FF00, 0x00FF00FF)", fn = bit32.band, inputs = { 0xFF00FF00, 0x00FF00FF }, expected = 0 },
-    {
-      name = "band(0xFFFFFFFF, 0xFFFFFFFF)",
-      fn = bit32.band,
-      inputs = { 0xFFFFFFFF, 0xFFFFFFFF },
-      expected = 0xFFFFFFFF,
-    },
-    { name = "band(0xAAAAAAAA, 0x55555555)", fn = bit32.band, inputs = { 0xAAAAAAAA, 0x55555555 }, expected = 0 },
-    {
-      name = "band(0xF0F0F0F0, 0xFF00FF00)",
-      fn = bit32.band,
-      inputs = { 0xF0F0F0F0, 0xFF00FF00 },
-      expected = 0xF000F000,
-    },
-    { name = "band(0, 0xFFFFFFFF)", fn = bit32.band, inputs = { 0, 0xFFFFFFFF }, expected = 0 },
-
-    -- bor tests
-    {
-      name = "bor(0xFF00FF00, 0x00FF00FF)",
-      fn = bit32.bor,
-      inputs = { 0xFF00FF00, 0x00FF00FF },
-      expected = 0xFFFFFFFF,
-    },
-    { name = "bor(0, 0)", fn = bit32.bor, inputs = { 0, 0 }, expected = 0 },
-    {
-      name = "bor(0xAAAAAAAA, 0x55555555)",
-      fn = bit32.bor,
-      inputs = { 0xAAAAAAAA, 0x55555555 },
-      expected = 0xFFFFFFFF,
-    },
-    {
-      name = "bor(0xF0F0F0F0, 0x0F0F0F0F)",
-      fn = bit32.bor,
-      inputs = { 0xF0F0F0F0, 0x0F0F0F0F },
-      expected = 0xFFFFFFFF,
-    },
-
-    -- bxor tests
-    {
-      name = "bxor(0xFF00FF00, 0x00FF00FF)",
-      fn = bit32.bxor,
-      inputs = { 0xFF00FF00, 0x00FF00FF },
-      expected = 0xFFFFFFFF,
-    },
-    { name = "bxor(0xFFFFFFFF, 0xFFFFFFFF)", fn = bit32.bxor, inputs = { 0xFFFFFFFF, 0xFFFFFFFF }, expected = 0 },
-    {
-      name = "bxor(0xAAAAAAAA, 0x55555555)",
-      fn = bit32.bxor,
-      inputs = { 0xAAAAAAAA, 0x55555555 },
-      expected = 0xFFFFFFFF,
-    },
-    { name = "bxor(0x12345678, 0x12345678)", fn = bit32.bxor, inputs = { 0x12345678, 0x12345678 }, expected = 0 },
-
-    -- bnot tests
-    { name = "bnot(0)", fn = bit32.bnot, inputs = { 0 }, expected = 0xFFFFFFFF },
-    { name = "bnot(0xFFFFFFFF)", fn = bit32.bnot, inputs = { 0xFFFFFFFF }, expected = 0 },
-    { name = "bnot(0xAAAAAAAA)", fn = bit32.bnot, inputs = { 0xAAAAAAAA }, expected = 0x55555555 },
-    { name = "bnot(0x12345678)", fn = bit32.bnot, inputs = { 0x12345678 }, expected = 0xEDCBA987 },
-
-    -- lshift tests
-    { name = "lshift(1, 0)", fn = bit32.lshift, inputs = { 1, 0 }, expected = 1 },
-    { name = "lshift(1, 1)", fn = bit32.lshift, inputs = { 1, 1 }, expected = 2 },
-    { name = "lshift(1, 31)", fn = bit32.lshift, inputs = { 1, 31 }, expected = 0x80000000 },
-    { name = "lshift(1, 32)", fn = bit32.lshift, inputs = { 1, 32 }, expected = 0 },
-    { name = "lshift(0xFF, 8)", fn = bit32.lshift, inputs = { 0xFF, 8 }, expected = 0xFF00 },
-    { name = "lshift(0x80000000, 1)", fn = bit32.lshift, inputs = { 0x80000000, 1 }, expected = 0 },
-
-    -- rshift tests
-    { name = "rshift(1, 0)", fn = bit32.rshift, inputs = { 1, 0 }, expected = 1 },
-    { name = "rshift(2, 1)", fn = bit32.rshift, inputs = { 2, 1 }, expected = 1 },
-    { name = "rshift(0x80000000, 31)", fn = bit32.rshift, inputs = { 0x80000000, 31 }, expected = 1 },
-    { name = "rshift(0x80000000, 32)", fn = bit32.rshift, inputs = { 0x80000000, 32 }, expected = 0 },
-    { name = "rshift(0xFF00, 8)", fn = bit32.rshift, inputs = { 0xFF00, 8 }, expected = 0xFF },
-    { name = "rshift(0xFFFFFFFF, 16)", fn = bit32.rshift, inputs = { 0xFFFFFFFF, 16 }, expected = 0xFFFF },
-
-    -- arshift tests (arithmetic shift - sign extending)
-    { name = "arshift(0x80000000, 1)", fn = bit32.arshift, inputs = { 0x80000000, 1 }, expected = 0xC0000000 },
-    { name = "arshift(0x80000000, 31)", fn = bit32.arshift, inputs = { 0x80000000, 31 }, expected = 0xFFFFFFFF },
-    { name = "arshift(0x80000000, 32)", fn = bit32.arshift, inputs = { 0x80000000, 32 }, expected = 0xFFFFFFFF },
-    { name = "arshift(0x7FFFFFFF, 1)", fn = bit32.arshift, inputs = { 0x7FFFFFFF, 1 }, expected = 0x3FFFFFFF },
-    { name = "arshift(0x7FFFFFFF, 31)", fn = bit32.arshift, inputs = { 0x7FFFFFFF, 31 }, expected = 0 },
-    { name = "arshift(0xFF000000, 8)", fn = bit32.arshift, inputs = { 0xFF000000, 8 }, expected = 0xFFFF0000 },
-    { name = "arshift(0x0F000000, 8)", fn = bit32.arshift, inputs = { 0x0F000000, 8 }, expected = 0x000F0000 },
-
-    -- rol tests
-    { name = "rol(1, 0)", fn = bit32.rol, inputs = { 1, 0 }, expected = 1 },
-    { name = "rol(1, 1)", fn = bit32.rol, inputs = { 1, 1 }, expected = 2 },
-    { name = "rol(0x80000000, 1)", fn = bit32.rol, inputs = { 0x80000000, 1 }, expected = 1 },
-    { name = "rol(1, 32)", fn = bit32.rol, inputs = { 1, 32 }, expected = 1 },
-    { name = "rol(0x12345678, 8)", fn = bit32.rol, inputs = { 0x12345678, 8 }, expected = 0x34567812 },
-    { name = "rol(0x12345678, 16)", fn = bit32.rol, inputs = { 0x12345678, 16 }, expected = 0x56781234 },
-
-    -- ror tests
-    { name = "ror(1, 0)", fn = bit32.ror, inputs = { 1, 0 }, expected = 1 },
-    { name = "ror(1, 1)", fn = bit32.ror, inputs = { 1, 1 }, expected = 0x80000000 },
-    { name = "ror(2, 1)", fn = bit32.ror, inputs = { 2, 1 }, expected = 1 },
-    { name = "ror(1, 32)", fn = bit32.ror, inputs = { 1, 32 }, expected = 1 },
-    { name = "ror(0x12345678, 8)", fn = bit32.ror, inputs = { 0x12345678, 8 }, expected = 0x78123456 },
-    { name = "ror(0x12345678, 16)", fn = bit32.ror, inputs = { 0x12345678, 16 }, expected = 0x56781234 },
-
-    -- add tests
-    { name = "add(0, 0)", fn = bit32.add, inputs = { 0, 0 }, expected = 0 },
-    { name = "add(1, 1)", fn = bit32.add, inputs = { 1, 1 }, expected = 2 },
-    { name = "add(0xFFFFFFFF, 1)", fn = bit32.add, inputs = { 0xFFFFFFFF, 1 }, expected = 0 },
-    { name = "add(0xFFFFFFFF, 2)", fn = bit32.add, inputs = { 0xFFFFFFFF, 2 }, expected = 1 },
-    { name = "add(0x80000000, 0x80000000)", fn = bit32.add, inputs = { 0x80000000, 0x80000000 }, expected = 0 },
-
-    -- u32_to_be_bytes tests
-    {
-      name = "u32_to_be_bytes(0)",
-      fn = bit32.u32_to_be_bytes,
-      inputs = { 0 },
-      expected = string.char(0x00, 0x00, 0x00, 0x00),
-    },
-    {
-      name = "u32_to_be_bytes(1)",
-      fn = bit32.u32_to_be_bytes,
-      inputs = { 1 },
-      expected = string.char(0x00, 0x00, 0x00, 0x01),
-    },
-    {
-      name = "u32_to_be_bytes(0x12345678)",
-      fn = bit32.u32_to_be_bytes,
-      inputs = { 0x12345678 },
-      expected = string.char(0x12, 0x34, 0x56, 0x78),
-    },
-    {
-      name = "u32_to_be_bytes(0xFFFFFFFF)",
-      fn = bit32.u32_to_be_bytes,
-      inputs = { 0xFFFFFFFF },
-      expected = string.char(0xFF, 0xFF, 0xFF, 0xFF),
-    },
-
-    -- u32_to_le_bytes tests
-    {
-      name = "u32_to_le_bytes(0)",
-      fn = bit32.u32_to_le_bytes,
-      inputs = { 0 },
-      expected = string.char(0x00, 0x00, 0x00, 0x00),
-    },
-    {
-      name = "u32_to_le_bytes(1)",
-      fn = bit32.u32_to_le_bytes,
-      inputs = { 1 },
-      expected = string.char(0x01, 0x00, 0x00, 0x00),
-    },
-    {
-      name = "u32_to_le_bytes(0x12345678)",
-      fn = bit32.u32_to_le_bytes,
-      inputs = { 0x12345678 },
-      expected = string.char(0x78, 0x56, 0x34, 0x12),
-    },
-    {
-      name = "u32_to_le_bytes(0xFFFFFFFF)",
-      fn = bit32.u32_to_le_bytes,
-      inputs = { 0xFFFFFFFF },
-      expected = string.char(0xFF, 0xFF, 0xFF, 0xFF),
-    },
-
-    -- be_bytes_to_u32 tests
-    {
-      name = "be_bytes_to_u32(0x00000000)",
-      fn = bit32.be_bytes_to_u32,
-      inputs = { string.char(0x00, 0x00, 0x00, 0x00) },
-      expected = 0,
-    },
-    {
-      name = "be_bytes_to_u32(0x00000001)",
-      fn = bit32.be_bytes_to_u32,
-      inputs = { string.char(0x00, 0x00, 0x00, 0x01) },
-      expected = 1,
-    },
-    {
-      name = "be_bytes_to_u32(0x12345678)",
-      fn = bit32.be_bytes_to_u32,
-      inputs = { string.char(0x12, 0x34, 0x56, 0x78) },
-      expected = 0x12345678,
-    },
-    {
-      name = "be_bytes_to_u32(0xFFFFFFFF)",
-      fn = bit32.be_bytes_to_u32,
-      inputs = { string.char(0xFF, 0xFF, 0xFF, 0xFF) },
-      expected = 0xFFFFFFFF,
-    },
-
-    -- le_bytes_to_u32 tests
-    {
-      name = "le_bytes_to_u32(0x00000000)",
-      fn = bit32.le_bytes_to_u32,
-      inputs = { string.char(0x00, 0x00, 0x00, 0x00) },
-      expected = 0,
-    },
-    {
-      name = "le_bytes_to_u32(0x00000001)",
-      fn = bit32.le_bytes_to_u32,
-      inputs = { string.char(0x01, 0x00, 0x00, 0x00) },
-      expected = 1,
-    },
-    {
-      name = "le_bytes_to_u32(0x12345678)",
-      fn = bit32.le_bytes_to_u32,
-      inputs = { string.char(0x78, 0x56, 0x34, 0x12) },
-      expected = 0x12345678,
-    },
-    {
-      name = "le_bytes_to_u32(0xFFFFFFFF)",
-      fn = bit32.le_bytes_to_u32,
-      inputs = { string.char(0xFF, 0xFF, 0xFF, 0xFF) },
-      expected = 0xFFFFFFFF,
-    },
-  }
-
-  for _, test in ipairs(test_vectors) do
-    total = total + 1
-    local result = test.fn(unpack_fn(test.inputs))
-    if result == test.expected then
-      print("  PASS: " .. test.name)
-      passed = passed + 1
-    else
-      print("  FAIL: " .. test.name)
-      if type(test.expected) == "string" then
-        local exp_hex, got_hex = "", ""
-        for i = 1, #test.expected do
-          exp_hex = exp_hex .. string.format("%02X", string.byte(test.expected, i))
-        end
-        for i = 1, #result do
-          got_hex = got_hex .. string.format("%02X", string.byte(result, i))
-        end
-        print("    Expected: " .. exp_hex)
-        print("    Got:      " .. got_hex)
-      else
-        print(string.format("    Expected: 0x%08X", test.expected))
-        print(string.format("    Got:      0x%08X", result))
-      end
-    end
-  end
-
-  print(string.format("\n32-bit operations: %d/%d tests passed\n", passed, total))
-  return passed == total
-end
-
-return bit32
-end
-end
-
-do
-local _ENV = _ENV
-package.preload[ "bitn.bit64" ] = function( ... ) local arg = _G.arg;
---- @module "bitn.bit64"
---- Pure Lua 64-bit bitwise operations library.
---- This module provides 64-bit bitwise operations using {high, low} pairs,
---- where high is the upper 32 bits and low is the lower 32 bits.
---- Works across Lua 5.1, 5.2, 5.3, 5.4, and LuaJIT without depending on
---- any built-in bit libraries.
---- @class bit64
-local bit64 = {}
-
-local bit32 = require("bitn.bit32")
-
--- Type definitions
---- @alias Int64HighLow [integer, integer] Array with [1]=high 32 bits, [2]=low 32 bits
-
---------------------------------------------------------------------------------
--- Bitwise operations
---------------------------------------------------------------------------------
-
---- Bitwise AND operation.
---- @param a Int64HighLow First operand {high, low}
---- @param b Int64HighLow Second operand {high, low}
---- @return Int64HighLow result {high, low} AND result
-function bit64.band(a, b)
-  return {
-    bit32.band(a[1], b[1]),
-    bit32.band(a[2], b[2]),
-  }
-end
-
---- Bitwise OR operation.
---- @param a Int64HighLow First operand {high, low}
---- @param b Int64HighLow Second operand {high, low}
---- @return Int64HighLow result {high, low} OR result
-function bit64.bor(a, b)
-  return {
-    bit32.bor(a[1], b[1]),
-    bit32.bor(a[2], b[2]),
-  }
-end
-
---- Bitwise XOR operation.
---- @param a Int64HighLow First operand {high, low}
---- @param b Int64HighLow Second operand {high, low}
---- @return Int64HighLow result {high, low} XOR result
-function bit64.bxor(a, b)
-  return {
-    bit32.bxor(a[1], b[1]),
-    bit32.bxor(a[2], b[2]),
-  }
-end
-
---- Bitwise NOT operation.
---- @param a Int64HighLow Operand {high, low}
---- @return Int64HighLow result {high, low} NOT result
-function bit64.bnot(a)
-  return {
-    bit32.bnot(a[1]),
-    bit32.bnot(a[2]),
-  }
-end
-
---------------------------------------------------------------------------------
--- Shift operations
---------------------------------------------------------------------------------
-
---- Left shift operation.
---- @param x Int64HighLow Value to shift {high, low}
---- @param n integer Number of positions to shift (must be >= 0)
---- @return Int64HighLow result {high, low} shifted value
-function bit64.lshift(x, n)
-  if n == 0 then
-    return { x[1], x[2] }
-  elseif n >= 64 then
-    return { 0, 0 }
-  elseif n >= 32 then
-    -- Shift by 32 or more: low becomes 0, high gets bits from low
-    return { bit32.lshift(x[2], n - 32), 0 }
-  else
-    -- Shift by less than 32
-    local new_high = bit32.bor(bit32.lshift(x[1], n), bit32.rshift(x[2], 32 - n))
-    local new_low = bit32.lshift(x[2], n)
-    return { new_high, new_low }
-  end
-end
-
---- Logical right shift operation (fills with 0s).
---- @param x Int64HighLow Value to shift {high, low}
---- @param n integer Number of positions to shift (must be >= 0)
---- @return Int64HighLow result {high, low} shifted value
-function bit64.rshift(x, n)
-  if n == 0 then
-    return { x[1], x[2] }
-  elseif n >= 64 then
-    return { 0, 0 }
-  elseif n >= 32 then
-    -- Shift by 32 or more: high becomes 0, low gets bits from high
-    return { 0, bit32.rshift(x[1], n - 32) }
-  else
-    -- Shift by less than 32
-    local new_low = bit32.bor(bit32.rshift(x[2], n), bit32.lshift(x[1], 32 - n))
-    local new_high = bit32.rshift(x[1], n)
-    return { new_high, new_low }
-  end
-end
-
---- Arithmetic right shift operation (sign-extending, fills with sign bit).
---- @param x Int64HighLow Value to shift {high, low}
---- @param n integer Number of positions to shift (must be >= 0)
---- @return Int64HighLow result {high, low} shifted value
-function bit64.arshift(x, n)
-  if n == 0 then
-    return { x[1], x[2] }
-  end
-
-  -- Check sign bit (bit 31 of high word)
-  local is_negative = bit32.band(x[1], 0x80000000) ~= 0
-
-  if n >= 64 then
-    -- All bits shift out, result is all 1s if negative, all 0s if positive
-    if is_negative then
-      return { 0xFFFFFFFF, 0xFFFFFFFF }
-    else
-      return { 0, 0 }
-    end
-  elseif n >= 32 then
-    -- High word shifts into low, high fills with sign
-    local new_low = bit32.arshift(x[1], n - 32)
-    local new_high = is_negative and 0xFFFFFFFF or 0
-    return { new_high, new_low }
-  else
-    -- Shift by less than 32
-    local new_low = bit32.bor(bit32.rshift(x[2], n), bit32.lshift(x[1], 32 - n))
-    local new_high = bit32.arshift(x[1], n)
-    return { new_high, new_low }
-  end
-end
-
---------------------------------------------------------------------------------
--- Rotate operations
---------------------------------------------------------------------------------
-
---- Left rotate operation.
---- @param x Int64HighLow Value to rotate {high, low}
---- @param n integer Number of positions to rotate
---- @return Int64HighLow result {high, low} rotated value
-function bit64.rol(x, n)
-  n = n % 64
-  if n == 0 then
-    return { x[1], x[2] }
-  end
-
-  local high, low = x[1], x[2]
-
-  if n == 32 then
-    -- Special case: swap high and low
-    return { low, high }
-  elseif n < 32 then
-    -- Rotate within 32-bit boundaries
-    local new_high = bit32.bor(bit32.lshift(high, n), bit32.rshift(low, 32 - n))
-    local new_low = bit32.bor(bit32.lshift(low, n), bit32.rshift(high, 32 - n))
-    return { new_high, new_low }
-  else
-    -- n > 32: rotate by (n - 32) after swapping
-    n = n - 32
-    local new_high = bit32.bor(bit32.lshift(low, n), bit32.rshift(high, 32 - n))
-    local new_low = bit32.bor(bit32.lshift(high, n), bit32.rshift(low, 32 - n))
-    return { new_high, new_low }
-  end
-end
-
---- Right rotate operation.
---- @param x Int64HighLow Value to rotate {high, low}
---- @param n integer Number of positions to rotate
---- @return Int64HighLow result {high, low} rotated value
-function bit64.ror(x, n)
-  n = n % 64
-  if n == 0 then
-    return { x[1], x[2] }
-  end
-
-  local high, low = x[1], x[2]
-
-  if n == 32 then
-    -- Special case: swap high and low
-    return { low, high }
-  elseif n < 32 then
-    -- Rotate within 32-bit boundaries
-    local new_low = bit32.bor(bit32.rshift(low, n), bit32.lshift(high, 32 - n))
-    local new_high = bit32.bor(bit32.rshift(high, n), bit32.lshift(low, 32 - n))
-    return { new_high, new_low }
-  else
-    -- n > 32: rotate by (n - 32) after swapping
-    n = n - 32
-    local new_low = bit32.bor(bit32.rshift(high, n), bit32.lshift(low, 32 - n))
-    local new_high = bit32.bor(bit32.rshift(low, n), bit32.lshift(high, 32 - n))
-    return { new_high, new_low }
-  end
-end
-
---------------------------------------------------------------------------------
--- Arithmetic operations
---------------------------------------------------------------------------------
-
---- 64-bit addition with overflow handling.
---- @param a Int64HighLow First operand {high, low}
---- @param b Int64HighLow Second operand {high, low}
---- @return Int64HighLow result {high, low} sum
-function bit64.add(a, b)
-  local low = a[2] + b[2]
-  local high = a[1] + b[1]
-
-  -- Handle carry from low to high
-  if low >= 0x100000000 then
-    high = high + 1
-    low = low % 0x100000000
-  end
-
-  -- Keep high within 32 bits
-  high = high % 0x100000000
-
-  return { high, low }
-end
-
---------------------------------------------------------------------------------
--- Byte conversion functions
---------------------------------------------------------------------------------
-
---- Convert 64-bit value to 8 bytes (big-endian).
---- @param x Int64HighLow 64-bit value {high, low}
---- @return string bytes 8-byte string in big-endian order
-function bit64.u64_to_be_bytes(x)
-  return bit32.u32_to_be_bytes(x[1]) .. bit32.u32_to_be_bytes(x[2])
-end
-
---- Convert 64-bit value to 8 bytes (little-endian).
---- @param x Int64HighLow 64-bit value {high, low}
---- @return string bytes 8-byte string in little-endian order
-function bit64.u64_to_le_bytes(x)
-  return bit32.u32_to_le_bytes(x[2]) .. bit32.u32_to_le_bytes(x[1])
-end
-
---- Convert 8 bytes to 64-bit value (big-endian).
---- @param str string Binary string (at least 8 bytes from offset)
---- @param offset? integer Starting position (default: 1)
---- @return Int64HighLow value {high, low} 64-bit value
-function bit64.be_bytes_to_u64(str, offset)
-  offset = offset or 1
-  assert(#str >= offset + 7, "Insufficient bytes for u64")
-  local high = bit32.be_bytes_to_u32(str, offset)
-  local low = bit32.be_bytes_to_u32(str, offset + 4)
-  return { high, low }
-end
-
---- Convert 8 bytes to 64-bit value (little-endian).
---- @param str string Binary string (at least 8 bytes from offset)
---- @param offset? integer Starting position (default: 1)
---- @return Int64HighLow value {high, low} 64-bit value
-function bit64.le_bytes_to_u64(str, offset)
-  offset = offset or 1
-  assert(#str >= offset + 7, "Insufficient bytes for u64")
-  local low = bit32.le_bytes_to_u32(str, offset)
-  local high = bit32.le_bytes_to_u32(str, offset + 4)
-  return { high, low }
-end
-
---------------------------------------------------------------------------------
--- Aliases for compatibility
---------------------------------------------------------------------------------
-
---- Alias for bxor (compatibility with older API).
-bit64.xor = bit64.bxor
-
---- Alias for rshift (compatibility with older API).
-bit64.shr = bit64.rshift
-
---- Alias for lshift (compatibility with older API).
-bit64.lsl = bit64.lshift
-
---- Alias for arshift (compatibility with older API).
-bit64.asr = bit64.arshift
-
---------------------------------------------------------------------------------
--- Self-test
---------------------------------------------------------------------------------
-
--- Compatibility for unpack
-local unpack_fn = unpack or table.unpack
-
---- Compare two 64-bit values (high/low pairs).
---- @param a Int64HighLow First value {high, low}
---- @param b Int64HighLow Second value {high, low}
---- @return boolean equal True if equal
-local function eq64(a, b)
-  return a[1] == b[1] and a[2] == b[2]
-end
-
---- Format 64-bit value as hex string.
---- @param x Int64HighLow Value {high, low}
---- @return string formatted Hex string
-local function fmt64(x)
-  return string.format("{0x%08X, 0x%08X}", x[1], x[2])
-end
-
---- Run comprehensive self-test with test vectors.
---- @return boolean result True if all tests pass, false otherwise
-function bit64.selftest()
-  print("Running 64-bit operations test vectors...")
-  local passed = 0
-  local total = 0
-
-  local test_vectors = {
-    -- band tests
-    {
-      name = "band({0xFFFFFFFF, 0}, {0, 0xFFFFFFFF})",
-      fn = bit64.band,
-      inputs = { { 0xFFFFFFFF, 0 }, { 0, 0xFFFFFFFF } },
-      expected = { 0, 0 },
-    },
-    {
-      name = "band({0xFFFFFFFF, 0xFFFFFFFF}, {0xFFFFFFFF, 0xFFFFFFFF})",
-      fn = bit64.band,
-      inputs = { { 0xFFFFFFFF, 0xFFFFFFFF }, { 0xFFFFFFFF, 0xFFFFFFFF } },
-      expected = { 0xFFFFFFFF, 0xFFFFFFFF },
-    },
-    {
-      name = "band({0xAAAAAAAA, 0x55555555}, {0x55555555, 0xAAAAAAAA})",
-      fn = bit64.band,
-      inputs = { { 0xAAAAAAAA, 0x55555555 }, { 0x55555555, 0xAAAAAAAA } },
-      expected = { 0, 0 },
-    },
-
-    -- bor tests
-    {
-      name = "bor({0xFFFF0000, 0}, {0, 0x0000FFFF})",
-      fn = bit64.bor,
-      inputs = { { 0xFFFF0000, 0 }, { 0, 0x0000FFFF } },
-      expected = { 0xFFFF0000, 0x0000FFFF },
-    },
-    { name = "bor({0, 0}, {0, 0})", fn = bit64.bor, inputs = { { 0, 0 }, { 0, 0 } }, expected = { 0, 0 } },
-    {
-      name = "bor({0xAAAAAAAA, 0x55555555}, {0x55555555, 0xAAAAAAAA})",
-      fn = bit64.bor,
-      inputs = { { 0xAAAAAAAA, 0x55555555 }, { 0x55555555, 0xAAAAAAAA } },
-      expected = { 0xFFFFFFFF, 0xFFFFFFFF },
-    },
-
-    -- bxor tests
-    {
-      name = "bxor({0xFFFFFFFF, 0}, {0, 0xFFFFFFFF})",
-      fn = bit64.bxor,
-      inputs = { { 0xFFFFFFFF, 0 }, { 0, 0xFFFFFFFF } },
-      expected = { 0xFFFFFFFF, 0xFFFFFFFF },
-    },
-    {
-      name = "bxor({0x12345678, 0x9ABCDEF0}, {0x12345678, 0x9ABCDEF0})",
-      fn = bit64.bxor,
-      inputs = { { 0x12345678, 0x9ABCDEF0 }, { 0x12345678, 0x9ABCDEF0 } },
-      expected = { 0, 0 },
-    },
-
-    -- bnot tests
-    { name = "bnot({0, 0})", fn = bit64.bnot, inputs = { { 0, 0 } }, expected = { 0xFFFFFFFF, 0xFFFFFFFF } },
-    {
-      name = "bnot({0xFFFFFFFF, 0xFFFFFFFF})",
-      fn = bit64.bnot,
-      inputs = { { 0xFFFFFFFF, 0xFFFFFFFF } },
-      expected = { 0, 0 },
-    },
-    {
-      name = "bnot({0xAAAAAAAA, 0x55555555})",
-      fn = bit64.bnot,
-      inputs = { { 0xAAAAAAAA, 0x55555555 } },
-      expected = { 0x55555555, 0xAAAAAAAA },
-    },
-
-    -- lshift tests
-    { name = "lshift({0, 1}, 0)", fn = bit64.lshift, inputs = { { 0, 1 }, 0 }, expected = { 0, 1 } },
-    { name = "lshift({0, 1}, 1)", fn = bit64.lshift, inputs = { { 0, 1 }, 1 }, expected = { 0, 2 } },
-    { name = "lshift({0, 1}, 32)", fn = bit64.lshift, inputs = { { 0, 1 }, 32 }, expected = { 1, 0 } },
-    { name = "lshift({0, 1}, 63)", fn = bit64.lshift, inputs = { { 0, 1 }, 63 }, expected = { 0x80000000, 0 } },
-    { name = "lshift({0, 1}, 64)", fn = bit64.lshift, inputs = { { 0, 1 }, 64 }, expected = { 0, 0 } },
-    {
-      name = "lshift({0, 0xFFFFFFFF}, 8)",
-      fn = bit64.lshift,
-      inputs = { { 0, 0xFFFFFFFF }, 8 },
-      expected = { 0xFF, 0xFFFFFF00 },
-    },
-
-    -- rshift tests
-    { name = "rshift({0, 1}, 0)", fn = bit64.rshift, inputs = { { 0, 1 }, 0 }, expected = { 0, 1 } },
-    { name = "rshift({0, 2}, 1)", fn = bit64.rshift, inputs = { { 0, 2 }, 1 }, expected = { 0, 1 } },
-    { name = "rshift({1, 0}, 32)", fn = bit64.rshift, inputs = { { 1, 0 }, 32 }, expected = { 0, 1 } },
-    {
-      name = "rshift({0x80000000, 0}, 63)",
-      fn = bit64.rshift,
-      inputs = { { 0x80000000, 0 }, 63 },
-      expected = { 0, 1 },
-    },
-    { name = "rshift({1, 0}, 64)", fn = bit64.rshift, inputs = { { 1, 0 }, 64 }, expected = { 0, 0 } },
-    {
-      name = "rshift({0xFF000000, 0}, 8)",
-      fn = bit64.rshift,
-      inputs = { { 0xFF000000, 0 }, 8 },
-      expected = { 0x00FF0000, 0 },
-    },
-
-    -- arshift tests (sign-extending)
-    {
-      name = "arshift({0x80000000, 0}, 1)",
-      fn = bit64.arshift,
-      inputs = { { 0x80000000, 0 }, 1 },
-      expected = { 0xC0000000, 0 },
-    },
-    {
-      name = "arshift({0x80000000, 0}, 32)",
-      fn = bit64.arshift,
-      inputs = { { 0x80000000, 0 }, 32 },
-      expected = { 0xFFFFFFFF, 0x80000000 },
-    },
-    {
-      name = "arshift({0x80000000, 0}, 63)",
-      fn = bit64.arshift,
-      inputs = { { 0x80000000, 0 }, 63 },
-      expected = { 0xFFFFFFFF, 0xFFFFFFFF },
-    },
-    {
-      name = "arshift({0x80000000, 0}, 64)",
-      fn = bit64.arshift,
-      inputs = { { 0x80000000, 0 }, 64 },
-      expected = { 0xFFFFFFFF, 0xFFFFFFFF },
-    },
-    {
-      name = "arshift({0x7FFFFFFF, 0xFFFFFFFF}, 1)",
-      fn = bit64.arshift,
-      inputs = { { 0x7FFFFFFF, 0xFFFFFFFF }, 1 },
-      expected = { 0x3FFFFFFF, 0xFFFFFFFF },
-    },
-    {
-      name = "arshift({0x7FFFFFFF, 0}, 63)",
-      fn = bit64.arshift,
-      inputs = { { 0x7FFFFFFF, 0 }, 63 },
-      expected = { 0, 0 },
-    },
-
-    -- rol tests
-    { name = "rol({0, 1}, 0)", fn = bit64.rol, inputs = { { 0, 1 }, 0 }, expected = { 0, 1 } },
-    { name = "rol({0, 1}, 1)", fn = bit64.rol, inputs = { { 0, 1 }, 1 }, expected = { 0, 2 } },
-    { name = "rol({0x80000000, 0}, 1)", fn = bit64.rol, inputs = { { 0x80000000, 0 }, 1 }, expected = { 0, 1 } },
-    { name = "rol({0, 1}, 32)", fn = bit64.rol, inputs = { { 0, 1 }, 32 }, expected = { 1, 0 } },
-    { name = "rol({0, 1}, 64)", fn = bit64.rol, inputs = { { 0, 1 }, 64 }, expected = { 0, 1 } },
-    {
-      name = "rol({0x12345678, 0x9ABCDEF0}, 16)",
-      fn = bit64.rol,
-      inputs = { { 0x12345678, 0x9ABCDEF0 }, 16 },
-      expected = { 0x56789ABC, 0xDEF01234 },
-    },
-
-    -- ror tests
-    { name = "ror({0, 1}, 0)", fn = bit64.ror, inputs = { { 0, 1 }, 0 }, expected = { 0, 1 } },
-    { name = "ror({0, 1}, 1)", fn = bit64.ror, inputs = { { 0, 1 }, 1 }, expected = { 0x80000000, 0 } },
-    { name = "ror({0, 2}, 1)", fn = bit64.ror, inputs = { { 0, 2 }, 1 }, expected = { 0, 1 } },
-    { name = "ror({1, 0}, 32)", fn = bit64.ror, inputs = { { 1, 0 }, 32 }, expected = { 0, 1 } },
-    { name = "ror({0, 1}, 64)", fn = bit64.ror, inputs = { { 0, 1 }, 64 }, expected = { 0, 1 } },
-    {
-      name = "ror({0x12345678, 0x9ABCDEF0}, 16)",
-      fn = bit64.ror,
-      inputs = { { 0x12345678, 0x9ABCDEF0 }, 16 },
-      expected = { 0xDEF01234, 0x56789ABC },
-    },
-
-    -- add tests
-    { name = "add({0, 0}, {0, 0})", fn = bit64.add, inputs = { { 0, 0 }, { 0, 0 } }, expected = { 0, 0 } },
-    { name = "add({0, 1}, {0, 1})", fn = bit64.add, inputs = { { 0, 1 }, { 0, 1 } }, expected = { 0, 2 } },
-    {
-      name = "add({0, 0xFFFFFFFF}, {0, 1})",
-      fn = bit64.add,
-      inputs = { { 0, 0xFFFFFFFF }, { 0, 1 } },
-      expected = { 1, 0 },
-    },
-    {
-      name = "add({0xFFFFFFFF, 0xFFFFFFFF}, {0, 1})",
-      fn = bit64.add,
-      inputs = { { 0xFFFFFFFF, 0xFFFFFFFF }, { 0, 1 } },
-      expected = { 0, 0 },
-    },
-    {
-      name = "add({0xFFFFFFFF, 0xFFFFFFFF}, {0, 2})",
-      fn = bit64.add,
-      inputs = { { 0xFFFFFFFF, 0xFFFFFFFF }, { 0, 2 } },
-      expected = { 0, 1 },
-    },
-
-    -- u64_to_be_bytes tests
-    {
-      name = "u64_to_be_bytes({0, 0})",
-      fn = bit64.u64_to_be_bytes,
-      inputs = { { 0, 0 } },
-      expected = string.char(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00),
-    },
-    {
-      name = "u64_to_be_bytes({0, 1})",
-      fn = bit64.u64_to_be_bytes,
-      inputs = { { 0, 1 } },
-      expected = string.char(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01),
-    },
-    {
-      name = "u64_to_be_bytes({0x12345678, 0x9ABCDEF0})",
-      fn = bit64.u64_to_be_bytes,
-      inputs = { { 0x12345678, 0x9ABCDEF0 } },
-      expected = string.char(0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0),
-    },
-
-    -- u64_to_le_bytes tests
-    {
-      name = "u64_to_le_bytes({0, 0})",
-      fn = bit64.u64_to_le_bytes,
-      inputs = { { 0, 0 } },
-      expected = string.char(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00),
-    },
-    {
-      name = "u64_to_le_bytes({0, 1})",
-      fn = bit64.u64_to_le_bytes,
-      inputs = { { 0, 1 } },
-      expected = string.char(0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00),
-    },
-    {
-      name = "u64_to_le_bytes({0x12345678, 0x9ABCDEF0})",
-      fn = bit64.u64_to_le_bytes,
-      inputs = { { 0x12345678, 0x9ABCDEF0 } },
-      expected = string.char(0xF0, 0xDE, 0xBC, 0x9A, 0x78, 0x56, 0x34, 0x12),
-    },
-
-    -- be_bytes_to_u64 tests
-    {
-      name = "be_bytes_to_u64(zeros)",
-      fn = bit64.be_bytes_to_u64,
-      inputs = { string.char(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00) },
-      expected = { 0, 0 },
-    },
-    {
-      name = "be_bytes_to_u64(one)",
-      fn = bit64.be_bytes_to_u64,
-      inputs = { string.char(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01) },
-      expected = { 0, 1 },
-    },
-    {
-      name = "be_bytes_to_u64(0x123456789ABCDEF0)",
-      fn = bit64.be_bytes_to_u64,
-      inputs = { string.char(0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0) },
-      expected = { 0x12345678, 0x9ABCDEF0 },
-    },
-
-    -- le_bytes_to_u64 tests
-    {
-      name = "le_bytes_to_u64(zeros)",
-      fn = bit64.le_bytes_to_u64,
-      inputs = { string.char(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00) },
-      expected = { 0, 0 },
-    },
-    {
-      name = "le_bytes_to_u64(one)",
-      fn = bit64.le_bytes_to_u64,
-      inputs = { string.char(0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00) },
-      expected = { 0, 1 },
-    },
-    {
-      name = "le_bytes_to_u64(0x123456789ABCDEF0)",
-      fn = bit64.le_bytes_to_u64,
-      inputs = { string.char(0xF0, 0xDE, 0xBC, 0x9A, 0x78, 0x56, 0x34, 0x12) },
-      expected = { 0x12345678, 0x9ABCDEF0 },
-    },
-  }
-
-  for _, test in ipairs(test_vectors) do
-    total = total + 1
-    local result = test.fn(unpack_fn(test.inputs))
-
-    if type(test.expected) == "table" then
-      -- 64-bit comparison
-      if eq64(result, test.expected) then
-        print("  PASS: " .. test.name)
-        passed = passed + 1
-      else
-        print("  FAIL: " .. test.name)
-        print("    Expected: " .. fmt64(test.expected))
-        print("    Got:      " .. fmt64(result))
-      end
-    elseif type(test.expected) == "string" then
-      -- Byte string comparison
-      if result == test.expected then
-        print("  PASS: " .. test.name)
-        passed = passed + 1
-      else
-        local exp_hex, got_hex = "", ""
-        for i = 1, #test.expected do
-          exp_hex = exp_hex .. string.format("%02X", string.byte(test.expected, i))
-        end
-        for i = 1, #result do
-          got_hex = got_hex .. string.format("%02X", string.byte(result, i))
-        end
-        print("  FAIL: " .. test.name)
-        print("    Expected: " .. exp_hex)
-        print("    Got:      " .. got_hex)
-      end
-    else
-      if result == test.expected then
-        print("  PASS: " .. test.name)
-        passed = passed + 1
-      else
-        print("  FAIL: " .. test.name)
-        print("    Expected: " .. tostring(test.expected))
-        print("    Got:      " .. tostring(result))
-      end
-    end
-  end
-
-  print(string.format("\n64-bit operations: %d/%d tests passed\n", passed, total))
-  return passed == total
-end
-
-return bit64
-end
-end
-
---- @module "bitn"
---- Pure Lua bitwise operations library.
---- This library provides standalone, version-agnostic implementations of
---- bitwise operations for 16-bit, 32-bit, and 64-bit integers. It works
---- across Lua 5.1, 5.2, 5.3, 5.4, and LuaJIT without depending on any
---- built-in bit libraries.
----
---- @usage
---- local bitn = require("bitn")
---- print(bitn.version())
----
---- -- 32-bit operations
---- local result = bitn.bit32.band(0xFF00, 0x0FF0)  -- 0x0F00
----
---- -- 64-bit operations (using {high, low} pairs)
---- local sum = bitn.bit64.add({0, 1}, {0, 2})  -- {0, 3}
----
---- -- 16-bit operations
---- local shifted = bitn.bit16.lshift(1, 8)  -- 256
----
---- @class bitn
-local bitn = {
-  bit16 = require("bitn.bit16"),
-  bit32 = require("bitn.bit32"),
-  bit64 = require("bitn.bit64"),
-}
-
---- Library version (injected at build time for releases).
-local VERSION = "v0.1.0"
-
---- Get the library version string.
---- @return string version Version string (e.g., "v1.0.0" or "dev")
-function bitn.version()
-  return VERSION
-end
-
-return bitn
 end
 end
 
@@ -8156,6 +6865,7 @@ end
 ---   static_key = my_static_key
 --- })
 --- ...
+--- @class noiseprotocol
 local noiseprotocol = {}
 
 local crypto = require("noiseprotocol.crypto")
@@ -8163,7 +6873,7 @@ local utils = require("noiseprotocol.utils")
 local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
 
 --- Module version
-local VERSION = "v0.3.0"
+local VERSION = "v0.5.1"
 
 --- Enable or disable OpenSSL acceleration
 --- @function use_openssl
@@ -8183,6 +6893,15 @@ end
 -- ============================================================================
 -- PROTOCOL NAME PARSING
 -- ============================================================================
+
+--- Parsed protocol name components
+--- @class ParsedProtocolName
+--- @field pattern string Base handshake pattern (e.g., "XX", "IK", "NN")
+--- @field modifiers string[] List of modifier strings (e.g., {"psk0", "psk2"})
+--- @field dh string Diffie-Hellman function name (e.g., "25519", "448")
+--- @field cipher string Cipher name (e.g., "ChaChaPoly", "AESGCM")
+--- @field hash string Hash function name (e.g., "SHA256", "BLAKE2s")
+--- @field full_name string Original full protocol name
 
 --- Parse pattern and modifiers from the pattern portion
 --- @param pattern_str string Pattern with modifiers (e.g. "NNpsk0+psk2")
@@ -8211,7 +6930,7 @@ end
 
 --- Parse a Noise protocol name into its components
 --- @param protocol_name string Full protocol name (e.g. "Noise_NNpsk0+psk2_25519_AESGCM_SHA256")
---- @return table parsed Components: pattern, modifiers, dh, cipher, hash
+--- @return ParsedProtocolName parsed Parsed protocol components
 local function parse_protocol_name(protocol_name)
   -- Protocol name format: Noise_PATTERNmodifiers_DH_CIPHER_HASH
   local prefix, pattern_with_modifiers, dh, cipher, hash =
@@ -8347,9 +7066,8 @@ local function make_chachapoly_nonce(n)
   -- ChaCha20Poly1305 uses little-endian format: 4 zero bytes + 64-bit counter
   assert(n <= MAX_NONCE, "Nonce overflow")
   local nonce = string.rep("\0", 4) -- 4 zero bytes padding
-
-  -- Little-endian 64-bit counter
-  for _ = 0, 7 do
+  -- Little-endian 64-bit counter (8 bytes)
+  for _ = 1, 8 do
     nonce = nonce .. string.char(n % 256)
     n = math.floor(n / 256)
   end
@@ -8762,6 +7480,7 @@ end
 --- @param dh_output string Diffie-Hellman shared secret
 function SymmetricState:mix_key_and_hash(dh_output)
   local temp_h, temp_k
+  --- @type string, string, string
   self.ck, temp_h, temp_k = self.cipher_suite.hash.hkdf(self.ck, dh_output, 3)
   self:mix_hash(temp_h)
   -- Truncate temp_k if needed

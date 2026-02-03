@@ -1,4 +1,3 @@
---- @module "lib.conditionals"
 --- This module provides functionality for managing and persisting conditionals.
 
 local log = require("lib.logging")
@@ -7,6 +6,7 @@ local persist = require("lib.persist")
 --- @class Conditionals
 --- A class representing conditionals.
 local Conditionals = {}
+Conditionals.__index = Conditionals
 
 --- The key used to persist conditionals.
 --- @type string
@@ -27,11 +27,8 @@ local CONDITIONAL_ID_START = 10
 --- @return Conditionals conditionals A new instance of the `Conditionals` class.
 function Conditionals:new()
   log:trace("Conditionals:new()")
-  local properties = {}
-  setmetatable(properties, self)
-  self.__index = self
-  --- @diagnostic disable-next-line: return-type-mismatch
-  return properties
+  local instance = setmetatable({}, self)
+  return instance
 end
 
 --- Upserts a conditional into the conditionals table.
@@ -42,12 +39,11 @@ end
 --- @return Conditional conditional The upserted conditional.
 function Conditionals:upsertConditional(namespace, key, conditional, testFunction)
   log:trace("Conditionals:upsertConditional(%s, %s, %s, <testFunction>)", namespace, key, conditional)
-  local conditionals = self:_getConditionals()
+  local conditionals = self:getConditionals()
   --- @type number
   local conditionalId = Select(conditionals, namespace, key, "conditionalId") or self:_getNextConditionalId()
 
   conditional = TableDeepCopy(conditional)
-  --- @cast conditional Conditional
 
   conditional.conditionalId = conditionalId
   conditional.name = "CONDITIONAL_" .. conditionalId
@@ -66,7 +62,7 @@ end
 --- @param key string The key of the conditional.
 function Conditionals:deleteConditional(namespace, key)
   log:trace("Conditionals:deleteConditional(%s, %s)", namespace, key)
-  local conditionals = self:_getConditionals()
+  local conditionals = self:getConditionals()
   --- @type Conditional|nil
   local conditional = Select(conditionals, namespace, key)
   if IsEmpty(conditional) then
@@ -89,11 +85,12 @@ function Conditionals:deleteConditional(namespace, key)
 end
 
 --- Gets the next available conditional ID.
+--- @private
 --- @return number conditionalId The next available conditional ID.
 function Conditionals:_getNextConditionalId()
   log:trace("Conditionals:_getNextConditionalId()")
   local currentConditionals = {}
-  for _, keys in pairs(self:_getConditionals()) do
+  for _, keys in pairs(self:getConditionals()) do
     for _, conditional in pairs(keys) do
       currentConditionals[conditional.conditionalId] = true
     end
@@ -107,16 +104,31 @@ end
 
 --- Retrieves all conditionals from persistent storage.
 --- @return table<string, table<string, Conditional>> conditionals A table containing all conditionals.
-function Conditionals:_getConditionals()
-  log:trace("Conditionals:_getConditionals()")
+--- @diagnostic disable-next-line: unused
+function Conditionals:getConditionals()
+  log:trace("Conditionals:getConditionals()")
   return persist:get(CONDITIONALS_PERSIST_KEY, {}) or {}
 end
 
 --- Saves the conditionals to persistent storage.
+--- @private
 --- @param conditionals table<string, table<string, Conditional>>? The conditionals table to save.
+--- @diagnostic disable-next-line: unused
 function Conditionals:_saveConditionals(conditionals)
   log:trace("Conditionals:_saveConditionals(%s)", conditionals)
   persist:set(CONDITIONALS_PERSIST_KEY, not IsEmpty(conditionals) and conditionals or nil)
+end
+
+--- Resets all conditionals, removing them from the system and clearing persisted storage.
+function Conditionals:reset()
+  log:trace("Conditionals:reset()")
+  for _, nsConditionals in pairs(self:getConditionals()) do
+    for _, conditional in pairs(nsConditionals) do
+      log:debug("Removing conditional '%s' (id=%s)", conditional.name, conditional.conditionalId)
+      TC[conditional.name] = nil
+    end
+  end
+  self:_saveConditionals(nil)
 end
 
 local conditionals = Conditionals:new()
@@ -126,7 +138,7 @@ local conditionals = Conditionals:new()
 function GetConditionals()
   log:trace("GetConditionals()")
   local progConditionals = {}
-  for _, keys in pairs(conditionals:_getConditionals()) do
+  for _, keys in pairs(conditionals:getConditionals()) do
     for _, conditional in pairs(keys) do
       progConditionals[tostring(conditional.conditionalId)] = conditional
     end

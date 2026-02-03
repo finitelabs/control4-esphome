@@ -2,24 +2,21 @@ local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local values = require("lib.values")
 local ESPHomeClient = require("esphome.client")
-local ESPHomeProtoSchema = require("esphome.proto-schema")
+local ESPHomeProtoSchema = require("esphome.proto_schema")
 
 --- @class SwitchEntity:Entity
 local SwitchEntity = {
   TYPE = ESPHomeClient.EntityType.SWITCH,
 }
+SwitchEntity.__index = SwitchEntity
 
 --- Create a new instance of the switch entity.
 --- @param client ESPHomeClient The ESPHome client instance.
 --- @return SwitchEntity entity A new instance of the SwitchEntity entity.
 function SwitchEntity:new(client)
-  local properties = {
-    client = client,
-  }
-  setmetatable(properties, self)
-  self.__index = self
-  --- @cast properties SwitchEntity
-  return properties
+  local instance = setmetatable({}, self)
+  instance.client = client
+  return instance
 end
 
 --- Handle the discovery of a switch entity.

@@ -7,18 +7,15 @@ local ESPHomeClient = require("esphome.client")
 local BinarySensorEntity = {
   TYPE = ESPHomeClient.EntityType.BINARY_SENSOR,
 }
+BinarySensorEntity.__index = BinarySensorEntity
 
 --- Create a new instance of the binary sensor entity.
 --- @param client ESPHomeClient The ESPHome client instance.
 --- @return BinarySensorEntity entity A new instance of the BinarySensorEntity entity.
 function BinarySensorEntity:new(client)
-  local properties = {
-    client = client,
-  }
-  setmetatable(properties, self)
-  self.__index = self
-  --- @cast properties BinarySensorEntity
-  return properties
+  local instance = setmetatable({}, self)
+  instance.client = client
+  return instance
 end
 
 --- Handle the discovery of a binary sensor entity.

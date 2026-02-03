@@ -1,11 +1,46 @@
---- @module "lib.utils"
 --- Utility module for managing devices, their bindings, properties, data, and general device-related operations in a Control4-driven environment.
 
-local deferred = require("vendor.deferred")
+local deferred = require("deferred")
 
 local log = require("lib.logging")
 
 local constants = require("constants")
+
+do
+  --- @type table<string, fun(paramName: string): string[]>
+  --- Global table mapping command names to functions.
+  --- Each function takes a parameter name and returns a list of parameter values.
+  GCPL = GCPL or {}
+end
+
+--- Retrieves a list of command parameters for a given command name.
+--- @param commandName string The name of the command to retrieve parameters for.
+--- @param paramName string The specific parameter to retrieve associated with the command.
+--- @return any|nil parameters Returns the list of parameters if successful; nil otherwise.
+function GetCommandParamList(commandName, paramName)
+  commandName = string.gsub(commandName, "%W", "_")
+  commandName = string.gsub(commandName, "[_]+", "_")
+  commandName = string.gsub(commandName, "^[_| ]+", "")
+  commandName = string.gsub(commandName, "[_| ]+$", "")
+
+  local init = {
+    "GetCommandParamList: " .. commandName,
+    paramName,
+  }
+  HandlerDebug(init)
+
+  local success, ret
+
+  if GCPL and GCPL[commandName] and type(GCPL[commandName]) == "function" then
+    success, ret = pcall(GCPL[commandName], paramName)
+  end
+
+  if success == true then
+    return ret
+  elseif success == false then
+    print("GetCommandParamList error: ", ret, commandName, paramName)
+  end
+end
 
 --- Checks if the current OS version meets the minimum required version as defined in the driver configuration.
 --- @param statusProperty string The property to update with the status message if the version check fails.
@@ -44,21 +79,26 @@ function GetDriverVersion(filename)
   return Select(ParseXml(FileRead("driver.xml")) or {}, "devicedata", "version") or nil
 end
 
---- Logs function calls and arguments for debugging purposes.
---- @param funcName string The name of the function being logged.
---- @vararg any A variable number of arguments passed to the function.
-local function LogC4Send(funcName, ...)
+--- Logs and invokes a C4 method, trimming trailing nil arguments.
+--- @param methodName string The C4 method name
+--- @param ... any Arguments to pass
+--- @return any
+local function C4Call(methodName, ...)
   local numArgs = select("#", ...)
   local args = { ... }
 
-  local logArgsFmt = ""
-  for i, _ in pairs(args) do
-    logArgsFmt = logArgsFmt .. "%s"
-    if i ~= numArgs then
-      logArgsFmt = logArgsFmt .. ", "
+  -- Single pass: build format string and find last non-nil
+  local lastNonNil = 0
+  local fmtParts = {}
+  for i = 1, numArgs do
+    if args[i] ~= nil then
+      lastNonNil = i
     end
+    fmtParts[i] = "%s"
   end
-  log:trace("%s(" .. logArgsFmt .. ")", funcName, unpack(args))
+
+  log:trace("C4:" .. methodName .. "(" .. table.concat(fmtParts, ", ") .. ")", unpack(args, 1, numArgs))
+  return C4[methodName](C4, unpack(args, 1, lastNonNil))
 end
 
 --- Sends a Control4 CommandMessage to a specified Control4 device driver.
@@ -67,9 +107,8 @@ end
 --- @param tParams table A table containing parameters for the command.
 --- @param allowEmptyValues? boolean Allows empty strings as parameter values (optional). Defaults to false.
 --- @param logCommand? boolean If false, prevents logging of the command's content (optional). Defaults to true.
-function SendToDevice(...)
-  LogC4Send("C4:SendToDevice", ...)
-  return C4:SendToDevice(...)
+function SendToDevice(deviceId, strCommand, tParams, allowEmptyValues, logCommand)
+  return C4Call("SendToDevice", deviceId, strCommand, tParams, allowEmptyValues, logCommand)
 end
 
 --- Sends a Control4 BindMessage to a proxy with the specified binding ID.
@@ -78,18 +117,16 @@ end
 --- @param tParams table A table containing parameters for the command.
 --- @param strMessage? string Overrides message type ("COMMAND" or "NOTIFY") (optional). Defaults to "COMMAND".
 --- @param allowEmptyValues? boolean Allows empty values in message parameters (optional).
-function SendToProxy(...)
-  LogC4Send("C4:SendToProxy", ...)
-  return C4:SendToProxy(...)
+function SendToProxy(idBinding, strCommand, tParams, strMessage, allowEmptyValues)
+  return C4Call("SendToProxy", idBinding, strCommand, tParams, strMessage, allowEmptyValues)
 end
 
 --- Sends an HTTP request to a network binding.
 --- @param idBinding number The ID of the network binding to send to.
 --- @param nPort number The port to use for the request.
 --- @param strData string The data to send with the HTTP request.
-function SendToNetwork(...)
-  LogC4Send("C4:SendToNetwork", ...)
-  return C4:SendToNetwork(...)
+function SendToNetwork(idBinding, nPort, strData)
+  return C4Call("SendToNetwork", idBinding, nPort, strData)
 end
 
 --- Sends a UI Request to another driver.
@@ -97,18 +134,17 @@ end
 --- @param request string The request to send.
 --- @param tParams table A table of parameters to send with the request. Use `{}` if no parameters.
 --- @return string response The response to the request in XML format.
-function SendUIRequest(...)
-  LogC4Send("C4:SendUIRequest", ...)
-  return C4:SendUIRequest(...)
+function SendUIRequest(id, request, tParams)
+  return C4Call("SendUIRequest", id, request, tParams)
 end
 
 --- Retrieves the bindings for a given device, optionally filtered by type, provider, display name, and class.
---- @param deviceId number The ID of the device to retrieve bindings for.
+--- @param deviceId integer The ID of the device to retrieve bindings for.
 --- @param typeFilter string|nil Optional filter for the binding type.
 --- @param providerFilter boolean|nil Optional filter for the binding provider.
 --- @param displayNameFilter string|nil Optional filter for the binding display name.
 --- @param classFilter string|nil Optional filter for the binding class.
---- @return table<number, DeviceBinding> bindings A table of matched bindings, where the keys are binding IDs and the values are binding details.
+--- @return table<integer, DeviceBinding> bindings A table of matched bindings, where the keys are binding IDs and the values are binding details.
 function GetDeviceBindings(deviceId, typeFilter, providerFilter, displayNameFilter, classFilter)
   log:trace(
     "GetDeviceBindings(%s, %s, %s, %s, %s)",
@@ -120,7 +156,7 @@ function GetDeviceBindings(deviceId, typeFilter, providerFilter, displayNameFilt
   )
   --- @type DeviceBinding[]
   local deviceBindings = Select(C4:GetBindingsByDevice(deviceId), "bindings") or {}
-  --- @type table<number, DeviceBinding>
+  --- @type table<integer, DeviceBinding>
   local matchedBindings = {}
   for _, binding in pairs(deviceBindings) do
     if
@@ -139,12 +175,60 @@ function GetDeviceBindings(deviceId, typeFilter, providerFilter, displayNameFilt
   return matchedBindings
 end
 
-local xml2lua = require("vendor.xml.xml2lua")
-local handler = require("vendor.xml.xmlhandler.tree")
+--- Retrieves the agent ID for a given C4i name.
+--- @param c4iName string The C4i name to look up.
+--- @return number|nil agentId The ID of the agent if found, otherwise nil.
+function GetAgentId(c4iName)
+  log:trace("GetAgentId(%s)", c4iName)
+  local agents = Select(ParseXml(C4:GetProjectItems("AGENTS")), "systemitems", "item") or {}
+  if not IsList(agents) then
+    agents = { agents }
+  end
+  for _, agent in pairs(agents) do
+    if not IsEmpty(agent) and agent.c4i == c4iName and not IsEmpty(agent.id) then
+      return tointeger(agent.id)
+    end
+  end
+  return nil
+end
+
+--- Retrieves device properties for a given device ID.
+--- @param deviceId number The ID of the device to retrieve properties for.
+--- @return table<string, string> properties A table mapping property names to their values.
+function GetDeviceProperties(deviceId)
+  log:trace("GetDeviceProperties(%s)", deviceId)
+  local strValues = SendUIRequest(deviceId, "GET_PROPERTIES_SYNC", {})
+  if IsEmpty(strValues) then
+    strValues = SendUIRequest(deviceId, "GET_PROPERTIES", {})
+  end
+  local propertiesList = Select(ParseXml(strValues), "properties", "property")
+  local propertiesMap = {}
+  for _, property in pairs(propertiesList or {}) do
+    propertiesMap[property.name] = property.value
+  end
+  return propertiesMap
+end
+
+--- Sets device properties for a given device ID.
+--- @param deviceId number The ID of the device to set properties on.
+--- @param properties table<string, string> A table mapping property names to their values.
+--- @param onlyIfChanged? boolean If true, only update properties that have changed.
+function SetDeviceProperties(deviceId, properties, onlyIfChanged)
+  log:trace("SetDeviceProperties(%s, %s, %s)", deviceId, properties, onlyIfChanged)
+  local currentProps = onlyIfChanged and GetDeviceProperties(deviceId) or {}
+  for name, value in pairs(properties) do
+    if not onlyIfChanged or currentProps[name] ~= value then
+      SendToDevice(deviceId, "UPDATE_PROPERTY", { Name = name, Value = value })
+    end
+  end
+end
+
+local xml2lua = require("xml.xml2lua")
+local handler = require("xml.xmlhandler.tree")
 
 --- Parses an XML string and converts it into a Lua table.
 --- Makes use of an external XML parser library.
---- @param xmlStr string The XML string to parse.
+--- @param xmlStr string|nil The XML string to parse.
 --- @return table xml A Lua table representation of the XML structure.
 function ParseXml(xmlStr)
   if IsEmpty(xmlStr) then
@@ -164,6 +248,63 @@ function MinifyXml(s)
   s = string.gsub(s or "", "\r?\n[ ]*", "")
   s = string.gsub(s, "^[ ]*", "")
   return s
+end
+
+--- Gets default values for all read-only properties from driver config XML.
+--- Parses the driver's config XML and returns a table mapping property names
+--- to their default values for all read-only, non-label properties.
+--- Use this for resetting driver state without hardcoding property lists.
+--- @param exclude? string[] Optional list of property names to exclude (e.g., user input fields)
+--- @return table<string, string> defaults Map of property name to default value
+function GetPropertyResetValues(exclude)
+  local configXML = C4:GetDriverConfigInfo("config")
+  if IsEmpty(configXML) then
+    return {}
+  end
+
+  -- Parse the config XML
+  local parsed = ParseXml("<root>" .. configXML .. "</root>")
+  local propsArray = Select(parsed, "root", "properties", "property") or {}
+
+  -- Ensure it's a list (xml2lua returns single element if only one)
+  if not IsList(propsArray) then
+    propsArray = { propsArray }
+  end
+
+  -- Build exclusion set for fast lookup
+  local excludeSet = {}
+  for _, name in ipairs(exclude or {}) do
+    excludeSet[name] = true
+  end
+
+  -- Helper to get string value (handles empty table from xml parser)
+  local function getString(val)
+    if val == nil then
+      return nil
+    end
+    if type(val) == "table" then
+      return ""
+    end
+    return tostring(val)
+  end
+
+  -- Parse properties and collect read-only defaults
+  local defaults = {}
+  for _, prop in ipairs(propsArray) do
+    local name = getString(Select(prop, "name"))
+    if name and name ~= "" then
+      local propType = getString(Select(prop, "type")) or ""
+      local readonly = getString(Select(prop, "readonly")) == "true"
+      local password = getString(Select(prop, "password")) == "true"
+
+      -- Include only read-only, non-label, non-password, non-excluded properties
+      if readonly and propType ~= "LABEL" and not password and not excludeSet[name] then
+        defaults[name] = getString(Select(prop, "default")) or ""
+      end
+    end
+  end
+
+  return defaults
 end
 
 --- Clamps a numeric value within a specified range.
@@ -205,7 +346,7 @@ end
 --- Computes the number of elements in a table.
 --- Works for any table type, not just array-like tables.
 --- @param t table The table to measure.
---- @return number length The number of elements in the table.
+--- @return integer length The number of elements in the table.
 function TableLength(t)
   if type(t) ~= "table" then
     return 0
@@ -301,10 +442,12 @@ function TableReverse(t)
 end
 
 --- Deep copies a table, capturing nested tables and ensuring circular references are handled.
---- @param t table|nil The table to be deep-copied.
+--- @generic T: table
+--- @param t T|nil The table to be deep-copied.
 --- @param seen? table Tracks tables already copied (internal use).
---- @return table|nil copiedTable A deep-copied version of the input table.
---- @overload fun(t: table, seen?: table): table
+--- @return T|nil copiedTable A deep-copied version of the input table.
+--- @overload fun(t: T, seen?: table): T
+--- @overload fun(t: T): T
 function TableDeepCopy(t, seen)
   seen = seen or {}
   if t == nil then
@@ -463,13 +606,14 @@ end
 --- Converts a value to a valid integer.
 --- Rounds fractional numbers and validates string representations.
 --- @param value any The value to convert to an integer. Can be a number or a string that represents a number.
---- @return number|nil Returns the rounded integer if the conversion is successful, or `nil` if the value cannot be converted.
+--- @return integer|nil int Returns the rounded integer if the conversion is successful, or `nil` if the value cannot be converted.
+--- @overload fun(value: number): integer
 function tointeger(value)
-  local nval = tonumber(value)
-  if nval == nil then
+  value = tonumber(value)
+  if value == nil then
     return nil
   end
-  return (nval >= 0) and math.floor(nval + 0.5) or math.ceil(nval - 0.5)
+  return (value >= 0) and math.floor(value + 0.5) or math.ceil(value - 0.5)
 end
 
 function tonumber_locale(str, base)
@@ -521,7 +665,7 @@ end
 --- Creates a deferred object that is immediately rejected with an error.
 --- @generic F
 --- @param error F The error to reject the deferred object with.
---- @return Deferred<void,F> rejected The error to reject the deferred object with.
+--- @return Deferred<any,F> rejected The rejected deferred object.
 function reject(error)
   return deferred.new():reject(error)
 end
@@ -529,7 +673,7 @@ end
 --- Creates a deferred object that is immediately resolved with a value.
 --- @generic T
 --- @param value T The value to resolve the deferred object with.
---- @return Deferred<T,void> resolved The value to resolve the deferred object with.
+--- @return Deferred<T,any> resolved The resolved deferred object.
 function resolve(value)
   return deferred.new():resolve(value)
 end
@@ -568,4 +712,160 @@ function to_hex(str)
   return (str:gsub(".", function(c)
     return string.format("%02X ", string.byte(c))
   end))
+end
+
+--- Convert Fahrenheit to Celsius, rounded to 1 decimal place
+--- Overrides the vendor lib function which rounds to nearest 0.5
+--- @param f number Temperature in Fahrenheit
+--- @return number|nil Temperature in Celsius, or nil if input is not a number
+function f2c(f)
+  if type(f) ~= "number" then
+    return nil
+  end
+  local c = (f - 32) * (5 / 9)
+  return round(c, 1)
+end
+
+--- Convert Celsius to Fahrenheit, rounded to 1 decimal place
+--- Overrides the vendor lib function which rounds to nearest integer
+--- @param c number Temperature in Celsius
+--- @return number|nil Temperature in Fahrenheit, or nil if input is not a number
+function c2f(c)
+  if type(c) ~= "number" then
+    return nil
+  end
+  local f = (c * (9 / 5)) + 32
+  return round(f, 1)
+end
+
+--------------------------------------------------------------------------------
+-- Binary-safe serialization
+--------------------------------------------------------------------------------
+
+--- Marker key for base64-encoded binary strings.
+--- Using an unlikely key to avoid collisions with real data.
+local BINARY_MARKER = "__b64"
+
+--- Sentinel value for nil (since Lua tables can't store nil values).
+local NIL_SENTINEL = "__null__"
+
+--- Check if a byte is binary (unsafe for transport).
+--- Safe: 0x09 (tab), 0x0A (LF), 0x0D (CR), 0x20-0x7E (printable ASCII)
+--- @param b number The byte value
+--- @return boolean isBinary True if the byte is binary/unsafe
+local function isBinaryByte(b)
+  if b <= 8 then
+    return true
+  end -- 0x00-0x08
+  if b == 11 or b == 12 then
+    return true
+  end -- 0x0B, 0x0C
+  if b >= 14 and b <= 31 then
+    return true
+  end -- 0x0E-0x1F
+  if b >= 127 then
+    return true
+  end -- 0x7F-0xFF
+  return false
+end
+
+--- Check if a string contains binary data that needs encoding.
+--- Catches null bytes (truncated by C4 proxy), control chars, and high bytes.
+--- @param s string The string to check
+--- @return boolean needsEncoding True if the string contains binary data
+local function needsBase64(s)
+  for i = 1, #s do
+    if isBinaryByte(string.byte(s, i)) then
+      return true
+    end
+  end
+  return false
+end
+
+--- Recursively encode binary strings in a table for safe JSON serialization.
+--- Strings containing binary data are wrapped as {__b64 = "base64data"}.
+--- nil values are converted to a sentinel string.
+--- @param value any The value to process
+--- @return any encoded The processed value with binary strings wrapped
+local function encodeBinaryStrings(value)
+  if value == nil then
+    return NIL_SENTINEL
+  end
+  local t = type(value)
+  if t == "string" then
+    -- Encode if binary OR if it equals the sentinel (to avoid collision)
+    if needsBase64(value) or value == NIL_SENTINEL then
+      return { [BINARY_MARKER] = C4:Base64Encode(value) }
+    end
+    return value
+  elseif t == "table" then
+    local result = {}
+    for k, v in pairs(value) do
+      result[k] = encodeBinaryStrings(v)
+    end
+    return result
+  else
+    return value
+  end
+end
+
+--- Recursively decode binary strings in a table after JSON deserialization.
+--- Unwraps {__b64 = "base64data"} back to original binary strings.
+--- Converts sentinel values back to nil.
+--- @param value any The value to process
+--- @return any decoded The processed value with binary strings unwrapped
+local function decodeBinaryStrings(value)
+  if value == NIL_SENTINEL then
+    return nil
+  end
+  if type(value) ~= "table" then
+    return value
+  end
+  -- Check if this is a binary marker wrapper
+  local b64 = value[BINARY_MARKER]
+  if b64 ~= nil and type(b64) == "string" then
+    -- This is a wrapped binary string, decode it
+    return C4:Base64Decode(b64)
+  end
+  -- Regular table, recurse into children
+  local result = {}
+  for k, v in pairs(value) do
+    result[k] = decodeBinaryStrings(v)
+  end
+  return result
+end
+
+--- Wrapper key for serialized values.
+--- Using a short key to minimize overhead.
+local WRAPPER_KEY = "__v"
+
+--- Binary-safe serialization for any value.
+--- Wraps the value in a container, encodes binary strings, then JSON + base64 encodes.
+--- Handles tables, strings (binary or plain), numbers, booleans, and nil uniformly.
+--- Use DeserializeSafe to decode.
+--- @param value any The value to serialize
+--- @return string serialized The serialized string
+function SerializeSafe(value)
+  local wrapped = { [WRAPPER_KEY] = encodeBinaryStrings(value) }
+  return C4:Base64Encode(JSON:encode(wrapped))
+end
+
+--- Binary-safe deserialization that reverses SerializeSafe.
+--- Detects and decodes values serialized by SerializeSafe.
+--- Returns the original value if it wasn't serialized by SerializeSafe.
+--- @param serialized any The serialized string from SerializeSafe
+--- @return any value The deserialized value with binary strings restored
+function DeserializeSafe(serialized)
+  if type(serialized) ~= "string" then
+    return serialized
+  end
+  local decoded = C4:Base64Decode(serialized)
+  if decoded == "" then
+    return serialized -- invalid base64, not ours
+  end
+  local success, wrapped = pcall(JSON.decode, JSON, decoded)
+  if not success or type(wrapped) ~= "table" or wrapped[WRAPPER_KEY] == nil then
+    return serialized -- not ours
+  end
+  return decodeBinaryStrings(wrapped[WRAPPER_KEY])
 end

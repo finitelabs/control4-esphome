@@ -10,6 +10,18 @@
 [//]: # "### Removed"
 [//]: # "- Removed"
 
+## Unreleased
+
+### Added
+
+- Added Bluetooth proxy support with scanner infrastructure, advertisement parsing, and GATT connection management
+- Added ESPHome Bluetooth Coordinator driver for multi-proxy aggregation with RSSI-based routing and connection failover
+- Added room presence tracking with RSSI-based detection, anti-flapping, and contact sensor bindings
+- Added ESPHome BTHome sub-driver for Shelly BLU and BTHome v1/v2 sensors
+- Added ESPHome Govee sub-driver for temperature, humidity, and meat thermometer sensors
+- Added ESPHome SwitchBot sub-driver for Bot, Plug Mini, Meter, Motion, and Contact devices
+- Added device log forwarding to the ESPHome driver
+
 ## v20251031 - 2025-10-31
 
 ### Fixed

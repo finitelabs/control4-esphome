@@ -1,15 +1,15 @@
---- @module "lib.github-updater"
 --- A utility module for updating drivers from GitHub releases.
 --- This module provides functionality to check for, download, and install driver updates from GitHub repositories.
 
 local http = require("lib.http")
 local log = require("lib.logging")
-local deferred = require("vendor.deferred")
-local version = require("vendor.version")
+local deferred = require("deferred")
+local version = require("version")
 
 --- Utility class for updating drivers from GitHub releases.
 --- @class GitHubUpdater
 local GitHubUpdater = {}
+GitHubUpdater.__index = GitHubUpdater
 
 --- Default headers for all HTTP requests to GitHub.
 --- @type table<string, string>
@@ -21,17 +21,15 @@ local DEFAULT_HEADERS = {
 --- Create a new instance of GitHubUpdater.
 --- @return GitHubUpdater updater A new GitHubUpdater instance.
 function GitHubUpdater:new()
-  local properties = {}
-  setmetatable(properties, self)
-  self.__index = self
-  --- @cast properties GitHubUpdater
-  return properties
+  local instance = setmetatable({}, self)
+  return instance
 end
 
 --- Retrieve the latest release from a GitHub repository.
 --- @param repo string The GitHub repository, in the format "owner/repo".
 --- @param includePrereleases? boolean If true, includes pre-releases (optional).
 --- @return Deferred<table|nil, string> latestRelease Deferred resolving to the latest release table, or rejected with an error message.
+--- @diagnostic disable-next-line: unused
 function GitHubUpdater:getLatestRelease(repo, includePrereleases)
   log:trace("GitHubUpdater:getLatestRelease(%s, %s)", repo, includePrereleases)
   if IsEmpty(repo) then
