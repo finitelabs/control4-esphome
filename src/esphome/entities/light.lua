@@ -1,24 +1,21 @@
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local ESPHomeClient = require("esphome.client")
-local ESPHomeProtoSchema = require("esphome.proto-schema")
+local ESPHomeProtoSchema = require("esphome.proto_schema")
 
 --- @class LightEntity:Entity
 local LightEntity = {
   TYPE = ESPHomeClient.EntityType.LIGHT,
 }
+LightEntity.__index = LightEntity
 
 --- Create a new instance of the light entity.
 --- @param client ESPHomeClient The ESPHome client instance.
 --- @return LightEntity entity A new instance of the LightEntity entity.
 function LightEntity:new(client)
-  local properties = {
-    client = client,
-  }
-  setmetatable(properties, self)
-  self.__index = self
-  --- @cast properties LightEntity
-  return properties
+  local instance = setmetatable({}, self)
+  instance.client = client
+  return instance
 end
 
 --- Handle the discovery of a light entity.
@@ -37,7 +34,7 @@ function LightEntity:discovered(entity)
     elseif strCommand == "ENTITY_COMMAND" then
       local command = ESPHomeProtoSchema.RPC.APIConnection[Select(tParams, "command")]
         or ESPHomeProtoSchema.RPC.APIConnection.light_command
-      local body = Deserialize(Select(tParams, "body")) or {}
+      local body = DeserializeSafe(Select(tParams, "body")) or {}
       body.key = body.key or entity.key
       self.client:callServiceMethod(command, body):next(function()
         log:debug(
@@ -73,8 +70,8 @@ function LightEntity:updated(entity, state)
   local binding = bindings:getDynamicBinding(self.TYPE, "light_" .. entity.key)
   if binding ~= nil then
     SendToProxy(binding.bindingId, "UPDATE_STATE", {
-      entity = Serialize(entity),
-      state = Serialize(state),
+      entity = SerializeSafe(entity),
+      state = SerializeSafe(state),
     }, "NOTIFY")
   end
 end

@@ -1,24 +1,21 @@
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local ESPHomeClient = require("esphome.client")
-local ESPHomeProtoSchema = require("esphome.proto-schema")
+local ESPHomeProtoSchema = require("esphome.proto_schema")
 
 --- @class LockEntity:Entity
 local LockEntity = {
   TYPE = ESPHomeClient.EntityType.LOCK,
 }
+LockEntity.__index = LockEntity
 
 --- Create a new instance of the lock entity.
 --- @param client ESPHomeClient The ESPHome client instance.
 --- @return LockEntity entity A new instance of the LockEntity entity.
 function LockEntity:new(client)
-  local properties = {
-    client = client,
-  }
-  setmetatable(properties, self)
-  self.__index = self
-  --- @cast properties LockEntity
-  return properties
+  local instance = setmetatable({}, self)
+  instance.client = client
+  return instance
 end
 
 --- Handle the discovery of a lock entity.
@@ -37,7 +34,7 @@ function LockEntity:discovered(entity)
     elseif strCommand == "ENTITY_COMMAND" then
       local command = ESPHomeProtoSchema.RPC.APIConnection[Select(tParams, "command")]
         or ESPHomeProtoSchema.RPC.APIConnection.lock_command
-      local body = Deserialize(Select(tParams, "body")) or {}
+      local body = DeserializeSafe(Select(tParams, "body")) or {}
       body.key = body.key or entity.key
       self.client:callServiceMethod(command, body):next(function()
         log:debug(
@@ -73,8 +70,8 @@ function LockEntity:updated(entity, state)
   local binding = bindings:getDynamicBinding(self.TYPE, "lock_" .. entity.key)
   if binding ~= nil then
     SendToProxy(binding.bindingId, "UPDATE_STATE", {
-      entity = Serialize(entity),
-      state = Serialize(state),
+      entity = SerializeSafe(entity),
+      state = SerializeSafe(state),
     }, "NOTIFY")
   end
 end

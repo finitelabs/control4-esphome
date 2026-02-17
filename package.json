@@ -1,11 +1,15 @@
 {
   "config": {
     "distributions": "drivercentral oss",
-    "drivers": "esphome esphome_light esphome_lock",
+    "drivers": "esphome esphome_bluetooth_coordinator esphome_bthome esphome_govee esphome_light esphome_lock esphome_switchbot",
     "driver_names": {
       "esphome": "ESPHome",
+      "esphome_bluetooth_coordinator": "ESPHome Bluetooth Coordinator",
+      "esphome_bthome": "ESPHome BTHome",
+      "esphome_govee": "ESPHome Govee",
       "esphome_light": "ESPHome Light",
-      "esphome_lock": "ESPHome Lock"
+      "esphome_lock": "ESPHome Lock",
+      "esphome_switchbot": "ESPHome Switchbot"
     }
   },
   "scripts": {
@@ -22,10 +26,11 @@
     "update-driver.xml:version": "for build in $npm_package_config_distributions; do for dir in $npm_package_config_drivers; do xmlstarlet edit --inplace --omit-decl --update '/devicedata/version' --value \"`date +'%Y%m%d'`\" ./build/$build/drivers/$dir/driver.xml; done; done",
     "update-driver.xml:modified": "for build in $npm_package_config_distributions; do for dir in $npm_package_config_drivers; do xmlstarlet edit --inplace --omit-decl --update '/devicedata/modified' --value \"`date +'%m/%d/%Y %I:%M %p'`\" ./build/$build/drivers/$dir/driver.xml; done; done",
     "update-driver.xml": "npm run update-driver.xml:version && npm run update-driver.xml:modified",
-    "gen-lua-proto-schema": ".venv/bin/python3 tools/gen_lua_proto_schema src/esphome/proto-schema.lua https://raw.githubusercontent.com/esphome/esphome/refs/heads/release/esphome/components/api/api.proto https://raw.githubusercontent.com/esphome/esphome/refs/heads/release/esphome/components/api/api_options.proto",
+    "gen-lua-proto-schema": "make -C ../lua-protobuf gen-schema OUTPUT=\"`pwd`/src/esphome/proto_schema.lua\" PROTO=\"https://raw.githubusercontent.com/esphome/esphome/refs/heads/release/esphome/components/api/api.proto https://raw.githubusercontent.com/esphome/esphome/refs/heads/release/esphome/components/api/api_options.proto\"",
     "package": "for build in $npm_package_config_distributions; do for dir in $npm_package_config_drivers; do export pwd=\"$(pwd)\" && cd \"build/$build/drivers/$dir\" && \"$pwd/.venv/bin/python3\" \"$pwd/dist/driverpackager/dp3/driverpackager.py\" . \"$pwd/dist/$build\" driver.c4zproj && cd \"$pwd\"; done; done",
     "zip": "for build in $npm_package_config_distributions; do cd \"dist/$build\" && zip $(basename \"$(realpath \"$(pwd)/../../\")\").zip *.{c4z,pdf} && cd ../../; done",
     "build": "npm run fmt && npm run preprocess && npm run update-driver.xml && npm run docs && npm run package && npm run zip",
+    "build:nodocs": "npm run fmt && npm run preprocess && npm run update-driver.xml && npm run package",
     "clean:build": "for build in $npm_package_config_distributions; do rm -rfv \"dist/$build\";done && rm -rfv build",
     "clean": "npm run clean:build && rm -rfv dist node_modules .venv"
   },

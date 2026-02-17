@@ -9,7 +9,7 @@
   <control>lua_gen</control>
   <controlmethod>ip</controlmethod>
   <driver>DriverWorks</driver>
-  <copyright>Copyright 2025 Finite Labs, LLC. All rights reserved.</copyright>
+  <copyright>Copyright 2026 Finite Labs, LLC. All rights reserved.</copyright>
   <created>06/06/2025 12:00:00 PM</created>
   <modified/>
   <combo>true</combo>
@@ -97,6 +97,16 @@
         </items>
       </property>
       <property>
+        <name>Device Log Forwarding</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <description>Forward ESPHome device logs to the driver's Lua output at the current Log Level. Changing Log Level or disabling Log Mode will reconnect to apply the new settings.</description>
+      </property>
+      <property>
         <name>Device Settings</name>
         <type>LABEL</type>
         <default>Device Settings</default>
@@ -145,6 +155,56 @@
         </items>
       </property>
       <property>
+        <name>Bluetooth Proxy Settings</name>
+        <type>LABEL</type>
+        <default>Bluetooth Proxy Settings</default>
+      </property>
+      <property>
+        <name>Bluetooth Proxy Status</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+        <description>Shows scanner state and active BLE connection slots in use. You may select more devices than available slots if they don't require continuous connections - brief-connection devices free up their slot after exchanging data. Passive devices (like BTHome sensors) don't use slots at all.</description>
+      </property>
+      <property>
+        <name>Bluetooth Proxy Capabilities</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+        <description>Capabilities supported by this ESPHome Bluetooth proxy.</description>
+      </property>
+      <property>
+        <name>Select Bluetooth Devices</name>
+        <type>DYNAMIC_LIST</type>
+        <description>Select "Refresh List" to scan. Wake sleepy devices (e.g., buttons and sensors) by interacting with them during the scan.</description>
+      </property>
+      <property>
+        <name>Bluetooth Scan Duration</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>5</minimum>
+        <maximum>60</maximum>
+        <default>30</default>
+        <description>Seconds to scan for BLE devices when refreshing the device list</description>
+      </property>
+      <property>
+        <name>Bluetooth Proxy Room</name>
+        <type>DEVICE_SELECTOR</type>
+        <items>
+          <item>roomdevice.c4i</item>
+        </items>
+        <multiselect>false</multiselect>
+        <default></default>
+        <description>Room where this Bluetooth proxy is located (for presence tracking with Bluetooth Coordinator)</description>
+      </property>
+      <property>
+        <name>Minimum Room RSSI Override (dBm)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>-100</minimum>
+        <maximum>-40</maximum>
+        <default>-100</default>
+        <description>Override the coordinator's global Minimum Room RSSI for this proxy's room. -100 means use coordinator default.</description>
+      </property>
+      <property>
         <name>Device Info</name>
         <type>LABEL</type>
         <default>Device Info</default>
@@ -188,8 +248,8 @@
       </action>
       <!-- #endif -->
       <action>
-        <name>Reset Connections and Variables</name>
-        <command>ResetConnectionsAndVariables</command>
+        <name>Reset Driver</name>
+        <command>ResetDriver</command>
         <params>
           <param>
             <name>Are You Sure?</name>
@@ -202,5 +262,17 @@
         </params>
       </action>
     </actions>
+    <commands>
+      <command>
+        <name>Press Button</name>
+        <description>Press NAME button PARAM1</description>
+        <params>
+          <param>
+            <name>Button</name>
+            <type>DYNAMIC_LIST</type>
+          </param>
+        </params>
+      </command>
+    </commands>
   </config>
 </devicedata>
