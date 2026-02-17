@@ -1,24 +1,21 @@
 local log = require("lib.logging")
 local values = require("lib.values")
 local ESPHomeClient = require("esphome.client")
-local ESPHomeProtoSchema = require("esphome.proto-schema")
+local ESPHomeProtoSchema = require("esphome.proto_schema")
 
 --- @class NumberEntity:Entity
 local NumberEntity = {
   TYPE = ESPHomeClient.EntityType.NUMBER,
 }
+NumberEntity.__index = NumberEntity
 
 --- Create a new instance of the number entity.
 --- @param client ESPHomeClient The ESPHome client instance.
 --- @return NumberEntity entity A new instance of the NumberEntity entity.
 function NumberEntity:new(client)
-  local properties = {
-    client = client,
-  }
-  setmetatable(properties, self)
-  self.__index = self
-  --- @cast properties NumberEntity
-  return properties
+  local instance = setmetatable({}, self)
+  instance.client = client
+  return instance
 end
 
 --- Handle updates to the number entity state.

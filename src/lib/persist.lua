@@ -1,12 +1,13 @@
---- @module "lib.persist"
 --- A persistence utility module for storing and retrieving values with optional encryption.
 --- This module provides a simple key-value store interface with caching capabilities.
+
 local log = require("lib.logging")
 
 --- A utility class for storing and retrieving values from the controller's persistence store.
 --- @class Persist
 --- @field _persist table<string, any> A table to store the cached values.
 local Persist = {}
+Persist.__index = Persist
 
 --- Sentinel representing an empty value in the persistence store.
 --- @type table
@@ -25,13 +26,9 @@ local MIGRATIONS = {}
 --- @return Persist persist A new instance of the Persist class.
 function Persist:new()
   log:trace("Persist:new()")
-  local properties = {
-    _persist = {},
-  }
-  setmetatable(properties, self)
-  self.__index = self
-  --- @cast properties Persist
-  return properties
+  local instance = setmetatable({}, self)
+  instance._persist = {}
+  return instance
 end
 
 --- Retrieves a value from the persistence store.
@@ -52,6 +49,12 @@ function Persist:get(key, default, encrypted)
   return value
 end
 
+--- Internal get implementation with caching.
+--- @private
+--- @param key string The key to retrieve.
+--- @param default any The default value if key is not found.
+--- @param encrypted boolean? Whether the value is encrypted.
+--- @return any value The retrieved value or default.
 function Persist:_get(key, default, encrypted)
   log:trace("Persist:_get(%s, %s, %s)", key, default, encrypted)
   if default == nil then
@@ -102,6 +105,16 @@ end
 function Persist:delete(key)
   log:trace("Persist:delete(%s)", key)
   self:set(key, nil)
+end
+
+--- Resets/clears specified keys from the persistence store.
+--- @param keys string[] Array of keys to delete.
+--- @return void
+function Persist:reset(keys)
+  log:trace("Persist:reset(%s)", keys)
+  for _, key in ipairs(keys) do
+    self:delete(key)
+  end
 end
 
 return Persist:new()

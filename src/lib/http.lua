@@ -1,7 +1,6 @@
---- @module "lib.http"
---- A simple HTTP client module for making HTTP requests with support for Deferreds.
+--- A simple HTTP client module for making HTTP requests with Deferred support.
 
-local deferred = require("vendor.deferred")
+local deferred = require("deferred")
 
 local log = require("lib.logging")
 
@@ -16,16 +15,14 @@ local DEFAULT_TIMEOUT = 30
 --- @class Http
 --- A class representing an HTTP client.
 local Http = {}
+Http.__index = Http
 
 --- Creates a new instance of the Http class.
 --- @return Http http A new instance of the Http class.
 function Http:new()
   log:trace("Http:new()")
-  local properties = {}
-  setmetatable(properties, self)
-  self.__index = self
-  --- @cast properties Http
-  return properties
+  local instance = setmetatable({}, self)
+  return instance
 end
 
 --- @class HTTPResponse
@@ -48,6 +45,7 @@ end
 --- @param headers? table<string, string> The headers to include in the request (optional).
 --- @param options? table<string, any> Options for the request (e.g., timeout) (optional).
 --- @return Deferred<HTTPResponse, HTTPErrorResponse> response A Deferred that resolves or rejects with the response.
+--- @diagnostic disable-next-line: unused
 function Http:request(method, url, data, headers, options)
   log:trace("Http:request(%s, %s, %s, %s, %s)", method, url, data, headers, options)
   local d = deferred.new()

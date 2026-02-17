@@ -4,12 +4,12 @@ DC_X = nil
 DC_FILENAME = "esphome_lock.c4z"
 --#endif
 require("lib.utils")
-require("vendor.drivers-common-public.global.handlers")
-require("vendor.drivers-common-public.global.lib")
-require("vendor.drivers-common-public.global.timer")
+require("drivers-common-public.global.handlers")
+require("drivers-common-public.global.lib")
+require("drivers-common-public.global.timer")
 
-JSON = require("vendor.JSON")
-local ESPHomeProtoSchema = require("esphome.proto-schema")
+JSON = require("JSON")
+local ESPHomeProtoSchema = require("esphome.proto_schema")
 
 local log = require("lib.logging")
 
@@ -21,7 +21,7 @@ local STATE -- leaving this explicitly nil so we can distinguish driver init fro
 
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
-  require("vendor.cloud-client-byte")
+  require("cloud-client-byte")
   C4:AllowExecute(false)
   --#else
   C4:AllowExecute(true)
@@ -43,8 +43,8 @@ function OnDriverLateInit()
   -- global sets, they'll change if Property is changed.
   for p, _ in pairs(Properties) do
     local status, err = pcall(OnPropertyChanged, p)
-    if not status and err ~= nil then
-      log:error(err)
+    if not status and err then
+      log:error("Error in OnPropertyChanged for property '%s': %s", p, err or "unknown error")
     end
   end
   gInitialized = true
@@ -71,6 +71,7 @@ function OPC.Log_Mode(propertyValue)
   log:setLogMode(propertyValue)
   CancelTimer("LogMode")
   if not log:isEnabled() then
+    UpdateProperty("Log Level", "3 - Info", true)
     return
   end
   log:warn("Log mode '%s' will expire in 3 hours", propertyValue)
@@ -78,6 +79,7 @@ function OPC.Log_Mode(propertyValue)
     log:warn("Setting log mode to 'Off' (timer expired)")
     UpdateProperty("Log Mode", "Off", true)
   end)
+  OnPropertyChanged("Log Level")
 end
 
 function OPC.Log_Level(propertyValue)
@@ -88,11 +90,13 @@ function OPC.Log_Level(propertyValue)
     DEBUG_TIMER = true
     DEBUG_RFN = true
     DEBUG_URL = true
+    DEBUG_WEBSOCKET = true
   else
     DEBUGPRINT = false
     DEBUG_TIMER = false
     DEBUG_RFN = false
     DEBUG_URL = false
+    DEBUG_WEBSOCKET = false
   end
 end
 
@@ -104,7 +108,7 @@ local function unlock()
   log:trace("unlock()")
   local code = not IsEmpty(Properties["Lock Code"]) and Properties["Lock Code"] or nil
   SendToProxy(ESPHOME_BINDING, "ENTITY_COMMAND", {
-    body = Serialize({
+    body = SerializeSafe({
       command = ESPHomeProtoSchema.Enum.LockCommand.LOCK_UNLOCK,
       has_code = code ~= nil,
       code = code,
@@ -116,7 +120,7 @@ local function lock()
   log:trace("lock()")
   local code = not IsEmpty(Properties["Lock Code"]) and Properties["Lock Code"] or nil
   SendToProxy(ESPHOME_BINDING, "ENTITY_COMMAND", {
-    body = Serialize({
+    body = SerializeSafe({
       command = ESPHomeProtoSchema.Enum.LockCommand.LOCK_LOCK,
       has_code = code ~= nil,
       code = code,
@@ -185,8 +189,8 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     return
   end
 
-  local entity = Deserialize(Select(tParams, "entity"))
-  local state = Deserialize(Select(tParams, "state"))
+  local entity = DeserializeSafe(Select(tParams, "entity"))
+  local state = DeserializeSafe(Select(tParams, "state"))
   if IsEmpty(entity) or IsEmpty(state) then
     log:error("RFP.UPDATE_STATE called with invalid parameters: %s", tParams)
     return

@@ -1,4 +1,3 @@
---- @module "lib.events"
 --- The `Events` module provides functionality for managing dynamic events, including creating, retrieving, firing, deleting, and restoring events.
 --- Events are stored persistently and are associated with unique IDs.
 
@@ -7,6 +6,7 @@ local persist = require("lib.persist")
 
 --- @class Events
 local Events = {}
+Events.__index = Events
 
 --- The key used to persist events in storage.
 --- @type string
@@ -29,11 +29,8 @@ local EVENT_ID_END = 999
 --- @return Events events A new `Events` instance.
 function Events:new()
   log:trace("Events:new()")
-  local properties = {}
-  setmetatable(properties, self)
-  self.__index = self
-  --- @cast properties Events
-  return properties
+  local instance = setmetatable({}, self)
+  return instance
 end
 
 --- Retrieves or adds an event. If the event does not exist, it creates a new one with a unique ID.
@@ -44,7 +41,7 @@ end
 --- @return Event|nil event The event object or nil if the event could not be created.
 function Events:getOrAddEvent(namespace, key, name, description)
   log:trace("Events:getOrAddEvent(%s, %s, %s, %s)", namespace, key, name, description)
-  local events = self:_getEvents()
+  local events = self:getEvents()
   --- @type Event|nil
   local event = Select(events, namespace, key)
   if event == nil then
@@ -69,7 +66,7 @@ end
 function Events:fire(namespace, key)
   log:trace("Events:fire(%s, %s)", namespace, key)
   --- @type number|nil
-  local eventId = Select(self:_getEvents(), namespace, key, "eventId")
+  local eventId = Select(self:getEvents(), namespace, key, "eventId")
   if IsEmpty(eventId) then
     return
   end
@@ -82,7 +79,7 @@ end
 --- @param key string The key of the event.
 function Events:deleteEvent(namespace, key)
   log:trace("Events:deleteEvent(%s, %s)", namespace, key)
-  local events = self:_getEvents()
+  local events = self:getEvents()
   --- @type number|nil
   local eventId = Select(events, namespace, key, "eventId")
   if IsEmpty(eventId) then
@@ -108,7 +105,7 @@ function Events:restoreEvents()
   log:trace("Events:restoreEvents()")
   --- @type table<number, boolean>
   local usedEventIds = {}
-  for _, keys in pairs(self:_getEvents()) do
+  for _, keys in pairs(self:getEvents()) do
     for _, event in pairs(keys) do
       usedEventIds[event.eventId] = true
       C4:AddEvent(event.eventId, event.name, event.description)
@@ -123,12 +120,13 @@ function Events:restoreEvents()
 end
 
 --- Retrieves the next available event ID. Ensures that the ID is unique and within the allowed range.
+--- @private
 --- @return number eventId The next available event ID.
 function Events:_getNextEventId()
   log:trace("Events:_getNextEventId()")
   --- @type table<number, boolean>
   local currentEvents = {}
-  for _, keys in pairs(self:_getEvents()) do
+  for _, keys in pairs(self:getEvents()) do
     for _, event in pairs(keys) do
       currentEvents[event.eventId] = true
     end
@@ -142,16 +140,31 @@ end
 
 --- Retrieves all events from persistent storage.
 --- @return table<string, table<string, Event>> events A table of all events mapped by namespace then key.
-function Events:_getEvents()
-  log:trace("Events:_getEvents()")
+--- @diagnostic disable-next-line: unused
+function Events:getEvents()
+  log:trace("Events:getEvents()")
   return persist:get(EVENTS_PERSIST_KEY, {}) or {}
 end
 
 --- Saves the events to persistent storage.
+--- @private
 --- @param events table<string, table<string, Event>>? The events table to save.
+--- @diagnostic disable-next-line: unused
 function Events:_saveEvents(events)
   log:trace("Events:_saveEvents(%s)", events)
   persist:set(EVENTS_PERSIST_KEY, not IsEmpty(events) and events or nil)
+end
+
+--- Resets all dynamic events, removing them from the system and clearing persisted storage.
+function Events:reset()
+  log:trace("Events:reset()")
+  for _, nsEvents in pairs(self:getEvents()) do
+    for _, event in pairs(nsEvents) do
+      log:debug("Removing event '%s' (id=%s)", event.name, event.eventId)
+      C4:DeleteEvent(event.eventId)
+    end
+  end
+  self:_saveEvents(nil)
 end
 
 return Events:new()
