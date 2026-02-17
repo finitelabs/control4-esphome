@@ -818,7 +818,7 @@ Control4, you can file an issue on GitHub:
 
 # <span style="color:#17BCF2">Changelog</span>
 
-## Unreleased
+## v20260217 - 2026-02-17
 
 ### Added
 
