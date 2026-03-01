@@ -16,12 +16,14 @@ local CONDITIONALS_PERSIST_KEY = "Conditionals"
 --- @type number
 local CONDITIONAL_ID_START = 10
 
---- @class Conditional
---- @field conditionalId number
---- @field name string
+--- @class ConditionalConfig
 --- @field type string
 --- @field condition_statement string
 --- @field description string
+
+--- @class Conditional:ConditionalConfig
+--- @field conditionalId number
+--- @field name string
 
 --- Creates a new instance of the `Conditionals` class.
 --- @return Conditionals conditionals A new instance of the `Conditionals` class.
@@ -34,7 +36,7 @@ end
 --- Upserts a conditional into the conditionals table.
 --- @param namespace string The namespace for the conditional.
 --- @param key string The key for the conditional.
---- @param conditional Conditional The conditional object to upsert.
+--- @param conditional ConditionalConfig The conditional object to upsert.
 --- @param testFunction function The test function associated with the conditional.
 --- @return Conditional conditional The upserted conditional.
 function Conditionals:upsertConditional(namespace, key, conditional, testFunction)
@@ -43,6 +45,7 @@ function Conditionals:upsertConditional(namespace, key, conditional, testFunctio
   --- @type number
   local conditionalId = Select(conditionals, namespace, key, "conditionalId") or self:_getNextConditionalId()
 
+  --- @type Conditional
   conditional = TableDeepCopy(conditional)
 
   conditional.conditionalId = conditionalId

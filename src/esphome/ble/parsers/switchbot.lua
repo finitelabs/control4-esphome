@@ -4,7 +4,7 @@
 ---  - https://github.com/OpenWonderLabs/SwitchBotAPI-BLE
 ---  - https://github.com/Danielhiversen/pySwitchbot
 
-local bit = require("bit")
+local bit32 = require("bitn").bit32
 local log = require("lib.logging")
 local UUID = require("esphome.ble.uuid")
 
@@ -147,9 +147,9 @@ local function parseBattery(data, index)
   if not batteryByte then
     return nil, nil
   end
-  local battery = bit.band(batteryByte, 0x7F)
+  local battery = bit32.band(batteryByte, 0x7F)
   -- Not all devices actually report this bit for low battery
-  local lowBattery = bit.band(batteryByte, 0x80) ~= 0
+  local lowBattery = bit32.band(batteryByte, 0x80) ~= 0
   return battery, lowBattery
 end
 
@@ -168,15 +168,15 @@ local function parseTempHumidity(data, offset)
 
   local temperature = nil
   if tempDecByte and tempIntByte then
-    local tempSign = bit.band(tempIntByte, 0x80) ~= 0 and 1 or -1
-    local tempInt = bit.band(tempIntByte, 0x7F)
-    local tempDec = bit.band(tempDecByte, 0x0F) / 10
+    local tempSign = bit32.band(tempIntByte, 0x80) ~= 0 and 1 or -1
+    local tempInt = bit32.band(tempIntByte, 0x7F)
+    local tempDec = bit32.band(tempDecByte, 0x0F) / 10
     temperature = tempSign * (tempInt + tempDec)
   end
 
   local humidity = nil
   if humidityByte then
-    humidity = bit.band(humidityByte, 0x7F)
+    humidity = bit32.band(humidityByte, 0x7F)
   end
 
   return temperature, humidity
@@ -252,11 +252,11 @@ local function parseBot(serviceData)
   -- bit 6 = isOn state (inverted: 0 = on, 1 = off) - only valid in switch mode
   local modeByte = getByte(serviceData, 2)
   if modeByte then
-    local isSwitchMode = bit.band(modeByte, 0x80) ~= 0
+    local isSwitchMode = bit32.band(modeByte, 0x80) ~= 0
     result.isSwitchMode = isSwitchMode
     if isSwitchMode then
       -- isOn is inverted: bit clear = on
-      result.isOn = bit.band(modeByte, 0x40) == 0
+      result.isOn = bit32.band(modeByte, 0x40) == 0
     end
   end
 
@@ -332,7 +332,7 @@ local function parseMotion(serviceData)
   -- Byte 1 (index 2): Status flags - bit 6 = motion detected
   local statusByte = getByte(serviceData, 2)
   if statusByte then
-    result.motionDetected = bit.band(statusByte, 0x40) ~= 0
+    result.motionDetected = bit32.band(statusByte, 0x40) ~= 0
   end
 
   result.battery = parseBattery(serviceData, 3)
@@ -340,8 +340,8 @@ local function parseMotion(serviceData)
   -- Byte 5 (index 6): Light info - bits 0-1 = light level (0-3), bit 1 = is light detected
   local lightByte = getByte(serviceData, 6)
   if lightByte then
-    result.lightLevel = bit.band(lightByte, 0x03)
-    result.isLight = bit.band(lightByte, 0x02) ~= 0
+    result.lightLevel = bit32.band(lightByte, 0x03)
+    result.isLight = bit32.band(lightByte, 0x02) ~= 0
   end
 
   return result
@@ -364,7 +364,7 @@ local function parseContact(manufacturerData, serviceData)
   -- Byte 1 (index 2): Status flags - bit 6 = motion detected
   local statusByte = getByte(serviceData, 2)
   if statusByte then
-    result.motionDetected = bit.band(statusByte, 0x40) ~= 0
+    result.motionDetected = bit32.band(statusByte, 0x40) ~= 0
   end
 
   result.battery = parseBattery(serviceData, 3)
@@ -372,15 +372,15 @@ local function parseContact(manufacturerData, serviceData)
   -- Byte 3 (index 4): Contact state - bit 0 = light, bit 1 = contact open, bit 2 = contact timeout
   local contactByte = getByte(serviceData, 4)
   if contactByte then
-    result.isLight = bit.band(contactByte, 0x01) ~= 0
-    result.contactOpen = bit.band(contactByte, 0x02) ~= 0
-    result.contactTimeout = bit.band(contactByte, 0x04) ~= 0
+    result.isLight = bit32.band(contactByte, 0x01) ~= 0
+    result.contactOpen = bit32.band(contactByte, 0x02) ~= 0
+    result.contactTimeout = bit32.band(contactByte, 0x04) ~= 0
   end
 
   -- Button count: mfr_data[12] & 0x0F (Lua index 13) or service data[8] & 0x0F (Lua index 9)
   local buttonByte = getByte(manufacturerData, 13) or getByte(serviceData, 9)
   if buttonByte then
-    result.contactButtonCount = bit.band(buttonByte, 0x0F)
+    result.contactButtonCount = bit32.band(buttonByte, 0x0F)
   end
 
   return result
@@ -403,8 +403,8 @@ local function parseWaterLeak(manufacturerData)
   -- Byte 8 (index 9): Status - bit 0 = leak detected, bit 1 = tampered
   local statusByte = getByte(manufacturerData, 9)
   if statusByte then
-    result.leakDetected = bit.band(statusByte, 0x01) ~= 0
-    result.tampered = bit.band(statusByte, 0x02) ~= 0
+    result.leakDetected = bit32.band(statusByte, 0x01) ~= 0
+    result.tampered = bit32.band(statusByte, 0x02) ~= 0
   end
 
   return result
@@ -453,10 +453,10 @@ local function parseRelaySwitch(manufacturerData, deviceCode)
   -- Byte 7 (index 8): Channel states - bit 7 = ch1 on, bit 6 = ch2 on (2PM only)
   local stateByte = getByte(manufacturerData, 8)
   if stateByte then
-    result.channel1On = bit.band(stateByte, 0x80) ~= 0
+    result.channel1On = bit32.band(stateByte, 0x80) ~= 0
     result.isOn = result.channel1On -- Alias for single-channel compatibility
     if is2PM then
-      result.channel2On = bit.band(stateByte, 0x40) ~= 0
+      result.channel2On = bit32.band(stateByte, 0x40) ~= 0
     end
   end
 
@@ -540,8 +540,8 @@ local function parsePresenceSensor(manufacturerData, serviceData)
   -- Byte 7 (index 8): Packed flags - bit 6 = motion, bits 4-3 = battery level
   local flagsByte = getByte(manufacturerData, 8)
   if flagsByte then
-    result.motionDetected = bit.band(flagsByte, 0x40) ~= 0
-    local batteryBits = bit.band(bit.rshift(flagsByte, 3), 0x03)
+    result.motionDetected = bit32.band(flagsByte, 0x40) ~= 0
+    local batteryBits = bit32.band(bit32.rshift(flagsByte, 3), 0x03)
     result.battery = PRESENCE_BATTERY_LEVELS[batteryBits] or 50
   end
 
@@ -551,7 +551,7 @@ local function parsePresenceSensor(manufacturerData, serviceData)
   -- Byte 11 (index 12): Light level (bits 0-4)
   local lightByte = getByte(manufacturerData, 12)
   if lightByte then
-    result.lightLevel = bit.band(lightByte, 0x1F)
+    result.lightLevel = bit32.band(lightByte, 0x1F)
     result.isLight = result.lightLevel > 0
   end
 
@@ -619,7 +619,7 @@ function SwitchBot.parse(serviceData, manufacturerData)
     deviceCode = SwitchBot.DeviceTypeCode.PRESENCE
   elseif fd3dData and #fd3dData >= 1 then
     local firstByte = string.byte(fd3dData, 1)
-    deviceCode = bit.band(firstByte, 0x7F)
+    deviceCode = bit32.band(firstByte, 0x7F)
   end
 
   if not deviceCode or not SwitchBot.DEVICE_NAMES[deviceCode] then

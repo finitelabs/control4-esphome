@@ -1,4 +1,4 @@
-local bit = require("bit")
+local bit32 = require("bitn").bit32
 
 local constants = require("constants")
 
@@ -106,19 +106,19 @@ local DEFAULT_ADDRESS_TYPE = BLEAddress.Type.PUBLIC
 local function decodeFeatureFlags(flags)
   local caps = {}
 
-  if bit.band(flags, FEATURE_FLAGS.PASSIVE_SCAN) ~= 0 then
+  if bit32.band(flags, FEATURE_FLAGS.PASSIVE_SCAN) ~= 0 then
     table.insert(caps, "Scan")
   end
-  if bit.band(flags, FEATURE_FLAGS.ACTIVE_CONNECTIONS) ~= 0 then
+  if bit32.band(flags, FEATURE_FLAGS.ACTIVE_CONNECTIONS) ~= 0 then
     table.insert(caps, "Connect")
   end
-  if bit.band(flags, FEATURE_FLAGS.REMOTE_CACHING) ~= 0 then
+  if bit32.band(flags, FEATURE_FLAGS.REMOTE_CACHING) ~= 0 then
     table.insert(caps, "Cache")
   end
-  if bit.band(flags, FEATURE_FLAGS.PAIRING) ~= 0 then
+  if bit32.band(flags, FEATURE_FLAGS.PAIRING) ~= 0 then
     table.insert(caps, "Pair")
   end
-  if bit.band(flags, FEATURE_FLAGS.RAW_ADVERTISEMENTS) ~= 0 then
+  if bit32.band(flags, FEATURE_FLAGS.RAW_ADVERTISEMENTS) ~= 0 then
     table.insert(caps, "Raw")
   end
 

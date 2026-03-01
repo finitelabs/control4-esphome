@@ -5,7 +5,7 @@
 ---   - https://github.com/custom-components/ble_monitor
 ---   - https://github.com/wcbonner/GoveeBTTempLogger
 
-local bit = require("bit")
+local bit32 = require("bitn").bit32
 local log = require("lib.logging")
 local UUID = require("esphome.ble.uuid")
 
@@ -152,8 +152,8 @@ local function parseBattery(data, offset)
   if not batteryByte then
     return nil, nil
   end
-  local battery = bit.band(batteryByte, 0x7F)
-  local hasError = bit.band(batteryByte, 0x80) ~= 0
+  local battery = bit32.band(batteryByte, 0x7F)
+  local hasError = bit32.band(batteryByte, 0x80) ~= 0
   return battery, hasError
 end
 
@@ -174,9 +174,9 @@ local function parse3ByteTempHumid(data, offset)
     return nil, nil
   end
 
-  local baseNum = bit.lshift(b1, 16) + bit.lshift(b2, 8) + b3
-  local isNegative = bit.band(baseNum, 0x800000) ~= 0
-  local tempAsInt = bit.band(baseNum, 0x7FFFFF)
+  local baseNum = bit32.lshift(b1, 16) + bit32.lshift(b2, 8) + b3
+  local isNegative = bit32.band(baseNum, 0x800000) ~= 0
+  local tempAsInt = bit32.band(baseNum, 0x7FFFFF)
 
   local temperature
   if isNegative then
@@ -216,8 +216,8 @@ local function parse4ByteTempHumidLE(data, offset)
     return nil, nil
   end
 
-  local tempRaw = tempLow + bit.lshift(tempHigh, 8)
-  local humRaw = humLow + bit.lshift(humHigh, 8)
+  local tempRaw = tempLow + bit32.lshift(tempHigh, 8)
+  local humRaw = humLow + bit32.lshift(humHigh, 8)
 
   local temperature = toSigned16(tempRaw) / 100
   local humidity = humRaw / 100
@@ -294,8 +294,8 @@ end
 --- @param packetValue integer 4-byte value
 --- @return number temperature Temperature in Celsius
 local function decodeTempFrom4Bytes(packetValue)
-  if bit.band(packetValue, 0x80000000) ~= 0 then
-    packetValue = bit.band(packetValue, 0x7FFFFFFF)
+  if bit32.band(packetValue, 0x80000000) ~= 0 then
+    packetValue = bit32.band(packetValue, 0x7FFFFFFF)
     return -math.floor(packetValue / 10000000) / 10
   end
   return math.floor(packetValue / 1000000) / 10
@@ -306,7 +306,7 @@ end
 --- @param packetValue integer 4-byte value
 --- @return number humidity Humidity percentage
 local function decodeHumidFrom4Bytes(packetValue)
-  packetValue = bit.band(packetValue, 0x7FFFFFFF)
+  packetValue = bit32.band(packetValue, 0x7FFFFFFF)
   return math.floor((packetValue % 1000000) / 1000) / 10
 end
 
@@ -315,7 +315,7 @@ end
 --- @param packetValue integer 4-byte value
 --- @return integer pm25 PM2.5 in µg/m³
 local function decodePM25From4Bytes(packetValue)
-  packetValue = bit.band(packetValue, 0x7FFFFFFF)
+  packetValue = bit32.band(packetValue, 0x7FFFFFFF)
   return packetValue % 1000
 end
 
@@ -392,7 +392,7 @@ local function parseH5106(data, model)
   end
 
   -- Build 4-byte value (big-endian per govee-ble hex string parsing)
-  local packetValue = bit.lshift(b1, 24) + bit.lshift(b2, 16) + bit.lshift(b3, 8) + b4
+  local packetValue = bit32.lshift(b1, 24) + bit32.lshift(b2, 16) + bit32.lshift(b3, 8) + b4
 
   result.temperature = decodeTempFrom4Bytes(packetValue)
   result.humidity = decodeHumidFrom4Bytes(packetValue)

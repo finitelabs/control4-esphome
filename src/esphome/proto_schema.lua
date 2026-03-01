@@ -1328,6 +1328,8 @@ ProtoSchema.Enum.WaterHeaterCommandHasField = {
   WATER_HEATER_COMMAND_HAS_STATE = 4,
   WATER_HEATER_COMMAND_HAS_TARGET_TEMPERATURE_LOW = 8,
   WATER_HEATER_COMMAND_HAS_TARGET_TEMPERATURE_HIGH = 16,
+  WATER_HEATER_COMMAND_HAS_ON_STATE = 32,
+  WATER_HEATER_COMMAND_HAS_AWAY_STATE = 64,
 }
 
 --- @enum ProtoNumberMode
@@ -7487,6 +7489,12 @@ ProtoSchema.RPC.APIConnection = {
     service = "APIConnection",
     method = "valve_command",
     inputType = ProtoSchema.Message.ValveCommandRequest,
+    outputType = ProtoSchema.Message.void,
+  },
+  water_heater_command = {
+    service = "APIConnection",
+    method = "water_heater_command",
+    inputType = ProtoSchema.Message.WaterHeaterCommandRequest,
     outputType = ProtoSchema.Message.void,
   },
   subscribe_bluetooth_le_advertisements = {

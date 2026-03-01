@@ -1,12 +1,17 @@
--- Copyright 2022 Snap One, LLC. All rights reserved.
+-- Copyright 2026 Snap One, LLC. All rights reserved.
 
-COMMON_TIMER_VER = 11
+COMMON_TIMER_VER = 13
 
 do --Globals
   Timer = Timer or {}
   TimerFunctions = TimerFunctions or {}
 
   DEBUG_TIMER = false
+
+  --- Global error hook called when a timer pcall fails.
+  --- Set this to a function(timerId, error) to capture errors externally.
+  --- @type fun(timerId: string|userdata, error: string)|nil
+  ON_TIMER_ERROR = ON_TIMER_ERROR
 end
 
 do -- Define intervals as ms
@@ -21,7 +26,6 @@ function KillAllTimers()
     CancelTimer(name)
   end
 
-  --- @diagnostic disable-next-line: undefined-global
   for _, thisQ in pairs(SongQs or {}) do
     thisQ.ProgressTimer = CancelTimer(thisQ.ProgressTimer)
   end
@@ -42,6 +46,11 @@ function CancelTimer(timerId)
 
     if timer.Cancel then
       Timer[timerId] = timer:Cancel()
+      for k, v in pairs(Timer) do
+        if v == timer then
+          Timer[k] = nil
+        end
+      end
     else
       Timer[timerId] = nil
     end
@@ -50,8 +59,22 @@ function CancelTimer(timerId)
   return nil
 end
 
+--- Creates or replaces a timer.
+--- @param timerId string|C4LuaTimer The timer identifier or existing timer to replace.
+--- @param delay number The delay in milliseconds.
+--- @param timerFunction? function The callback function.
+--- @param repeating? boolean Whether the timer repeats.
+--- @return C4LuaTimer|nil timer The timer instance.
 function SetTimer(timerId, delay, timerFunction, repeating)
   CancelTimer(timerId)
+
+  if type(timerId) == "nil" then
+    local output = {
+      "SetTimer anonymous timerId",
+      tostring(debug.getinfo(2, "n").name),
+    }
+    dbg(table.concat(output, " : "))
+  end
 
   if type(timerFunction) ~= "function" then
     timerFunction = nil
@@ -74,7 +97,10 @@ function SetTimer(timerId, delay, timerFunction, repeating)
 
   local _timer = function(timer, skips)
     if TimerFunctions[timer] then
-      local success, ret = pcall(TimerFunctions[timer], timer, skips)
+      local timerFn = TimerFunctions[timer]
+      local success, ret = xpcall(function()
+        return timerFn(timer, skips)
+      end, debug.traceback)
       if success == true then
         if DEBUG_TIMER then
           print("Timer completed: ", timerId, ret)
@@ -82,6 +108,9 @@ function SetTimer(timerId, delay, timerFunction, repeating)
       elseif success == false then
         if DEBUG_TIMER then
           print("Timer Regular Expire Lua error: ", timerId, ret)
+        end
+        if ON_TIMER_ERROR then
+          ON_TIMER_ERROR(timerId, ret)
         end
       end
     end
@@ -153,11 +182,17 @@ function ExpireTimer(timerId, keepAlive)
 
   if TimerFunctions[timer] then
     local skips = 0
-    local success, ret = pcall(TimerFunctions[timer], timer, skips)
+    local timerFn = TimerFunctions[timer]
+    local success, ret = xpcall(function()
+      return timerFn(timer, skips)
+    end, debug.traceback)
     if success == true then
       return ret
     elseif success == false then
       print("Timer Force Expire Lua error: ", timerId, ret)
+      if ON_TIMER_ERROR then
+        ON_TIMER_ERROR(timerId, ret)
+      end
     end
   end
 

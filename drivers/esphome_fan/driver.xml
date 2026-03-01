@@ -1,0 +1,262 @@
+<devicedata>
+  <!-- #ifdef FAN_CAN_REVERSE -->
+  <name>ESPHome Fan (__FAN_SPEED_COUNT__ Speed, Reversible)</name>
+  <!-- #else -->
+  <name>ESPHome Fan (__FAN_SPEED_COUNT__ Speed)</name>
+  <!-- #endif -->
+  <version/>
+  <manufacturer>Finite Labs</manufacturer>
+  <!-- #ifdef FAN_CAN_REVERSE -->
+  <model>ESPHome Fan (__FAN_SPEED_COUNT__ Speed, Reversible)</model>
+  <!-- #else -->
+  <model>ESPHome Fan (__FAN_SPEED_COUNT__ Speed)</model>
+  <!-- #endif -->
+  <creator>Derek Miller</creator>
+  <control>lua_gen</control>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 Finite Labs, LLC. All rights reserved.</copyright>
+  <created>02/23/2026 12:00:00 PM</created>
+  <modified/>
+  <minimum_os_version>3.3.0</minimum_os_version>
+  <composer_categories>
+    <category>Comfort</category>
+  </composer_categories>
+  <conditionals/>
+  <events/>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <properties>
+      <!-- #ifdef DRIVERCENTRAL -->
+      <property>
+        <name>Cloud Settings</name>
+        <type>LABEL</type>
+        <default>Cloud Settings</default>
+      </property>
+      <property>
+        <name>Cloud Status</name>
+        <default/>
+        <type>STRING</type>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Automatic Updates</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <default>On</default>
+      </property>
+      <!-- #endif -->
+      <property>
+        <name>Driver Settings</name>
+        <type>LABEL</type>
+        <default>Driver Settings</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <default>3 - Info</default>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+      </property>
+    </properties>
+    <commands>
+      <command>
+        <name>Oscillate</name>
+        <description>Set Fan oscillation for NAME to PARAM1</description>
+        <params>
+          <param>
+            <name>Oscillation</name>
+            <type>LIST</type>
+            <items>
+              <item>True</item>
+              <item>False</item>
+            </items>
+            <default>True</default>
+          </param>
+        </params>
+      </command>
+    </commands>
+    <actions/>
+  </config>
+  <capabilities>
+    <can_set_speed>True</can_set_speed>
+    <!-- #ifdef FAN_CAN_REVERSE -->
+    <can_reverse>True</can_reverse>
+    <!-- #else -->
+    <can_reverse>False</can_reverse>
+    <!-- #endif -->
+    <can_set_preset>True</can_set_preset>
+    <discrete_levels>__FAN_SPEED_COUNT__</discrete_levels>
+    <speed_names>__FAN_SPEED_NAMES__</speed_names>
+    <buttons_are_virtual>True</buttons_are_virtual>
+  </capabilities>
+  <proxies>
+    <!-- #ifdef FAN_CAN_REVERSE -->
+    <proxy proxybindingid="5001" primary="True" name="ESPHome Fan (__FAN_SPEED_COUNT__ Speed, Reversible)">fan</proxy>
+    <!-- #else -->
+    <proxy proxybindingid="5001" primary="True" name="ESPHome Fan (__FAN_SPEED_COUNT__ Speed)">fan</proxy>
+    <!-- #endif -->
+  </proxies>
+  <connections>
+    <connection>
+      <id>300</id>
+      <facing>6</facing>
+      <connectionname>On Button Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes>
+        <class>
+          <classname>BUTTON_LINK</classname>
+        </class>
+      </classes>
+    </connection>
+    <connection>
+      <id>301</id>
+      <facing>6</facing>
+      <connectionname>Off Button Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes>
+        <class>
+          <classname>BUTTON_LINK</classname>
+        </class>
+      </classes>
+    </connection>
+    <connection>
+      <id>302</id>
+      <facing>6</facing>
+      <connectionname>Toggle Button Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes>
+        <class>
+          <classname>BUTTON_LINK</classname>
+        </class>
+      </classes>
+    </connection>
+    <connection>
+      <id>303</id>
+      <facing>6</facing>
+      <connectionname>Speed Up Button Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes>
+        <class>
+          <classname>BUTTON_LINK</classname>
+        </class>
+      </classes>
+    </connection>
+    <connection>
+      <id>304</id>
+      <facing>6</facing>
+      <connectionname>Speed Down Button Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes>
+        <class>
+          <classname>BUTTON_LINK</classname>
+        </class>
+      </classes>
+    </connection>
+    <!-- #ifdef FAN_CAN_REVERSE -->
+    <connection>
+      <id>305</id>
+      <facing>6</facing>
+      <connectionname>Toggle Direction Button Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes>
+        <class>
+          <classname>BUTTON_LINK</classname>
+        </class>
+      </classes>
+    </connection>
+    <!-- #endif -->
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>Fan</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>FAN</classname>
+        </class>
+      </classes>
+    </connection>
+    <connection>
+      <id>5002</id>
+      <facing>6</facing>
+      <connectionname>ESPHome Fan</connectionname>
+      <type>2</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <!-- #ifdef FAN_CAN_REVERSE -->
+          <classname>ESPHOME_FAN___FAN_SPEED_COUNT___SPEED_REVERSE</classname>
+          <!-- #else -->
+          <classname>ESPHOME_FAN___FAN_SPEED_COUNT___SPEED</classname>
+          <!-- #endif -->
+        </class>
+      </classes>
+      <hidden>False</hidden>
+    </connection>
+  </connections>
+</devicedata>

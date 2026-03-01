@@ -6,6 +6,8 @@ local log = require("lib.logging")
 
 local constants = require("constants")
 
+--- @alias DeviceId integer|string
+
 do
   --- @type table<string, fun(paramName: string): string[]>
   --- Global table mapping command names to functions.
@@ -32,13 +34,18 @@ function GetCommandParamList(commandName, paramName)
   local success, ret
 
   if GCPL and GCPL[commandName] and type(GCPL[commandName]) == "function" then
-    success, ret = pcall(GCPL[commandName], paramName)
+    success, ret = xpcall(function()
+      return GCPL[commandName](paramName)
+    end, debug.traceback)
   end
 
   if success == true then
     return ret
   elseif success == false then
     print("GetCommandParamList error: ", ret, commandName, paramName)
+    if ON_HANDLER_ERROR then
+      ON_HANDLER_ERROR("GCPL." .. commandName, ret)
+    end
   end
 end
 
@@ -102,7 +109,7 @@ local function C4Call(methodName, ...)
 end
 
 --- Sends a Control4 CommandMessage to a specified Control4 device driver.
---- @param deviceId number|string The ID of the driver to send the command to.
+--- @param deviceId DeviceId The ID of the driver to send the command to.
 --- @param strCommand string The command to send.
 --- @param tParams table A table containing parameters for the command.
 --- @param allowEmptyValues? boolean Allows empty strings as parameter values (optional). Defaults to false.
@@ -130,7 +137,7 @@ function SendToNetwork(idBinding, nPort, strData)
 end
 
 --- Sends a UI Request to another driver.
---- @param id number The ID of the driver receiving the request.
+--- @param id DeviceId The ID of the driver receiving the request.
 --- @param request string The request to send.
 --- @param tParams table A table of parameters to send with the request. Use `{}` if no parameters.
 --- @return string response The response to the request in XML format.
@@ -177,7 +184,7 @@ end
 
 --- Retrieves the agent ID for a given C4i name.
 --- @param c4iName string The C4i name to look up.
---- @return number|nil agentId The ID of the agent if found, otherwise nil.
+--- @return integer|nil agentId The ID of the agent if found, otherwise nil.
 function GetAgentId(c4iName)
   log:trace("GetAgentId(%s)", c4iName)
   local agents = Select(ParseXml(C4:GetProjectItems("AGENTS")), "systemitems", "item") or {}
@@ -193,7 +200,7 @@ function GetAgentId(c4iName)
 end
 
 --- Retrieves device properties for a given device ID.
---- @param deviceId number The ID of the device to retrieve properties for.
+--- @param deviceId integer The ID of the device to retrieve properties for.
 --- @return table<string, string> properties A table mapping property names to their values.
 function GetDeviceProperties(deviceId)
   log:trace("GetDeviceProperties(%s)", deviceId)
@@ -210,7 +217,7 @@ function GetDeviceProperties(deviceId)
 end
 
 --- Sets device properties for a given device ID.
---- @param deviceId number The ID of the device to set properties on.
+--- @param deviceId integer The ID of the device to set properties on.
 --- @param properties table<string, string> A table mapping property names to their values.
 --- @param onlyIfChanged? boolean If true, only update properties that have changed.
 function SetDeviceProperties(deviceId, properties, onlyIfChanged)
@@ -314,6 +321,9 @@ end
 --- @param max? number The upper bound (optional).
 --- @return number|nil value The clamped value.
 --- @overload fun(n: number, min?: number, max?: number): number
+--- @overload fun(n: number, min: number, max?: number): number
+--- @overload fun(n: number, min?: number, max: number): number
+--- @overload fun(n: number, min: number, max: number): number
 function InRange(n, min, max)
   if n == nil then
     return nil
@@ -374,7 +384,7 @@ end
 
 --- Retrieves all values from a table as an array.
 --- @param t table The table to extract values from.
---- @return table values  A list of all values in the table.
+--- @return table values A list of all values in the table.
 function TableValues(t)
   if type(t) ~= "table" then
     return {}
@@ -388,9 +398,10 @@ end
 
 --- Maps a function over each key-value pair in a table.
 --- The function can modify both the keys and values.
---- @param t table The table to map over.
---- @param func fun(value: any, key: any): any Function to apply to each pair (value, key).
---- @return table mappedTable A new table containing the transformed pairs.
+--- @generic K,V,K_NEW,V_NEW
+--- @param t table<K,V> The table to map over.
+--- @param func fun(value: V, key?: K): V_NEW, K_NEW? Function to apply to each pair. Returns (new_value, new_key?).
+--- @return table<K_NEW, V_NEW> mappedTable A new table containing the transformed pairs.
 function TableMap(t, func)
   if IsEmpty(t) then
     return {}
@@ -616,6 +627,15 @@ function tointeger(value)
   return (value >= 0) and math.floor(value + 0.5) or math.ceil(value - 0.5)
 end
 
+--- Asserts that a value is an integer, narrowing the type from DeviceId.
+--- @param value DeviceId The value to narrow.
+--- @return integer int The integer value.
+function assertInt(value)
+  local int = tointeger(value)
+  assert(int ~= nil, "expected integer, got: " .. tostring(value))
+  return int
+end
+
 function tonumber_locale(str, base)
   local s
   local num
@@ -648,9 +668,9 @@ end
 --- Creates a delay for a specified number of milliseconds.
 --- Uses deferred objects to resolve after the delay.
 --- @param ms number The duration of the delay in milliseconds.
---- @return Deferred<void, void> A deferred object that resolves after the delay.
+--- @return Deferred<nil, nil> A deferred object that resolves after the delay.
 function delay(ms)
-  --- @type Deferred<void, void>
+  --- @type Deferred<nil, nil>
   local d = deferred.new()
   if IsEmpty(ms) or ms <= 0 then
     return d:resolve(nil)
@@ -664,16 +684,17 @@ end
 
 --- Creates a deferred object that is immediately rejected with an error.
 --- @generic F
---- @param error F The error to reject the deferred object with.
+--- @param err F The error to reject the deferred object with.
 --- @return Deferred<any,F> rejected The rejected deferred object.
-function reject(error)
-  return deferred.new():reject(error)
+function reject(err)
+  return deferred.new():reject(err)
 end
 
 --- Creates a deferred object that is immediately resolved with a value.
 --- @generic T
---- @param value T The value to resolve the deferred object with.
---- @return Deferred<T,any> resolved The resolved deferred object.
+--- @param value T|nil The value to resolve the deferred object with.
+--- @return Deferred<T|nil,any> resolved The resolved deferred object.
+--- @overload fun(value: T): Deferred<T, any>
 function resolve(value)
   return deferred.new():resolve(value)
 end

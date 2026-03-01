@@ -1,0 +1,48 @@
+{
+  "pdf": "ESPHome Fan",
+  "dimensions": [
+    [
+      {
+        "suffix": "1_speed",
+        "FAN_SPEED_COUNT": "1",
+        "FAN_SPEED_NAMES": "On"
+      },
+      {
+        "suffix": "2_speed",
+        "FAN_SPEED_COUNT": "2",
+        "FAN_SPEED_NAMES": "Low,High"
+      },
+      {
+        "suffix": "3_speed",
+        "FAN_SPEED_COUNT": "3",
+        "FAN_SPEED_NAMES": "Low,Medium,High"
+      },
+      {
+        "suffix": "4_speed",
+        "FAN_SPEED_COUNT": "4",
+        "FAN_SPEED_NAMES": "Low,Medium Low,Medium High,High"
+      },
+      {
+        "suffix": "5_speed",
+        "FAN_SPEED_COUNT": "5",
+        "FAN_SPEED_NAMES": "Low,Low Medium,Medium,Medium High,High"
+      },
+      {
+        "suffix": "6_speed",
+        "FAN_SPEED_COUNT": "6",
+        "FAN_SPEED_NAMES": "1,2,3,4,5,6"
+      }
+    ],
+    [
+      {
+        "suffix": ""
+      },
+      {
+        "suffix": "_reverse",
+        "conditions": [
+          "FAN_CAN_REVERSE"
+        ]
+      }
+    ]
+  ]
+}

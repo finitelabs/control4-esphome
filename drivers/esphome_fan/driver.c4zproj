@@ -1,0 +1,11 @@
+<!-- #ifdef FAN_CAN_REVERSE -->
+<Driver type="c4z" name="esphome_fan___FAN_SPEED_COUNT___speed_reverse" squishLua="true">
+<!-- #else -->
+<Driver type="c4z" name="esphome_fan___FAN_SPEED_COUNT___speed" squishLua="true">
+<!-- #endif -->
+  <Items>
+    <Item type="dir" c4zDir="www" name="www" recurse="true" exclude="false"/>
+    <Item type="file" name="driver.lua"/>
+    <Item type="file" name="driver.xml"/>
+  </Items>
+</Driver>

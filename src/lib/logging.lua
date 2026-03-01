@@ -23,7 +23,7 @@ Log.LogLevel = {
 }
 
 --- @type table<string, LogLevel?>
-Log.LevelName = {
+Log.NameToLevel = {
   ["0 - Fatal"] = Log.LogLevel.FATAL,
   ["1 - Error"] = Log.LogLevel.ERROR,
   ["2 - Warning"] = Log.LogLevel.WARN,
@@ -31,6 +31,17 @@ Log.LevelName = {
   ["4 - Debug"] = Log.LogLevel.DEBUG,
   ["5 - Trace"] = Log.LogLevel.TRACE,
   ["6 - Ultra"] = Log.LogLevel.ULTRA,
+}
+
+--- @type table<LogLevel, string?>
+Log.LevelToName = {
+  [Log.LogLevel.FATAL] = "0 - Fatal",
+  [Log.LogLevel.ERROR] = "1 - Error",
+  [Log.LogLevel.WARN] = "2 - Warning",
+  [Log.LogLevel.INFO] = "3 - Info",
+  [Log.LogLevel.DEBUG] = "4 - Debug",
+  [Log.LogLevel.TRACE] = "5 - Trace",
+  [Log.LogLevel.ULTRA] = "6 - Ultra",
 }
 
 --- @type table<LogLevel, string?>
@@ -77,7 +88,7 @@ end
 --- @param level string|integer|nil The log level to set (e.g., 3 or "3 - Info" for INFO).
 function Log:setLogLevel(level)
   if type(level) == "string" then
-    level = self.LevelName[level]
+    level = self.NameToLevel[level]
   end
   if type(level) ~= "number" then
     return
@@ -201,6 +212,14 @@ end
 --- @param ... any Additional arguments for formatting.
 function Log:ultra(sLogText, ...)
   self:_log(self.LogLevel.ULTRA, sLogText, select("#", ...), { ... })
+end
+
+--- Logs a message at the given numeric level.
+--- @param level LogLevel A LogLevel value (e.g. Log.LogLevel.DEBUG).
+--- @param sLogText any The log message.
+--- @param ... any Additional arguments for formatting.
+function Log:log(level, sLogText, ...)
+  self:_log(level, sLogText, select("#", ...), { ... })
 end
 
 --- Logs a message directly to stdout.
