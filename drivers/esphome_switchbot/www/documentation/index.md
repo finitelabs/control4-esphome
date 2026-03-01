@@ -452,15 +452,13 @@ The following variables are available for programming (varies by device type):
 
 ### Common Variables
 
-| Variable    | Type   | Devices      | Description                     |
-| ----------- | ------ | ------------ | ------------------------------- |
-| Battery     | NUMBER | Most devices | Battery level (%)               |
-| Battery Low | STRING | Water Leak   | Low battery status              |
-| Device Type | STRING | All          | Detected device type            |
-| Last Seen   | STRING | All          | Timestamp of last communication |
-| MAC Address | STRING | All          | Device MAC address              |
-| Name        | STRING | All          | Device name                     |
-| RSSI        | NUMBER | All          | Signal strength (dBm)           |
+| Variable    | Type   | Devices      | Description          |
+| ----------- | ------ | ------------ | -------------------- |
+| Battery     | NUMBER | Most devices | Battery level (%)    |
+| Battery Low | STRING | Water Leak   | Low battery status   |
+| Device Type | STRING | All          | Detected device type |
+| MAC Address | STRING | All          | Device MAC address   |
+| Name        | STRING | All          | Device name          |
 
 ### Bot Variables
 

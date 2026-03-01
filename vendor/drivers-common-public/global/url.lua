@@ -1,6 +1,6 @@
--- Copyright 2021 Snap One, LLC. All rights reserved.
+-- Copyright 2025 Snap One, LLC. All rights reserved.
 
-COMMON_URL_VER = 23
+COMMON_URL_VER = 28
 
 JSON = require("JSON")
 
@@ -17,23 +17,34 @@ do --Globals
   DEBUG_URL = DEBUG_URL or false
 end
 
+do -- Globals defined by importing drivers
+  -- functions
+
+  --tables
+  DEFAULT_URL_ARGS = DEFAULT_URL_ARGS
+  APIBase = APIBase
+
+  --string or bool
+end
+
 function MakeURL(path, args, suppressDefaultArgs)
   local url = {}
   local args = (type(args) == "table" and args) or {}
 
   local schemePart, authorityPart, pathPart, pagePart, queryPart, fragmentPart
 
-  --- @diagnostic disable: undefined-global
   if DEFAULT_URL_ARGS and type(DEFAULT_URL_ARGS) == "table" and suppressDefaultArgs ~= true then
     for k, v in pairs(DEFAULT_URL_ARGS) do
       args[k] = v
     end
   end
 
-  if APIBase and path and not (string.find((path or ""), "^http")) then
+  local alreadyHasHTTP = string.find((path or ""), "^https?:")
+  local alreadyHasController = string.find((path or ""), "^controller:")
+
+  if APIBase and path and not (alreadyHasHTTP or alreadyHasController) then
     path = APIBase .. path
   end
-  --- @diagnostic enable: undefined-global
 
   if path then
     local rest
@@ -119,7 +130,7 @@ function MakeURL(path, args, suppressDefaultArgs)
       table.insert(url, "?")
     end
 
-    urlargs = table.concat(urlargs, "&")
+    local urlargs = table.concat(urlargs, "&")
     table.insert(url, urlargs)
   end
 
@@ -128,7 +139,7 @@ function MakeURL(path, args, suppressDefaultArgs)
     table.insert(url, fragmentPart)
   end
 
-  url = table.concat(url)
+  local url = table.concat(url)
 
   return url
 end
@@ -227,7 +238,13 @@ function ProcessResponse(strData, responseCode, tHeaders, strError, info)
         table.remove(ETag, eTagURL)
       end
       if tag and info.METHOD ~= "DELETE" then
-        table.insert(ETag, 1, { url = url, strData = strData, tHeaders = tHeaders, tag = tag })
+        local etagInfo = {
+          url = url,
+          strData = strData,
+          tHeaders = tHeaders,
+          tag = tag,
+        }
+        table.insert(ETag, 1, etagInfo)
       end
     elseif tag and responseCode == 304 and strError == nil then
       if eTagURL then
@@ -235,7 +252,13 @@ function ProcessResponse(strData, responseCode, tHeaders, strError, info)
         strData = ETag[eTagURL].strData
         tHeaders = ETag[eTagURL].tHeaders
         table.remove(ETag, eTagURL)
-        table.insert(ETag, 1, { url = url, strData = strData, tHeaders = tHeaders, tag = tag })
+        local etagInfo = {
+          url = url,
+          strData = strData,
+          tHeaders = tHeaders,
+          tag = tag,
+        }
+        table.insert(ETag, 1, etagInfo)
         responseCode = 200
       end
     end
@@ -278,8 +301,6 @@ function ProcessResponse(strData, responseCode, tHeaders, strError, info)
     for k, v in pairs(tHeaders) do
       if k == "Authorization" then
         table.insert(d, k .. " = <hidden in print>")
-      elseif IsList(v) then
-        table.insert(d, k .. " = " .. table.concat(v, " "))
       else
         table.insert(d, k .. " = " .. v)
       end
@@ -289,7 +310,7 @@ function ProcessResponse(strData, responseCode, tHeaders, strError, info)
     table.insert(d, strData)
     table.insert(d, "-:PAYLOAD_ENDS:-")
     table.insert(d, "---")
-    d = table.concat(d, "\r\n")
+    local d = table.concat(d, "\r\n")
 
     print(d)
 
@@ -312,7 +333,7 @@ function ProcessResponse(strData, responseCode, tHeaders, strError, info)
   if isJSON and strError == nil then
     data = JSON:decode(strData)
     if data == nil and len ~= 0 then
-      print("Content-Type indicated JSON but content is not valid JSON")
+      print("dcp_url: Content-Type indicated JSON but content is not valid JSON")
 
       data = { strData }
     end
@@ -325,6 +346,7 @@ function ProcessResponse(strData, responseCode, tHeaders, strError, info)
     CONTEXT = info.CONTEXT
   end
 
+  local success, ret
   if info.CALLBACK and type(info.CALLBACK) == "function" then
     success, ret = pcall(info.CALLBACK, strError, responseCode, tHeaders, data, info.CONTEXT, info.URL)
   end
@@ -336,6 +358,7 @@ function ProcessResponse(strData, responseCode, tHeaders, strError, info)
   end
 end
 
+---@diagnostic disable-next-line: lowercase-global
 function urlDo(method, url, data, headers, callback, context, options)
   local info = {}
   if type(callback) == "function" then
@@ -355,6 +378,19 @@ function urlDo(method, url, data, headers, callback, context, options)
   headers = CopyTable(headers) or {}
 
   data = data or ""
+
+  if USER_AGENT == nil then
+    USER_AGENT = "Control4/"
+      .. C4:GetVersionInfo().version
+      .. "/"
+      .. C4:GetDriverConfigInfo("model")
+      .. "/"
+      .. C4:GetDriverConfigInfo("version")
+  end
+
+  if headers["User-Agent"] == nil then
+    headers["User-Agent"] = USER_AGENT
+  end
 
   if type(data) == "table" then
     data = JSON:encode(data)
@@ -399,7 +435,7 @@ function urlDo(method, url, data, headers, callback, context, options)
     table.insert(d, "-:PAYLOAD_ENDS:-")
     table.insert(d, "---")
 
-    d = table.concat(d, "\r\n")
+    local d = table.concat(d, "\r\n")
 
     print(d)
 
@@ -429,6 +465,12 @@ function urlDo(method, url, data, headers, callback, context, options)
     t:SetOptions(options)
 
     local _onDone = function(transfer, responses, errCode, errMsg)
+      local endTime
+      if C4.GetTime then
+        endTime = C4:GetTime()
+      else
+        endTime = os.time() * 1000
+      end
       if errCode == -1 and errMsg == nil then
         errMsg = "Transfer cancelled"
       end
@@ -496,22 +538,27 @@ function urlDo(method, url, data, headers, callback, context, options)
   end
 end
 
+---@diagnostic disable-next-line: lowercase-global
 function urlGet(url, headers, callback, context, options)
   urlDo("GET", url, nil, headers, callback, context, options)
 end
 
+---@diagnostic disable-next-line: lowercase-global
 function urlPost(url, data, headers, callback, context, options)
   urlDo("POST", url, data, headers, callback, context, options)
 end
 
+---@diagnostic disable-next-line: lowercase-global
 function urlPut(url, data, headers, callback, context, options)
   urlDo("PUT", url, data, headers, callback, context, options)
 end
 
+---@diagnostic disable-next-line: lowercase-global
 function urlDelete(url, headers, callback, context, options)
   urlDo("DELETE", url, nil, headers, callback, context, options)
 end
 
+---@diagnostic disable-next-line: lowercase-global
 function urlCustom(url, method, data, headers, callback, context, options)
   urlDo(method, url, data, headers, callback, context, options)
 end

@@ -126,7 +126,7 @@ See the individual sub-driver documentation for device-specific details.
 | Time                | ❌        |
 | Camera              | ❌        |
 | Event               | ❌        |
-| Fan                 | ❌        |
+| Fan                 | ✅        |
 | Light               | ✅        |
 | Lock                | ✅        |
 | Media Player        | ❌        |
@@ -202,11 +202,12 @@ is an outline of the basic steps for your convenience.
    lua output window for more information.
 8. Once connected, the driver will automatically create variables and connection
    bindings for each supported entity type.
-9. To control lights and/or locks, use the "Search" tab to find the "ESPHome
-   Light" and/or "ESPHome Lock" driver. Add one driver instance for each exposed
-   light or lock entity in your project. In the "Connections" tab, select the
-   "ESPHome" driver and bind the light or lock entities to the newly added
-   drivers.
+9. To control lights, fans, and/or locks, use the "Search" tab to find the
+   "ESPHome Light", "ESPHome Fan", and/or "ESPHome Lock" driver. For fans,
+   choose the speed variant that matches your fan (e.g., "ESPHome Fan (3
+   Speed)"). Add one driver instance for each exposed entity in your project. In
+   the "Connections" tab, select the "ESPHome" driver and bind the entities to
+   the newly added drivers.
 
 <!-- #else -->
 
@@ -230,11 +231,12 @@ is an outline of the basic steps for your convenience.
    lua output window for more information.
 6. Once connected, the driver will automatically create variables and connection
    bindings for each supported entity type.
-7. To control lights and/or locks, use the "Search" tab to find the "ESPHome
-   Light" and/or "ESPHome Lock" driver. Add one driver instance for each exposed
-   light or lock entity in your project. In the "Connections" tab, select the
-   "ESPHome" driver and bind the light or lock entities to the newly added
-   drivers.
+7. To control lights, fans, and/or locks, use the "Search" tab to find the
+   "ESPHome Light", "ESPHome Fan", and/or "ESPHome Lock" driver. For fans,
+   choose the speed variant that matches your fan (e.g., "ESPHome Fan (3
+   Speed)"). Add one driver instance for each exposed entity in your project. In
+   the "Connections" tab, select the "ESPHome" driver and bind the entities to
+   the newly added drivers.
 
 <!-- #endif -->
 
@@ -510,6 +512,7 @@ supported ESPHome entity. Use this reference for Control4 programming.
 | Text          | `{name}`       | STRING | Writable                               |
 | Text Sensor   | `{name}`       | STRING | Read-only                              |
 | Button        | (none)         | -      | Use "Press Button" command (see below) |
+| Fan           | (none)         | -      | State via Fan proxy                    |
 | Light         | (none)         | -      | State via Light proxy                  |
 | Lock          | (none)         | -      | State via Lock proxy                   |
 
@@ -518,15 +521,16 @@ supported ESPHome entity. Use this reference for Control4 programming.
 
 ### Bindings by Entity Type
 
-| Entity Type   | Binding Class    | Purpose                                |
-| ------------- | ---------------- | -------------------------------------- |
-| Binary Sensor | `CONTACT_SENSOR` | Integrates with Contact Sensor proxy   |
-| Switch        | `RELAY`          | Control via Relay proxy                |
-| Cover         | `CONTACT_SENSOR` | Open/closed state contacts             |
-| Cover         | `RELAY`          | Open/close/stop control relays         |
-| Button        | `BUTTON_LINK`    | Allows other devices to trigger button |
-| Light         | `ESPHOME_LIGHT`  | Bind to ESPHome Light sub-driver       |
-| Lock          | `ESPHOME_LOCK`   | Bind to ESPHome Lock sub-driver        |
+| Entity Type   | Binding Class                   | Purpose                                |
+| ------------- | ------------------------------- | -------------------------------------- |
+| Binary Sensor | `CONTACT_SENSOR`                | Integrates with Contact Sensor proxy   |
+| Switch        | `RELAY`                         | Control via Relay proxy                |
+| Cover         | `CONTACT_SENSOR`                | Open/closed state contacts             |
+| Cover         | `RELAY`                         | Open/close/stop control relays         |
+| Button        | `BUTTON_LINK`                   | Allows other devices to trigger button |
+| Fan           | `ESPHOME_FAN_N_SPEED[_REVERSE]` | Bind to ESPHome Fan sub-driver         |
+| Light         | `ESPHOME_LIGHT`                 | Bind to ESPHome Light sub-driver       |
+| Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver        |
 
 > **Note:** Sensor, Number, Text, and Text Sensor entities do not create
 > bindings—they expose data only through variables.

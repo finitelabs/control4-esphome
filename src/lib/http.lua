@@ -93,7 +93,7 @@ end
 
 --- Makes an HTTP POST request.
 --- @param url string The URL to send the request to.
---- @param data string|table The data to send with the request.
+--- @param data? string|table The data to send with the request (optional).
 --- @param headers? table<string, string> The headers to include in the request (optional).
 --- @param options? table<string, any> Options for the request (e.g., timeout) (optional).
 --- @return Deferred<HTTPResponse, HTTPErrorResponse> response A Deferred that resolves or rejects with the response.
@@ -103,7 +103,7 @@ end
 
 --- Makes an HTTP PUT request.
 --- @param url string The URL to send the request to.
---- @param data string|table The data to send with the request.
+--- @param data? string|table The data to send with the request (optional).
 --- @param headers? table<string, string> The headers to include in the request (optional).
 --- @param options? table<string, any> Options for the request (e.g., timeout) (optional).
 --- @return Deferred<HTTPResponse, HTTPErrorResponse> response A Deferred that resolves or rejects with the response.

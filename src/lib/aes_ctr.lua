@@ -1,7 +1,7 @@
 --- AES-128-CTR encryption module for SwitchBot encrypted devices.
 --- Based on the AES implementation from noiseprotocol library.
 
-local bit = require("bit")
+local bit32 = require("bitn").bit32
 
 local aes_ctr = {}
 
@@ -326,13 +326,13 @@ local function key_expansion(key)
     local temp = { w[i - 1][1], w[i - 1][2], w[i - 1][3], w[i - 1][4] }
     if i % nk == 0 then
       temp = sub_word(rot_word(temp))
-      temp[1] = bit.bxor(temp[1], RCON[i / nk])
+      temp[1] = bit32.bxor(temp[1], RCON[i / nk])
     end
     w[i] = {
-      bit.bxor(w[i - nk][1], temp[1]),
-      bit.bxor(w[i - nk][2], temp[2]),
-      bit.bxor(w[i - nk][3], temp[3]),
-      bit.bxor(w[i - nk][4], temp[4]),
+      bit32.bxor(w[i - nk][1], temp[1]),
+      bit32.bxor(w[i - nk][2], temp[2]),
+      bit32.bxor(w[i - nk][3], temp[3]),
+      bit32.bxor(w[i - nk][4], temp[4]),
     }
   end
 
@@ -347,7 +347,7 @@ local function add_round_key(state, w, round)
   for col = 0, 3 do
     local word = w[round * 4 + col]
     for row = 0, 3 do
-      state[row][col] = bit.bxor(state[row][col], word[row + 1])
+      state[row][col] = bit32.bxor(state[row][col], word[row + 1])
     end
   end
 end
@@ -393,9 +393,9 @@ end
 --- @return number result
 local function gmul2(a)
   if a < 128 then
-    return bit.lshift(a, 1)
+    return bit32.lshift(a, 1)
   else
-    return bit.bxor(bit.lshift(a, 1), 0x11b)
+    return bit32.bxor(bit32.lshift(a, 1), 0x11b)
   end
 end
 
@@ -408,10 +408,10 @@ local function mix_columns(state)
     local c = state[2][col]
     local d = state[3][col]
 
-    state[0][col] = bit.bxor(gmul2(a), gmul2(b), b, c, d)
-    state[1][col] = bit.bxor(a, gmul2(b), gmul2(c), c, d)
-    state[2][col] = bit.bxor(a, b, gmul2(c), gmul2(d), d)
-    state[3][col] = bit.bxor(gmul2(a), a, b, c, gmul2(d))
+    state[0][col] = bit32.bxor(gmul2(a), gmul2(b), b, c, d)
+    state[1][col] = bit32.bxor(a, gmul2(b), gmul2(c), c, d)
+    state[2][col] = bit32.bxor(a, b, gmul2(c), gmul2(d), d)
+    state[3][col] = bit32.bxor(gmul2(a), a, b, c, gmul2(d))
   end
 end
 
@@ -510,7 +510,7 @@ function aes_ctr.crypt(key, iv, data)
     for i = 1, block_size do
       local data_byte = string.byte(data, offset + i - 1)
       local key_byte = string.byte(keystream, i)
-      result[#result + 1] = string.char(bit.bxor(data_byte, key_byte))
+      result[#result + 1] = string.char(bit32.bxor(data_byte, key_byte))
     end
 
     offset = offset + 16

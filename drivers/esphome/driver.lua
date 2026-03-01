@@ -9,6 +9,7 @@ DRIVER_FILENAMES = {
   "esphome_bluetooth_coordinator.c4z",
   "esphome_govee.c4z",
   "esphome_bthome.c4z",
+  -- #variant-filenames esphome_fan
   "esphome_light.c4z",
   "esphome_lock.c4z",
   "esphome_switchbot.c4z",
@@ -40,6 +41,7 @@ local BluetoothProxyCapability = require("esphome.capabilities.bluetooth_proxy")
 local BinarySensorEntity = require("esphome.entities.binary_sensor")
 local ButtonEntity = require("esphome.entities.button")
 local CoverEntity = require("esphome.entities.cover")
+local FanEntity = require("esphome.entities.fan")
 local LightEntity = require("esphome.entities.light")
 local LockEntity = require("esphome.entities.lock")
 local NumberEntity = require("esphome.entities.number")
@@ -65,6 +67,7 @@ local Entities = {
   [BinarySensorEntity.TYPE] = BinarySensorEntity:new(esphome),
   [ButtonEntity.TYPE] = ButtonEntity:new(esphome),
   [CoverEntity.TYPE] = CoverEntity:new(esphome),
+  [FanEntity.TYPE] = FanEntity:new(esphome),
   [LightEntity.TYPE] = LightEntity:new(esphome),
   [LockEntity.TYPE] = LockEntity:new(esphome),
   [NumberEntity.TYPE] = NumberEntity:new(esphome),
