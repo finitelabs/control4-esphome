@@ -204,7 +204,7 @@ function M.new(options)
   d.queue = {}
   d.success = options.success
   d.failure = options.failure
-  d.extend = options.extend  -- Store for chained deferreds
+  d.extend = options.extend -- Store for chained deferreds
 
   if isfunction(options.extend) then
     options.extend(d)
@@ -331,7 +331,9 @@ function M.selftest()
   do
     local d = M.new()
     local result = nil
-    d:next(function(v) result = v end)
+    d:next(function(v)
+      result = v
+    end)
     d:resolve("hello")
     assert_eq(result, "hello", "resolve with value")
     assert_eq(d.state, DeferredState.RESOLVED, "state after resolve")
@@ -341,7 +343,9 @@ function M.selftest()
   do
     local d = M.new()
     local result = nil
-    d:next(nil, function(v) result = v end)
+    d:next(nil, function(v)
+      result = v
+    end)
     d:reject("error")
     assert_eq(result, "error", "reject with value")
     assert_eq(d.state, DeferredState.REJECTED, "state after reject")
@@ -351,7 +355,9 @@ function M.selftest()
   do
     local d = M.new()
     local count = 0
-    d:next(function() count = count + 1 end)
+    d:next(function()
+      count = count + 1
+    end)
     d:resolve("first")
     d:resolve("second")
     assert_eq(count, 1, "resolve only fires once")
@@ -365,8 +371,11 @@ function M.selftest()
   do
     local d = M.new()
     local result = nil
-    d:next(function(v) return v * 2 end)
-      :next(function(v) result = v end)
+    d:next(function(v)
+      return v * 2
+    end):next(function(v)
+      result = v
+    end)
     d:resolve(21)
     assert_eq(result, 42, "next() transforms value")
   end
@@ -391,7 +400,9 @@ function M.selftest()
     local d = M.new()
     d:resolve("immediate")
     local result = nil
-    d:next(function(v) result = v end)
+    d:next(function(v)
+      result = v
+    end)
     assert_eq(result, "immediate", "chaining after already resolved")
   end
 
@@ -399,8 +410,11 @@ function M.selftest()
   do
     local d = M.new()
     local errorResult = nil
-    d:next(function() error("test error") end)
-      :next(nil, function(e) errorResult = e end)
+    d:next(function()
+      error("test error")
+    end):next(nil, function(e)
+      errorResult = e
+    end)
     d:resolve("trigger")
     assert_true(errorResult ~= nil, "error in callback rejects chain")
   end
@@ -409,8 +423,11 @@ function M.selftest()
   do
     local d = M.new()
     local result = nil
-    d:next(nil, function() return "recovered" end)
-      :next(function(v) result = v end)
+    d:next(nil, function()
+      return "recovered"
+    end):next(function(v)
+      result = v
+    end)
     d:reject("error")
     assert_eq(result, "recovered", "rejection can be recovered")
   end
@@ -424,7 +441,9 @@ function M.selftest()
     local d1, d2, d3 = M.new(), M.new(), M.new()
     --- @type string[]?
     local results = nil
-    M.all({ d1, d2, d3 }):next(function(v) results = v end)
+    M.all({ d1, d2, d3 }):next(function(v)
+      results = v
+    end)
     d1:resolve("a")
     d2:resolve("b")
     d3:resolve("c")
@@ -438,7 +457,9 @@ function M.selftest()
   -- Test: all() with empty array
   do
     local results = nil
-    M.all({}):next(function(v) results = v end)
+    M.all({}):next(function(v)
+      results = v
+    end)
     assert_true(results ~= nil, "all([]) resolves immediately")
     assert_eq(#results, 0, "all([]) resolves with empty array")
   end
@@ -447,7 +468,9 @@ function M.selftest()
   do
     local d1, d2 = M.new(), M.new()
     local rejected = nil
-    M.all({ d1, d2 }):next(nil, function(v) rejected = v end)
+    M.all({ d1, d2 }):next(nil, function(v)
+      rejected = v
+    end)
     d1:resolve("ok")
     d2:reject("fail")
     assert_true(rejected ~= nil, "all() rejects if any reject")
@@ -461,7 +484,9 @@ function M.selftest()
   do
     local d1, d2 = M.new(), M.new()
     local result = nil
-    M.first({ d1, d2 }):next(function(v) result = v end)
+    M.first({ d1, d2 }):next(function(v)
+      result = v
+    end)
     d2:resolve("second wins")
     assert_eq(result, "second wins", "first() resolves with first resolved")
   end
@@ -478,7 +503,9 @@ function M.selftest()
       local d = M.new()
       d:resolve(v * 10)
       return d
-    end):next(function(v) results = v end)
+    end):next(function(v)
+      results = v
+    end)
     assert_true(results ~= nil, "map() resolves")
     --- @cast results -nil
     assert_eq(results[1], 10, "map() result[1]")
@@ -493,15 +520,25 @@ function M.selftest()
   -- Test: extend option is called
   do
     local extended = false
-    M.new({ extend = function() extended = true end })
+    M.new({
+      extend = function()
+        extended = true
+      end,
+    })
     assert_true(extended, "extend option is called")
   end
 
   -- Test: extend propagates to chained deferreds
   do
     local extendCount = 0
-    local d = M.new({ extend = function() extendCount = extendCount + 1 end })
-    d:next(function() return "value" end)
+    local d = M.new({
+      extend = function()
+        extendCount = extendCount + 1
+      end,
+    })
+    d:next(function()
+      return "value"
+    end)
     d:resolve("trigger")
     assert_true(extendCount >= 2, "extend propagates to chained deferreds")
   end

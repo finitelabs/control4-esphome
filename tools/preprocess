@@ -1,21 +1,34 @@
 #!/usr/bin/env python3
 
 import argparse
+import itertools
+import json
 import os
 import shutil
 import re
 from pathlib import Path
 
 
-def process_file(file_path: Path, test_condition: str) -> None:
+def process_file(
+    file_path: Path,
+    conditions: set[str],
+    variant_map: dict[str, list[str]] = {},
+    passthrough_unknown: bool = False,
+) -> None:
     """
     Process a file for conditional directives.
 
     Args:
         file_path: Path to the file to process
-        test_condition: Condition to check against, e.g., "DRIVERCENTRAL" or "OSS"
+        conditions: Set of conditions to check against, e.g., {"DRIVERCENTRAL"} or {"DRIVERCENTRAL", "DRIVERCENTRAL_DEV"}
+        variant_map: Dict mapping template names to generated variant names
+        passthrough_unknown: If True, directives referencing conditions not in
+            the conditions set are passed through unchanged (directive lines and
+            content preserved). Used during variant expansion so that
+            distribution-level conditions survive for the next processing pass.
     """
-    # Stack to track nested conditions
+    # Stack to track nested conditions: (condition, parent_including, transparent)
+    # transparent=True means this condition is unknown and should be passed through
     condition_stack = []
     # Whether we're currently including lines
     including = True
@@ -53,6 +66,9 @@ def process_file(file_path: Path, test_condition: str) -> None:
     # Embed changelog pattern
     changelog_pattern = re.compile(r"^\s*<!--\s*#embed-changelog\s*-->\s*$")
 
+    # Variant filenames pattern (Lua comment style)
+    variant_filenames_pattern = re.compile(r"^(\s*)--\s*#variant-filenames\s+(\w+)\s*$")
+
     ifdef_patterns = [
         xml_ifdef_pattern,
         lua_ifdef_pattern,
@@ -80,24 +96,43 @@ def process_file(file_path: Path, test_condition: str) -> None:
 
     for line in lines:
         # Check for conditional directives
-        ifdef_match = next((m for pattern in ifdef_patterns if (m := pattern.match(line))), None)
-        ifndef_match = next((m for pattern in ifndef_patterns if (m := pattern.match(line))), None)
-        else_match = next((m for pattern in else_patterns if (m := pattern.match(line))), None)
-        endif_match = next((m for pattern in endif_patterns if (m := pattern.match(line))), None)
+        ifdef_match = next(
+            (m for pattern in ifdef_patterns if (m := pattern.match(line))), None
+        )
+        ifndef_match = next(
+            (m for pattern in ifndef_patterns if (m := pattern.match(line))), None
+        )
+        else_match = next(
+            (m for pattern in else_patterns if (m := pattern.match(line))), None
+        )
+        endif_match = next(
+            (m for pattern in endif_patterns if (m := pattern.match(line))), None
+        )
         changelog_match = changelog_pattern.match(line)
+        variant_filenames_match = variant_filenames_pattern.match(line)
 
         # Check for #ifdef
         if ifdef_match:
             line_condition = ifdef_match.group(1)
-            condition_stack.append((line_condition, including))
-            including = including and line_condition == test_condition
+            transparent = passthrough_unknown and line_condition not in conditions
+            condition_stack.append((line_condition, including, transparent))
+            if transparent:
+                if including:
+                    output_lines.append(line)
+            else:
+                including = including and line_condition in conditions
             continue
 
         # Check for #ifndef
         if ifndef_match:
             line_condition = ifndef_match.group(1)
-            condition_stack.append((line_condition, including))
-            including = including and line_condition != test_condition
+            transparent = passthrough_unknown and line_condition not in conditions
+            condition_stack.append((line_condition, including, transparent))
+            if transparent:
+                if including:
+                    output_lines.append(line)
+            else:
+                including = including and line_condition not in conditions
             continue
 
         # Check for #else
@@ -105,8 +140,12 @@ def process_file(file_path: Path, test_condition: str) -> None:
             if not condition_stack:
                 print(f"Error: #else without matching #ifdef/#ifndef in {file_path}")
                 continue
-            line_condition, parent_including = condition_stack[-1]
-            including = parent_including and not including
+            line_condition, parent_including, transparent = condition_stack[-1]
+            if transparent:
+                if including:
+                    output_lines.append(line)
+            else:
+                including = parent_including and not including
             continue
 
         # Check for #endif
@@ -114,8 +153,12 @@ def process_file(file_path: Path, test_condition: str) -> None:
             if not condition_stack:
                 print(f"Error: #endif without matching #ifdef/#ifndef in {file_path}")
                 continue
-            _, parent_including = condition_stack.pop()
-            including = parent_including if condition_stack else True
+            _, parent_including, transparent = condition_stack.pop()
+            if transparent:
+                if including:
+                    output_lines.append(line)
+            else:
+                including = parent_including if condition_stack else True
             continue
 
         # Check for #embed-changelog
@@ -127,6 +170,20 @@ def process_file(file_path: Path, test_condition: str) -> None:
                     output_lines.append(changelog_content)
             except Exception as e:
                 print(f"Error embedding changelog in {file_path}: {e}")
+            continue
+
+        # Check for #variant-filenames <template_name>
+        if variant_filenames_match and including:
+            indent = variant_filenames_match.group(1)
+            template_name = variant_filenames_match.group(2)
+            names = variant_map.get(template_name)
+            if names is None:
+                raise ValueError(
+                    f"Unknown variant template '{template_name}' in {file_path}. "
+                    f"Known templates: {list(variant_map.keys())}"
+                )
+            for name in names:
+                output_lines.append(f'{indent}"{name}.c4z",\n')
             continue
 
         # If we're including this line, add it to the output
@@ -144,13 +201,177 @@ def process_file(file_path: Path, test_condition: str) -> None:
         f.writelines(output_lines)
 
 
-def process_directory(build_dir: Path, conditions):
+def replace_template_variables(file_path: Path, variables: dict) -> None:
+    """
+    Replace __VAR_NAME__ placeholders in a file with variant-specific values.
+
+    Args:
+        file_path: Path to the file to process
+        variables: Dict of variable name -> value (e.g., {"FAN_SPEED_COUNT": "3"})
+    """
+    try:
+        with open(file_path, "tr", encoding="utf-8") as f:
+            content = f.read()
+    except Exception:
+        return
+
+    for var_name, var_value in variables.items():
+        content = content.replace(f"__{var_name}__", var_value)
+        # Also replace %%VAR%% syntax (for use in markdown files where __X__
+        # is interpreted as bold by formatters like prettier)
+        content = content.replace(f"%%{var_name}%%", var_value)
+
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def compute_cross_product(dimensions: list[list[dict]]) -> list[dict]:
+    """
+    Compute the cross-product of multiple variant dimensions.
+
+    Each dimension is a list of partial variant definitions. The cross-product
+    concatenates suffixes, merges variables, and unions conditions.
+
+    Args:
+        dimensions: List of dimension arrays, each containing partial variant dicts
+
+    Returns:
+        List of fully-merged variant dicts
+    """
+    variants = []
+    for combo in itertools.product(*dimensions):
+        merged = {"suffix": "", "conditions": []}
+        for part in combo:
+            part = dict(part)  # avoid mutating original
+            merged["suffix"] += part.pop("suffix", "")
+            merged["conditions"] += part.pop("conditions", [])
+            merged.update(part)
+        variants.append(merged)
+    return variants
+
+
+def expand_variants(drivers_dir: Path) -> dict[str, list[str]]:
+    """
+    Expand driver template directories that contain a variants.json file.
+
+    For each variant defined in variants.json (either as a flat "variants" list
+    or a "dimensions" cross-product), copies the template directory to
+    {driver_name}_{suffix}/ and replaces __VAR_NAME__ placeholders with
+    variant-specific values. Variant-level conditions are processed via #ifdef
+    directives. The original template directory is then removed.
+
+    If variants.json contains a "pdf" key, a .variant_pdf marker file is
+    written to each variant directory for downstream PDF consolidation.
+
+    Args:
+        drivers_dir: Path to the drivers directory in the build output
+
+    Returns:
+        Dict mapping template driver names to lists of generated variant names.
+        e.g., {"esphome_fan": ["esphome_fan_1_speed", "esphome_fan_2_speed", ...]}
+    """
+    variant_map = {}
+
+    for driver_dir in sorted(drivers_dir.iterdir()):
+        if not driver_dir.is_dir():
+            continue
+        variants_file = driver_dir / "variants.json"
+        if not variants_file.exists():
+            continue
+
+        with open(variants_file, "r", encoding="utf-8") as f:
+            variants_config = json.load(f)
+
+        # Support "dimensions" (cross-product) or flat "variants" list
+        dimensions = variants_config.get("dimensions")
+        if dimensions:
+            variants = compute_cross_product(dimensions)
+        else:
+            variants = variants_config.get("variants", [])
+
+        if not variants:
+            continue
+
+        pdf_name = variants_config.get("pdf")
+        driver_name = driver_dir.name
+        generated_names = []
+        print(f"Expanding {len(variants)} variants for {driver_name}")
+
+        # Separate empty-suffix variant from the rest. Non-empty suffixes must
+        # be processed first (they copy from unmodified source). An empty-suffix
+        # variant is processed last, in place.
+        empty_suffix_variant = None
+        suffixed_variants = []
+        for variant in variants:
+            if variant.get("suffix"):
+                suffixed_variants.append(variant)
+            else:
+                empty_suffix_variant = variant
+
+        # Process non-empty suffixes first (copy from clean source)
+        for variant in suffixed_variants:
+            suffix = variant.pop("suffix")
+            conditions = set(variant.pop("conditions", []))
+            variant_name = f"{driver_name}_{suffix}"
+            variant_dir = drivers_dir / variant_name
+            generated_names.append(variant_name)
+
+            # Copy the template directory to the variant directory
+            shutil.copytree(driver_dir, variant_dir)
+
+            # Remove the variants.json from the copy
+            (variant_dir / "variants.json").unlink()
+
+            # Replace template variables and process variant conditions
+            for root, _, files in os.walk(variant_dir):
+                for filename in files:
+                    file_path = Path(root) / filename
+                    replace_template_variables(file_path, variant)
+                    if conditions:
+                        process_file(file_path, conditions, passthrough_unknown=True)
+
+            # Write PDF marker if configured
+            if pdf_name:
+                (variant_dir / ".variant_pdf").write_text(pdf_name, encoding="utf-8")
+
+            print(f"  Generated {variant_dir.name}")
+
+        # Process empty-suffix variant last (in place) or remove original
+        if empty_suffix_variant is not None:
+            empty_suffix_variant.pop("suffix")
+            conditions = set(empty_suffix_variant.pop("conditions", []))
+            generated_names.insert(0, driver_name)
+            (driver_dir / "variants.json").unlink(missing_ok=True)
+
+            for root, _, files in os.walk(driver_dir):
+                for filename in files:
+                    file_path = Path(root) / filename
+                    replace_template_variables(file_path, empty_suffix_variant)
+                    if conditions:
+                        process_file(file_path, conditions, passthrough_unknown=True)
+
+            if pdf_name:
+                (driver_dir / ".variant_pdf").write_text(pdf_name, encoding="utf-8")
+
+            print(f"  Generated {driver_dir.name}")
+        else:
+            shutil.rmtree(driver_dir)
+
+        variant_map[driver_name] = generated_names
+
+    return variant_map
+
+
+def process_directory(
+    build_dir: Path, conditions: set[str], variant_map: dict[str, list[str]] = {}
+):
     """
     Copy a directory and process all files for conditional directives.
 
     Args:
         build_dir: Build directory
         conditions: Set of enabled conditions
+        variant_map: Dict mapping template names to generated variant names
     """
     # Copy and process all files and subdirectories
     for item in os.listdir(build_dir):
@@ -158,10 +379,10 @@ def process_directory(build_dir: Path, conditions):
 
         if build_item_path.is_dir():
             # Recursively copy and process subdirectories
-            process_directory(build_item_path, conditions)
+            process_directory(build_item_path, conditions, variant_map)
         else:
             # Process the file for conditional directives
-            process_file(build_item_path, conditions)
+            process_file(build_item_path, conditions, variant_map)
 
 
 def main():
@@ -172,24 +393,35 @@ def main():
     group.add_argument(
         "--drivercentral", action="store_true", help="Enable DRIVERCENTRAL build"
     )
+    group.add_argument(
+        "--drivercentral-dev",
+        action="store_true",
+        help="Enable DRIVERCENTRAL + DRIVERCENTRAL_DEV build",
+    )
     group.add_argument("--oss", action="store_true", help="Enable OSS build")
     args = parser.parse_args()
 
     if args.drivercentral:
-        condition = "DRIVERCENTRAL"
+        distribution = "drivercentral"
+        conditions = {"DRIVERCENTRAL"}
+    elif args.drivercentral_dev:
+        distribution = "drivercentral-dev"
+        conditions = {"DRIVERCENTRAL", "DRIVERCENTRAL_DEV"}
     elif args.oss:
-        condition = "OSS"
+        distribution = "oss"
+        conditions = {"OSS"}
     else:
-        condition = None
-    assert condition, "No condition specified"
-    print(f"Building with condition: {condition}")
+        distribution = None
+        conditions = set()
+    assert distribution, "No distribution specified"
+    print(f"Building distribution: {distribution} (conditions: {conditions})")
 
     # Define source and build directories
     repo_root = Path(__file__).parent.parent
     src_dir = repo_root / "src"
     drivers_dir = repo_root / "drivers"
     vendor_dir = repo_root / "vendor"
-    build_dir = repo_root / "build" / condition.lower()
+    build_dir = repo_root / "build" / distribution
 
     os.makedirs(build_dir, exist_ok=True)
 
@@ -202,8 +434,11 @@ def main():
     shutil.copytree(drivers_dir, build_dir / "drivers")
     shutil.copytree(vendor_dir, build_dir / "vendor")
 
+    # Expand template variants before processing conditionals
+    variant_map = expand_variants(build_dir / "drivers")
+
     # Copy and process src directory
-    process_directory(build_dir, condition)
+    process_directory(build_dir, conditions, variant_map)
 
     print(f"Build completed successfully. Output in {build_dir}")
 

@@ -83,7 +83,6 @@ end
 --- @param key string The key to set the value for.
 --- @param value any The value to store. If nil, the key will be deleted.
 --- @param encrypted? boolean Whether to encrypt the value (optional).
---- @return void
 function Persist:set(key, value, encrypted)
   log:trace("Persist:set(%s, %s, %s)", key, value, encrypted)
   if value == nil then
@@ -101,7 +100,6 @@ end
 
 --- Deletes a value from the persistence store.
 --- @param key string The key to delete.
---- @return void
 function Persist:delete(key)
   log:trace("Persist:delete(%s)", key)
   self:set(key, nil)
@@ -109,7 +107,6 @@ end
 
 --- Resets/clears specified keys from the persistence store.
 --- @param keys string[] Array of keys to delete.
---- @return void
 function Persist:reset(keys)
   log:trace("Persist:reset(%s)", keys)
   for _, key in ipairs(keys) do

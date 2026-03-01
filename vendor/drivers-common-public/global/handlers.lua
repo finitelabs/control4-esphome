@@ -1,15 +1,22 @@
--- Copyright 2022 Snap One, LLC. All rights reserved.
+-- Copyright 2024 Snap One, LLC. All rights reserved.
 
 require("drivers-common-public.global.lib")
 
-COMMON_HANDLERS_VER = 17
+COMMON_HANDLERS_VER = 32
 
 do -- define globals
   DEBUG_RFN = false
+  SSDP = SSDP
+  WebSocket = WebSocket
+
+  --- Global error hook called when a handler pcall fails.
+  --- Set this to a function(source, error) to capture errors externally.
+  --- @type fun(source: string, error: string)|nil
+  ON_HANDLER_ERROR = ON_HANDLER_ERROR
 end
 
---[[
-	Inbound Driver Functions:
+--[[ Inbound Driver Functions:
+
 		-- ExecuteCommand (strCommand, tParams)
 		FinishedWithNotificationAttachment ()
 		GetNotificationAttachmentURL ()
@@ -65,8 +72,7 @@ end
 
 ]]
 
---[[
-	C4 System Events (from C4SystemEvents global) - valid values for OSE keys
+--[[ C4 System Events (from C4SystemEvents global) - valid values for OSE keys
 	1	OnAll
 	2	OnAlive
 	3	OnProjectChanged
@@ -184,21 +190,45 @@ end
 	115	OnEventModified
 	116	OnEventRemoved
 	117	OnZigbeeNetworkHealth
+	118	OnZigbeeDuplicateMesh
+	119	OnConnectionAuthorized
+	120	OnAuthorizedConnectionDisconnected
+	121	OnNetworkBindingAddressChanged
+	122	OnProjectLoading
+	123	OnProjectRestored
+	124	OnZigbeeNetworkBusy
 ]]
 
 do --Globals
-  EC = EC or {}
-  OBC = OBC or {}
-  ODE = ODE or {}
-  OCS = OCS or {}
-  OPC = OPC or {}
-  OSE = OSE or {}
-  OVC = OVC or {}
-  OWVC = OWVC or {}
-  RFN = RFN or {}
-  RFP = RFP or {}
-  TC = TC or {}
-  UIR = UIR or {}
+  EC = EC or { suppressDebug = {} }
+  OBC = OBC or { suppressDebug = {} }
+  ODE = ODE or { suppressDebug = {} }
+  OCS = OCS or { suppressDebug = {} }
+  OPC = OPC or { suppressDebug = {} }
+  OSE = OSE or { suppressDebug = {} }
+  OVC = OVC or { suppressDebug = {} }
+  OWVC = OWVC or { suppressDebug = {} }
+  RFN = RFN or { suppressDebug = {} }
+  RFP = RFP or { suppressDebug = {} }
+  TC = TC or { suppressDebug = {} }
+  UIR = UIR or { suppressDebug = {} }
+
+  ValidVarTypes = {
+    BOOL = true,
+    DEVICE = true,
+    FLOAT = true,
+    INT = true,
+    MEDIA = true,
+    NUMBER = true,
+    ROOM = true,
+    STRING = true,
+    STATE = true,
+    TIME = true,
+    ULONG = true,
+    XML = true,
+    LEVEL = true,
+    LIST = true,
+  }
 end
 
 function HandlerDebug(init, tParams, args)
@@ -252,10 +282,15 @@ end
 
 function ExecuteCommand(strCommand, tParams)
   tParams = tParams or {}
-  local init = {
-    "ExecuteCommand: " .. strCommand,
-  }
-  HandlerDebug(init, tParams)
+
+  local suppressDebug = Select(EC, "suppressDebug", strCommand)
+
+  if not suppressDebug then
+    local init = {
+      "ExecuteCommand: " .. strCommand,
+    }
+    HandlerDebug(init, tParams)
+  end
 
   if strCommand == "LUA_ACTION" then
     if tParams.ACTION then
@@ -268,66 +303,107 @@ function ExecuteCommand(strCommand, tParams)
 
   local success, ret
 
-  if EC and EC[strCommand] and type(EC[strCommand]) == "function" then
-    success, ret = pcall(EC[strCommand], tParams)
+  local ecFunction = Select(EC, strCommand)
+
+  if type(ecFunction) == "function" then
+    success, ret = xpcall(function()
+      return ecFunction(tParams)
+    end, debug.traceback)
   end
 
   if success == true then
     return ret
   elseif success == false then
     print("ExecuteCommand error: ", ret, strCommand)
+    if ON_HANDLER_ERROR then
+      ON_HANDLER_ERROR("EC." .. strCommand, ret)
+    end
+  elseif DEBUGPRINT then
+    print("Unhandled ExecuteCommand")
   end
 end
 
 function OnBindingChanged(idBinding, strClass, bIsBound, otherDeviceId, otherBindingId)
-  local init = {
-    "OnBindingChanged: " .. idBinding,
-  }
-  local tParams = {
-    strClass = strClass,
-    bIsBound = tostring(bIsBound),
-    otherDeviceId = otherDeviceId,
-    otherBindingId = otherBindingId,
-  }
-  HandlerDebug(init, tParams)
+  local suppressDebug = Select(OBC, "suppressDebug", idBinding)
+
+  if not suppressDebug then
+    local init = {
+      "OnBindingChanged: " .. idBinding,
+    }
+    local tParams = {
+      strClass = strClass,
+      bIsBound = tostring(bIsBound),
+      otherDeviceId = otherDeviceId,
+      otherBindingId = otherBindingId,
+    }
+    HandlerDebug(init, tParams)
+  end
 
   local success, ret
 
-  if OBC and OBC[idBinding] and type(OBC[idBinding]) == "function" then
-    success, ret = pcall(OBC[idBinding], idBinding, strClass, bIsBound, otherDeviceId, otherBindingId)
+  local obcFunction = Select(OBC, idBinding)
+
+  if type(obcFunction) == "function" then
+    success, ret = xpcall(function()
+      return obcFunction(idBinding, strClass, bIsBound, otherDeviceId, otherBindingId)
+    end, debug.traceback)
   end
 
   if success == true then
     return ret
   elseif success == false then
     print("OnBindingChanged error: ", ret, idBinding, strClass, bIsBound, otherDeviceId, otherBindingId)
+    if ON_HANDLER_ERROR then
+      ON_HANDLER_ERROR("OBC." .. idBinding, ret)
+    end
+  elseif DEBUGPRINT then
+    print("Unhandled OnBindingChanged")
   end
 end
 
 function OnConnectionStatusChanged(idBinding, nPort, strStatus)
-  local init = {
-    "OnConnectionStatusChanged: " .. idBinding,
-  }
-  local tParams = {
-    nPort = nPort,
-    strStatus = strStatus,
-  }
-  HandlerDebug(init, tParams)
+  local suppressDebug = Select(OCS, "suppressDebug", idBinding)
+
+  if not suppressDebug then
+    local init = {
+      "OnConnectionStatusChanged: " .. idBinding,
+    }
+    local tParams = {
+      nPort = nPort,
+      strStatus = strStatus,
+    }
+    HandlerDebug(init, tParams)
+  end
 
   local success, ret
 
-  if OCS and OCS[idBinding] and type(OCS[idBinding]) == "function" then
-    success, ret = pcall(OCS[idBinding], idBinding, nPort, strStatus)
+  local ocsFunction = Select(OCS, idBinding)
+
+  if type(ocsFunction) == "function" then
+    success, ret = xpcall(function()
+      return ocsFunction(idBinding, nPort, strStatus)
+    end, debug.traceback)
   end
 
   if success == true then
     return ret
   elseif success == false then
     print("OnConnectionStatusChanged error: ", ret, idBinding, nPort, strStatus)
+    if ON_HANDLER_ERROR then
+      ON_HANDLER_ERROR("OCS." .. idBinding, ret)
+    end
+  elseif DEBUGPRINT then
+    print("Unhandled OnConnectionStatusChanged")
   end
 end
 
 function RegisterDeviceEvent(firingDeviceId, eventId, callback)
+  if type(firingDeviceId) ~= "number" then
+    firingDeviceId = tonumber(firingDeviceId)
+  end
+  if type(eventId) ~= "number" then
+    eventId = tonumber(eventId)
+  end
   if firingDeviceId == nil or eventId == nil then
     print(
       "RegisterDeviceEvent error (Invalid idDevice / idVariable): ",
@@ -351,51 +427,66 @@ function RegisterDeviceEvent(firingDeviceId, eventId, callback)
 end
 
 function UnregisterDeviceEvent(firingDeviceId, eventId)
+  if type(firingDeviceId) ~= "number" then
+    firingDeviceId = tonumber(firingDeviceId)
+  end
+  if type(eventId) ~= "number" then
+    eventId = tonumber(eventId)
+  end
   if firingDeviceId == nil or eventId == nil then
     print("UnregisterDeviceEvent error (Invalid idDevice / idVariable): ", tostring(firingDeviceId), tostring(eventId))
     return
   end
 
+  C4:UnregisterDeviceEvent(firingDeviceId, eventId)
+
   if ODE and ODE[firingDeviceId] then
     ODE[firingDeviceId][eventId] = nil
   end
 
-  C4:UnregisterDeviceEvent(firingDeviceId, eventId)
+  if ODE[firingDeviceId] and not next(ODE[firingDeviceId]) then
+    ODE[firingDeviceId] = nil
+  end
 end
 
 function OnDeviceEvent(firingDeviceId, eventId)
-  local init = {
-    "OnDeviceEvent: " .. C4:GetDeviceDisplayName(firingDeviceId) .. " [" .. firingDeviceId .. "]",
-    eventId,
-  }
-  HandlerDebug(init)
+  Print(firingDeviceId)
+  Print(eventId)
+  local suppressDebug = Select(ODE, "suppressDebug", firingDeviceId, eventId)
+
+  if not suppressDebug then
+    local init = {
+      "OnDeviceEvent: " .. C4:GetDeviceDisplayName(firingDeviceId) .. " [" .. firingDeviceId .. "]",
+      eventId,
+    }
+    HandlerDebug(init)
+  end
 
   local success, ret
 
-  if
-    ODE
-    and ODE[firingDeviceId]
-    and ODE[firingDeviceId][eventId]
-    and type(ODE[firingDeviceId][eventId]) == "function"
-  then
-    success, ret = pcall(ODE[firingDeviceId][eventId], firingDeviceId, eventId)
+  local odeFunction = Select(ODE, firingDeviceId, eventId)
+
+  if type(odeFunction) == "function" then
+    success, ret = xpcall(function()
+      return odeFunction(firingDeviceId, eventId)
+    end, debug.traceback)
   end
 
   if success == true then
     return ret
   elseif success == false then
     print("OnDeviceEvent error: ", ret, firingDeviceId, eventId)
+    if ON_HANDLER_ERROR then
+      ON_HANDLER_ERROR("ODE." .. firingDeviceId, ret)
+    end
+  elseif DEBUGPRINT then
+    print("Unhandled OnDeviceEvent")
   end
 end
 
 function UpdateProperty(strProperty, strValue, notifyChange)
   if type(strProperty) ~= "string" then
     print("UpdateProperty error (strProperty not string): ", tostring(strProperty), tostring(strValue))
-    return
-  end
-
-  if type(strValue) ~= "string" then
-    print("UpdateProperty error (strValue not string): ", tostring(strProperty), tostring(strValue))
     return
   end
 
@@ -406,6 +497,12 @@ function UpdateProperty(strProperty, strValue, notifyChange)
       tostring(strValue)
     )
     return
+  end
+
+  if strValue == nil then
+    strValue = ""
+  elseif type(strValue) ~= "string" then
+    strValue = tostring(strValue)
   end
 
   if Properties[strProperty] ~= strValue then
@@ -422,91 +519,192 @@ function OnPropertyChanged(strProperty)
     value = ""
   end
 
+  local suppressDebug = Select(OPC, "suppressDebug", strProperty)
+
   strProperty = string.gsub(strProperty, "%W", "_")
   strProperty = string.gsub(strProperty, "[_]+", "_")
   strProperty = string.gsub(strProperty, "^[_| ]+", "")
   strProperty = string.gsub(strProperty, "[_| ]+$", "")
 
-  local init = {
-    "OnPropertyChanged: " .. strProperty,
-    value,
-  }
-  HandlerDebug(init)
+  if not suppressDebug then
+    local init = {
+      "OnPropertyChanged: " .. strProperty,
+      value,
+    }
+    HandlerDebug(init)
+  end
 
   local success, ret
 
-  if OPC and OPC[strProperty] and type(OPC[strProperty]) == "function" then
-    success, ret = pcall(OPC[strProperty], value)
+  local opcFunction = Select(OPC, strProperty)
+
+  if type(opcFunction) == "function" then
+    success, ret = xpcall(function()
+      return opcFunction(value)
+    end, debug.traceback)
   end
 
   if success == true then
     return ret
   elseif success == false then
     print("OnPropertyChanged error: ", ret, strProperty, value)
+    if ON_HANDLER_ERROR then
+      ON_HANDLER_ERROR("OPC." .. strProperty, ret)
+    end
+  elseif DEBUGPRINT then
+    print("Unhandled OnPropertyChanged")
   end
 end
 
 function OnSystemEvent(event)
   local eventName = string.match(event, '.-name="(.-)"')
 
-  local init = {
-    "OnSystemEvent: " .. eventName,
-    event,
-  }
-  HandlerDebug(init)
+  if eventName == "OnDataToUI" then
+    local luaOutputString = "<devicecommand><command>LUA_OUTPUT</command>"
+    local isLuaOutput = string.match(event, luaOutputString)
+    if isLuaOutput then
+      return
+    end
+  end
+
+  local suppressDebug = Select(OSE, "suppressDebug", eventName)
+
+  if not suppressDebug then
+    local init = {
+      "OnSystemEvent: " .. eventName,
+      event,
+    }
+    HandlerDebug(init)
+  end
 
   local success, ret
 
-  if OSE then
-    eventName = string.gsub(eventName, "%s+", "_")
-    if OSE[eventName] and type(OSE[eventName]) == "function" then
-      success, ret = pcall(OSE[eventName], event)
-    end
+  local safeEventName = string.gsub(eventName, "%s+", "_")
+  local oseFunction = Select(OSE, safeEventName)
+
+  if type(oseFunction) == "function" then
+    success, ret = xpcall(function()
+      return oseFunction(event)
+    end, debug.traceback)
   end
 
   if success == true then
     return ret
   elseif success == false then
     print("OnSystemEvent error: ", ret, eventName, event)
+    if ON_HANDLER_ERROR then
+      ON_HANDLER_ERROR("OSE." .. eventName, ret)
+    end
+  elseif DEBUGPRINT then
+    print("Unhandled OnSystemEvent")
   end
 end
 
-function SetVariable(strVariable, strValue, notifyChange)
-  if strVariable == nil or strValue == nil then
-    print("SetVariable error (Invalid strVariable / strValue): ", tostring(strVariable), tostring(strValue))
+function AddVariable(strVariable, strValue, varType, readOnly, hidden)
+  if type(strVariable) ~= "string" then
+    print("AddVariable error (Invalid strVariable): ", tostring(strVariable), type(strVariable))
     return
   end
 
-  C4:SetVariable(strVariable, strValue)
+  if type(varType) ~= "string" then
+    print("AddVariable error (varType not string): ", tostring(varType), type(varType))
+    return
+  end
+
+  if not ValidVarTypes[varType] then
+    print("AddVariable error (Invalid varType): ", tostring(varType))
+    return
+  end
+
+  if type(strValue) == "boolean" then
+    strValue = (strValue and "1") or "0"
+  elseif type(strValue) ~= "string" then
+    strValue = tostring(strValue)
+  end
+
+  if Variables[strVariable] then
+    SetVariable(strVariable, strValue)
+    return
+  end
+
+  if readOnly ~= true then
+    readOnly = false
+  end
+
+  if hidden ~= true then
+    hidden = false
+  end
+
+  C4:AddVariable(strVariable, strValue, varType, readOnly, hidden)
+end
+
+function SetVariable(strVariable, strValue, notifyChange)
+  if type(strVariable) ~= "string" then
+    print("AddVariable error (Invalid strVariable): ", tostring(strVariable), type(strVariable))
+    return
+  end
+
+  if strValue == nil then
+    print("SetVariable error (Invalid strValue): nil")
+    return
+  end
+
+  if type(strValue) == "boolean" then
+    strValue = (strValue and "1") or "0"
+  elseif type(strValue) ~= "string" then
+    strValue = tostring(strValue)
+  end
+
+  if Variables[strVariable] ~= strValue then
+    C4:SetVariable(strVariable, strValue)
+  end
   if notifyChange == true then
     OnVariableChanged(strVariable)
   end
 end
 
-function OnVariableChanged(strVariable)
+function OnVariableChanged(strVariable, variableId)
   local value = Variables[strVariable]
   if value == nil then
     value = ""
   end
 
-  local init = {
-    "OnVariableChanged: " .. strVariable,
-    value,
-  }
-  HandlerDebug(init)
+  local suppressDebug = Select(OVC, "suppressDebug", strVariable) or Select(OVC, "suppressDebug", variableId)
+
+  if not suppressDebug then
+    local init = {
+      "OnVariableChanged: " .. strVariable .. " [" .. tostring(variableId) .. "]",
+      value,
+    }
+    HandlerDebug(init)
+  end
 
   strVariable = string.gsub(strVariable, "%s+", "_")
 
   local success, ret
 
-  if OVC and OVC[strVariable] and type(OVC[strVariable]) == "function" then
-    success, ret = pcall(OVC[strVariable], value)
+  local ovcStrVarFunction = Select(OVC, strVariable)
+  local ovcVarIdFunction = Select(OVC, variableId)
+
+  if type(ovcStrVarFunction) == "function" then
+    success, ret = xpcall(function()
+      return ovcStrVarFunction(value)
+    end, debug.traceback)
+  elseif type(ovcVarIdFunction) == "function" then
+    success, ret = xpcall(function()
+      return ovcVarIdFunction(value)
+    end, debug.traceback)
   end
 
   if success == true then
     return ret
   elseif success == false then
     print("OnVariableChanged error: ", ret, strVariable, value)
+    if ON_HANDLER_ERROR then
+      ON_HANDLER_ERROR("OVC." .. strVariable, ret)
+    end
+  elseif DEBUGPRINT then
+    print("Unhandled OnVariableChanged")
   end
 end
 
@@ -543,34 +741,44 @@ function UnregisterVariableListener(idDevice, idVariable)
     return
   end
 
+  C4:UnregisterVariableListener(idDevice, idVariable)
+
   if OWVC and OWVC[idDevice] then
     OWVC[idDevice][idVariable] = nil
   end
 
-  C4:UnregisterVariableListener(idDevice, idVariable)
+  if OWVC[idDevice] and not next(OWVC[idDevice]) then
+    OWVC[idDevice] = nil
+  end
 end
 
 function OnWatchedVariableChanged(idDevice, idVariable, strValue)
-  local init = {
-    "OnWatchedVariableChanged: " .. C4:GetDeviceDisplayName(idDevice) .. " [" .. idDevice .. "]",
-  }
-  local varName = Select(C4:GetDeviceVariables(idDevice), tostring(idVariable), "name") or ""
-  varName = varName .. " [" .. idVariable .. "]"
+  local suppressDebug = Select(OWVC, "suppressDebug", idDevice, idVariable)
 
-  local tParams = {
-    [varName] = strValue,
-  }
+  if not suppressDebug then
+    local init = {
+      "OnWatchedVariableChanged: " .. C4:GetDeviceDisplayName(idDevice) .. " [" .. idDevice .. "]",
+    }
+    local varName = Select(C4:GetDeviceVariables(idDevice), tostring(idVariable), "name") or ""
+    varName = varName .. " [" .. idVariable .. "]"
+
+    local tParams = {
+      [varName] = strValue,
+    }
+    HandlerDebug(init, tParams)
+  end
+
   local handler = OWVC and OWVC[idDevice] and OWVC[idDevice][idVariable]
   if not handler then
     return
   end
 
-  HandlerDebug(init, tParams)
-
   local success, ret
 
   if type(handler) == "function" then
-    success, ret = pcall(handler, idDevice, idVariable, strValue)
+    success, ret = xpcall(function()
+      return handler(idDevice, idVariable, strValue)
+    end, debug.traceback)
   else
     success = false
     local err = ""
@@ -584,27 +792,20 @@ function OnWatchedVariableChanged(idDevice, idVariable, strValue)
     return ret
   elseif success == false then
     print("OnWatchedVariableChanged error: ", ret, idDevice, idVariable, strValue)
+    if ON_HANDLER_ERROR then
+      ON_HANDLER_ERROR("OWVC." .. idDevice, ret)
+    end
   end
 end
 
 function ReceivedFromNetwork(idBinding, nPort, strData)
-  local suppressRFN
+  local suppressDebug = Select(RFN, "suppressDebug", idBinding)
+    or Select(SSDP, "SearchTargets", idBinding)
+    or (Select(WebSocket, "Sockets", idBinding) and not DEBUG_WEBSOCKET)
 
-  --- @diagnostic disable: undefined-global
-  if WebSocket then
-    if WebSocket.Sockets and WebSocket.Sockets[idBinding] then
-      suppressRFN = not (DEBUG_RFN or DEBUG_WEBSOCKET)
-    end
-  end
+  suppressDebug = suppressDebug and not DEBUG_RFN
 
-  if SSDP then
-    if SSDP.SearchTargets and SSDP.SearchTargets[idBinding] then
-      suppressRFN = not DEBUG_RFN
-    end
-  end
-  --- @diagnostic enable: undefined-global
-
-  if not suppressRFN then
+  if not suppressDebug then
     local init = {
       "ReceivedFromNetwork: " .. idBinding,
     }
@@ -618,14 +819,23 @@ function ReceivedFromNetwork(idBinding, nPort, strData)
 
   local success, ret
 
-  if RFN and RFN[idBinding] and type(RFN[idBinding]) == "function" then
-    success, ret = pcall(RFN[idBinding], idBinding, nPort, strData)
+  local rfnFunction = Select(RFN, idBinding)
+
+  if type(rfnFunction) == "function" then
+    success, ret = xpcall(function()
+      return rfnFunction(idBinding, nPort, strData)
+    end, debug.traceback)
   end
 
   if success == true then
     return ret
   elseif success == false then
     print("ReceivedFromNetwork error: ", ret, idBinding, nPort, strData)
+    if ON_HANDLER_ERROR then
+      ON_HANDLER_ERROR("RFN." .. idBinding, ret)
+    end
+  elseif DEBUGPRINT then
+    print("Unhandled ReceivedFromNetwork")
   end
 end
 
@@ -641,24 +851,40 @@ function ReceivedFromProxy(idBinding, strCommand, tParams)
     tParams.ARGS = nil
   end
 
-  local init = {
-    "ReceivedFromProxy: " .. idBinding,
-    strCommand,
-  }
-  HandlerDebug(init, tParams, args)
+  local suppressDebug = Select(RFP, "suppressDebug", idBinding, strCommand)
+
+  if not suppressDebug then
+    local init = {
+      "ReceivedFromProxy: " .. idBinding,
+      strCommand,
+    }
+    HandlerDebug(init, tParams, args)
+  end
 
   local success, ret
 
-  if RFP and RFP[strCommand] and type(RFP[strCommand]) == "function" then
-    success, ret = pcall(RFP[strCommand], idBinding, strCommand, tParams, args)
-  elseif RFP and RFP[idBinding] and type(RFP[idBinding]) == "function" then
-    success, ret = pcall(RFP[idBinding], idBinding, strCommand, tParams, args)
+  local rfpCommandFunction = Select(RFP, strCommand)
+  local rfpBindingFunction = Select(RFP, idBinding)
+
+  if type(rfpCommandFunction) == "function" then
+    success, ret = xpcall(function()
+      return rfpCommandFunction(idBinding, strCommand, tParams, args)
+    end, debug.traceback)
+  elseif type(rfpBindingFunction) == "function" then
+    success, ret = xpcall(function()
+      return rfpBindingFunction(idBinding, strCommand, tParams, args)
+    end, debug.traceback)
   end
 
   if success == true then
     return ret
   elseif success == false then
     print("ReceivedFromProxy error: ", ret, idBinding, strCommand)
+    if ON_HANDLER_ERROR then
+      ON_HANDLER_ERROR("RFP." .. strCommand, ret)
+    end
+  elseif DEBUGPRINT then
+    print("Unhandled ReceivedFromProxy")
   end
 end
 
@@ -666,21 +892,34 @@ function TestCondition(strConditionName, tParams)
   strConditionName = strConditionName or ""
   tParams = tParams or {}
 
-  local init = {
-    "TestCondition: " .. strConditionName,
-  }
-  HandlerDebug(init, tParams)
+  local suppressDebug = Select(TC, "suppressDebug", strConditionName)
+
+  if not suppressDebug then
+    local init = {
+      "TestCondition: " .. strConditionName,
+    }
+    HandlerDebug(init, tParams)
+  end
 
   local success, ret
 
-  if TC and TC[strConditionName] and type(TC[strConditionName]) == "function" then
-    success, ret = pcall(TC[strConditionName], strConditionName, tParams)
+  local tcFunction = Select(TC, strConditionName)
+
+  if type(tcFunction) == "function" then
+    success, ret = xpcall(function()
+      return tcFunction(strConditionName, tParams)
+    end, debug.traceback)
   end
 
   if success == true then
     return ret
   elseif success == false then
     print("TestCondition error: ", ret, strConditionName)
+    if ON_HANDLER_ERROR then
+      ON_HANDLER_ERROR("TC." .. strConditionName, ret)
+    end
+  elseif DEBUGPRINT then
+    print("Unhandled TestCondition")
   end
 end
 
@@ -688,20 +927,33 @@ function UIRequest(strCommand, tParams)
   strCommand = strCommand or ""
   tParams = tParams or {}
 
-  local init = {
-    "UIRequest: " .. strCommand,
-  }
-  HandlerDebug(init, tParams)
+  local suppressDebug = Select(UIR, "suppressDebug", strCommand)
+
+  if not suppressDebug then
+    local init = {
+      "UIRequest: " .. strCommand,
+    }
+    HandlerDebug(init, tParams)
+  end
 
   local success, ret
 
-  if UIR and UIR[strCommand] and type(UIR[strCommand]) == "function" then
-    success, ret = pcall(UIR[strCommand], tParams)
+  local uirFunction = Select(UIR, strCommand)
+
+  if type(uirFunction) == "function" then
+    success, ret = xpcall(function()
+      return uirFunction(tParams)
+    end, debug.traceback)
   end
 
   if success == true then
     return ret
   elseif success == false then
     print("UIRequest Lua error: ", strCommand, ret)
+    if ON_HANDLER_ERROR then
+      ON_HANDLER_ERROR("UIR." .. strCommand, ret)
+    end
+  elseif DEBUGPRINT then
+    print("Unhandled UIRequest")
   end
 end

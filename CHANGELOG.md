@@ -1,5 +1,6 @@
 # <span style="color:#17BCF2">Changelog</span>
 
+<!-- prettier-ignore-start -->
 [//]: # "## v[Version] - YYY-MM-DD"
 [//]: # "### Added"
 [//]: # "- Added"
@@ -9,25 +10,38 @@
 [//]: # "- Changed"
 [//]: # "### Removed"
 [//]: # "- Removed"
+<!-- prettier-ignore-end -->
+
+## Unreleased
+
+### Added
+
+- Added fan support with on/off, speed control (1-6 speed variants), direction,
+  and oscillation
 
 ## v20260217 - 2026-02-17
 
 ### Added
 
-- Added Bluetooth proxy support with scanner infrastructure, advertisement parsing, and GATT connection management
-- Added ESPHome Bluetooth Coordinator driver for multi-proxy aggregation with RSSI-based routing and connection failover
-- Added room presence tracking with RSSI-based detection, anti-flapping, and contact sensor bindings
+- Added Bluetooth proxy support with scanner infrastructure, advertisement
+  parsing, and GATT connection management
+- Added ESPHome Bluetooth Coordinator driver for multi-proxy aggregation with
+  RSSI-based routing and connection failover
+- Added room presence tracking with RSSI-based detection, anti-flapping, and
+  contact sensor bindings
 - Added ESPHome BTHome sub-driver for Shelly BLU and BTHome v1/v2 sensors
-- Added ESPHome Govee sub-driver for temperature, humidity, and meat thermometer sensors
-- Added ESPHome SwitchBot sub-driver for Bot, Plug Mini, Meter, Motion, and Contact devices
+- Added ESPHome Govee sub-driver for temperature, humidity, and meat thermometer
+  sensors
+- Added ESPHome SwitchBot sub-driver for Bot, Plug Mini, Meter, Motion, and
+  Contact devices
 - Added device log forwarding to the ESPHome driver
 
 ## v20251031 - 2025-10-31
 
 ### Fixed
 
-- Fixed compatibility with ESPHome 2025.10.0 for devices configured
-  without passwords
+- Fixed compatibility with ESPHome 2025.10.0 for devices configured without
+  passwords
 - Improved password authentication failure detection and error reporting
 
 ## v20251022 - 2025-10-22
@@ -40,7 +54,8 @@
 
 ### Added
 
-- Added support for OpenSSL with "Encryption Key" authentication mode across all applicable algorithms
+- Added support for OpenSSL with "Encryption Key" authentication mode across all
+  applicable algorithms
 
 ### Fixed
 
