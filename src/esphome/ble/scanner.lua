@@ -10,6 +10,7 @@ local BLEAddress = require("esphome.ble.address")
 local BTHome = require("bthome")
 local Govee = require("esphome.ble.parsers.govee")
 local SwitchBot = require("esphome.ble.parsers.switchbot")
+local Yale = require("esphome.ble.parsers.yale")
 local UUID = require("esphome.ble.uuid")
 
 --- Persistence key for discovered devices
@@ -114,6 +115,8 @@ local BINDING_CLASSES = {
   [Govee.DEVICE_NAMES[Govee.DeviceModel.H5185]] = "ESPHOME_GOVEE",
   [Govee.DEVICE_NAMES[Govee.DeviceModel.H5191]] = "ESPHOME_GOVEE",
   [Govee.DEVICE_NAMES[Govee.DeviceModel.H5198]] = "ESPHOME_GOVEE",
+  -- Yale/August locks
+  [Yale.DEVICE_NAMES.LOCK] = "ESPHOME_YALE",
 }
 
 --- Device types that require active GATT connections (use a connection slot).
@@ -125,6 +128,8 @@ local ACTIVE_DEVICES = {
   [SwitchBot.DEVICE_NAMES[SwitchBot.DeviceTypeCode.RELAY_1]] = true,
   [SwitchBot.DEVICE_NAMES[SwitchBot.DeviceTypeCode.RELAY_1PM]] = true,
   [SwitchBot.DEVICE_NAMES[SwitchBot.DeviceTypeCode.RELAY_2PM]] = true,
+  -- Yale/August locks (require GATT connection for control)
+  [Yale.DEVICE_NAMES.LOCK] = true,
 }
 
 --- Filter functions that determine which BLE advertisements to include in discovery.
@@ -299,6 +304,12 @@ local DEVICE_DERIVERS = {
     name = "Govee",
     derive = function(message)
       return Select(Govee.parse(message.manufacturerData, message.serviceData, message.name), "deviceType")
+    end,
+  },
+  {
+    name = "Yale",
+    derive = function(message)
+      return Select(Yale.parse(message.serviceData, message.manufacturerData), "deviceType")
     end,
   },
 }

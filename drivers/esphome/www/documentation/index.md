@@ -98,11 +98,12 @@ If you try this driver on a product listed above, and it works, let us know!
 When used as a Bluetooth proxy, this driver supports the following BLE device
 types through sub-drivers:
 
-| Protocol  | Sub-Driver        | Example Devices                                      |
-| --------- | ----------------- | ---------------------------------------------------- |
-| SwitchBot | ESPHome SwitchBot | Bot, Plug Mini, Relay Switch, Meter, Motion, Contact |
-| BTHome    | ESPHome BTHome    | Shelly BLU Button/Door/Motion/H&T, DIY sensors       |
-| Govee     | ESPHome Govee     | Temperature/humidity monitors, meat thermometers     |
+| Protocol    | Sub-Driver        | Example Devices                                      |
+| ----------- | ----------------- | ---------------------------------------------------- |
+| SwitchBot   | ESPHome SwitchBot | Bot, Plug Mini, Relay Switch, Meter, Motion, Contact |
+| BTHome      | ESPHome BTHome    | Shelly BLU Button/Door/Motion/H&T, DIY sensors       |
+| Govee       | ESPHome Govee     | Temperature/humidity monitors, meat thermometers     |
+| Yale/August | ESPHome Yale      | Yale and August smart locks                          |
 
 See the individual sub-driver documentation for device-specific details.
 
@@ -319,6 +320,16 @@ Selects the authentication method for connecting to the ESPHome device.
 - **Encryption Key**: Use an encryption key for secure communication (see
   below).
 
+> **Tip:** For ESPHome devices used primarily as Bluetooth proxies, consider
+> configuring the firmware without API encryption. In busy BLE environments, the
+> volume of proxy traffic combined with the controller's limited cryptographic
+> performance can cause significant CPU load. BLE traffic is inherently
+> over-the-air, and sensitive protocols (such as Yale/August lock commands) use
+> their own end-to-end encryption between the driver and the device, making it
+> safe to relay through an unencrypted proxy. To disable encryption, omit the
+> `encryption` block from the ESPHome `api:` configuration and set
+> Authentication Mode to `None`.
+
 ##### Password
 
 Shown only if
@@ -533,7 +544,7 @@ supported ESPHome entity. Use this reference for Control4 programming.
 | Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver        |
 
 > **Note:** Sensor, Number, Text, and Text Sensor entities do not create
-> bindings—they expose data only through variables.
+> bindings. They expose data only through variables.
 
 ### Commands
 
@@ -713,6 +724,7 @@ connection slots (typically 3-4). These devices include:
 
 - **SwitchBot Bot** - Requires connection to send press/on/off commands
 - **SwitchBot Switch** - Plug Mini, Relay switches (encrypted commands)
+- **Yale/August Locks** - Requires connection for encrypted lock/unlock commands
 
 ### Oversubscription
 
@@ -758,6 +770,7 @@ and retry until a slot becomes available.
 | BTHome          | ESPHome BTHome    | Passive        |
 | Govee           | ESPHome Govee     | Passive        |
 | SwitchBot       | ESPHome SwitchBot | Active/Passive |
+| Yale/August     | ESPHome Yale      | Active         |
 
 ## Performance Considerations
 

@@ -231,6 +231,24 @@ function UUID.findCharacteristic(service, targetUuid)
   return nil
 end
 
+--- Find a characteristic handle by service and characteristic UUID.
+--- Combines findService + findCharacteristic and returns the integer handle.
+--- @param services ProtoBluetoothGATTService[] List of GATT services
+--- @param serviceUuid string The service UUID to find
+--- @param charUuid string The characteristic UUID to find
+--- @return integer|nil handle The characteristic handle or nil
+function UUID.findCharacteristicHandle(services, serviceUuid, charUuid)
+  local service = UUID.findService(services, serviceUuid)
+  if not service then
+    return nil
+  end
+  local characteristic = UUID.findCharacteristic(service, charUuid)
+  if not characteristic then
+    return nil
+  end
+  return tointeger(characteristic.handle)
+end
+
 --- Common Bluetooth GATT UUIDs (short form - 16-bit)
 UUID.GATT = {
   -- Standard Services

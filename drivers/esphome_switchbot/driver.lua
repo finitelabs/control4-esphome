@@ -20,7 +20,6 @@ local persist = require("lib.persist")
 local constants = require("constants")
 local UUID = require("esphome.ble.uuid")
 local SwitchBot = require("esphome.ble.parsers.switchbot")
-local aes_ctr = require("lib.aes_ctr")
 local http = require("lib.http")
 
 --------------------------------------------------------------------------------
@@ -1030,7 +1029,7 @@ local function requestIV()
   end
 
   local cmd = IV_REQUEST_PREFIX .. string.char(keyIdByte)
-  log:debug("IV request command: %s (%d bytes)", aes_ctr.to_hex(cmd), #cmd)
+  log:debug("IV request command: %s (%d bytes)", C4:Encode(cmd, "HEX"), #cmd)
 
   SendToProxy(ESPHOME_BINDING, "GATT_WRITE", {
     handle = tostring(txHandle),
@@ -1101,8 +1100,8 @@ local function encryptCommand(cmd)
 
   --- @type string
   local keyHex = Properties["Encryption Key"]
-  local keyBytes = aes_ctr.from_hex(keyHex)
-  local encryptedPayload = aes_ctr.crypt(keyBytes, encryptionIV, cmdPayload)
+  local keyBytes = C4:Decode(keyHex, "HEX")
+  local encryptedPayload = C4:Encrypt("AES-128-CTR", keyBytes, encryptionIV, cmdPayload, { padding = false })
 
   --- @type string
   local keyId = Properties["Key ID"]
@@ -1115,7 +1114,7 @@ local function encryptCommand(cmd)
   local ivPrefix = encryptionIV:sub(1, 2)
   local packet = cmdHeader .. string.char(keyIdByte) .. ivPrefix .. encryptedPayload
 
-  log:debug("Encrypted command: %s -> %s", aes_ctr.to_hex(cmd), aes_ctr.to_hex(packet))
+  log:debug("Encrypted command: %s -> %s", C4:Encode(cmd, "HEX"), C4:Encode(packet, "HEX"))
 
   return packet
 end
@@ -1139,7 +1138,7 @@ local function validateEncryptionKey(keyHex)
     return false
   end
 
-  local keyBytes = aes_ctr.from_hex(keyHex)
+  local keyBytes = C4:Decode(keyHex, "HEX")
   if #keyBytes ~= 16 then
     log:error("Failed to convert encryption key")
     return false
@@ -1295,7 +1294,7 @@ local function sendCommand(cmd, needsEncryption)
 
   awaitingCommandResponse = true
 
-  log:debug("Sending %s command: %s", needsEncryption and "encrypted" or "plain", aes_ctr.to_hex(dataToSend))
+  log:debug("Sending %s command: %s", needsEncryption and "encrypted" or "plain", C4:Encode(dataToSend, "HEX"))
 
   SendToProxy(ESPHOME_BINDING, "GATT_WRITE", {
     handle = tostring(txHandle),
@@ -1866,28 +1865,6 @@ local function checkCommandResult(data)
 end
 
 --------------------------------------------------------------------------------
--- GATT Service Discovery
---------------------------------------------------------------------------------
-
---- Find a GATT characteristic handle by UUID string.
---- @param services table[] Array of GATT services
---- @param serviceUuid string Service UUID string
---- @param charUuid string Characteristic UUID string
---- @return integer|nil handle The characteristic handle
-local function findCharacteristicHandle(services, serviceUuid, charUuid)
-  log:trace("findCharacteristicHandle(%s, %s, %s)", services, serviceUuid, charUuid)
-  local service = UUID.findService(services, serviceUuid)
-  if not service then
-    return nil
-  end
-  local characteristic = UUID.findCharacteristic(service, charUuid)
-  if not characteristic then
-    return nil
-  end
-  return tointeger(characteristic.handle)
-end
-
---------------------------------------------------------------------------------
 -- Initialization
 --------------------------------------------------------------------------------
 
@@ -2317,8 +2294,8 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
   end
 
   if services then
-    local txHandle = findCharacteristicHandle(services, SWITCHBOT_UUID.SERVICE, SWITCHBOT_UUID.TX)
-    local rxHandle = findCharacteristicHandle(services, SWITCHBOT_UUID.SERVICE, SWITCHBOT_UUID.RX)
+    local txHandle = UUID.findCharacteristicHandle(services, SWITCHBOT_UUID.SERVICE, SWITCHBOT_UUID.TX)
+    local rxHandle = UUID.findCharacteristicHandle(services, SWITCHBOT_UUID.SERVICE, SWITCHBOT_UUID.RX)
 
     if txHandle and rxHandle then
       log:info("Found SwitchBot TX: %d, RX: %d", txHandle, rxHandle)
@@ -2663,8 +2640,8 @@ end
 --------------------------------------------------------------------------------
 
 --- Reset driver to initial state
-function EC.ResetDriver(params)
-  log:trace("EC.ResetDriver(%s)", params)
+function EC.Reset_Driver(params)
+  log:trace("EC.Reset_Driver(%s)", params)
   if Select(params, "Are You Sure?") ~= "Yes" then
     return
   end

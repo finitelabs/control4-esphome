@@ -244,12 +244,12 @@
       <!-- #ifndef DRIVERCENTRAL -->
       <action>
         <name>Update Drivers</name>
-        <command>UpdateDrivers</command>
+        <command>Update_Drivers</command>
       </action>
       <!-- #endif -->
       <action>
         <name>Reset Driver</name>
-        <command>ResetDriver</command>
+        <command>Reset_Driver</command>
         <params>
           <param>
             <name>Are You Sure?</name>

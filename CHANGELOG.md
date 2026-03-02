@@ -18,6 +18,8 @@
 
 - Added fan support with on/off, speed control (1-6 speed variants), direction,
   and oscillation
+- Added ESPHome Yale sub-driver for Yale/August BLE smart locks with lock/unlock
+  control, door sense, and battery monitoring
 
 ## v20260217 - 2026-02-17
 
