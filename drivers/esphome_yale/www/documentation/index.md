@@ -101,18 +101,18 @@ Bluetooth.
 
 ## Supported Locks
 
-| Brand | Model | Name |
-| ----- | ----- | ---- |
-| Yale | YRD216 | Assure Lock Keypad with Physical Key |
-| Yale | YRL216 | Assure Door Lever Lock with Push Button Keypad |
-| Yale | YRD226 | Assure Lock Touchscreen Deadbolt |
-| Yale | YRL226 | Assure Door Lever Lock Keypad |
-| Yale | YRD256 | Assure Lock Keypad |
-| Yale | YRD420 | Assure Lock 2 |
-| Yale | YRD450 | Assure Lock 2 Key Free |
-| August | ASL-05 | WiFi Smart Lock (Gen 4) |
-| August | ASL-03 | Smart Lock Pro (Gen 3) |
-| August | ASL-02 | Smart Lock Pro (Gen 2) |
+| Brand  | Model  | Name                                           |
+| ------ | ------ | ---------------------------------------------- |
+| Yale   | YRD216 | Assure Lock Keypad with Physical Key           |
+| Yale   | YRL216 | Assure Door Lever Lock with Push Button Keypad |
+| Yale   | YRD226 | Assure Lock Touchscreen Deadbolt               |
+| Yale   | YRL226 | Assure Door Lever Lock Keypad                  |
+| Yale   | YRD256 | Assure Lock Keypad                             |
+| Yale   | YRD420 | Assure Lock 2                                  |
+| Yale   | YRD450 | Assure Lock 2 Key Free                         |
+| August | ASL-05 | WiFi Smart Lock (Gen 4)                        |
+| August | ASL-03 | Smart Lock Pro (Gen 3)                         |
+| August | ASL-02 | Smart Lock Pro (Gen 2)                         |
 
 > **Note:** Other Yale/August locks using the same BLE protocol may also work.
 > Yale Conexis (L1/L2) and Yale Smart Cabinet Lock have limited protocol support
