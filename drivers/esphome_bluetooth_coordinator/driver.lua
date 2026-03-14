@@ -347,7 +347,7 @@ end
 -- Action Handlers
 --------------------------------------------------------------------------------
 
-function EC.ResetDriver(tParams)
+function EC.Reset_Driver(tParams)
   if Select(tParams, "Are You Sure?") ~= "Yes" then
     return
   end

@@ -396,23 +396,25 @@ specific room.
 > regardless of strength. Individual proxies can override this value (see
 > ESPHome driver "Minimum Room RSSI Override" property).
 
-## Connections
+<div style="page-break-after: always"></div>
 
-### Bluetooth Proxies (provider)
+# <span style="color:#17BCF2">Connections</span>
+
+#### Bluetooth Proxies (provider)
 
 The provider binding that all ESPHome Bluetooth proxy drivers connect to. Each
 ESPHome driver instance with Bluetooth proxy capability binds to this connection
 as a consumer, enabling the coordinator to aggregate signals and route commands
 across all proxies.
 
-### Dynamic Device Bindings (provider)
+#### Dynamic Device Bindings (provider)
 
 When BLE devices are selected via "Select Bluetooth Devices", the coordinator
 dynamically creates provider bindings for each device. These bindings allow
 sub-drivers (BTHome, SwitchBot, Govee, etc.) to connect and communicate with BLE
 devices through the coordinator's RSSI-based routing.
 
-### Dynamic Contact Sensor Bindings (provider)
+#### Dynamic Contact Sensor Bindings (provider)
 
 The coordinator dynamically creates CONTACT_SENSOR bindings for presence
 tracking integration. See [Contact Sensor Bindings](#contact-sensor-bindings)

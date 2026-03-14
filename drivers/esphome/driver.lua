@@ -13,6 +13,7 @@ DRIVER_FILENAMES = {
   "esphome_light.c4z",
   "esphome_lock.c4z",
   "esphome_switchbot.c4z",
+  "esphome_yale.c4z",
 }
 --#endif
 
@@ -606,8 +607,8 @@ local RESET_PROPERTY_VALUES = {
   ["Firmware Version"] = "N/A",
 }
 
-function EC.ResetDriver(params)
-  log:trace("EC.ResetDriver(%s)", params)
+function EC.Reset_Driver(params)
+  log:trace("EC.Reset_Driver(%s)", params)
   if Select(params, "Are You Sure?") ~= "Yes" then
     return
   end
@@ -674,8 +675,8 @@ end
 
 --#ifndef DRIVERCENTRAL
 -- Action: Update Drivers
-function EC.UpdateDrivers()
-  log:trace("EC.UpdateDrivers()")
+function EC.Update_Drivers()
+  log:trace("EC.Update_Drivers()")
   log:print("Updating drivers")
   UpdateDrivers(true)
 end

@@ -1010,8 +1010,8 @@ end
 --------------------------------------------------------------------------------
 
 --- Reset driver to initial state
-function EC.ResetDriver(params)
-  log:trace("EC.ResetDriver(%s)", params)
+function EC.Reset_Driver(params)
+  log:trace("EC.Reset_Driver(%s)", params)
   if Select(params, "Are You Sure?") ~= "Yes" then
     return
   end

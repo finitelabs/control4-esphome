@@ -87,7 +87,7 @@ Control4.
 > supported entities. The driver learns what a device supports only when it
 > receives a broadcast advertisement containing that data. This means
 > properties, variables, events, and connections are created dynamically as data
-> is observed — they will **not** appear until the device has broadcast at least
+> is observed, they will **not** appear until the device has broadcast at least
 > once with that data. For example, a button's press events won't show up in
 > programming until the button has been pressed at least once. Most sensors
 > broadcast periodically on their own, but event-based devices like buttons only

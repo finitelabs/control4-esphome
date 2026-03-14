@@ -253,7 +253,7 @@
     <actions>
       <action>
         <name>Reset Driver</name>
-        <command>ResetDriver</command>
+        <command>Reset_Driver</command>
         <params>
           <param>
             <name>Are You Sure?</name>
