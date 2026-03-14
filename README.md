@@ -232,6 +232,17 @@ Selects the authentication method for connecting to the ESPHome device.
 - **Encryption Key**: Use an encryption key for secure communication
   (see below).
 
+> **Tip:** For ESPHome devices used primarily as Bluetooth proxies,
+> consider configuring the firmware without API encryption. In busy BLE
+> environments, the volume of proxy traffic combined with the
+> controller's limited cryptographic performance can cause significant
+> CPU load. BLE traffic is inherently over-the-air, and sensitive
+> protocols (such as Yale/August lock commands) use their own end-to-end
+> encryption between the driver and the device, making it safe to relay
+> through an unencrypted proxy. To disable encryption, omit the
+> `encryption` block from the ESPHome `api:` configuration and set
+> Authentication Mode to `None`.
+
 ##### Password
 
 Shown only if [Authentication
@@ -825,7 +836,7 @@ Control4, you can file an issue on GitHub:
 
 # <span style="color:#17BCF2">Changelog</span>
 
-## Unreleased
+## v20260314 - 2026-03-14
 
 ### Added
 
