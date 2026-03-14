@@ -81,6 +81,7 @@ device types through sub-drivers:
 | SwitchBot | ESPHome SwitchBot | Bot, Plug Mini, Relay Switch, Meter, Motion, Contact |
 | BTHome | ESPHome BTHome | Shelly BLU Button/Door/Motion/H&T, DIY sensors |
 | Govee | ESPHome Govee | Temperature/humidity monitors, meat thermometers |
+| Yale/August | ESPHome Yale | Yale and August smart locks |
 
 See the individual sub-driver documentation for device-specific details.
 
@@ -450,7 +451,7 @@ programming.
 | Lock | `ESPHOME_LOCK` | Bind to ESPHome Lock sub-driver |
 
 > **Note:** Sensor, Number, Text, and Text Sensor entities do not create
-> bindings—they expose data only through variables.
+> bindings. They expose data only through variables.
 
 ### Commands
 
@@ -640,6 +641,8 @@ limited connection slots (typically 3-4). These devices include:
 
 - **SwitchBot Bot** - Requires connection to send press/on/off commands
 - **SwitchBot Switch** - Plug Mini, Relay switches (encrypted commands)
+- **Yale/August Locks** - Requires connection for encrypted lock/unlock
+  commands
 
 ### Oversubscription
 
@@ -691,6 +694,7 @@ additional devices will queue and retry until a slot becomes available.
 | BTHome          | ESPHome BTHome    | Passive        |
 | Govee           | ESPHome Govee     | Passive        |
 | SwitchBot       | ESPHome SwitchBot | Active/Passive |
+| Yale/August     | ESPHome Yale      | Active         |
 
 ## Performance Considerations
 
@@ -827,6 +831,8 @@ Control4, you can file an issue on GitHub:
 
 - Added fan support with on/off, speed control (1-6 speed variants),
   direction, and oscillation
+- Added ESPHome Yale sub-driver for Yale/August BLE smart locks with
+  lock/unlock control, door sense, and battery monitoring
 
 ## v20260217 - 2026-02-17
 

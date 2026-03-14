@@ -7,6 +7,7 @@ local bindings = require("lib.bindings")
 
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 local BLEAddress = require("esphome.ble.address")
+local UUID = require("esphome.ble.uuid")
 
 local bleScannerProperties = require("esphome.ble.scanner_properties")
 
@@ -377,7 +378,7 @@ function BluetoothProxyCapability:connectDevice(device)
   -- Initialize device tracking (keyed by MAC address)
   self._addedDevices[mac] = {
     name = device.name,
-    address = address,
+    address = BLEAddress.fromString(mac),
     addressType = device.addressType or DEFAULT_ADDRESS_TYPE,
     services = nil,
     deviceType = device.deviceType,
@@ -619,14 +620,16 @@ function BluetoothProxyCapability:handleCommand(mac, idBinding, strCommand, tPar
       return
     end
 
-    log:debug("GATT write to %s handle %d: %d bytes", mac, handle, #data)
+    log:debug("GATT write to %s handle %d: %d bytes, response=%s", mac, handle, #data, needResponse)
 
     self._client:bluetoothGattWrite(address, handle, data, needResponse, addressType):next(function()
+      log:trace("GATT write OK for %s handle %d", mac, handle)
       SendToProxy(idBinding, "GATT_WRITE_RESPONSE", {
         success = "true",
         error = "0",
       }, "NOTIFY")
     end, function(error)
+      log:error("GATT write FAILED for %s handle %d: %s", mac, handle, error)
       SendToProxy(idBinding, "GATT_WRITE_RESPONSE", {
         success = "false",
         error = tostring(error or -1),
@@ -666,17 +669,46 @@ function BluetoothProxyCapability:handleCommand(mac, idBinding, strCommand, tPar
 
     self._client
       :bluetoothGattNotify(address, handle, enable, function(data)
+        log:trace("GATT notify data for %s handle %d: %d bytes", mac, handle, #(data or ""))
         SendToProxy(idBinding, "GATT_NOTIFY_DATA", {
           handle = tostring(handle),
           data = C4:Base64Encode(data or ""),
         }, "NOTIFY")
       end, addressType)
       :next(function()
-        log:debug("GATT notify subscription confirmed for %s handle %d", mac, handle)
-        SendToProxy(idBinding, "GATT_NOTIFY_SUBSCRIBED", {
-          handle = tostring(handle),
-          success = "true",
-        }, "NOTIFY")
+        log:trace("GATT notify subscription confirmed for %s handle %d", mac, handle)
+
+        -- V3 BLE connections require client to write the CCCD descriptor.
+        -- The ESP firmware skips this for V3, expecting the API client to handle it.
+        -- We must wait for the CCCD write to complete before notifying the child,
+        -- otherwise the child may start writing before notifications are enabled.
+        local function notifyChild()
+          SendToProxy(idBinding, "GATT_NOTIFY_SUBSCRIBED", {
+            handle = tostring(handle),
+            success = "true",
+          }, "NOTIFY")
+        end
+
+        if enable and device.services then
+          local cccdHandle, cccdValue = self:_findCccdForHandle(device.services, handle)
+          if cccdHandle and cccdValue then
+            log:debug("Writing CCCD for handle %d: descriptor handle=%d", handle, cccdHandle)
+            self._client:bluetoothGattWriteDescriptor(address, cccdHandle, cccdValue, addressType):next(function()
+              log:trace("CCCD write confirmed for handle %d", handle)
+              notifyChild()
+            end, function(err)
+              log:warn("CCCD write failed for handle %d: %s (notifying child anyway)", handle, err)
+              notifyChild()
+            end)
+            return -- notifyChild called from promise
+          else
+            log:trace("No CCCD descriptor found for handle %d", handle)
+          end
+        else
+          log:trace("No services cached, skipping CCCD write for handle %d", handle)
+        end
+
+        notifyChild()
       end, function(error)
         log:error("GATT notify failed for %s handle %d: %s", mac, handle, error)
         SendToProxy(idBinding, "GATT_NOTIFY_SUBSCRIBED", {
@@ -757,7 +789,7 @@ function BluetoothProxyCapability:addDevice(device)
   -- Initialize device tracking (not connected yet)
   self._addedDevices[mac] = {
     name = device.name,
-    address = device.address,
+    address = BLEAddress.fromString(mac),
     addressType = device.addressType or DEFAULT_ADDRESS_TYPE,
     services = nil,
     deviceType = device.deviceType,
@@ -953,6 +985,47 @@ function BluetoothProxyCapability:_stopAdvertisementMonitoring(mac)
   local callbackId = "ble_" .. mac:gsub(":", "")
   self._client:removeBluetoothAdvertisementCallback(callbackId)
   log:info("Stopped advertisement monitoring for %s", mac)
+end
+
+--- BLE characteristic property bits
+local BLE_PROP_NOTIFY = 0x10
+local BLE_PROP_INDICATE = 0x20
+
+--- CCCD UUID (0x2902) as full 128-bit Bluetooth Base UUID
+local CCCD_UUID = "00002902-0000-1000-8000-00805F9B34FB"
+
+--- Find the CCCD descriptor handle and appropriate value for a characteristic handle.
+--- V3 BLE connections require the client to write the CCCD to enable notifications/indications.
+--- Matches by short_uuid or full UUID, same as bleak-esphome's approach.
+--- @param services ProtoBluetoothGATTService[]|nil GATT services from device discovery
+--- @param charHandle number The characteristic handle to find CCCD for
+--- @return number|nil cccdHandle The CCCD descriptor handle, or nil if not found
+--- @return string|nil cccdValue The 2-byte LE CCCD value to write, or nil
+function BluetoothProxyCapability:_findCccdForHandle(services, charHandle)
+  if not services then
+    return nil, nil
+  end
+  for _, svc in ipairs(services) do
+    for _, chr in ipairs(svc.characteristics or {}) do
+      if chr.handle == charHandle then
+        local props = chr.properties or 0
+        local hasNotify = math.floor(props / BLE_PROP_NOTIFY) % 2 == 1
+        local hasIndicate = math.floor(props / BLE_PROP_INDICATE) % 2 == 1
+        if not hasNotify and not hasIndicate then
+          return nil, nil -- characteristic doesn't support notifications
+        end
+        local value = hasIndicate and 0x0002 or 0x0001
+        for _, desc in ipairs(chr.descriptors or {}) do
+          local descUuid = UUID.fromGattObject(desc)
+          if descUuid and UUID.matches(descUuid, CCCD_UUID) then
+            return desc.handle, string.char(value % 256, math.floor(value / 256))
+          end
+        end
+        return nil, nil -- characteristic found but no CCCD descriptor
+      end
+    end
+  end
+  return nil, nil
 end
 
 --- Check if an active device has a GATT connection.

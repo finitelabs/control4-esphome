@@ -938,6 +938,74 @@ function ESPHomeClient:_bluetoothGattWriteInternal(address, handle, data, respon
   end)
 end
 
+--- Write to a GATT descriptor and wait for the firmware's write response.
+--- Used to write the Client Characteristic Configuration Descriptor (CCCD) for enabling
+--- notifications or indications on V3 BLE connections where the ESP firmware does not
+--- auto-write the CCCD.
+--- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param handle number The descriptor handle.
+--- @param data string The data to write (binary string).
+--- @param addressType? BLEAddressType The address type for auto-connect (default: 0 = PUBLIC).
+--- @return Deferred<nil, string> result A promise that resolves when the write completes or rejects with GATT error.
+function ESPHomeClient:bluetoothGattWriteDescriptor(address, handle, data, addressType)
+  log:trace("ESPHomeClient:bluetoothGattWriteDescriptor(%s, %s, %d bytes)", address, handle, #data)
+
+  return self:_ensureBleConnected(address, addressType):next(function()
+    --- @type Deferred<nil, string>
+    local d = deferred.new()
+
+    --- @type string[]
+    local callbackKeys = {}
+
+    -- The firmware sends BluetoothGATTWriteResponse for descriptor writes
+    -- (same response type as characteristic writes).
+    table.insert(
+      callbackKeys,
+      self:_registerCallback(
+        self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTWriteResponse, address, handle),
+        function()
+          log:debug("Bluetooth GATT descriptor write response for %s handle %s", address, handle)
+          d:resolve(nil)
+        end,
+        10 * ONE_SECOND,
+        function()
+          d:reject("GATT descriptor write timeout")
+        end
+      )
+    )
+
+    table.insert(
+      callbackKeys,
+      self:_registerCallback(
+        self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
+        function(message)
+          --- @cast message ProtoBluetoothGATTErrorResponse
+          log:warn("Bluetooth GATT descriptor write error for %s handle %s: error=%s", address, handle, message.error)
+          d:reject(string.format("GATT descriptor write failed with code %s", message.error or -1))
+        end
+      )
+    )
+
+    self
+      :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.bluetooth_gatt_write_descriptor, {
+        address = address,
+        handle = handle,
+        data = data,
+      })
+      :next(nil, function(err)
+        d:reject(err)
+      end)
+
+    return d:next(function(message)
+      self:_unregisterCallbacks(callbackKeys)
+      return message
+    end, function(err)
+      self:_unregisterCallbacks(callbackKeys)
+      return reject(err)
+    end)
+  end)
+end
+
 --- Subscribe to GATT characteristic notifications.
 --- Auto-connects if the device is not already connected.
 --- @param address number The 48-bit Bluetooth MAC address as a number.

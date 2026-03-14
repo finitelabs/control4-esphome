@@ -1,20 +1,17 @@
 <devicedata>
-  <name>ESPHome SwitchBot</name>
+  <name>ESPHome Yale</name>
   <version/>
   <manufacturer>Finite Labs</manufacturer>
-  <model>ESPHome SwitchBot</model>
+  <model>ESPHome Yale</model>
   <creator>Derek Miller</creator>
-  <small image_source="c4z">icons/device_sm.png</small>
-  <large image_source="c4z">icons/device_lg.png</large>
   <control>lua_gen</control>
   <driver>DriverWorks</driver>
   <copyright>Copyright 2026 Finite Labs, LLC. All rights reserved.</copyright>
-  <created>01/30/2026 12:00:00 PM</created>
+  <created>02/19/2026 12:00:00 PM</created>
   <modified/>
-  <combo>true</combo>
   <minimum_os_version>3.3.0</minimum_os_version>
   <composer_categories>
-    <category>Motorization</category>
+    <category>Lock</category>
   </composer_categories>
   <conditionals/>
   <events/>
@@ -86,39 +83,59 @@
           <item>Print and Log</item>
         </items>
       </property>
-      <!-- Encryption Settings (for Relay switches, hidden by default) -->
       <property>
-        <name>Encryption Settings</name>
+        <name>Connection Mode</name>
+        <type>LIST</type>
+        <default>Poll</default>
+        <items>
+          <item>Persistent</item>
+          <item>Poll</item>
+        </items>
+      </property>
+      <property>
+        <name>Polling Interval</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>15</minimum>
+        <maximum>300</maximum>
+        <default>60</default>
+      </property>
+      <!-- Authentication Settings -->
+      <property>
+        <name>Authentication Settings</name>
         <type>LABEL</type>
-        <default>Encryption Settings</default>
+        <default>Authentication Settings</default>
       </property>
       <property>
-        <name>Encryption Status</name>
-        <type>STRING</type>
-        <default>Not Configured</default>
-        <readonly>true</readonly>
-      </property>
-      <property>
-        <name>SwitchBot Username</name>
+        <name>Offline Key</name>
         <type>STRING</type>
         <default/>
-        <description>Your SwitchBot account email address</description>
+        <description>32-character hex string (offline key from Yale/August cloud)</description>
       </property>
       <property>
-        <name>SwitchBot Password</name>
+        <name>Key Slot</name>
+        <type>STRING</type>
+        <default>1</default>
+        <description>Key slot index (usually 1)</description>
+      </property>
+      <!-- Yale Cloud Settings -->
+      <property>
+        <name>Yale Cloud Settings</name>
+        <type>LABEL</type>
+        <default>Yale Cloud Settings</default>
+      </property>
+      <property>
+        <name>Yale Email</name>
+        <type>STRING</type>
+        <default/>
+      </property>
+      <property>
+        <name>Yale Password</name>
         <type>STRING</type>
         <default/>
         <password>true</password>
-        <description>Your SwitchBot account password</description>
       </property>
       <property>
-        <name>Key ID</name>
-        <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-      </property>
-      <property>
-        <name>Encryption Key</name>
+        <name>Yale Cloud Status</name>
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
@@ -136,21 +153,9 @@
         <readonly>true</readonly>
       </property>
       <property>
-        <name>Device Type</name>
-        <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-      </property>
-      <property>
         <name>MAC Address</name>
         <type>STRING</type>
         <default>Unknown</default>
-        <readonly>true</readonly>
-      </property>
-      <property>
-        <name>Last Seen</name>
-        <type>STRING</type>
-        <default>Never</default>
         <readonly>true</readonly>
       </property>
       <property>
@@ -160,22 +165,9 @@
         <readonly>true</readonly>
       </property>
       <property>
-        <name>Last Received</name>
+        <name>Last Seen</name>
         <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-      </property>
-      <!-- Device Data (shown dynamically based on device type) -->
-      <property>
-        <name>Device Data</name>
-        <type>LABEL</type>
-        <default>Device Data</default>
-      </property>
-      <!-- Bot Properties -->
-      <property>
-        <name>State</name>
-        <type>STRING</type>
-        <default>Unknown</default>
+        <default>Never</default>
         <readonly>true</readonly>
       </property>
       <property>
@@ -185,110 +177,33 @@
         <readonly>true</readonly>
       </property>
       <property>
-        <name>Battery Low</name>
-        <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-      </property>
-      <property>
-        <name>Mode</name>
-        <type>STRING</type>
-        <default>Unknown</default>
-        <readonly>true</readonly>
-      </property>
-      <!-- Switch Channel 1 Properties -->
-      <property>
-        <name>Channel 1</name>
-        <type>LABEL</type>
-        <default>Channel 1</default>
-      </property>
-      <property>
-        <name>Channel 1 State</name>
+        <name>Lock Status</name>
         <type>STRING</type>
         <default>Unknown</default>
         <readonly>true</readonly>
       </property>
       <property>
-        <name>Channel 1 Power</name>
-        <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-      </property>
-      <!-- Switch Channel 2 Properties (2PM only, hidden by default) -->
-      <property>
-        <name>Channel 2</name>
-        <type>LABEL</type>
-        <default>Channel 2</default>
-      </property>
-      <property>
-        <name>Channel 2 State</name>
-        <type>STRING</type>
-        <default>Unknown</default>
-        <readonly>true</readonly>
-      </property>
-      <property>
-        <name>Channel 2 Power</name>
-        <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-      </property>
-      <!-- Sensor Properties (shown dynamically) -->
-      <property>
-        <name>Temperature C</name>
-        <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-      </property>
-      <property>
-        <name>Temperature F</name>
-        <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-      </property>
-      <property>
-        <name>Humidity</name>
-        <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-      </property>
-      <property>
-        <name>CO2</name>
-        <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-      </property>
-      <property>
-        <name>Motion</name>
-        <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-      </property>
-      <property>
-        <name>Light Level</name>
-        <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-      </property>
-      <property>
-        <name>Contact</name>
-        <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-      </property>
-      <property>
-        <name>Leak Detected</name>
-        <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-      </property>
-      <property>
-        <name>Tamper</name>
+        <name>Door Status</name>
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
       </property>
     </properties>
     <actions>
+      <action>
+        <name>Request Verification Code</name>
+        <command>Request_Verification_Code</command>
+      </action>
+      <action>
+        <name>Verify and Fetch Keys</name>
+        <command>Verify_And_Fetch_Keys</command>
+        <params>
+          <param>
+            <name>Verification Code</name>
+            <type>STRING</type>
+          </param>
+        </params>
+      </action>
       <action>
         <name>Reset Driver</name>
         <command>Reset_Driver</command>
@@ -303,15 +218,92 @@
           </param>
         </params>
       </action>
+      <action>
+        <name>Request Status</name>
+        <command>Request_Status</command>
+      </action>
     </actions>
-    <commands/>
+    <commands>
+      <command>
+        <name>Request Status</name>
+        <description>Request an immediate status update from NAME</description>
+      </command>
+      <command>
+        <name>Set Connection Mode</name>
+        <description>Set the connection mode for NAME to PARAM1</description>
+        <params>
+          <param>
+            <name>Mode</name>
+            <type>LIST</type>
+            <items>
+              <item>Persistent</item>
+              <item>Poll</item>
+            </items>
+          </param>
+        </params>
+      </command>
+      <command>
+        <name>Set Polling Interval</name>
+        <description>Set the polling interval for NAME to PARAM1 seconds</description>
+        <params>
+          <param>
+            <name>Interval</name>
+            <type>RANGED_INTEGER</type>
+            <minimum>15</minimum>
+            <maximum>300</maximum>
+          </param>
+        </params>
+      </command>
+    </commands>
   </config>
-  <capabilities/>
+  <capabilities>
+    <is_management_only>False</is_management_only>
+    <has_admin_code>False</has_admin_code>
+    <has_schedule_lockout>False</has_schedule_lockout>
+    <has_auto_lock_time>False</has_auto_lock_time>
+    <has_log_item_count>False</has_log_item_count>
+    <has_lock_modes>False</has_lock_modes>
+    <has_log_failed_attempts>False</has_log_failed_attempts>
+    <has_wrong_code_attempts>False</has_wrong_code_attempts>
+    <has_shutout_timer>False</has_shutout_timer>
+    <has_language>False</has_language>
+    <has_volume>False</has_volume>
+    <has_one_touch_locking>False</has_one_touch_locking>
+    <has_daily_schedule>False</has_daily_schedule>
+    <has_date_range_schedule>False</has_date_range_schedule>
+    <has_settings>False</has_settings>
+    <has_custom_settings>False</has_custom_settings>
+    <has_internal_history>False</has_internal_history>
+  </capabilities>
+  <proxies>
+    <proxy proxybindingid="5001" primary="True" name="ESPHome Yale">lock</proxy>
+  </proxies>
+  <lock_settings>
+    <lock_mode>normal</lock_mode>
+    <language>English</language>
+    <one_touch_locking>false</one_touch_locking>
+  </lock_settings>
   <connections>
     <connection>
       <id>5001</id>
       <facing>6</facing>
-      <connectionname>ESPHome SwitchBot</connectionname>
+      <connectionname>Lock</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>LOCK</classname>
+        </class>
+      </classes>
+      <hidden>True</hidden>
+    </connection>
+    <connection>
+      <id>5002</id>
+      <facing>6</facing>
+      <connectionname>ESPHome Yale</connectionname>
       <type>2</type>
       <consumer>True</consumer>
       <audiosource>False</audiosource>
@@ -319,7 +311,7 @@
       <linelevel>False</linelevel>
       <classes>
         <class>
-          <classname>ESPHOME_SWITCHBOT</classname>
+          <classname>ESPHOME_YALE</classname>
         </class>
       </classes>
       <hidden>False</hidden>

@@ -34,11 +34,16 @@ function BLEAddress.fromString(mac)
     return nil
   end
 
-  -- Convert hex string to number
-  local address = tonumber(mac, 16)
-  if not address then
-    log:warn("Invalid MAC address format: %s", mac)
-    return nil
+  -- Parse byte-by-byte to avoid tonumber issues with large hex strings
+  -- on some Lua runtimes where tonumber(12-digit-hex, 16) may overflow
+  local address = 0
+  for i = 1, 12, 2 do
+    local byte = tonumber(mac:sub(i, i + 1), 16)
+    if not byte then
+      log:warn("Invalid MAC address format: %s", mac)
+      return nil
+    end
+    address = address * 256 + byte
   end
 
   return address
