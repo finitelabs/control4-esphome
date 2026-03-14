@@ -374,6 +374,14 @@ if has_socket then
       end
     end
   end
+
+  --- Run the event loop until os.exit() or signal.
+  function runEventLoop()
+    while true do
+      processEventLoop()
+      socket.sleep(0.01)
+    end
+  end
 else
   -- Stub timer that does nothing (sufficient for module loading)
   function C4:SetTimer(delay_ms, callback, repeating)
@@ -391,6 +399,7 @@ else
 
   function sleep() end
   function processEventLoop() end
+  function runEventLoop() end
 end
 
 print("C4 shim layer loaded" .. (has_socket and " (with luasocket)" or " (stubs only)"))
