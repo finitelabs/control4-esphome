@@ -615,13 +615,14 @@ end
 
 --- Connect to a Bluetooth device via the ESPHome proxy.
 --- ESPHome sends multiple responses: intermediate (connected=nil), then final (connected=true/false).
---- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
 --- @param addressType? BLEAddressType The address type (optional).
 --- @param withCache? boolean Use cached services (default true).
 --- @return Deferred<BluetoothConnectionResult, string> result A promise that resolves when connected or rejects on failure.
-function ESPHomeClient:bluetoothDeviceConnect(address, addressType, withCache)
-  log:trace("ESPHomeClient:bluetoothDeviceConnect(%s)", address)
+function ESPHomeClient:bluetoothDeviceConnect(mac, addressType, withCache)
+  log:trace("ESPHomeClient:bluetoothDeviceConnect(%s)", mac)
 
+  local address = BLEAddress.fromString(mac)
   local d = deferred.new()
 
   -- Register callback for connection responses
@@ -631,7 +632,7 @@ function ESPHomeClient:bluetoothDeviceConnect(address, addressType, withCache)
       --- @cast message ProtoBluetoothDeviceConnectionResponse
       log:debug(
         "Bluetooth device connection response for %s: connected=%s, mtu=%s, error=%s",
-        address,
+        mac,
         message.connected,
         message.mtu,
         message.error
@@ -683,11 +684,12 @@ function ESPHomeClient:bluetoothDeviceConnect(address, addressType, withCache)
 end
 
 --- Disconnect from a Bluetooth device.
---- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
 --- @return Deferred<nil, string> result A promise that resolves when the disconnect request is sent.
-function ESPHomeClient:bluetoothDeviceDisconnect(address)
-  log:trace("ESPHomeClient:bluetoothDeviceDisconnect(%s)", address)
+function ESPHomeClient:bluetoothDeviceDisconnect(mac)
+  log:trace("ESPHomeClient:bluetoothDeviceDisconnect(%s)", mac)
 
+  local address = BLEAddress.fromString(mac)
   return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.bluetooth_device_request, {
     address = address,
     request_type = ESPHomeProtoSchema.Enum.BluetoothDeviceRequestType.BLUETOOTH_DEVICE_REQUEST_TYPE_DISCONNECT,
@@ -696,23 +698,24 @@ end
 
 --- Get GATT services for a Bluetooth device.
 --- Auto-connects if the device is not already connected.
---- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
 --- @param addressType? BLEAddressType The address type for auto-connect (default: 0 = PUBLIC).
 --- @return Deferred<ProtoBluetoothGATTService[], string> result A promise that resolves with all services or rejects with error.
-function ESPHomeClient:bluetoothGattGetServices(address, addressType)
-  log:trace("ESPHomeClient:bluetoothGattGetServices(%s)", address)
+function ESPHomeClient:bluetoothGattGetServices(mac, addressType)
+  log:trace("ESPHomeClient:bluetoothGattGetServices(%s)", mac)
 
   -- Ensure device is connected before GATT operation
-  return self:_ensureBleConnected(address, addressType):next(function()
-    return self:_bluetoothGattGetServicesInternal(address)
+  return self:_ensureBleConnected(mac, addressType):next(function()
+    return self:_bluetoothGattGetServicesInternal(mac)
   end)
 end
 
 --- Internal implementation of GATT service discovery (assumes device is connected).
 --- @private
---- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
 --- @return Deferred<ProtoBluetoothGATTService[], string> result A promise that resolves with all services or rejects with error.
-function ESPHomeClient:_bluetoothGattGetServicesInternal(address)
+function ESPHomeClient:_bluetoothGattGetServicesInternal(mac)
+  local address = BLEAddress.fromString(mac)
   --- @type Deferred<ProtoBluetoothGATTService[], string>
   local d = deferred.new()
 
@@ -730,7 +733,7 @@ function ESPHomeClient:_bluetoothGattGetServicesInternal(address)
       function(message)
         --- @cast message ProtoBluetoothGATTGetServicesResponse
         local services = message.services or {}
-        log:debug("Bluetooth GATT services response for %s: %d services", address, #services)
+        log:debug("Bluetooth GATT services response for %s: %d services", mac, #services)
         for _, service in ipairs(services) do
           table.insert(allServices, service)
         end
@@ -744,7 +747,7 @@ function ESPHomeClient:_bluetoothGattGetServicesInternal(address)
       self:_makeBluetoothCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTGetServicesDoneResponse, address),
       function(message)
         --- @cast message ProtoBluetoothGATTGetServicesDoneResponse
-        log:debug("Bluetooth GATT service discovery done for %s: %d total services", address, #allServices)
+        log:debug("Bluetooth GATT service discovery done for %s: %d total services", mac, #allServices)
         d:resolve(allServices)
       end,
       30 * ONE_SECOND,
@@ -760,7 +763,7 @@ function ESPHomeClient:_bluetoothGattGetServicesInternal(address)
       self:_makeBluetoothCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address),
       function(message)
         --- @cast message ProtoBluetoothGATTErrorResponse
-        log:warn("Bluetooth GATT error for %s: error=%s", address, message.error)
+        log:warn("Bluetooth GATT error for %s: error=%s", mac, message.error)
         d:reject(string.format("Getting GATT services failed with code %s", message.error or -1))
       end
     )
@@ -783,25 +786,26 @@ end
 
 --- Read a GATT characteristic.
 --- Auto-connects if the device is not already connected.
---- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
 --- @param handle number The characteristic handle.
 --- @param addressType? BLEAddressType The address type for auto-connect (default: 0 = PUBLIC).
 --- @return Deferred<string, string> result A promise that resolves with data or rejects with GATT error code.
-function ESPHomeClient:bluetoothGattRead(address, handle, addressType)
-  log:trace("ESPHomeClient:bluetoothGattRead(%s, %s)", address, handle)
+function ESPHomeClient:bluetoothGattRead(mac, handle, addressType)
+  log:trace("ESPHomeClient:bluetoothGattRead(%s, %s)", mac, handle)
 
   -- Ensure device is connected before GATT operation
-  return self:_ensureBleConnected(address, addressType):next(function()
-    return self:_bluetoothGattReadInternal(address, handle)
+  return self:_ensureBleConnected(mac, addressType):next(function()
+    return self:_bluetoothGattReadInternal(mac, handle)
   end)
 end
 
 --- Internal implementation of GATT read (assumes device is connected).
 --- @private
---- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
 --- @param handle number The characteristic handle.
 --- @return Deferred<string, string> result A promise that resolves with data or rejects with GATT error code.
-function ESPHomeClient:_bluetoothGattReadInternal(address, handle)
+function ESPHomeClient:_bluetoothGattReadInternal(mac, handle)
+  local address = BLEAddress.fromString(mac)
   --- @type Deferred<string, string>
   local d = deferred.new()
 
@@ -814,7 +818,7 @@ function ESPHomeClient:_bluetoothGattReadInternal(address, handle)
       self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTReadResponse, address, handle),
       function(message)
         --- @cast message ProtoBluetoothGATTReadResponse
-        log:debug("Bluetooth GATT read response for %s handle %s: %d bytes", address, handle, #(message.data or ""))
+        log:debug("Bluetooth GATT read response for %s handle %s: %d bytes", mac, handle, #(message.data or ""))
         d:resolve(message.data or "")
       end,
       10 * ONE_SECOND,
@@ -830,7 +834,7 @@ function ESPHomeClient:_bluetoothGattReadInternal(address, handle)
       self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
       function(message)
         --- @cast message ProtoBluetoothGATTErrorResponse
-        log:warn("Bluetooth GATT error for %s handle %s: error=%s", address, handle, message.error)
+        log:warn("Bluetooth GATT error for %s handle %s: error=%s", mac, handle, message.error)
         d:reject(string.format("GATT read failed with code %s", message.error or -1))
       end
     )
@@ -854,29 +858,30 @@ end
 
 --- Write to a GATT characteristic.
 --- Auto-connects if the device is not already connected.
---- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
 --- @param handle number The characteristic handle.
 --- @param data string The data to write (binary string).
 --- @param response? boolean Whether to wait for a write response (default false).
 --- @param addressType? BLEAddressType The address type for auto-connect (default: 0 = PUBLIC).
 --- @return Deferred<nil, string> result A promise that resolves on success or rejects with GATT error code.
-function ESPHomeClient:bluetoothGattWrite(address, handle, data, response, addressType)
-  log:trace("ESPHomeClient:bluetoothGattWrite(%s, %s, %d bytes, response=%s)", address, handle, #data, response)
+function ESPHomeClient:bluetoothGattWrite(mac, handle, data, response, addressType)
+  log:trace("ESPHomeClient:bluetoothGattWrite(%s, %s, %d bytes, response=%s)", mac, handle, #data, response)
 
   -- Ensure device is connected before GATT operation
-  return self:_ensureBleConnected(address, addressType):next(function()
-    return self:_bluetoothGattWriteInternal(address, handle, data, response)
+  return self:_ensureBleConnected(mac, addressType):next(function()
+    return self:_bluetoothGattWriteInternal(mac, handle, data, response)
   end)
 end
 
 --- Internal implementation of GATT write (assumes device is connected).
 --- @private
---- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
 --- @param handle number The characteristic handle.
 --- @param data string The data to write (binary string).
 --- @param response? boolean Whether to wait for a write response (default false).
 --- @return Deferred<nil, string> result A promise that resolves on success or rejects with GATT error code.
-function ESPHomeClient:_bluetoothGattWriteInternal(address, handle, data, response)
+function ESPHomeClient:_bluetoothGattWriteInternal(mac, handle, data, response)
+  local address = BLEAddress.fromString(mac)
   --- @type Deferred<nil, string>
   local d = deferred.new()
 
@@ -890,7 +895,7 @@ function ESPHomeClient:_bluetoothGattWriteInternal(address, handle, data, respon
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTWriteResponse, address, handle),
         function(message)
           --- @cast message ProtoBluetoothGATTWriteResponse
-          log:debug("Bluetooth GATT write response for %s handle %s", address, handle)
+          log:debug("Bluetooth GATT write response for %s handle %s", mac, handle)
           d:resolve(nil)
         end,
         10 * ONE_SECOND,
@@ -906,7 +911,7 @@ function ESPHomeClient:_bluetoothGattWriteInternal(address, handle, data, respon
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
         function(message)
           --- @cast message ProtoBluetoothGATTErrorResponse
-          log:warn("Bluetooth GATT write error for %s handle %s: error=%s", address, handle, message.error)
+          log:warn("Bluetooth GATT write error for %s handle %s: error=%s", mac, handle, message.error)
           d:reject(string.format("GATT write failed with code %s", message.error or -1))
         end
       )
@@ -942,15 +947,16 @@ end
 --- Used to write the Client Characteristic Configuration Descriptor (CCCD) for enabling
 --- notifications or indications on V3 BLE connections where the ESP firmware does not
 --- auto-write the CCCD.
---- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
 --- @param handle number The descriptor handle.
 --- @param data string The data to write (binary string).
 --- @param addressType? BLEAddressType The address type for auto-connect (default: 0 = PUBLIC).
 --- @return Deferred<nil, string> result A promise that resolves when the write completes or rejects with GATT error.
-function ESPHomeClient:bluetoothGattWriteDescriptor(address, handle, data, addressType)
-  log:trace("ESPHomeClient:bluetoothGattWriteDescriptor(%s, %s, %d bytes)", address, handle, #data)
+function ESPHomeClient:bluetoothGattWriteDescriptor(mac, handle, data, addressType)
+  log:trace("ESPHomeClient:bluetoothGattWriteDescriptor(%s, %s, %d bytes)", mac, handle, #data)
 
-  return self:_ensureBleConnected(address, addressType):next(function()
+  return self:_ensureBleConnected(mac, addressType):next(function()
+    local address = BLEAddress.fromString(mac)
     --- @type Deferred<nil, string>
     local d = deferred.new()
 
@@ -964,7 +970,7 @@ function ESPHomeClient:bluetoothGattWriteDescriptor(address, handle, data, addre
       self:_registerCallback(
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTWriteResponse, address, handle),
         function()
-          log:debug("Bluetooth GATT descriptor write response for %s handle %s", address, handle)
+          log:debug("Bluetooth GATT descriptor write response for %s handle %s", mac, handle)
           d:resolve(nil)
         end,
         10 * ONE_SECOND,
@@ -980,7 +986,7 @@ function ESPHomeClient:bluetoothGattWriteDescriptor(address, handle, data, addre
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
         function(message)
           --- @cast message ProtoBluetoothGATTErrorResponse
-          log:warn("Bluetooth GATT descriptor write error for %s handle %s: error=%s", address, handle, message.error)
+          log:warn("Bluetooth GATT descriptor write error for %s handle %s: error=%s", mac, handle, message.error)
           d:reject(string.format("GATT descriptor write failed with code %s", message.error or -1))
         end
       )
@@ -1008,29 +1014,30 @@ end
 
 --- Subscribe to GATT characteristic notifications.
 --- Auto-connects if the device is not already connected.
---- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
 --- @param handle number The characteristic handle.
 --- @param enable boolean Enable or disable notifications.
 --- @param callback? fun(data: string) The callback for notification data (required when enable=true).
 --- @param addressType? BLEAddressType The address type for auto-connect (default: 0 = PUBLIC).
 --- @return Deferred<nil, string> result A promise that resolves when subscription is confirmed or rejects with GATT error.
-function ESPHomeClient:bluetoothGattNotify(address, handle, enable, callback, addressType)
-  log:trace("ESPHomeClient:bluetoothGattNotify(%s, %s, %s)", address, handle, enable)
+function ESPHomeClient:bluetoothGattNotify(mac, handle, enable, callback, addressType)
+  log:trace("ESPHomeClient:bluetoothGattNotify(%s, %s, %s)", mac, handle, enable)
 
   -- Ensure device is connected before GATT operation
-  return self:_ensureBleConnected(address, addressType):next(function()
-    return self:_bluetoothGattNotifyInternal(address, handle, enable, callback)
+  return self:_ensureBleConnected(mac, addressType):next(function()
+    return self:_bluetoothGattNotifyInternal(mac, handle, enable, callback)
   end)
 end
 
 --- Internal implementation of GATT notify subscription (assumes device is connected).
 --- @private
---- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
 --- @param handle number The characteristic handle.
 --- @param enable boolean Enable or disable notifications.
 --- @param callback? fun(data: string) The callback for notification data (required when enable=true).
 --- @return Deferred<nil, string> result A promise that resolves when subscription is confirmed or rejects with GATT error.
-function ESPHomeClient:_bluetoothGattNotifyInternal(address, handle, enable, callback)
+function ESPHomeClient:_bluetoothGattNotifyInternal(mac, handle, enable, callback)
+  local address = BLEAddress.fromString(mac)
   --- @type Deferred<nil, string>
   local d = deferred.new()
 
@@ -1044,15 +1051,10 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(address, handle, enable, cal
     if callback then
       self:_registerCallback(notifyCallbackKey, function(message)
         --- @cast message ProtoBluetoothGATTNotifyDataResponse
-        log:debug("Bluetooth GATT notify data for %s handle %s: %d bytes", address, handle, #(message.data or ""))
+        log:debug("Bluetooth GATT notify data for %s handle %s: %d bytes", mac, handle, #(message.data or ""))
         local callbackSuccess, err = pcall(callback, message.data or "")
         if not callbackSuccess then
-          log:error(
-            "Bluetooth GATT notify callback for %s handle %s failed: %s",
-            address,
-            handle,
-            err or "unknown error"
-          )
+          log:error("Bluetooth GATT notify callback for %s handle %s failed: %s", mac, handle, err or "unknown error")
         end
       end)
     end
@@ -1064,7 +1066,7 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(address, handle, enable, cal
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTNotifyResponse, address, handle),
         function(message)
           --- @cast message ProtoBluetoothGATTNotifyResponse
-          log:debug("Bluetooth GATT notify subscription confirmed for %s handle %s", address, handle)
+          log:debug("Bluetooth GATT notify subscription confirmed for %s handle %s", mac, handle)
           d:resolve(nil)
         end,
         10 * ONE_SECOND,
@@ -1081,7 +1083,7 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(address, handle, enable, cal
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
         function(message)
           --- @cast message ProtoBluetoothGATTErrorResponse
-          log:warn("Bluetooth GATT notify error for %s handle %s: error=%s", address, handle, message.error)
+          log:warn("Bluetooth GATT notify error for %s handle %s: error=%s", mac, handle, message.error)
           d:reject(string.format("GATT notify failed with code %s", message.error or -1))
         end
       )
@@ -1097,7 +1099,7 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(address, handle, enable, cal
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTNotifyResponse, address, handle),
         function(message)
           --- @cast message ProtoBluetoothGATTNotifyResponse
-          log:debug("Bluetooth GATT notify unsubscribe confirmed for %s handle %s", address, handle)
+          log:debug("Bluetooth GATT notify unsubscribe confirmed for %s handle %s", mac, handle)
           d:resolve(nil)
         end,
         10 * ONE_SECOND,
@@ -1114,7 +1116,7 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(address, handle, enable, cal
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
         function(message)
           --- @cast message ProtoBluetoothGATTErrorResponse
-          log:warn("Bluetooth GATT notify unsubscribe error for %s handle %s: error=%s", address, handle, message.error)
+          log:warn("Bluetooth GATT notify unsubscribe error for %s handle %s: error=%s", mac, handle, message.error)
           d:reject(string.format("GATT notify failed with code %s", message.error or -1))
         end
       )
@@ -1381,11 +1383,10 @@ end
 --- Otherwise, initiates a new BLE connection first. This enables on-demand connection for GATT
 --- operations.
 --- @private
---- @param address number The 48-bit Bluetooth MAC address as a number.
+--- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
 --- @param addressType? BLEAddressType The address type (default: 0 = PUBLIC).
 --- @return Deferred<nil, string> result A promise that resolves when connected.
-function ESPHomeClient:_ensureBleConnected(address, addressType)
-  local mac = BLEAddress.toString(address)
+function ESPHomeClient:_ensureBleConnected(mac, addressType)
   log:trace("ESPHomeClient:_ensureBleConnected(%s)", mac)
 
   -- Check if device already has an active connection slot
@@ -1396,7 +1397,7 @@ function ESPHomeClient:_ensureBleConnected(address, addressType)
 
   -- Device not connected - initiate connection
   log:info("BLE device %s not connected, auto-connecting for GATT operation", mac)
-  return self:bluetoothDeviceConnect(address, addressType or BLEAddress.Type.PUBLIC, true):next(function()
+  return self:bluetoothDeviceConnect(mac, addressType or BLEAddress.Type.PUBLIC, true):next(function()
     log:debug("BLE auto-connect successful for %s", mac)
   end)
 end

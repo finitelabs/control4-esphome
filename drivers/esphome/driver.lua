@@ -621,7 +621,7 @@ function EC.Reset_Driver(params)
   values:reset()
 
   -- Reset BLE scanner state
-  bleScanner:cancelScan()
+  bleScanner:abortScan()
   bleScanner:reset()
 
   -- Reset scanner properties (clears device selections)
