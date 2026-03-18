@@ -2,6 +2,11 @@
 --- @module "deferred"
 local M = {}
 
+--- Global hook called when a promise is rejected with no downstream handlers.
+--- Set this to a function(value) to capture unhandled rejections externally.
+--- @type fun(value: any)|nil
+ON_UNHANDLED_REJECTION = ON_UNHANDLED_REJECTION
+
 --- @generic S,F
 --- @class Deferred<S,F>
 --- @field state DeferredState The current state of the promise
@@ -60,6 +65,14 @@ local function finish(deferred, state)
     end
   end
   deferred.state = state
+  if
+    state == DeferredState.REJECTED
+    and #deferred.queue == 0
+    and ON_UNHANDLED_REJECTION
+    and (deferred.success ~= nil or deferred.failure ~= nil)
+  then
+    ON_UNHANDLED_REJECTION(deferred.value)
+  end
 end
 
 --- Checks if a value is a callable function or table with a `__call` metamethod.

@@ -14,7 +14,7 @@ local log = require("lib.logging")
 
 -- Enable verbose logging for debugging
 log:setOutputPrintEnabled(true)
-log:setLogLevel(6)  -- 6 = ULTRA (show raw protocol data)
+log:setLogLevel(6) -- 6 = ULTRA (show raw protocol data)
 log:setLogName("ESPHomeTest")
 
 -- Configuration from environment variables or defaults
@@ -27,8 +27,12 @@ local CONFIG = {
 }
 
 -- Ensure password and key are nil if empty strings
-if CONFIG.password == "" then CONFIG.password = nil end
-if CONFIG.encryption_key == "" then CONFIG.encryption_key = nil end
+if CONFIG.password == "" then
+  CONFIG.password = nil
+end
+if CONFIG.encryption_key == "" then
+  CONFIG.encryption_key = nil
+end
 
 print("=" .. string.rep("=", 70))
 print("ESPHome Connection Test")
@@ -46,17 +50,12 @@ print()
 local client = ESPHomeClient:new()
 
 -- Configure client
-client:setConfig(
-  CONFIG.ip_address,
-  CONFIG.port,
-  CONFIG.password,
-  CONFIG.encryption_key,
-  CONFIG.use_openssl
-)
+client:setConfig(CONFIG.ip_address, CONFIG.port, CONFIG.password, CONFIG.encryption_key, CONFIG.use_openssl)
 
 -- Connect to device
 print("Connecting to ESPHome device...")
-client:connect()
+client
+  :connect()
   :next(function()
     print("✓ Successfully connected and authenticated!")
     print()
@@ -127,9 +126,7 @@ client:connect()
     -- Subscribe to state updates
     print("Subscribing to state updates...")
     return client:subscribeStates(function(message, schema)
-      print(string.format("[STATE UPDATE] %s: %s",
-        schema.name,
-        JSON:encode(message)))
+      print(string.format("[STATE UPDATE] %s: %s", schema.name, JSON:encode(message)))
     end)
   end, function(err)
     print("✗ Failed to list entities: " .. tostring(err))

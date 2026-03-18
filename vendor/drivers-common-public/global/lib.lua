@@ -1250,7 +1250,10 @@ function Select(data, ...)
   local ret = data
 
   local i = 1
-  while ret ~= nil and i <= n and args[i] ~= nil do
+  while ret ~= nil and i <= n do
+    if args[i] == nil then
+      return nil
+    end
     ret = ret[args[i]]
     i = i + 1
   end

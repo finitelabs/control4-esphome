@@ -93,7 +93,6 @@ local DEFAULT_ADDRESS_TYPE = BLEAddress.Type.PUBLIC
 
 --- @class AddedDevice
 --- @field name string|nil Device name from advertisement
---- @field address number MAC address as 48-bit number (for BLE API calls)
 --- @field addressType BLEAddressType Address type, defaults to PUBLIC (0) if not set
 --- @field services table[]|nil GATT services discovered
 --- @field deviceType string|nil Device type (e.g., "SwitchBot Bot")
@@ -340,7 +339,7 @@ function BluetoothProxyCapability:_discoverGattServices(mac, callback)
     return
   end
 
-  self._client:bluetoothGattGetServices(device.address):next(function(services)
+  self._client:bluetoothGattGetServices(mac):next(function(services)
     device.services = services
     log:info("GATT service discovery complete for %s (%d services)", mac, #services)
     if callback then
@@ -359,13 +358,7 @@ end
 --- @param device BLEDiscoveredDevice Device info from scanner
 function BluetoothProxyCapability:connectDevice(device)
   local mac = device.mac
-  local address = device.address
   log:trace("BluetoothProxyCapability:connectDevice(%s)", mac)
-
-  if not address then
-    log:error("Device missing address: %s", mac)
-    return
-  end
 
   -- Check if already tracked and connected
   if self._addedDevices[mac] and self._client:isBluetoothDeviceAllocated(mac) then
@@ -373,12 +366,11 @@ function BluetoothProxyCapability:connectDevice(device)
     return
   end
 
-  log:info("Connecting to Bluetooth device: %s (0x%012X)", mac, address)
+  log:info("Connecting to Bluetooth device: %s", mac)
 
   -- Initialize device tracking (keyed by MAC address)
   self._addedDevices[mac] = {
     name = device.name,
-    address = BLEAddress.fromString(mac),
     addressType = device.addressType or DEFAULT_ADDRESS_TYPE,
     services = nil,
     deviceType = device.deviceType,
@@ -410,12 +402,11 @@ function BluetoothProxyCapability:_initiateConnection(mac, callback)
     return
   end
 
-  local address = device.address
   local addressType = device.addressType or DEFAULT_ADDRESS_TYPE
 
   log:debug("Initiating BLE connection to %s (addressType=%d)", mac, addressType)
 
-  self._client:bluetoothDeviceConnect(address, addressType, false):next(function(result)
+  self._client:bluetoothDeviceConnect(mac, addressType, false):next(function(result)
     log:debug("Bluetooth connection successful for %s: mtu=%s", mac, result.mtu)
     if callback then
       callback(true)
@@ -518,7 +509,7 @@ function BluetoothProxyCapability:disconnectDevice(mac)
   end
 
   -- Disconnect from device
-  self._client:bluetoothDeviceDisconnect(device.address)
+  self._client:bluetoothDeviceDisconnect(mac)
 
   self._addedDevices[mac] = nil
   log:info("Disconnected from Bluetooth device: %s", mac)
@@ -597,7 +588,7 @@ function BluetoothProxyCapability:handleCommand(mac, idBinding, strCommand, tPar
     device.services = nil
     if self._client:isBluetoothDeviceAllocated(mac) then
       log:info("Disconnecting from %s (child requested)", mac)
-      self._client:bluetoothDeviceDisconnect(device.address)
+      self._client:bluetoothDeviceDisconnect(mac)
       -- Note: DISCONNECTED will be sent via allocation change callback
     else
       log:debug("Device %s not connected, ignoring DISCONNECT", mac)
@@ -607,7 +598,6 @@ function BluetoothProxyCapability:handleCommand(mac, idBinding, strCommand, tPar
 
   -- GATT commands use client's auto-connect feature - no need to check device.connected
   -- The client will automatically connect if the device is not already connected
-  local address = device.address
   local addressType = device.addressType or DEFAULT_ADDRESS_TYPE
 
   if strCommand == "GATT_WRITE" then
@@ -622,7 +612,7 @@ function BluetoothProxyCapability:handleCommand(mac, idBinding, strCommand, tPar
 
     log:debug("GATT write to %s handle %d: %d bytes, response=%s", mac, handle, #data, needResponse)
 
-    self._client:bluetoothGattWrite(address, handle, data, needResponse, addressType):next(function()
+    self._client:bluetoothGattWrite(mac, handle, data, needResponse, addressType):next(function()
       log:trace("GATT write OK for %s handle %d", mac, handle)
       SendToProxy(idBinding, "GATT_WRITE_RESPONSE", {
         success = "true",
@@ -645,7 +635,7 @@ function BluetoothProxyCapability:handleCommand(mac, idBinding, strCommand, tPar
 
     log:debug("GATT read from %s handle %d", mac, handle)
 
-    self._client:bluetoothGattRead(address, handle, addressType):next(function(data)
+    self._client:bluetoothGattRead(mac, handle, addressType):next(function(data)
       SendToProxy(idBinding, "GATT_READ_RESPONSE", {
         data = C4:Base64Encode(data or ""), -- Base64 encoded to preserve binary data
         error = "0",
@@ -668,7 +658,7 @@ function BluetoothProxyCapability:handleCommand(mac, idBinding, strCommand, tPar
     log:debug("GATT notify for %s handle %d: %s", mac, handle, enable)
 
     self._client
-      :bluetoothGattNotify(address, handle, enable, function(data)
+      :bluetoothGattNotify(mac, handle, enable, function(data)
         log:trace("GATT notify data for %s handle %d: %d bytes", mac, handle, #(data or ""))
         SendToProxy(idBinding, "GATT_NOTIFY_DATA", {
           handle = tostring(handle),
@@ -693,7 +683,7 @@ function BluetoothProxyCapability:handleCommand(mac, idBinding, strCommand, tPar
           local cccdHandle, cccdValue = self:_findCccdForHandle(device.services, handle)
           if cccdHandle and cccdValue then
             log:debug("Writing CCCD for handle %d: descriptor handle=%d", handle, cccdHandle)
-            self._client:bluetoothGattWriteDescriptor(address, cccdHandle, cccdValue, addressType):next(function()
+            self._client:bluetoothGattWriteDescriptor(mac, cccdHandle, cccdValue, addressType):next(function()
               log:trace("CCCD write confirmed for handle %d", handle)
               notifyChild()
             end, function(err)
@@ -789,7 +779,6 @@ function BluetoothProxyCapability:addDevice(device)
   -- Initialize device tracking (not connected yet)
   self._addedDevices[mac] = {
     name = device.name,
-    address = BLEAddress.fromString(mac),
     addressType = device.addressType or DEFAULT_ADDRESS_TYPE,
     services = nil,
     deviceType = device.deviceType,
@@ -839,8 +828,8 @@ function BluetoothProxyCapability:removeDevice(mac)
   end
 
   -- Disconnect if connected (active devices only)
-  if not device.passive and device.address and self._client:isBluetoothDeviceAllocated(mac) then
-    self._client:bluetoothDeviceDisconnect(device.address)
+  if not device.passive and self._client:isBluetoothDeviceAllocated(mac) then
+    self._client:bluetoothDeviceDisconnect(mac)
   end
 
   self._addedDevices[mac] = nil
@@ -914,7 +903,7 @@ function BluetoothProxyCapability:onBindingChanged(idBinding, bIsBound)
 
     -- Disconnect GATT if allocated (for non-passive devices)
     if not device.passive and self._client:isBluetoothDeviceAllocated(mac) then
-      self._client:bluetoothDeviceDisconnect(device.address)
+      self._client:bluetoothDeviceDisconnect(mac)
       device.services = nil
     end
   end
@@ -1442,20 +1431,19 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
 
   if strCommand == "GATT_CONNECT" then
     local mac = Select(tParams, "mac")
-    local address = tointeger(Select(tParams, "address"))
     local addressType = tointeger(Select(tParams, "addressType")) or DEFAULT_ADDRESS_TYPE
     local requestId = Select(tParams, "requestId")
 
-    if not address or not mac then
+    if not mac then
       log:error("GATT_CONNECT missing required parameters")
       return
     end
 
     log:info("Coordinator requested GATT connection to %s", mac)
 
-    self._client:bluetoothDeviceConnect(address, addressType, false):next(function(result)
+    self._client:bluetoothDeviceConnect(mac, addressType, false):next(function(result)
       -- Discover GATT services
-      self._client:bluetoothGattGetServices(address):next(function(services)
+      self._client:bluetoothGattGetServices(mac):next(function(services)
         SendToProxy(bindingId, "GATT_CONNECT_RESPONSE", {
           proxyId = proxyId,
           mac = mac,
@@ -1483,32 +1471,30 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
       }, "NOTIFY")
     end)
   elseif strCommand == "GATT_DISCONNECT" then
-    local address = tonumber(Select(tParams, "address"))
     local mac = Select(tParams, "mac")
 
-    if address then
-      self._client:bluetoothDeviceDisconnect(address)
+    if mac then
+      self._client:bluetoothDeviceDisconnect(mac)
       SendToProxy(bindingId, "GATT_DISCONNECT_RESPONSE", {
         proxyId = proxyId,
-        mac = mac or "",
+        mac = mac,
         success = "true",
       }, "NOTIFY")
     end
   elseif strCommand == "GATT_WRITE" then
-    local address = tointeger(Select(tParams, "address"))
+    local mac = Select(tParams, "mac")
     local addressType = tointeger(Select(tParams, "addressType")) or DEFAULT_ADDRESS_TYPE
     local handle = tointeger(Select(tParams, "handle"))
     local data = C4:Base64Decode(Select(tParams, "data") or "")
     local needResponse = Select(tParams, "response") == "true"
-    local mac = Select(tParams, "mac")
     local requestId = Select(tParams, "requestId")
 
-    if not address or not handle then
+    if not mac or not handle then
       log:error("GATT_WRITE missing required parameters")
       return
     end
 
-    self._client:bluetoothGattWrite(address, handle, data, needResponse, addressType):next(function()
+    self._client:bluetoothGattWrite(mac, handle, data, needResponse, addressType):next(function()
       SendToProxy(bindingId, "GATT_WRITE_RESPONSE", {
         proxyId = proxyId,
         mac = mac or "",
@@ -1526,18 +1512,17 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
       }, "NOTIFY")
     end)
   elseif strCommand == "GATT_READ" then
-    local address = tointeger(Select(tParams, "address"))
+    local mac = Select(tParams, "mac")
     local addressType = tointeger(Select(tParams, "addressType")) or DEFAULT_ADDRESS_TYPE
     local handle = tointeger(Select(tParams, "handle"))
-    local mac = Select(tParams, "mac")
     local requestId = Select(tParams, "requestId")
 
-    if not address or not handle then
+    if not mac or not handle then
       log:error("GATT_READ missing required parameters")
       return
     end
 
-    self._client:bluetoothGattRead(address, handle, addressType):next(function(data)
+    self._client:bluetoothGattRead(mac, handle, addressType):next(function(data)
       SendToProxy(bindingId, "GATT_READ_RESPONSE", {
         proxyId = proxyId,
         mac = mac or "",
@@ -1555,20 +1540,19 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
       }, "NOTIFY")
     end)
   elseif strCommand == "GATT_NOTIFY" then
-    local address = tointeger(Select(tParams, "address"))
+    local mac = Select(tParams, "mac")
     local addressType = tointeger(Select(tParams, "addressType")) or DEFAULT_ADDRESS_TYPE
     local handle = tointeger(Select(tParams, "handle"))
     local enable = Select(tParams, "enable") == "true"
-    local mac = Select(tParams, "mac")
     local requestId = Select(tParams, "requestId")
 
-    if not address or not handle then
+    if not mac or not handle then
       log:error("GATT_NOTIFY missing required parameters")
       return
     end
 
     self._client
-      :bluetoothGattNotify(address, handle, enable, function(data)
+      :bluetoothGattNotify(mac, handle, enable, function(data)
         -- Forward notification data to coordinator
         SendToProxy(bindingId, "GATT_NOTIFY_DATA", {
           proxyId = proxyId,

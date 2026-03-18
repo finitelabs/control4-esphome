@@ -179,7 +179,7 @@ function Router:connectWithFailover(mac, maxAttempts, rssiMaxAge, callback)
     -- Send connect command to proxy via C4:SendToDevice
     SendToDevice(best.deviceId, "GATT_CONNECT", {
       mac = mac,
-      address = string.format("%.0f", device.address),
+
       addressType = tostring(device.addressType),
       requestId = requestId,
     })
@@ -219,7 +219,7 @@ function Router:gattWrite(mac, handle, data, needResponse, callback)
 
   SendToDevice(proxy.deviceId, "GATT_WRITE", {
     mac = mac,
-    address = string.format("%.0f", device.address),
+
     addressType = tostring(device.addressType),
     handle = tostring(handle),
     data = C4:Base64Encode(data),
@@ -257,7 +257,7 @@ function Router:gattRead(mac, handle, callback)
 
   SendToDevice(proxy.deviceId, "GATT_READ", {
     mac = mac,
-    address = string.format("%.0f", device.address),
+
     addressType = tostring(device.addressType),
     handle = tostring(handle),
     requestId = requestId,
@@ -302,7 +302,7 @@ function Router:gattNotify(mac, handle, enable, dataCallback, resultCallback)
 
   SendToDevice(proxy.deviceId, "GATT_NOTIFY", {
     mac = mac,
-    address = string.format("%.0f", device.address),
+
     addressType = tostring(device.addressType),
     handle = tostring(handle),
     enable = enable and "true" or "false",
@@ -324,7 +324,6 @@ function Router:disconnect(mac)
     -- Disconnect from the tracked proxy
     SendToDevice(connectedProxyId, "GATT_DISCONNECT", {
       mac = mac,
-      address = string.format("%.0f", device.address),
     })
     -- Clear tracking immediately (will also be cleared on response)
     self._connectedDevices[mac] = nil

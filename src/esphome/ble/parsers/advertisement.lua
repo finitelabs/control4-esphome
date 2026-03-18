@@ -41,7 +41,6 @@ local BLECompanyIds = require("esphome.ble.company_identifiers")
 --- Enriched BLE advertisement with parsed fields merged in.
 --- @class BLEAdvertisement : BLEAdvertisementData
 --- @field mac string MAC address in format "AA:BB:CC:DD:EE:FF"
---- @field address number 48-bit Bluetooth address as number
 --- @field addressType BLEAddressType? Bluetooth address type
 --- @field rssi number? RSSI in dBm
 --- @field manufacturer string? Manufacturer name from first manufacturer data entry
@@ -134,7 +133,6 @@ function BLEAdvertisementParser.parse(advertisement)
   --- @type BLEAdvertisement
   local result = {
     name = advertisement.name,
-    address = address,
     addressType = advertisement.address_type --[[@as BLEAddressType?]],
     mac = mac,
     manufacturer = getManufacturerName(manufacturerData),
@@ -348,7 +346,6 @@ function BLEAdvertisementParser.parseRaw(rawAdvertisement)
   --- @type BLEAdvertisement
   local advertisement = {
     name = parsedData.name,
-    address = address,
     addressType = rawAdvertisement.address_type --[[@as BLEAddressType?]],
     mac = mac,
     flags = parsedData.flags,

@@ -1,4 +1,4 @@
-#!/usr/bin/env lua
+#!/usr/bin/env luajit
 --- Auto-generate squishy files for Control4 drivers.
 ---
 --- Loads a driver's driver.lua using the C4 shim, inspects package.loaded to

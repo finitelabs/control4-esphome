@@ -421,6 +421,7 @@ def main():
     src_dir = repo_root / "src"
     drivers_dir = repo_root / "drivers"
     vendor_dir = repo_root / "vendor"
+    documentation_dir = repo_root / "documentation"
     build_dir = repo_root / "build" / distribution
 
     os.makedirs(build_dir, exist_ok=True)
@@ -429,10 +430,13 @@ def main():
     shutil.rmtree(build_dir / "src", ignore_errors=True)
     shutil.rmtree(build_dir / "drivers", ignore_errors=True)
     shutil.rmtree(build_dir / "vendor", ignore_errors=True)
+    shutil.rmtree(build_dir / "documentation", ignore_errors=True)
 
     shutil.copytree(src_dir, build_dir / "src")
     shutil.copytree(drivers_dir, build_dir / "drivers")
     shutil.copytree(vendor_dir, build_dir / "vendor")
+    if documentation_dir.exists():
+        shutil.copytree(documentation_dir, build_dir / "documentation")
 
     # Expand template variants before processing conditionals
     variant_map = expand_variants(build_dir / "drivers")
