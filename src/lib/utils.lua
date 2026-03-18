@@ -737,8 +737,9 @@ end
 
 --- Convert Fahrenheit to Celsius, rounded to 1 decimal place
 --- Overrides the vendor lib function which rounds to nearest 0.5
---- @param f number Temperature in Fahrenheit
+--- @param f number|nil Temperature in Fahrenheit
 --- @return number|nil Temperature in Celsius, or nil if input is not a number
+--- @overload fun(f: number): number
 function f2c(f)
   if type(f) ~= "number" then
     return nil
@@ -749,8 +750,9 @@ end
 
 --- Convert Celsius to Fahrenheit, rounded to 1 decimal place
 --- Overrides the vendor lib function which rounds to nearest integer
---- @param c number Temperature in Celsius
+--- @param c number|nil Temperature in Celsius
 --- @return number|nil Temperature in Fahrenheit, or nil if input is not a number
+--- @overload fun(f: number): number
 function c2f(c)
   if type(c) ~= "number" then
     return nil

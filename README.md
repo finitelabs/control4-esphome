@@ -1,3 +1,5 @@
+<!-- DO NOT EDIT - Generated from drivers/esphome/www/documentation/index.md by npm run docs:readme -->
+
 <img alt="ESPHome" src="./images/header.png" width="500"/>
 
 ------------------------------------------------------------------------
@@ -835,6 +837,13 @@ Control4, you can file an issue on GitHub:
 <div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Changelog</span>
+
+## Unreleased
+
+### Fixed
+
+- Fixed Bluetooth Coordinator failing to connect to active BLE devices
+  (SwitchBot, Yale locks) through proxies
 
 ## v20260314 - 2026-03-14
 

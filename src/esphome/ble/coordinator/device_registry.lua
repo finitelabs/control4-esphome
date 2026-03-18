@@ -6,7 +6,6 @@ local log = require("lib.logging")
 --- @class DeviceInfo
 --- @field name string? Device name from advertisement
 --- @field mac string MAC address in format "AA:BB:CC:DD:EE:FF"
---- @field address number 48-bit Bluetooth address as number
 --- @field addressType BLEAddressType? Bluetooth address type
 --- @field deviceType string? Derived device type (set by scanner during scans)
 --- @field passive boolean Whether device uses passive advertisement mode
@@ -60,7 +59,6 @@ function DeviceRegistry:registerDevice(info)
     device = {
       name = info.name,
       mac = info.mac,
-      address = info.address,
       addressType = info.addressType,
       deviceType = info.deviceType,
       passive = info.passive,

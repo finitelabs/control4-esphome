@@ -165,7 +165,6 @@ local FILTERS = {
 --- @field name string? Device name if available
 --- @field displayName string Formatted display name for UI
 --- @field mac string MAC address in format "AA:BB:CC:DD:EE:FF"
---- @field address number MAC address as 48-bit number
 --- @field addressType BLEAddressType? Address type (0=PUBLIC, 1=RANDOM_STATIC, 2=RPA, 3=NON_RESOLVABLE)
 --- @field manufacturer string? Manufacturer name from company ID lookup
 --- @field deviceType string? Device type derived from service data, service UUIDs, or manufacturer data
@@ -398,7 +397,6 @@ local function finalizeDevice(advertisement)
     name = advertisement.name,
     displayName = buildDisplayName(advertisement, deviceType, isPassive),
     mac = advertisement.mac,
-    address = advertisement.address,
     addressType = advertisement.addressType,
     manufacturer = advertisement.manufacturer,
     deviceType = deviceType,
@@ -674,7 +672,6 @@ function BLEScanner:processAdvertisement(advertisement, nodeId)
     --- @type BLEAdvertisement
     local accumulated = {
       mac = existing.mac,
-      address = existing.address,
       addressType = existing.addressType,
       name = existing.name,
       manufacturer = existing.manufacturer,

@@ -12,6 +12,13 @@
 [//]: # "- Removed"
 <!-- prettier-ignore-end -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed Bluetooth Coordinator failing to connect to active BLE devices
+  (SwitchBot, Yale locks) through proxies
+
 ## v20260314 - 2026-03-14
 
 ### Added
