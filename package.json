@@ -26,7 +26,7 @@
     "zip": "for build in $npm_package_config_distributions; do cd \"dist/$build\" && zip $(basename \"$(realpath \"$(pwd)/../../\")\").zip *.{c4z,pdf} && cd ../../; done",
     "build": "for build in $npm_package_config_distributions; do rm -rf dist/$build || exit 1; done && npm run fmt && npm run preprocess && npm run gen-squishy && npm run update-driver.xml && npm run docs && npm run package && npm run zip",
     "build:nodocs": "npm run clean:build && npm run fmt && npm run preprocess && npm run gen-squishy && npm run update-driver.xml && npm run package",
-    "clean:build": "for build in $npm_package_config_distributions; do rm -rfv \"dist/$build\";done && rm -rfv build",
+    "clean:build": "for build in $npm_package_config_distributions; do rm -rfv \"dist/$build\";done && rm -rfv build README.md",
     "clean": "npm run clean:build && rm -rfv dist node_modules .venv"
   },
   "dependencies": {
