@@ -12,12 +12,12 @@
 [//]: # "- Removed"
 <!-- prettier-ignore-end -->
 
-## Unreleased
+## v20260319 - 2026-03-19
 
 ### Fixed
 
-- Fixed sub-drivers (lights, fans, locks) sometimes remaining "Disconnected"
-  after the parent ESPHome driver connects
+- Fixed an issue where entities were no longer being detected reliably on
+  connection
 
 ## v20260318 - 2026-03-18
 
