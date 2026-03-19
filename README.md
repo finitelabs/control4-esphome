@@ -838,6 +838,13 @@ Control4, you can file an issue on GitHub:
 
 # <span style="color:#17BCF2">Changelog</span>
 
+## Unreleased
+
+### Fixed
+
+- Fixed sub-drivers (lights, fans, locks) sometimes remaining
+  "Disconnected" after the parent ESPHome driver connects
+
 ## v20260318 - 2026-03-18
 
 ### Fixed

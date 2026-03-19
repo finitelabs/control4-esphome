@@ -463,20 +463,7 @@ function ESPHomeClient:listEntities()
     -- HACK: No reliable way to identify list_entity responses from proto definition.
     local name, _ = schema.name:match("^ListEntities(.+)Response$")
     if not IsEmpty(name) then
-      -- HACK: No reliable way to identify entity types from proto definition.
-      local entityType = Select(self.EntityType, (Select(schema, "options", "ifdef") or ""):match("^USE_(.+)$"))
-      if IsEmpty(entityType) then
-        log:warn("Unknown entity type for %s", name)
-      elseif schema.name ~= "ListEntitiesDoneResponse" then
-        log:trace("Registering %s entity callback", name)
-
-        local key = self:_registerCallback(self:_makeMessageCallbackKey(schema), function(message)
-          log:trace("Received %s entity: %s", entityType, message)
-          message.entity_type = entityType
-          entities[tostring(message.key)] = message
-        end)
-        table.insert(addedCallbackKeys, key)
-      else
+      if schema.name == "ListEntitiesDoneResponse" then
         -- Register callback for ListEntitiesDoneResponse with timeout
         local key = self:_registerCallback(
           self:_makeMessageCallbackKey(schema),
@@ -492,6 +479,21 @@ function ESPHomeClient:listEntities()
           end
         )
         table.insert(addedCallbackKeys, key)
+      else
+        -- HACK: No reliable way to identify entity types from proto definition.
+        local entityType = Select(self.EntityType, (Select(schema, "options", "ifdef") or ""):match("^USE_(.+)$"))
+        if not IsEmpty(entityType) then
+          log:trace("Registering %s entity callback", name)
+
+          local key = self:_registerCallback(self:_makeMessageCallbackKey(schema), function(message)
+            log:trace("Received %s entity: %s", entityType, message)
+            message.entity_type = entityType
+            entities[tostring(message.key)] = message
+          end)
+          table.insert(addedCallbackKeys, key)
+        else
+          log:trace("Unknown entity type for %s (ifdef=%s)", name, Select(schema, "options", "ifdef") or "nil")
+        end
       end
     end
   end
