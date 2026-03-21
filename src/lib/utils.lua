@@ -3,6 +3,7 @@
 local deferred = require("deferred")
 
 local log = require("lib.logging")
+local lru = require("lib.lru")
 
 local constants = require("constants")
 
@@ -145,6 +146,108 @@ function SendUIRequest(id, request, tParams)
   return C4Call("SendUIRequest", id, request, tParams)
 end
 
+--- @type LRUCache<string,ExtendedDeviceDefinition|nil>
+local devicesCache = lru:new(1000, 180)
+
+--- @type LRUCache<string,table|nil>
+local devicesDataCache = lru:new(1000, 180)
+
+--- @type LRUCache<string,integer|nil>
+local agentIdCache = lru:new(1000, 180)
+
+--- Clears the specific device ID from the cache.
+--- @param deviceId DeviceId The ID of the device to clear from the cache.
+function DeviceUpdated(deviceId)
+  log:trace("DeviceUpdated(%s)", deviceId)
+  devicesCache:remove(tostring(deviceId))
+  devicesDataCache:remove(tostring(deviceId))
+end
+
+--- @class ExtendedDeviceDefinition
+--- @field driverFileName string
+--- @field deviceName string
+--- @field roomId string
+--- @field roomName string
+--- @field protocol? table<number, ProtocolDefinition>
+--- @field deviceId DeviceId
+--- @field displayName string
+--- @field ignoreRoomName? boolean Whether to ignore the room name prefix for this device.
+
+--- Retrieves an extended device definition by device ID.
+--- @param deviceId DeviceId|nil The ID of the device.
+--- @param c4iNames? string[]|string List of C4i names to filter results.
+--- @return ExtendedDeviceDefinition|nil device The device definition if found; else nil.
+function GetDevice(deviceId, c4iNames)
+  log:trace("GetDevice(%s, %s)", deviceId, c4iNames)
+  return devicesCache:getOrSet(tostring(deviceId), function()
+    local deviceIdInt = tointeger(deviceId)
+    if deviceIdInt == nil or deviceIdInt < 1 then
+      return nil
+    end
+    --- @type DeviceFilter
+    local tFilter = { DeviceIds = tostring(deviceIdInt) }
+    if not IsEmpty(c4iNames) then
+      --- @cast c4iNames -nil
+      if IsList(c4iNames) then
+        --- @cast c4iNames string[]
+        c4iNames = table.concat(c4iNames, ",")
+      end
+      --- @cast c4iNames -string[]
+      tFilter.C4iNames = c4iNames
+    end
+    local device = C4:GetDevices(tFilter)[deviceIdInt]
+    if device == nil then
+      -- Make a synthetic device for a room
+      local deviceName = C4:GetDeviceDisplayName(deviceIdInt)
+      if not IsEmpty(deviceName) then
+        --- @type ExtendedDeviceDefinition
+        device = {
+          roomId = tostring(deviceIdInt),
+          roomName = deviceName,
+          deviceName = deviceName,
+          driverFileName = "roomdevice.c4i",
+        }
+      else
+        log:warn("GetDevice -> Unknown device %s", deviceIdInt)
+        return nil
+      end
+    end
+    local displayName = device.deviceName
+    if not IsEmpty(device.roomName) then
+      displayName = string.format("%s > %s", device.roomName, device.deviceName)
+    end
+    --- @type ExtendedDeviceDefinition
+    return {
+      driverFileName = device.driverFileName,
+      deviceName = device.deviceName,
+      roomId = device.roomId,
+      roomName = device.roomName,
+      protocol = device.protocol,
+      -- Extended fields
+      deviceId = deviceIdInt,
+      displayName = displayName,
+    }
+  end)
+end
+
+--- Retrieves device data for a given device ID and specified properties.
+--- @param deviceId DeviceId The ID of the device to retrieve data for.
+--- @param ... string? Nested keys to retrieve specific properties from the device data.
+--- @return table data
+function GetDeviceData(deviceId, ...)
+  log:trace("GetDeviceData(%s, %s)", deviceId, table.concat({ ... }, ","))
+  local deviceIdInt = tointeger(deviceId)
+  if deviceIdInt == nil then
+    return {}
+  end
+  return Select(
+    devicesDataCache:getOrSet(tostring(deviceId), function()
+      return ParseXml(C4:GetDeviceData(deviceIdInt))
+    end),
+    unpack({ ... })
+  )
+end
+
 --- Retrieves the bindings for a given device, optionally filtered by type, provider, display name, and class.
 --- @param deviceId integer The ID of the device to retrieve bindings for.
 --- @param typeFilter string|nil Optional filter for the binding type.
@@ -187,16 +290,18 @@ end
 --- @return integer|nil agentId The ID of the agent if found, otherwise nil.
 function GetAgentId(c4iName)
   log:trace("GetAgentId(%s)", c4iName)
-  local agents = Select(ParseXml(C4:GetProjectItems("AGENTS")), "systemitems", "item") or {}
-  if not IsList(agents) then
-    agents = { agents }
-  end
-  for _, agent in pairs(agents) do
-    if not IsEmpty(agent) and agent.c4i == c4iName and not IsEmpty(agent.id) then
-      return tointeger(agent.id)
+  return agentIdCache:getOrSet(c4iName, function()
+    local agents = Select(ParseXml(C4:GetProjectItems("AGENTS")), "systemitems", "item") or {}
+    if not IsList(agents) then
+      agents = { agents }
     end
-  end
-  return nil
+    for _, agent in pairs(agents) do
+      if not IsEmpty(agent) and agent.c4i == c4iName and not IsEmpty(agent.id) then
+        return tointeger(agent.id)
+      end
+    end
+    return nil
+  end)
 end
 
 --- Retrieves device properties for a given device ID.
@@ -228,6 +333,97 @@ function SetDeviceProperties(deviceId, properties, onlyIfChanged)
       SendToDevice(deviceId, "UPDATE_PROPERTY", { Name = name, Value = value })
     end
   end
+end
+
+--- @alias GenericCallback fun(deviceId: DeviceId, device: table, index: number): any
+
+--- Removes unknown device IDs and optionally processes known ones using a callback.
+--- This function iterates through device IDs parsed from the `propertyStr` and processes each using the optional callback.
+--- If `deleteUnknownDeviceIds` is `true`, invalid device IDs are removed from the property list.
+--- @generic T
+--- @param propertyStr string The name of the property that stores the device IDs to parse.
+--- @param callback? fun(deviceId: DeviceId, device: table, index: integer): T Optional callback function that processes each valid device.
+--- @param deleteUnknownDeviceIds? boolean When set to `true`, deletes invalid device IDs from the property list.
+--- @return table<DeviceId, T>|nil devices Returns a table of processed device data or `nil` if parsing fails.
+function ParseDeviceIdPropertyList(propertyStr, callback, deleteUnknownDeviceIds)
+  log:trace("ParseDeviceIdPropertyList(%s, <callback>, %s)", propertyStr, deleteUnknownDeviceIds)
+  local properties = Select(ParseXml(C4:GetDeviceData(C4:GetDeviceID(), "properties")), "property")
+  if not IsList(properties) then
+    properties = { properties }
+  end
+  for _, property in pairs(properties) do
+    if not IsEmpty(property) and property.name == propertyStr then
+      if property.type ~= "DEVICE_SELECTOR" then
+        log:error("Failed to parse '%s'; only DEVICE_SELECTOR properties can be parsed", propertyStr)
+        return nil
+      end
+      local c4iNames = {}
+      if not IsEmpty(property.items) and not IsEmpty(property.items.item) then
+        local items = property.items.item
+        if type(items) == "string" then
+          items = { items }
+        end
+        for _, item in pairs(items) do
+          if not IsEmpty(item) then
+            table.insert(c4iNames, item)
+          end
+        end
+      end
+      if IsEmpty(c4iNames) then
+        log:error("Failed to parse '%s'; no c4i name items were found", propertyStr)
+        return nil
+      end
+
+      -- Remove any invalid devices from the property
+      local currentPropertyValue = Properties[propertyStr] or ""
+      if deleteUnknownDeviceIds then
+        local currentPropertyValueLength = string.len(currentPropertyValue)
+        local validDeviceIds = TableKeys(ParseDeviceIdList(currentPropertyValue, c4iNames))
+        table.sort(validDeviceIds)
+        local newPropertyValue = table.concat(validDeviceIds, ",")
+        local newPropertyValueLength = string.len(newPropertyValue)
+        if currentPropertyValueLength ~= newPropertyValueLength then
+          UpdateProperty(propertyStr, newPropertyValue)
+          currentPropertyValue = newPropertyValue
+        end
+      end
+
+      return ParseDeviceIdList(currentPropertyValue, c4iNames, callback)
+    end
+  end
+  log:error("Failed to parse '%s'; property was not found", propertyStr)
+  return nil
+end
+
+--- Parses a comma-separated list of device IDs and processes them.
+--- Each device ID in the list is retrieved, checked for validity, and optionally passed to a callback function for processing.
+--- @param deviceIdListStr string The string of comma-separated device IDs.
+--- @param c4iNames? string[] Optional list of C4i names to filter devices.
+--- @param callback? fun(deviceId: DeviceId, device: table, index: integer): any Optional callback to process each device.
+--- @return table<DeviceId, any> devices Returns a table of processed devices, keyed by device ID.
+function ParseDeviceIdList(deviceIdListStr, c4iNames, callback)
+  log:trace("ParseDeviceIdList(%s, %s, <callback>)", deviceIdListStr, c4iNames)
+  local devices = {}
+  local i = 1
+  for deviceIdStr in string.gmatch(deviceIdListStr or "", "([^,]+)") do
+    local device = GetDevice(deviceIdStr, c4iNames)
+    if device ~= nil then
+      if type(callback) == "function" then
+        local success, result = pcall(callback, device.deviceId, device, i)
+        i = i + 1
+        if success then
+          devices[device.deviceId] = result
+        else
+          log:error("Error parsing ids '%s'; %s", deviceIdListStr, result)
+        end
+      else
+        devices[device.deviceId] = device
+      end
+    else
+      log:warn("Unknown device with id '%s'", deviceIdStr)
+    end
+  end
+  return devices
 end
 
 local xml2lua = require("xml.xml2lua")
@@ -737,9 +933,8 @@ end
 
 --- Convert Fahrenheit to Celsius, rounded to 1 decimal place
 --- Overrides the vendor lib function which rounds to nearest 0.5
---- @param f number|nil Temperature in Fahrenheit
+--- @param f number Temperature in Fahrenheit
 --- @return number|nil Temperature in Celsius, or nil if input is not a number
---- @overload fun(f: number): number
 function f2c(f)
   if type(f) ~= "number" then
     return nil
@@ -750,9 +945,8 @@ end
 
 --- Convert Celsius to Fahrenheit, rounded to 1 decimal place
 --- Overrides the vendor lib function which rounds to nearest integer
---- @param c number|nil Temperature in Celsius
+--- @param c number Temperature in Celsius
 --- @return number|nil Temperature in Fahrenheit, or nil if input is not a number
---- @overload fun(f: number): number
 function c2f(c)
   if type(c) ~= "number" then
     return nil
