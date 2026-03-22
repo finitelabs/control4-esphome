@@ -435,7 +435,9 @@ def main():
     shutil.copytree(src_dir, build_dir / "src")
     shutil.copytree(drivers_dir, build_dir / "drivers")
     shutil.copytree(vendor_dir, build_dir / "vendor")
-    if documentation_dir.exists():
+
+    # Copy documentation if present (optional)
+    if documentation_dir.is_dir():
         shutil.copytree(documentation_dir, build_dir / "documentation")
 
     # Expand template variants before processing conditionals
