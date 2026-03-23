@@ -60,6 +60,13 @@ jobs:
       - name: Initialize project
         run: make init
 
+      - name: Check Electron
+        run: |
+          npx electron --version 2>&1 || true
+          xvfb-run npx electron --version 2>&1 || true
+          ls -la node_modules/.package-lock.json 2>/dev/null || true
+          ls node_modules/electron/dist/ 2>/dev/null || true
+
       - name: Build
         env:
           ELECTRON_EXTRA_LAUNCH_ARGS: '--no-sandbox --disable-gpu'
