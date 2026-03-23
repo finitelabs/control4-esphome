@@ -39,7 +39,8 @@ jobs:
             pandoc \
             xmlstarlet \
             xvfb
-          sudo update-alternatives --install /usr/bin/lua lua /usr/bin/lua5.3 10
+          # lua5.3 auto-registers as lua-interpreter; ensure 'lua' symlink exists
+          command -v lua || sudo ln -sf /usr/bin/lua5.3 /usr/bin/lua
 
       - name: Initialize project
         run: make init
