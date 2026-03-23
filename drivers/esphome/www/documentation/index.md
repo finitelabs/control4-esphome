@@ -334,9 +334,8 @@ Selects the authentication method for connecting to the ESPHome device.
 
 Shown only if
 [Authentication Mode](#authentication-mode--none--password--encryption-key-) is
-set to `Password`.  
-Sets the device password. This must match the password configured on the ESPHome
-device.
+set to `Password`. Sets the device password. This must match the password
+configured on the ESPHome device.
 
 ##### Encryption Key
 
