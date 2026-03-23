@@ -21,6 +21,11 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Setup Lua
+        uses: leafo/gh-actions-lua@v11
+        with:
+          luaVersion: '5.3'
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -31,7 +36,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             luajit \
-            lua5.3 \
             libxml2-dev \
             libxslt-dev \
             libssl-dev \
@@ -39,8 +43,6 @@ jobs:
             pandoc \
             xmlstarlet \
             xvfb
-          # lua5.3 auto-registers as lua-interpreter; ensure 'lua' symlink exists
-          command -v lua || sudo ln -sf /usr/bin/lua5.3 /usr/bin/lua
 
       - name: Initialize project
         run: make init
