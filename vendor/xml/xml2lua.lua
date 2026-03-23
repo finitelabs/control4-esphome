@@ -114,10 +114,11 @@ function xml2lua.toString(t)
   end
 
   for k, v in pairs(t) do
+    local val = v
     if type(v) == "table" then
-      v = xml2lua.toString(v)
+      val = xml2lua.toString(v)
     end
-    res = res .. sep .. string.format("%s=%s", k, v)
+    res = res .. sep .. string.format("%s=%s", k, val)
     sep = ","
   end
   res = "{" .. res .. "}"
@@ -231,10 +232,11 @@ function xml2lua.toXml(tb, tableName, level)
       -- If the type of the key is number, the value is an element from an array.
       -- In this case, uses the array name as the tag name.
     else
+      local key = k
       if type(k) == "number" then
-        k = tableName
+        key = tableName
       end
-      parseTableKeyToXml(xmltb, k, v, level)
+      parseTableKeyToXml(xmltb, key, v, level)
     end
   end
 

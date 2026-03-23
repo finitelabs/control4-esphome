@@ -11,11 +11,19 @@ VENV_PY    := $(VENV)/bin/python3
 VENV_BLACK := $(VENV)/bin/black
 PACKAGER   := dist/driverpackager/dp3/driverpackager.py
 
-# OpenSSL flags (macOS / Homebrew)
-OPENSSL_PREFIX := $(shell brew --prefix openssl 2>/dev/null)
-export LDFLAGS  := -L$(OPENSSL_PREFIX)/lib
-export CFLAGS   := -I$(OPENSSL_PREFIX)/include -DPRAGMA_IGNORE_UNUSED_LABEL= -DPRAGMA_WARN_STRICT_PROTOTYPES=
-export SWIG_FEATURES := -cpperraswarn -I$(OPENSSL_PREFIX)/include
+# OpenSSL detection (cross-platform)
+OPENSSL_PREFIX := $(or \
+  $(shell pkg-config --variable=prefix openssl 2>/dev/null), \
+  $(shell brew --prefix openssl 2>/dev/null))
+
+# Only set paths if we found OpenSSL outside standard locations
+ifneq ($(OPENSSL_PREFIX),)
+  export LDFLAGS  := -L$(OPENSSL_PREFIX)/lib
+  export CFLAGS   := -I$(OPENSSL_PREFIX)/include -DPRAGMA_IGNORE_UNUSED_LABEL= -DPRAGMA_WARN_STRICT_PROTOTYPES=
+  export SWIG_FEATURES := -cpperraswarn -I$(OPENSSL_PREFIX)/include
+else
+  export CFLAGS   := -DPRAGMA_IGNORE_UNUSED_LABEL= -DPRAGMA_WARN_STRICT_PROTOTYPES=
+endif
 
 # ─── Help ─────────────────────────────────────────────────────────────────────
 
@@ -163,9 +171,9 @@ zip: ## Zip .c4z and .pdf files per distribution
 # ─── Build ────────────────────────────────────────────────────────────────────
 
 .PHONY: build build-nodocs
-build: clean-build fmt preprocess gen-squishy update-xml docs package zip ## Full build
+build: clean-build preprocess gen-squishy update-xml docs fmt package zip ## Full build
 
-build-nodocs: clean-build fmt preprocess gen-squishy update-xml package ## Build without docs
+build-nodocs: clean-build preprocess gen-squishy update-xml fmt package ## Build without docs
 
 # ─── Clean ────────────────────────────────────────────────────────────────────
 

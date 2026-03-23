@@ -346,6 +346,9 @@ end
 --- @param deleteUnknownDeviceIds? boolean When set to `true`, deletes invalid device IDs from the property list.
 --- @return table<DeviceId, T>|nil devices Returns a table of processed device data or `nil` if parsing fails.
 function ParseDeviceIdPropertyList(propertyStr, callback, deleteUnknownDeviceIds)
+  if deleteUnknownDeviceIds == nil then
+    deleteUnknownDeviceIds = true
+  end
   log:trace("ParseDeviceIdPropertyList(%s, <callback>, %s)", propertyStr, deleteUnknownDeviceIds)
   local properties = Select(ParseXml(C4:GetDeviceData(C4:GetDeviceID(), "properties")), "property")
   if not IsList(properties) then
