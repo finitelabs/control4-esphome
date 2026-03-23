@@ -510,12 +510,18 @@ local function setDoorSenseConfigured(configured)
   end
 end
 
---- Update the door status and notify dynamic contact sensor binding
+--- Update the door status and notify dynamic contact sensor binding.
+--- Persists state via the values lib so it survives reboots/driver updates.
+--- Deduplicates: only sends a proxy notification when the state actually changes.
 --- @param doorStatus string "CLOSED" or "OPENED"
 local function updateDoorStatus(doorStatus)
-  log:info("Door status: %s", doorStatus)
   setDoorSenseConfigured(true)
-  UpdateProperty("Door Status", doorStatus)
+
+  if not values:update("Door Status", doorStatus) then
+    return
+  end
+
+  log:info("Door status: %s", doorStatus)
 
   local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "door")
   if binding then
