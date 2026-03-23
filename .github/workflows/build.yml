@@ -1,0 +1,105 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Setup Lua
+        uses: leafo/gh-actions-lua@v12
+        with:
+          luaVersion: 'luajit-2.1'
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxml2-dev \
+            libxslt-dev \
+            libssl-dev \
+            swig \
+            pandoc \
+            xmlstarlet \
+            xvfb \
+            libnss3 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libcups2 \
+            libdrm2 \
+            libxkbcommon0 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxrandr2 \
+            libgbm1 \
+            libpango-1.0-0 \
+            libcairo2 \
+            libasound2t64
+
+      - name: Initialize project
+        run: make init
+
+      - name: Build
+        run: xvfb-run make build
+        env:
+          ELECTRON_DISABLE_SANDBOX: '1'
+
+      - name: Verify PDFs were generated
+        run: |
+          for build in drivercentral oss; do
+            pdf_count=$(find "dist/$build" -name '*.pdf' 2>/dev/null | wc -l)
+            if [ "$pdf_count" -eq 0 ]; then
+              echo "::error::No PDF files found in dist/$build"
+              ls -la "dist/$build/" || true
+              exit 1
+            fi
+            echo "Found $pdf_count PDF(s) in dist/$build"
+          done
+
+      - name: Check for dirty tree
+        run: |
+          git diff --exit-code || { echo "::error::Uncommitted changes after build"; exit 1; }
+          UNTRACKED=$(git ls-files --others --exclude-standard)
+          if [ -n "$UNTRACKED" ]; then
+            echo "::error::Untracked files after build:"
+            echo "$UNTRACKED"
+            exit 1
+          fi
+
+
+
+      - name: Upload drivercentral artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: drivercentral
+          path: dist/drivercentral/*
+          if-no-files-found: error
+
+
+      - name: Upload oss artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: oss
+          path: dist/oss/*
+          if-no-files-found: error
+
