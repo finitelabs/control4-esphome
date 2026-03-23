@@ -30,6 +30,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            lua5.3 \
             luajit \
             libxml2-dev \
             libxslt-dev \
@@ -38,6 +39,8 @@ jobs:
             pandoc \
             xmlstarlet \
             xvfb
+          # Ensure 'lua' is available (lua5.3 installs as lua5.3)
+          sudo update-alternatives --install /usr/bin/lua lua /usr/bin/lua5.3 10 || sudo ln -sf /usr/bin/lua5.3 /usr/bin/lua
 
       - name: Initialize project
         run: make init
