@@ -58,7 +58,7 @@ fmt-lua: node_modules
 	npx stylua \
 		--indent-type Spaces --column-width 120 --line-endings Unix \
 		--indent-width 2 --quote-style AutoPreferDouble \
-		-g '*.lua' -v ./{drivers,src,test,tools,vendor}
+		-g '*.lua' -v ./drivers ./src ./test ./tools ./vendor
 
 fmt-py:
 	$(VENV_BLACK) tools/preprocess
