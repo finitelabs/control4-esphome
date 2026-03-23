@@ -132,7 +132,7 @@ docs-html: node_modules
 	done
 
 docs-pdf: node_modules
-	@for build in $(DISTRIBUTIONS); do \
+	for build in $(DISTRIBUTIONS); do \
 		mkdir -p "dist/$$build"; \
 		for driver_dir in build/$$build/drivers/*/; do \
 			if [ -f "$${driver_dir}.variant_pdf" ]; then \
@@ -142,9 +142,10 @@ docs-pdf: node_modules
 			fi; \
 			pdf_output="dist/$$build/$$driver_display_name Documentation.pdf"; \
 			if [ -f "$$pdf_output" ]; then continue; fi; \
+			echo "Generating PDF: $$pdf_output"; \
 			npx electron-pdf --marginsType 0 \
 				--input "$$(pwd)/$${driver_dir}www/documentation/index.html" \
-				--output "$$pdf_output"; \
+				--output "$$pdf_output" || exit 1; \
 		done; \
 	done
 
