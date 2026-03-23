@@ -12,6 +12,14 @@
 [//]: # "- Removed"
 <!-- prettier-ignore-end -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed DoorSense contact sensor sending duplicate "Closed" notifications on
+  every poll cycle by tracking last known door status and only reporting on
+  actual state changes
+
 ## v20260319 - 2026-03-19
 
 ### Fixed
