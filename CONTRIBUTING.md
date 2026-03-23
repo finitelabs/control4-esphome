@@ -2,23 +2,25 @@
 
 ## Project Structure
 
-This project uses [Copier](https://copier.readthedocs.io/) to manage shared infrastructure across
-multiple Control4 driver repositories. Shared code lives in a
-[template repo](https://github.com/finitelabs/control4-driver-template) and is synced into each
-driver project.
+This project uses [Copier](https://copier.readthedocs.io/) to manage shared
+infrastructure across multiple Control4 driver repositories. Shared code lives
+in a [template repo](https://github.com/finitelabs/control4-driver-template) and
+is synced into each driver project.
 
 ### What's Managed by the Template
 
-The following files are maintained via the template and **should not be edited directly** in this repo.
-Changes to these files should be made in the
-[template repo](https://github.com/finitelabs/control4-driver-template) and synced with
-`copier update`.
+The following files are maintained via the template and **should not be edited
+directly** in this repo. Changes to these files should be made in the
+[template repo](https://github.com/finitelabs/control4-driver-template) and
+synced with `copier update`.
 
 **Build tooling:**
+
 - `Makefile` — build, format, docs, package, and clean targets
 - `package.json` — npm dependency declarations only (no scripts)
 
 **Common libraries (`src/lib/`):**
+
 - `bindings.lua` — binding management
 - `conditionals.lua` — conditional/programming UI management
 - `events.lua` — event firing and management
@@ -26,11 +28,13 @@ Changes to these files should be made in the
 - `logging.lua` — structured logging with configurable levels
 - `lru.lua` — LRU cache utility
 - `persist.lua` — persistent storage abstraction
-- `utils.lua` — general utilities (XML, device queries, table helpers, type coercion)
+- `utils.lua` — general utilities (XML, device queries, table helpers, type
+  coercion)
 - `values.lua` — value parsing, coercion, and formatting
 - `github-updater.lua` — GitHub Releases self-updater (non-DriverCentral builds)
 
 **Vendor libraries (`vendor/`):**
+
 - `JSON.lua` — JSON encoder/decoder
 - `deferred.lua` — promises/deferred implementation
 - `cloud-client-byte.lua` — DriverCentral cloud licensing
@@ -43,11 +47,14 @@ Changes to these files should be made in the
 - `protobuf.lua` — Protocol Buffers
 
 **Tools (`tools/`):**
-- `preprocess` — C-style `#ifdef`/`#ifndef` preprocessor for Lua, XML, and Markdown
+
+- `preprocess` — C-style `#ifdef`/`#ifndef` preprocessor for Lua, XML, and
+  Markdown
 - `gen-squishy.lua` — auto-generates squishy files from driver.c4zproj
 - `pandoc-remove-style.lua` — Pandoc filter for README generation
 
 **Other:**
+
 - `.gitignore`, `LICENSE`, `CONTRIBUTING.md`
 - `test/c4_shim.lua`, `test/run_test.sh`
 
@@ -70,14 +77,16 @@ When the template is updated, sync changes into this repo:
 copier update --trust
 ```
 
-Copier will show diffs for any files that changed and let you resolve conflicts. It tracks which
-template version you're on via the `.copier-answers.yml` file (committed to the repo).
+Copier will show diffs for any files that changed and let you resolve conflicts.
+It tracks which template version you're on via the `.copier-answers.yml` file
+(committed to the repo).
 
 To update shared code for **all** driver repos, run `copier update` in each one.
 
 ## Build System
 
-This project uses `make` for build orchestration and `npm` only for JavaScript dependency management.
+This project uses `make` for build orchestration and `npm` only for JavaScript
+dependency management.
 
 ### Prerequisites
 
@@ -112,12 +121,14 @@ make clean-all     # Remove everything (build artifacts, deps, venv)
 
 Builds are configured for these distributions: `drivercentral oss`
 
-Each distribution produces its own set of .c4z driver files with distribution-specific code paths
-controlled by `#ifdef` directives (e.g., `#ifdef DRIVERCENTRAL` vs `#ifdef OSS`).
+Each distribution produces its own set of .c4z driver files with
+distribution-specific code paths controlled by `#ifdef` directives (e.g.,
+`#ifdef DRIVERCENTRAL` vs `#ifdef OSS`).
 
 ## Preprocessor Directives
 
-The `tools/preprocess` script supports C-style conditional compilation in Lua, XML, and Markdown:
+The `tools/preprocess` script supports C-style conditional compilation in Lua,
+XML, and Markdown:
 
 ```lua
 --#ifdef DRIVERCENTRAL
@@ -138,5 +149,6 @@ DRIVER_GITHUB_REPO = "finitelabs/control4-esphome"
 
 ### Variant Expansion
 
-Drivers can define variants via a `variants.json` file. The preprocessor expands these into multiple
-driver directories with substituted values, generating one .c4z per variant combination.
+Drivers can define variants via a `variants.json` file. The preprocessor expands
+these into multiple driver directories with substituted values, generating one
+.c4z per variant combination.
