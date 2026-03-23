@@ -1,4 +1,4 @@
-name: Build (xvfb test)
+name: Build
 
 on:
   push:
@@ -12,22 +12,22 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Full history for version stamping
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Setup Lua
-        uses: leafo/gh-actions-lua@v11
+        uses: leafo/gh-actions-lua@v12
         with:
-          luaVersion: '5.3'
+          luaVersion: 'luajit-2.1'
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
@@ -35,7 +35,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            luajit \
             libxml2-dev \
             libxslt-dev \
             libssl-dev \
@@ -60,14 +59,6 @@ jobs:
       - name: Initialize project
         run: make init
 
-      - name: Fix Electron sandbox permissions
-        run: |
-          SANDBOX=$(find node_modules/electron -name chrome-sandbox -type f 2>/dev/null | head -1)
-          if [ -n "$SANDBOX" ]; then
-            sudo chown root:root "$SANDBOX"
-            sudo chmod 4755 "$SANDBOX"
-          fi
-
       - name: Build
         run: xvfb-run make build
 
@@ -81,42 +72,18 @@ jobs:
             exit 1
           fi
 
-      - name: Summarize build artifacts
+      - name: Upload drivercentral artifacts
         if: always()
-        run: |
-          echo "## Build Artifacts" >> "$GITHUB_STEP_SUMMARY"
-          for dir in dist/*/; do
-            [ ! -d "$dir" ] && continue
-            [ "$(basename "$dir")" = "driverpackager" ] && continue
-            dist_name=$(basename "$dir")
-            echo "### ${dist_name}" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            (cd "$dir" && ls -lhS *.c4z *.pdf *.zip 2>/dev/null || echo "(no files)")  >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-          done
-
-      - name: Upload driver packages (.c4z)
-        if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: driver-packages
-          path: |
-            dist/**/*.c4z
-            !dist/driverpackager/
-          if-no-files-found: ignore
+          name: drivercentral
+          path: dist/drivercentral/*
+          if-no-files-found: error
 
-      - name: Upload release bundles (.zip)
+      - name: Upload oss artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: release-bundles
-          path: dist/**/*.zip
-          if-no-files-found: ignore
-
-      - name: Upload documentation (.pdf)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: documentation
-          path: dist/**/*.pdf
-          if-no-files-found: ignore
+          name: oss
+          path: dist/oss/*
+          if-no-files-found: error
