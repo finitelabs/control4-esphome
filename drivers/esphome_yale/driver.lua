@@ -129,10 +129,6 @@ local currentLockStatus = nil
 --- @type boolean|nil nil = unknown, true = configured, false = not configured
 local doorSenseConfigured = nil
 
---- Last known door status for deduplication (avoids re-notifying on every poll)
---- @type string|nil "CLOSED" or "OPENED"
-local lastDoorStatus = nil
-
 --- Reconnect backoff tracking (Persistent mode)
 --- @type integer
 local reconnectAttempts = 0
@@ -195,9 +191,6 @@ local function resetConnectionState(clearHandles)
   CancelTimer("StatusPoll")
   CancelTimer("DoorPoll")
   CancelTimer("BatteryPoll")
-
-  -- Reset door status so first poll after reconnect always reports current state
-  lastDoorStatus = nil
 
   if clearHandles then
     saveHandles(nil, nil, nil, nil)
@@ -518,18 +511,17 @@ local function setDoorSenseConfigured(configured)
 end
 
 --- Update the door status and notify dynamic contact sensor binding.
+--- Persists state via the values lib so it survives reboots/driver updates.
 --- Deduplicates: only sends a proxy notification when the state actually changes.
 --- @param doorStatus string "CLOSED" or "OPENED"
 local function updateDoorStatus(doorStatus)
   setDoorSenseConfigured(true)
 
-  if doorStatus == lastDoorStatus then
+  if not values:update("Door Status", doorStatus) then
     return
   end
-  lastDoorStatus = doorStatus
 
   log:info("Door status: %s", doorStatus)
-  UpdateProperty("Door Status", doorStatus)
 
   local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "door")
   if binding then
@@ -1743,7 +1735,6 @@ function EC.Reset_Driver(params)
   resetConnectionState(true)
   initialStatusTriggered = false
   doorSenseConfigured = nil
-  lastDoorStatus = nil
 
   -- Restore connection mode from property
   connectionMode = Properties["Connection Mode"] or CONNECTION_MODE.POLL
