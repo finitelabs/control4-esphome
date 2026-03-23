@@ -30,8 +30,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            lua5.3 \
             luajit \
+            lua5.3 \
             libxml2-dev \
             libxslt-dev \
             libssl-dev \
@@ -39,13 +39,12 @@ jobs:
             pandoc \
             xmlstarlet \
             xvfb
-          # Ensure 'lua' is available (lua5.3 installs as lua5.3)
-          sudo update-alternatives --install /usr/bin/lua lua /usr/bin/lua5.3 10 || sudo ln -sf /usr/bin/lua5.3 /usr/bin/lua
+          sudo update-alternatives --install /usr/bin/lua lua /usr/bin/lua5.3 10
 
       - name: Initialize project
         run: make init
 
-      - name: Build (full, with docs via xvfb)
+      - name: Build
         run: xvfb-run make build
 
       - name: Check for dirty tree
@@ -58,12 +57,42 @@ jobs:
             exit 1
           fi
 
-      - name: Upload dist artifacts
+      - name: Summarize build artifacts
+        if: always()
+        run: |
+          echo "## Build Artifacts" >> "$GITHUB_STEP_SUMMARY"
+          for dir in dist/*/; do
+            [ ! -d "$dir" ] && continue
+            [ "$(basename "$dir")" = "driverpackager" ] && continue
+            dist_name=$(basename "$dir")
+            echo "### ${dist_name}" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            (cd "$dir" && ls -lhS *.c4z *.pdf *.zip 2>/dev/null || echo "(no files)")  >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Upload driver packages (.c4z)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dist
+          name: driver-packages
           path: |
-            dist/
+            dist/**/*.c4z
             !dist/driverpackager/
+          if-no-files-found: ignore
+
+      - name: Upload release bundles (.zip)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundles
+          path: dist/**/*.zip
+          if-no-files-found: ignore
+
+      - name: Upload documentation (.pdf)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: dist/**/*.pdf
           if-no-files-found: ignore

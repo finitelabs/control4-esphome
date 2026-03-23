@@ -118,6 +118,8 @@ docs-readme:
 	cp -r drivers/$(README_DRIVER)/www/documentation/images .
 	pandoc build/$(README_BUILD)/drivers/$(README_DRIVER)/www/documentation/index.md \
 		-f gfm -t gfm --lua-filter=tools/pandoc-remove-style.lua -o README.md
+	@# Normalize hard line breaks: pandoc versions differ on backslash vs trailing spaces
+	sed -e 's/\\$$/  /' README.md > README.md.tmp && mv README.md.tmp README.md
 
 
 docs-html: node_modules
