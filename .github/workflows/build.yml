@@ -60,17 +60,15 @@ jobs:
       - name: Initialize project
         run: make init
 
-      - name: Check Electron
+      - name: Fix Electron sandbox permissions
         run: |
-          npx electron --version 2>&1 || true
-          xvfb-run npx electron --version 2>&1 || true
-          ls -la node_modules/.package-lock.json 2>/dev/null || true
-          ls node_modules/electron/dist/ 2>/dev/null || true
+          SANDBOX=$(find node_modules/electron -name chrome-sandbox -type f 2>/dev/null | head -1)
+          if [ -n "$SANDBOX" ]; then
+            sudo chown root:root "$SANDBOX"
+            sudo chmod 4755 "$SANDBOX"
+          fi
 
       - name: Build
-        env:
-          ELECTRON_EXTRA_LAUNCH_ARGS: '--no-sandbox --disable-gpu'
-          DEBUG: 'electronpdf:*'
         run: xvfb-run make build
 
       - name: Check for dirty tree
