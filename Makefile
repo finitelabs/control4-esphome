@@ -47,7 +47,7 @@ $(VENV):
 
 $(PACKAGER):
 	rm -rf dist/driverpackager
-	git clone git@github.com:finitelabs/drivers-driverpackager.git dist/driverpackager
+	git clone https://github.com/finitelabs/drivers-driverpackager.git dist/driverpackager
 
 # ─── Format ───────────────────────────────────────────────────────────────────
 

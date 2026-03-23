@@ -1,0 +1,66 @@
+name: Build (xvfb test)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            luajit \
+            libxml2-dev \
+            libxslt-dev \
+            libssl-dev \
+            swig \
+            pandoc \
+            xmlstarlet \
+            xvfb
+
+      - name: Initialize project
+        run: make init
+
+      - name: Build (full, with docs via xvfb)
+        run: xvfb-run make build
+
+      - name: Check for dirty tree
+        run: |
+          git diff --exit-code || { echo "::error::Uncommitted changes after build"; exit 1; }
+          UNTRACKED=$(git ls-files --others --exclude-standard)
+          if [ -n "$UNTRACKED" ]; then
+            echo "::error::Untracked files after build:"
+            echo "$UNTRACKED"
+            exit 1
+          fi
+
+      - name: Upload dist artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            dist/
+            !dist/driverpackager/
+          if-no-files-found: ignore
