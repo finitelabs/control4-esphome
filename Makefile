@@ -47,7 +47,7 @@ $(VENV):
 
 $(PACKAGER):
 	rm -rf dist/driverpackager
-	git clone git@github.com:finitelabs/drivers-driverpackager.git dist/driverpackager
+	git clone https://github.com/finitelabs/drivers-driverpackager.git dist/driverpackager
 
 # ─── Format ───────────────────────────────────────────────────────────────────
 
@@ -58,7 +58,7 @@ fmt-lua: node_modules
 	npx stylua \
 		--indent-type Spaces --column-width 120 --line-endings Unix \
 		--indent-width 2 --quote-style AutoPreferDouble \
-		-g '*.lua' -v ./{drivers,src,test,tools,vendor}
+		-g '*.lua' -v ./drivers ./src ./test ./tools ./vendor
 
 fmt-py:
 	$(VENV_BLACK) tools/preprocess
@@ -142,7 +142,7 @@ docs-pdf: node_modules
 			if [ -f "$$pdf_output" ]; then continue; fi; \
 			npx electron-pdf --marginsType 0 \
 				--input "$$(pwd)/$${driver_dir}www/documentation/index.html" \
-				--output "$$pdf_output"; \
+				--output "$$pdf_output" || exit 1; \
 		done; \
 	done
 

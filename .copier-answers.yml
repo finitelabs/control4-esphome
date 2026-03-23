@@ -1,5 +1,5 @@
 # Changes here will be overwritten by Copier
-_commit: v0.2.0
+_commit: v0.4.0
 _src_path: git@github.com:finitelabs/control4-driver-template.git
 project_name: control4-esphome
 project_description: Integrate ESPHome-based devices into Control4
