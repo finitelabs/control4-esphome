@@ -63,6 +63,7 @@ jobs:
       - name: Build
         env:
           ELECTRON_EXTRA_LAUNCH_ARGS: '--no-sandbox --disable-gpu'
+          DEBUG: 'electronpdf:*'
         run: xvfb-run make build
 
       - name: Check for dirty tree
