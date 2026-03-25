@@ -799,15 +799,15 @@ can file an issue on GitHub:
 
 # <span style="color:#17BCF2">Changelog</span>
 
-## Unreleased
+## v20260325 - 2026-03-25
 
 ### Fixed
 
 - Fixed cover contact sensors sending duplicate notifications during open/close
   operations
 - Fixed Yale DoorSense contact sensor sending duplicate "Closed" notifications
-  on every poll cycle by tracking last known door status and only reporting on
-  actual state changes
+  on every poll cycle by tracking the last known door status and only reporting
+  on actual state changes
 
 ## v20260319 - 2026-03-19
 
