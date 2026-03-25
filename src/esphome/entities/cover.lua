@@ -204,14 +204,20 @@ function CoverEntity:updated(entity, state)
 
   values:update(entity.name .. " State", stateString, "STRING")
 
-  -- Update the cover state contacts
+  -- Update the cover state contacts (only notify when state changes)
   local coverOpenBinding = bindings:getDynamicBinding(self.TYPE, "cover_open_" .. entity.key)
   if coverOpenBinding ~= nil then
-    SendToProxy(coverOpenBinding.bindingId, coverOpen and "CLOSED" or "OPENED", {}, "NOTIFY")
+    local coverOpenState = coverOpen and "CLOSED" or "OPENED"
+    if values:update(entity.name .. " Open", coverOpenState) then
+      SendToProxy(coverOpenBinding.bindingId, coverOpenState, {}, "NOTIFY")
+    end
   end
   local coverClosedBinding = bindings:getDynamicBinding(self.TYPE, "cover_closed_" .. entity.key)
   if coverClosedBinding ~= nil then
-    SendToProxy(coverClosedBinding.bindingId, coverClosed and "CLOSED" or "OPENED", {}, "NOTIFY")
+    local coverClosedState = coverClosed and "CLOSED" or "OPENED"
+    if values:update(entity.name .. " Closed", coverClosedState) then
+      SendToProxy(coverClosedBinding.bindingId, coverClosedState, {}, "NOTIFY")
+    end
   end
 
   -- Always open the relays since its just used to trigger the cover
