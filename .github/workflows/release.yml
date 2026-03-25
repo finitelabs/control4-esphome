@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Wait for build and download oss artifacts
+        run: |
+          echo "Waiting for Build workflow to complete for $GITHUB_SHA..."
+          while true; do
+            run_id=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow build.yml \
+              --commit "$GITHUB_SHA" \
+              --json databaseId,status,conclusion \
+              --jq '.[] | select(.status == "completed") | .databaseId' \
+              | head -1)
+            if [ -n "$run_id" ]; then
+              echo "Build run $run_id completed"
+              break
+            fi
+            echo "Build not finished yet, waiting 30s..."
+            sleep 30
+          done
+
+          conclusion=$(gh run view "$run_id" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json conclusion --jq '.conclusion')
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::Build run $run_id finished with: $conclusion"
+            exit 1
+          fi
+
+          gh run download "$run_id" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name oss \
+            --dir dist/oss
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/oss/*.c4z
+            dist/oss/*.pdf
+            dist/oss/control4-esphome.zip
