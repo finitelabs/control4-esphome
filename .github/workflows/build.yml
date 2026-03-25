@@ -84,8 +84,6 @@ jobs:
             exit 1
           fi
 
-
-
       - name: Upload drivercentral artifacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -94,7 +92,6 @@ jobs:
           path: dist/drivercentral/*
           if-no-files-found: error
 
-
       - name: Upload oss artifacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -102,4 +99,3 @@ jobs:
           name: oss
           path: dist/oss/*
           if-no-files-found: error
-
