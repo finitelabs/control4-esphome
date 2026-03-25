@@ -2123,9 +2123,9 @@ do
     --- @return integer value Signed integer value
     local function read_sint_le(data, offset, length)
       local value = read_uint_le(data, offset, length)
-      local max_positive = math.floor(math.pow(2, length * 8 - 1))
+      local max_positive = math.floor(2 ^ (length * 8 - 1))
       if value >= max_positive then
-        return math.floor(value - math.pow(2, length * 8))
+        return math.floor(value - 2 ^ (length * 8))
       end
       return value
     end
@@ -3423,7 +3423,7 @@ bthome.UUID_V1_ENCRYPTED = bthome.parser.UUID_V1_ENCRYPTED
 bthome.UUID_V2 = bthome.parser.UUID_V2
 
 --- Library version (injected at build time for releases).
-local VERSION = "v0.1.0"
+local VERSION = "v0.1.1"
 
 --- Get the library version string.
 --- @return string version Version string (e.g., "v1.0.0" or "dev")

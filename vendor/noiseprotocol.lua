@@ -6889,7 +6889,7 @@ local utils = require("noiseprotocol.utils")
 local openssl_wrapper = require("noiseprotocol.openssl_wrapper")
 
 --- Module version
-local VERSION = "v0.5.1"
+local VERSION = "v0.5.2"
 
 --- Enable or disable OpenSSL acceleration
 --- @function use_openssl
@@ -7044,7 +7044,7 @@ function CipherSuite:new(dh, cipher, hash)
 end
 
 -- Protocol constants
-local MAX_NONCE = math.pow(2, 32) - 1
+local MAX_NONCE = 2 ^ 32 - 1
 
 --- X25519 Diffie-Hellman implementation
 --- @type DHFunction
