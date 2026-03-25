@@ -115,7 +115,7 @@ docs: docs-readme docs-html docs-pdf ## Generate all documentation
 
 docs-readme:
 	rm -rf ./images
-	cp -r drivers/$(README_DRIVER)/www/documentation/images .
+	@if [ -d drivers/$(README_DRIVER)/www/documentation/images ]; then cp -r drivers/$(README_DRIVER)/www/documentation/images .; fi
 	pandoc build/$(README_BUILD)/drivers/$(README_DRIVER)/www/documentation/index.md \
 		-f gfm -t gfm --lua-filter=tools/pandoc-remove-style.lua -o README.md
 
