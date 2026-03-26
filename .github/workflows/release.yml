@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   release:
@@ -53,4 +54,4 @@ jobs:
           files: |
             dist/oss/*.c4z
             dist/oss/*.pdf
-            dist/oss/control4-esphome.zip
+            dist/oss/*.zip
