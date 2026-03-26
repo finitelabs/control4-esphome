@@ -799,6 +799,13 @@ can file an issue on GitHub:
 
 # <span style="color:#17BCF2">Changelog</span>
 
+## Unreleased
+
+### Fixed
+
+- Fixed automatic driver updates not working when the leader instance is removed
+  from the project
+
 ## v20260325 - 2026-03-25
 
 ### Fixed
