@@ -799,7 +799,7 @@ can file an issue on GitHub:
 
 # <span style="color:#17BCF2">Changelog</span>
 
-## Unreleased
+## v20260326 - 2026-03-26
 
 ### Fixed
 
