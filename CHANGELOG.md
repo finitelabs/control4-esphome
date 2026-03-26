@@ -12,6 +12,17 @@
 [//]: # "- Removed"
 <!-- prettier-ignore-end -->
 
+## Unreleased
+
+<!-- #ifndef DRIVERCENTRAL -->
+
+### Fixed
+
+- Fixed automatic driver updates not working when the leader instance is removed
+  from the project
+
+<!-- #endif -->
+
 ## v20260325 - 2026-03-25
 
 ### Fixed
