@@ -22,6 +22,9 @@
 - Added Date, Time, and Datetime entity support: configurable date/time values
   on the device are exposed as writable string variables (YYYY-MM-DD, HH:MM:SS,
   YYYY-MM-DD HH:MM:SS)
+- Added Climate entity support: ESPHome climate devices are exposed as
+  thermostatV2 sub-drivers with HVAC mode, setpoints, fan mode, presets, and
+  humidity control
 
 ## v20260328 - 2026-03-28
 

@@ -88,33 +88,33 @@ See the individual sub-driver documentation for device-specific details.
 
 <div style="font-size: small">
 
-| Entity Type         | Supported                     |
-| ------------------- | ----------------------------- |
-| Alarm Control Panel | ❌                            |
-| API Noise           | ✅                            |
-| Binary Sensor       | ✅                            |
-| Bluetooth Proxy     | ✅                            |
-| Button              | ✅                            |
-| Camera              | ❌                            |
-| Climate             | ❌                            |
-| Cover               | ✅                            |
-| Date                | ✅                            |
-| Datetime            | ✅                            |
-| Event               | ✅                            |
-| Fan                 | ✅                            |
-| Light               | ✅                            |
-| Lock                | ✅                            |
-| Media Player        | ❌                            |
-| Number              | ✅                            |
-| Select              | ✅                            |
-| Sensor              | ✅                            |
-| Siren               | ❌                            |
-| Switch              | ✅                            |
-| Text                | ✅                            |
-| Text Sensor         | ✅                            |
-| Time                | ✅                            |
-| Update              | ❌                            |
-| Valve               | ❌                            |
+| Entity Type         | Supported |
+| ------------------- | --------- |
+| Alarm Control Panel | ❌        |
+| API Noise           | ✅        |
+| Binary Sensor       | ✅        |
+| Bluetooth Proxy     | ✅        |
+| Button              | ✅        |
+| Camera              | ❌        |
+| Climate             | ✅        |
+| Cover               | ✅        |
+| Date                | ✅        |
+| Datetime            | ✅        |
+| Event               | ✅        |
+| Fan                 | ✅        |
+| Light               | ✅        |
+| Lock                | ✅        |
+| Media Player        | ❌        |
+| Number              | ✅        |
+| Select              | ✅        |
+| Sensor              | ✅        |
+| Siren               | ❌        |
+| Switch              | ✅        |
+| Text                | ✅        |
+| Text Sensor         | ✅        |
+| Time                | ✅        |
+| Update              | ❌        |
+| Valve               | ❌        |
 | Voice Assistant     | ❌[\*](#voice-assistant-note) |
 
 </div>
@@ -454,6 +454,7 @@ supported ESPHome entity. Use this reference for Control4 programming.
 | Cover         | `CONTACT_SENSOR`                | Open/closed state contacts             |
 | Cover         | `RELAY`                         | Open/close/stop control relays         |
 | Button        | `BUTTON_LINK`                   | Allows other devices to trigger button |
+| Climate       | `ESPHOME_CLIMATE`               | Bind to ESPHome Climate sub-driver     |
 | Fan           | `ESPHOME_FAN_N_SPEED[_REVERSE]` | Bind to ESPHome Fan sub-driver         |
 | Light         | `ESPHOME_LIGHT`                 | Bind to ESPHome Light sub-driver       |
 | Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver        |
@@ -834,6 +835,9 @@ can file an issue on GitHub:
 - Added Date, Time, and Datetime entity support: configurable date/time values
   on the device are exposed as writable string variables (YYYY-MM-DD, HH:MM:SS,
   YYYY-MM-DD HH:MM:SS)
+- Added Climate entity support: ESPHome climate devices are exposed as
+  thermostatV2 sub-drivers with HVAC mode, setpoints, fan mode, presets, and
+  humidity control
 
 ## v20260328 - 2026-03-28
 
