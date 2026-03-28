@@ -126,7 +126,7 @@ See the individual sub-driver documentation for device-specific details.
 | Date                | ❌        |
 | Time                | ❌        |
 | Camera              | ❌        |
-| Event               | ❌        |
+| Event               | ✅        |
 | Fan                 | ✅        |
 | Light               | ✅        |
 | Lock                | ✅        |
@@ -512,20 +512,21 @@ supported ESPHome entity. Use this reference for Control4 programming.
 
 ### Variables by Entity Type
 
-| Entity Type   | Variable Name  | Type   | Notes                                  |
-| ------------- | -------------- | ------ | -------------------------------------- |
-| Binary Sensor | `{name} State` | BOOL   | "1" = triggered, "0" = clear           |
-| Sensor        | `{name}`       | NUMBER | Read-only, 1 decimal precision         |
-| Switch        | `{name} State` | BOOL   | "1" = on, "0" = off (writable)         |
-| Cover         | `{name} State` | STRING | "open", "closed", "opening", "closing" |
-| Number        | `{name}`       | NUMBER | Writable, 1 decimal precision          |
-| Select        | `{name}`       | STRING | Writable, current option               |
-| Text          | `{name}`       | STRING | Writable                               |
-| Text Sensor   | `{name}`       | STRING | Read-only                              |
-| Button        | (none)         | -      | Use "Press Button" command (see below) |
-| Fan           | (none)         | -      | State via Fan proxy                    |
-| Light         | (none)         | -      | State via Light proxy                  |
-| Lock          | (none)         | -      | State via Lock proxy                   |
+| Entity Type   | Variable Name       | Type   | Notes                                  |
+| ------------- | ------------------- | ------ | -------------------------------------- |
+| Binary Sensor | `{name} State`      | BOOL   | "1" = triggered, "0" = clear           |
+| Sensor        | `{name}`            | NUMBER | Read-only, 1 decimal precision         |
+| Switch        | `{name} State`      | BOOL   | "1" = on, "0" = off (writable)         |
+| Cover         | `{name} State`      | STRING | "open", "closed", "opening", "closing" |
+| Number        | `{name}`            | NUMBER | Writable, 1 decimal precision          |
+| Select        | `{name}`            | STRING | Writable, current option               |
+| Text          | `{name}`            | STRING | Writable                               |
+| Text Sensor   | `{name}`            | STRING | Read-only                              |
+| Button        | (none)              | -      | Use "Press Button" command (see below) |
+| Fan           | (none)              | -      | State via Fan proxy                    |
+| Light         | (none)              | -      | State via Light proxy                  |
+| Lock          | (none)              | -      | State via Lock proxy                   |
+| Event         | `{name} Last Event` | STRING | Last event type (e.g., "single_press") |
 
 > **Note:** `{name}` is replaced with the entity's display name from ESPHome
 > (e.g., a sensor named "Temperature" creates a variable called "Temperature").
@@ -543,8 +544,19 @@ supported ESPHome entity. Use this reference for Control4 programming.
 | Light         | `ESPHOME_LIGHT`                 | Bind to ESPHome Light sub-driver       |
 | Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver        |
 
-> **Note:** Sensor, Number, Select, Text, and Text Sensor entities do not create
-> bindings. They expose data only through variables.
+> **Note:** Sensor, Number, Select, Text, Text Sensor, and Event entities do not
+> create bindings. They expose data only through variables and events.
+
+### Events by Entity Type
+
+| Entity Type | Event Name             | Description                                 |
+| ----------- | ---------------------- | ------------------------------------------- |
+| Event       | `{name}: {event_type}` | One C4 event per event type for programming |
+
+> **Note:** Event entities are stateless triggers (button presses, gestures,
+> doorbell rings). Each discovered event type creates a Control4 event that can
+> be used in programming. The `{name} Last Event` variable tracks the most
+> recent event type.
 
 ### Commands
 
