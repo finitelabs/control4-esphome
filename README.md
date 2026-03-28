@@ -449,8 +449,8 @@ supported ESPHome entity. Use this reference for Control4 programming.
 | Light         | `ESPHOME_LIGHT`                 | Bind to ESPHome Light sub-driver       |
 | Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver        |
 
-> **Note:** Sensor, Number, Select, Text, Text Sensor, and Event entities do not create
-> bindings. They expose data only through variables and events.
+> **Note:** Sensor, Number, Select, Text, Text Sensor, and Event entities do not
+> create bindings. They expose data only through variables and events.
 
 ### Events by Entity Type
 
