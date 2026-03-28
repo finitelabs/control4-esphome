@@ -88,36 +88,42 @@ See the individual sub-driver documentation for device-specific details.
 
 <div style="font-size: small">
 
-| Entity Type         | Supported |
-| ------------------- | --------- |
-| Alarm Control Panel | ❌        |
-| API Noise           | ✅        |
-| Binary Sensor       | ✅        |
-| Bluetooth Proxy     | ✅        |
-| Button              | ✅        |
-| Camera              | ❌        |
-| Climate             | ❌        |
-| Cover               | ✅        |
-| Date                | ✅        |
-| Datetime            | ✅        |
-| Event               | ✅        |
-| Fan                 | ✅        |
-| Light               | ✅        |
-| Lock                | ✅        |
-| Media Player        | ❌        |
-| Number              | ✅        |
-| Select              | ✅        |
-| Sensor              | ✅        |
-| Siren               | ❌        |
-| Switch              | ✅        |
-| Text                | ✅        |
-| Text Sensor         | ✅        |
-| Time                | ✅        |
-| Update              | ❌        |
-| Valve               | ❌        |
-| Voice Assistant     | ❌        |
+| Entity Type         | Supported                     |
+| ------------------- | ----------------------------- |
+| Alarm Control Panel | ❌                            |
+| API Noise           | ✅                            |
+| Binary Sensor       | ✅                            |
+| Bluetooth Proxy     | ✅                            |
+| Button              | ✅                            |
+| Camera              | ❌                            |
+| Climate             | ❌                            |
+| Cover               | ✅                            |
+| Date                | ✅                            |
+| Datetime            | ✅                            |
+| Event               | ✅                            |
+| Fan                 | ✅                            |
+| Light               | ✅                            |
+| Lock                | ✅                            |
+| Media Player        | ❌                            |
+| Number              | ✅                            |
+| Select              | ✅                            |
+| Sensor              | ✅                            |
+| Siren               | ❌                            |
+| Switch              | ✅                            |
+| Text                | ✅                            |
+| Text Sensor         | ✅                            |
+| Time                | ✅                            |
+| Update              | ❌                            |
+| Valve               | ❌                            |
+| Voice Assistant     | ❌[\*](#voice-assistant-note) |
 
 </div>
+
+<a id="voice-assistant-note"></a>
+
+> \* Voice Assistant requires a speech-to-text and intent processing pipeline
+> (e.g. Home Assistant Assist). Control4 does not natively provide voice intent
+> handling, so this entity type is not supported.
 
 <div style="page-break-after: always"></div>
 
