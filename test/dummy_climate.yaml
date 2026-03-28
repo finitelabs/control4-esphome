@@ -1,0 +1,192 @@
+# Fully functional ESPHome climate mock for testing the Control4 climate driver.
+# Runs on the host platform (no hardware needed).
+#
+# Usage:
+#   esphome compile test/dummy_climate.yaml
+#   .esphome/build/dummy-climate/.pioenvs/dummy-climate/program
+#
+# API services (callable from the Control4 driver or test scripts):
+#   - set_remote_temperature(float)  -- feeds external temp into the climate entity
+#   - use_internal_temperature()     -- reverts to the "internal" sensor value
+#   - set_internal_temperature(float) -- changes the simulated internal sensor reading
+#   - set_humidity(float)            -- changes the simulated humidity reading
+
+esphome:
+  name: dummy-climate
+  friendly_name: Dummy Climate
+
+host:
+
+logger:
+
+globals:
+  - id: internal_temp_value
+    type: float
+    initial_value: "22.5"
+  - id: current_temp_value
+    type: float
+    initial_value: "22.5"
+  - id: remote_temp_active
+    type: bool
+    initial_value: "false"
+  - id: current_humidity_value
+    type: float
+    initial_value: "45.0"
+
+sensor:
+  - platform: template
+    name: "Temperature Source"
+    id: temperature_source
+    unit_of_measurement: "C"
+    accuracy_decimals: 1
+    update_interval: 10s
+    lambda: "return id(current_temp_value);"
+
+  - platform: template
+    name: "Humidity Source"
+    id: humidity_source
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: "return id(current_humidity_value);"
+
+api:
+  services:
+    - service: set_remote_temperature
+      variables:
+        temperature: float
+      then:
+        - globals.set:
+            id: remote_temp_active
+            value: "true"
+        - globals.set:
+            id: current_temp_value
+            value: !lambda "return temperature;"
+        - sensor.template.publish:
+            id: temperature_source
+            state: !lambda "return temperature;"
+        - lambda: |-
+            ESP_LOGI("remote_temp", "Remote temperature set to %.1f C", temperature);
+
+    - service: use_internal_temperature
+      then:
+        - globals.set:
+            id: remote_temp_active
+            value: "false"
+        - globals.set:
+            id: current_temp_value
+            value: !lambda "return id(internal_temp_value);"
+        - sensor.template.publish:
+            id: temperature_source
+            state: !lambda "return id(internal_temp_value);"
+        - lambda: |-
+            ESP_LOGI("remote_temp", "Reverted to internal temperature (%.1f C)", id(internal_temp_value));
+
+    - service: set_internal_temperature
+      variables:
+        temperature: float
+      then:
+        - globals.set:
+            id: internal_temp_value
+            value: !lambda "return temperature;"
+        - lambda: |-
+            ESP_LOGI("remote_temp", "Internal temperature updated to %.1f C", temperature);
+            if (!id(remote_temp_active)) {
+              id(current_temp_value) = temperature;
+              id(temperature_source).publish_state(temperature);
+            }
+
+    - service: set_humidity
+      variables:
+        humidity: float
+      then:
+        - globals.set:
+            id: current_humidity_value
+            value: !lambda "return humidity;"
+        - sensor.template.publish:
+            id: humidity_source
+            state: !lambda "return humidity;"
+        - lambda: |-
+            ESP_LOGI("humidity", "Humidity set to %.0f%%", humidity);
+
+climate:
+  - platform: thermostat
+    name: "Test Climate"
+    id: test_climate
+    sensor: temperature_source
+    humidity_sensor: humidity_source
+
+    startup_delay: true
+    min_idle_time: 5s
+    min_heating_off_time: 5s
+    min_cooling_off_time: 5s
+    min_heating_run_time: 5s
+    min_cooling_run_time: 5s
+    min_fan_mode_switching_time: 5s
+    min_fanning_off_time: 5s
+    min_fanning_run_time: 5s
+    heat_cool_mode: true
+
+    # HVAC actions
+    idle_action:
+      - logger.log: "Action: Idle"
+    heat_action:
+      - logger.log: "Action: Heating"
+    cool_action:
+      - logger.log: "Action: Cooling"
+    fan_only_action:
+      - logger.log: "Action: Fan Only"
+    dry_action:
+      - logger.log: "Action: Drying"
+
+    # Fan mode actions
+    fan_mode_auto_action:
+      - logger.log: "Fan: Auto"
+    fan_mode_on_action:
+      - logger.log: "Fan: On"
+    fan_mode_off_action:
+      - logger.log: "Fan: Off"
+    fan_mode_low_action:
+      - logger.log: "Fan: Low"
+    fan_mode_medium_action:
+      - logger.log: "Fan: Medium"
+    fan_mode_high_action:
+      - logger.log: "Fan: High"
+
+    # Humidity control (dehumidify only - humidify/dehumidify are mutually exclusive)
+    humidity_control_dehumidify_action:
+      - logger.log: "Humidity: Dehumidifying"
+    humidity_control_off_action:
+      - logger.log: "Humidity: Control Off"
+
+    # Presets
+    default_preset: Home
+    on_boot_restore_from: default_preset
+    preset:
+      - name: Home
+        default_target_temperature_low: 20
+        default_target_temperature_high: 24
+      - name: Away
+        default_target_temperature_low: 16
+        default_target_temperature_high: 28
+      - name: Eco
+        default_target_temperature_low: 18
+        default_target_temperature_high: 26
+      - name: Sleep
+        default_target_temperature_low: 19
+        default_target_temperature_high: 22
+      - name: Boost
+        default_target_temperature_low: 22
+        default_target_temperature_high: 22
+      - name: Comfort
+        default_target_temperature_low: 21
+        default_target_temperature_high: 23
+
+    visual:
+      min_temperature: 10
+      max_temperature: 35
+      temperature_step:
+        target_temperature: 0.1
+        current_temperature: 0.1
+      min_humidity: 20
+      max_humidity: 80

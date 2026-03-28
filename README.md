@@ -96,7 +96,7 @@ See the individual sub-driver documentation for device-specific details.
 | Bluetooth Proxy     | ✅                            |
 | Button              | ✅                            |
 | Camera              | ❌                            |
-| Climate             | ❌                            |
+| Climate             | ✅                            |
 | Cover               | ✅                            |
 | Date                | ✅                            |
 | Datetime            | ✅                            |
@@ -116,6 +116,7 @@ See the individual sub-driver documentation for device-specific details.
 | Update              | ❌                            |
 | Valve               | ❌                            |
 | Voice Assistant     | ❌[\*](#voice-assistant-note) |
+| Water Heater        | ✅                            |
 
 </div>
 
@@ -159,18 +160,19 @@ is an outline of the basic steps for your convenience.
 5.  After a few moments the [`Driver Status`](#driver-status-read-only) will
     display `Connected`. If the driver fails to connect, set the
     [`Log Mode`](#log-mode--off--print--log--print-and-log-) property to `Print`
-    and re-set the [`IP Adress`](#ip-address) field to reconnect. Then check the
-    lua output window for more information.
+    and re-set the [`IP Address`](#ip-address) field to reconnect. Then check
+    the lua output window for more information.
 
 6.  Once connected, the driver will automatically create variables and
     connection bindings for each supported entity type.
 
-7.  To control lights, fans, and/or locks, use the "Search" tab to find the
-    "ESPHome Light", "ESPHome Fan", and/or "ESPHome Lock" driver. For fans,
-    choose the speed variant that matches your fan (e.g., "ESPHome Fan (3
-    Speed)"). Add one driver instance for each exposed entity in your project.
-    In the "Connections" tab, select the "ESPHome" driver and bind the entities
-    to the newly added drivers.
+7.  To control climate, lights, fans, locks, and/or water heaters, use the
+    "Search" tab to find the "ESPHome Climate", "ESPHome Light", "ESPHome Fan",
+    and/or "ESPHome Lock" driver. For fans, choose the speed variant that
+    matches your fan (e.g., "ESPHome Fan (3 Speed)"). Water heater entities use
+    the "ESPHome Climate" driver. Add one driver instance for each exposed
+    entity in your project. In the "Connections" tab, select the "ESPHome"
+    driver and bind the entities to the newly added drivers.
 
 ## Driver Setup
 
@@ -421,12 +423,26 @@ device or there are stale connections or variables.
 Once connected, the driver automatically creates variables and bindings for each
 supported ESPHome entity. Use this reference for Control4 programming.
 
+### Driver Variables
+
+In addition to per-entity variables, the driver publishes the following
+device-level variables sourced from the ESPHome device info. They mirror the
+matching read-only Device Info properties.
+
+| Variable     | Type   | Description                                  |
+| ------------ | ------ | -------------------------------------------- |
+| Name         | STRING | Friendly name reported by the ESPHome device |
+| Model        | STRING | Device model string reported by ESPHome      |
+| Manufacturer | STRING | Manufacturer string reported by ESPHome      |
+| MAC Address  | STRING | ESPHome device MAC address                   |
+
 ### Variables by Entity Type
 
 | Entity Type   | Variable Name       | Type   | Notes                                      |
 | ------------- | ------------------- | ------ | ------------------------------------------ |
 | Binary Sensor | `{name} State`      | BOOL   | "1" = triggered, "0" = clear               |
 | Button        | (none)              | \-     | Use "Press Button" command (see below)     |
+| Climate       | (none)              | \-     | State via Thermostat proxy                 |
 | Cover         | `{name} State`      | STRING | "open", "closed", "opening", "closing"     |
 | Date          | `{name}`            | STRING | Writable, formatted as YYYY-MM-DD          |
 | Datetime      | `{name}`            | STRING | Writable, formatted as YYYY-MM-DD HH:MM:SS |
@@ -441,26 +457,60 @@ supported ESPHome entity. Use this reference for Control4 programming.
 | Text          | `{name}`            | STRING | Writable                                   |
 | Text Sensor   | `{name}`            | STRING | Read-only                                  |
 | Time          | `{name}`            | STRING | Writable, formatted as HH:MM:SS            |
+| Water Heater  | (none)              | \-     | State via Thermostat proxy                 |
 
 > **Note:** `{name}` is replaced with the entity's display name from ESPHome
 > (e.g., a sensor named "Temperature" creates a variable called "Temperature").
 
 ### Bindings by Entity Type
 
-| Entity Type   | Binding Class                   | Purpose                                |
-| ------------- | ------------------------------- | -------------------------------------- |
-| Binary Sensor | `CONTACT_SENSOR`                | Integrates with Contact Sensor proxy   |
-| Switch        | `RELAY`                         | Control via Relay proxy                |
-| Cover         | `CONTACT_SENSOR`                | Open/closed state contacts             |
-| Cover         | `RELAY`                         | Open/close/stop control relays         |
-| Button        | `BUTTON_LINK`                   | Allows other devices to trigger button |
-| Fan           | `ESPHOME_FAN_N_SPEED[_REVERSE]` | Bind to ESPHome Fan sub-driver         |
-| Light         | `ESPHOME_LIGHT`                 | Bind to ESPHome Light sub-driver       |
-| Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver        |
+| Entity Type   | Binding Class                   | Purpose                                                           |
+| ------------- | ------------------------------- | ----------------------------------------------------------------- |
+| Binary Sensor | `CONTACT_SENSOR`                | Integrates with Contact Sensor proxy                              |
+| Switch        | `RELAY`                         | Control via Relay proxy                                           |
+| Cover         | `CONTACT_SENSOR`                | Open/closed state contacts                                        |
+| Cover         | `RELAY`                         | Open/close/stop control relays                                    |
+| Button        | `BUTTON_LINK`                   | Allows other devices to trigger button                            |
+| Climate       | `ESPHOME_CLIMATE`               | Bind to ESPHome Climate sub-driver [\*\*](#climate-services-note) |
+| Fan           | `ESPHOME_FAN_N_SPEED[_REVERSE]` | Bind to ESPHome Fan sub-driver                                    |
+| Light         | `ESPHOME_LIGHT`                 | Bind to ESPHome Light sub-driver                                  |
+| Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver                                   |
+| Water Heater  | `ESPHOME_CLIMATE`               | Bind to ESPHome Climate sub-driver                                |
 
 > **Note:** Sensor, Number, Select, Text, Text Sensor, Date, Time, Datetime, and
 > Event entities do not create bindings. They expose data only through variables
 > and events.
+
+> **Note:** Water Heater entities share the `ESPHOME_CLIMATE` binding class and
+> are controlled via the ESPHome Climate sub-driver. Device modes (such as Eco,
+> Heat Pump, Gas) are exposed as presets.
+
+<a id="climate-services-note"></a>
+
+> \*\* **Climate remote sensor:** The Climate sub-driver supports using an
+> external Control4 temperature sensor instead of the climate device's built-in
+> sensor. This feature requires the ESPHome device YAML to define user-defined
+> API services (e.g., `set_remote_temperature` and `use_internal_temperature`).
+> See the ESPHome Climate sub-driver documentation for full details and YAML
+> examples.
+
+### Bluetooth Proxy Bindings
+
+When the connected ESPHome device exposes a Bluetooth proxy, additional dynamic
+bindings are created separately from the entity bindings above:
+
+| Source                     | Binding Class       | Purpose                                                  |
+| -------------------------- | ------------------- | -------------------------------------------------------- |
+| Bluetooth Coordinator link | `ESPHOME_BLUETOOTH` | Connects the ESPHome driver to the Bluetooth Coordinator |
+| Selected BTHome device     | `ESPHOME_BTHOME`    | Bind to ESPHome BTHome sub-driver                        |
+| Selected Govee device      | `ESPHOME_GOVEE`     | Bind to ESPHome Govee sub-driver                         |
+| Selected SwitchBot device  | `ESPHOME_SWITCHBOT` | Bind to ESPHome SwitchBot sub-driver                     |
+| Selected Yale/August lock  | `ESPHOME_YALE`      | Bind to ESPHome Yale sub-driver                          |
+
+> **Note:** Per-device Bluetooth bindings are created automatically when a
+> device is chosen via the `Select Bluetooth Devices` property (standalone mode)
+> or via the Bluetooth Coordinator's device selector (coordinator mode). Binding
+> display names include the device MAC address suffix for easy identification.
 
 ### Events by Entity Type
 
@@ -834,13 +884,11 @@ can file an issue on GitHub:
 - Added Date, Time, and Datetime entity support: configurable date/time values
   on the device are exposed as writable string variables (YYYY-MM-DD, HH:MM:SS,
   YYYY-MM-DD HH:MM:SS)
-
-## v20260328 - 2026-03-28
-
-### Added
-
-- Added Select entity support: STRING variable with current option, writable via
-  programming or variable writes
+- Added Climate entity support: ESPHome climate devices are exposed as
+  thermostatV2 sub-drivers with HVAC mode, setpoints, fan mode, presets, and
+  humidity control
+- Added Select entity support: STRING variable with the current option, writable
+  via programming or variable writes
 - Added "Set Select" programming command with dynamic Select and Option
   dropdowns
 

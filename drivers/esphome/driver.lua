@@ -10,6 +10,7 @@ DRIVER_FILENAMES = {
   "esphome_govee.c4z",
   "esphome_bthome.c4z",
   -- #variant-filenames esphome_fan
+  "esphome_climate.c4z",
   "esphome_light.c4z",
   "esphome_lock.c4z",
   "esphome_switchbot.c4z",
@@ -41,6 +42,7 @@ local BluetoothProxyCapability = require("esphome.capabilities.bluetooth_proxy")
 
 local BinarySensorEntity = require("esphome.entities.binary_sensor")
 local ButtonEntity = require("esphome.entities.button")
+local ClimateEntity = require("esphome.entities.climate")
 local CoverEntity = require("esphome.entities.cover")
 local DateEntity = require("esphome.entities.date")
 local DateTimeEntity = require("esphome.entities.datetime")
@@ -55,6 +57,7 @@ local SelectEntity = require("esphome.entities.select")
 local TextEntity = require("esphome.entities.text")
 local TextSensorEntity = require("esphome.entities.text_sensor")
 local TimeEntity = require("esphome.entities.time")
+local WaterHeaterEntity = require("esphome.entities.water_heater")
 
 local constants = require("constants")
 
@@ -69,6 +72,7 @@ local bluetoothProxyCapability = BluetoothProxyCapability:new(esphome)
 local Entities = {
   [BinarySensorEntity.TYPE] = BinarySensorEntity:new(esphome),
   [ButtonEntity.TYPE] = ButtonEntity:new(esphome),
+  [ClimateEntity.TYPE] = ClimateEntity:new(esphome),
   [CoverEntity.TYPE] = CoverEntity:new(esphome),
   [DateEntity.TYPE] = DateEntity:new(esphome),
   [DateTimeEntity.TYPE] = DateTimeEntity:new(esphome),
@@ -83,6 +87,7 @@ local Entities = {
   [TextEntity.TYPE] = TextEntity:new(esphome),
   [TextSensorEntity.TYPE] = TextSensorEntity:new(esphome),
   [TimeEntity.TYPE] = TimeEntity:new(esphome),
+  [WaterHeaterEntity.TYPE] = WaterHeaterEntity:new(esphome),
 }
 
 --- Get all ESPHome driver instances sorted by device ID
@@ -536,7 +541,7 @@ function RefreshStatus()
         return entities
       end)
       :next(function(entities)
-        return esphome:subscribeStates(function(state)
+        return esphome:subscribeStates(function(state, messageSchema)
           local key = Select(state, "key")
           if type(key) ~= "number" then
             log:warn("Received state update with an invalid key: %s", state)
@@ -561,7 +566,7 @@ function RefreshStatus()
           if Entities[entity.entity_type] ~= nil and type(Entities[entity.entity_type].updated) == "function" then
             log:debug("Calling Entities['%s']:updated(%s, %s) handler", entity.entity_type, entity, state)
             local success, ret = xpcall(function()
-              Entities[entity.entity_type]:updated(entity, state)
+              Entities[entity.entity_type]:updated(entity, state, messageSchema)
             end, debug.traceback)
             local errMessage = ""
             if not success then

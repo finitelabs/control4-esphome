@@ -1,0 +1,75 @@
+# Single setpoint climate device - heat only (e.g., floor heater, radiant heat)
+# Tests: single setpoint mode, heat-only operation, no cool/auto modes
+#
+# Usage:
+#   esphome compile test/dummy_climate_single.yaml
+#   .esphome/build/dummy-climate-single/.pioenvs/dummy-climate-single/program
+
+esphome:
+  name: dummy-climate-single
+  friendly_name: Dummy Single Setpoint
+
+host:
+
+logger:
+
+api:
+  port: 6054
+  services:
+    - service: set_remote_temperature
+      variables:
+        temperature: float
+      then:
+        - lambda: |-
+            ESP_LOGI("remote_temp", "Setting remote temperature to %.1f C", temperature);
+
+    - service: use_internal_temperature
+      then:
+        - lambda: |-
+            ESP_LOGI("remote_temp", "Reverting to internal temperature sensor");
+
+globals:
+  - id: current_temp_value
+    type: float
+    initial_value: "20.0"
+
+sensor:
+  - platform: template
+    name: "Temperature Source"
+    id: temperature_source
+    unit_of_measurement: "C"
+    accuracy_decimals: 1
+    update_interval: 10s
+    lambda: "return id(current_temp_value);"
+
+climate:
+  - platform: thermostat
+    name: "Floor Heater"
+    id: floor_heater
+    sensor: temperature_source
+    min_idle_time: 5s
+    min_heating_off_time: 5s
+    min_heating_run_time: 5s
+
+    # Heat only - no cool, no auto, no fan
+    idle_action:
+      - logger.log: "Action: Idle"
+    heat_action:
+      - logger.log: "Action: Heating"
+
+    default_preset: Home
+    on_boot_restore_from: default_preset
+    preset:
+      - name: Home
+        default_target_temperature_low: 22
+      - name: Away
+        default_target_temperature_low: 16
+      - name: Eco
+        default_target_temperature_low: 18
+
+    visual:
+      min_temperature: 10
+      max_temperature: 35
+      temperature_step:
+        target_temperature: 0.1
+        current_temperature: 0.1

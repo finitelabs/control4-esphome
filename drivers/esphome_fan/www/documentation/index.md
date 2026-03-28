@@ -27,8 +27,8 @@
 <!-- #endif -->
 
 This driver provides specialized support for ESPHome devices with fan entities,
-allowing them to be controlled through the Control4 fan proxy with configurable
-discrete speed levels.
+allowing them to be controlled through the Control4 fan proxy with
+%%FAN_SPEED_COUNT%% discrete speed levels.
 
 # <span style="color:#17BCF2">Index</span>
 
@@ -36,15 +36,17 @@ discrete speed levels.
 
 - [System Requirements](#system-requirements)
 - [Features](#features)
+- [Compatibility](#compatibility)
+  - [Variants](#variants)
 - [Installer Setup](#installer-setup)
-  - [Choosing the Right Variant](#choosing-the-right-variant)
+  - [Adding the Driver](#adding-the-driver)
   - [Driver Properties](#driver-properties)
     <!-- #ifdef DRIVERCENTRAL -->
     - [Cloud Settings](#cloud-settings)
     <!-- #endif -->
     - [Driver Settings](#driver-settings)
+  - [Driver Commands](#driver-commands)
   - [Connections](#connections)
-  - [Commands](#commands)
   <!-- #ifdef DRIVERCENTRAL -->
 - [Developer Information](#developer-information)
 <!-- #endif -->
@@ -63,11 +65,42 @@ discrete speed levels.
 # <span style="color:#17BCF2">Features</span>
 
 - Control4 Fan Proxy integration for native Control4 fan control
-- On/Off, speed control with %%FAN_SPEED_COUNT%% discrete speed levels
-- Direction control (forward/reverse) in Reversible variants
-- Oscillation control via custom command
+- On/Off and speed control with %%FAN_SPEED_COUNT%% discrete speed levels
+<!-- #ifdef FAN_CAN_REVERSE -->
+- Direction control (forward/reverse)
+<!-- #endif -->
+- Oscillation control via programming command
 - Button Link connections for programming integration
 - Real-time state synchronization with ESPHome device
+
+# <span style="color:#17BCF2">Compatibility</span>
+
+## Variants
+
+The ESPHome Fan driver is available in multiple variants, each supporting a
+different number of discrete speed levels. Choose the variant that matches your
+fan's `speed_count` in its ESPHome configuration:
+
+| Variant             | Speed Levels | Reversible | Speed Names                                |
+| ------------------- | :----------: | :--------: | ------------------------------------------ |
+| 1 Speed             |      1       |     No     | On (on/off only)                           |
+| 2 Speed             |      2       |     No     | Low, High                                  |
+| 3 Speed             |      3       |     No     | Low, Medium, High                          |
+| 4 Speed             |      4       |     No     | Low, Medium Low, Medium High, High         |
+| 5 Speed             |      5       |     No     | Low, Low Medium, Medium, Medium High, High |
+| 6 Speed             |      6       |     No     | 1, 2, 3, 4, 5, 6                           |
+| 1 Speed, Reversible |      1       |    Yes     | On (on/off only)                           |
+| 2 Speed, Reversible |      2       |    Yes     | Low, High                                  |
+| 3 Speed, Reversible |      3       |    Yes     | Low, Medium, High                          |
+| 4 Speed, Reversible |      4       |    Yes     | Low, Medium Low, Medium High, High         |
+| 5 Speed, Reversible |      5       |    Yes     | Low, Low Medium, Medium, Medium High, High |
+| 6 Speed, Reversible |      6       |    Yes     | 1, 2, 3, 4, 5, 6                           |
+
+The main ESPHome driver automatically creates a binding based on the fan's
+reported speed count and direction support, ensuring only the matching variant
+can be bound.
+
+<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Installer Setup</span>
 
@@ -75,30 +108,13 @@ Refer to the main ESPHome driver documentation for setup instructions. Once the
 main driver is configured and connected to your ESPHome device, bind the ESPHome
 Fan driver to the fan entity exposed by the main driver.
 
-## Choosing the Right Variant
+## Adding the Driver
 
-The ESPHome Fan driver is available in multiple variants, each supporting a
-different number of discrete speed levels. Choose the variant that matches your
-fan's `speed_count` in its ESPHome configuration:
-
-| Variant             | Speed Levels | Reversible | Speed Names                                |
-| ------------------- | ------------ | ---------- | ------------------------------------------ |
-| 1 Speed             | 1            | No         | On (on/off only)                           |
-| 2 Speed             | 2            | No         | Low, High                                  |
-| 3 Speed             | 3            | No         | Low, Medium, High                          |
-| 4 Speed             | 4            | No         | Low, Medium Low, Medium High, High         |
-| 5 Speed             | 5            | No         | Low, Low Medium, Medium, Medium High, High |
-| 6 Speed             | 6            | No         | 1, 2, 3, 4, 5, 6                           |
-| 1 Speed, Reversible | 1            | Yes        | On (on/off only)                           |
-| 2 Speed, Reversible | 2            | Yes        | Low, High                                  |
-| 3 Speed, Reversible | 3            | Yes        | Low, Medium, High                          |
-| 4 Speed, Reversible | 4            | Yes        | Low, Medium Low, Medium High, High         |
-| 5 Speed, Reversible | 5            | Yes        | Low, Low Medium, Medium, Medium High, High |
-| 6 Speed, Reversible | 6            | Yes        | 1, 2, 3, 4, 5, 6                           |
-
-The main ESPHome driver automatically creates a binding based on the fan's
-reported speed count and direction support, ensuring only the matching variant
-can be bound.
+1. In Composer Pro, add the ESPHome Fan driver matching your fan's speed count
+   and direction support.
+2. Bind the `ESPHome Fan` connection to the matching fan entity exposed by the
+   main ESPHome driver.
+3. The driver will automatically synchronize its state once bound.
 
 ## Driver Properties
 
@@ -134,6 +150,16 @@ Sets the logging level. Default is `3 - Info`.
 
 Sets the logging mode. Default is `Off`.
 
+## Driver Commands
+
+### Oscillate
+
+Sets the fan oscillation on or off. Available in Composer Pro programming.
+
+**Parameters:**
+
+- **Oscillation** [ **_True_** | False ] - Whether the fan should oscillate.
+
 ## Connections
 
 ### Fan (provider)
@@ -149,25 +175,28 @@ Bind this connection to the fan entity exposed by the main ESPHome driver.
 
 The driver provides button link connections for programming integration:
 
-| Connection                   | Description                             |
-| ---------------------------- | --------------------------------------- |
-| On Button Link               | Turns the fan on when triggered         |
-| Off Button Link              | Turns the fan off when triggered        |
-| Toggle Button Link           | Toggles the fan when triggered          |
-| Speed Up Button Link         | Increases fan speed when triggered      |
-| Speed Down Button Link       | Decreases fan speed when triggered      |
-| Toggle Direction Button Link | Toggles direction (Reversible variants) |
+<!-- #ifdef FAN_CAN_REVERSE -->
 
-## Commands
+| Connection                   | Description                          |
+| ---------------------------- | ------------------------------------ |
+| On Button Link               | Turns the fan on when triggered      |
+| Off Button Link              | Turns the fan off when triggered     |
+| Toggle Button Link           | Toggles the fan when triggered       |
+| Speed Up Button Link         | Increases fan speed when triggered   |
+| Speed Down Button Link       | Decreases fan speed when triggered   |
+| Toggle Direction Button Link | Toggles fan direction when triggered |
 
-### Oscillate
+<!-- #else -->
 
-Sets the fan oscillation on or off. This command is accessible from Composer Pro
-programming.
+| Connection             | Description                        |
+| ---------------------- | ---------------------------------- |
+| On Button Link         | Turns the fan on when triggered    |
+| Off Button Link        | Turns the fan off when triggered   |
+| Toggle Button Link     | Toggles the fan when triggered     |
+| Speed Up Button Link   | Increases fan speed when triggered |
+| Speed Down Button Link | Decreases fan speed when triggered |
 
-| Parameter   | Type | Values      | Default |
-| ----------- | ---- | ----------- | ------- |
-| Oscillation | LIST | True, False | True    |
+<!-- #endif -->
 
 <div style="page-break-after: always"></div>
 

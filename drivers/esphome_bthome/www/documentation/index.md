@@ -363,26 +363,26 @@ Resets the driver state and clears cached sensor values.
 ### Button Events
 
 For BTHome button devices (e.g., Shelly BLU Button), the following events are
-created dynamically:
+created dynamically. Display names are prefixed with `Button`:
 
-| Event             | Description                      |
-| ----------------- | -------------------------------- |
-| Single Press      | Button pressed once              |
-| Double Press      | Button pressed twice             |
-| Triple Press      | Button pressed three times       |
-| Long Press        | Button held for ~2 seconds       |
-| Long Double Press | Button held then pressed twice   |
-| Long Triple Press | Button held then pressed 3 times |
-| Hold Press        | Button is being held             |
+| Event                    | Description                      |
+| ------------------------ | -------------------------------- |
+| Button Single Press      | Button pressed once              |
+| Button Double Press      | Button pressed twice             |
+| Button Triple Press      | Button pressed three times       |
+| Button Long Press        | Button held for ~2 seconds       |
+| Button Long Double Press | Button held then pressed twice   |
+| Button Long Triple Press | Button held then pressed 3 times |
+| Button Hold Press        | Button is being held             |
 
 ### Dimmer Events
 
-For BTHome dimmer/rotary devices:
+For BTHome dimmer/rotary devices, display names are prefixed with `Dimmer`:
 
-| Event        | Description               |
-| ------------ | ------------------------- |
-| Rotate Left  | Rotated counter-clockwise |
-| Rotate Right | Rotated clockwise         |
+| Event               | Description               |
+| ------------------- | ------------------------- |
+| Dimmer Rotate Left  | Rotated counter-clockwise |
+| Dimmer Rotate Right | Rotated clockwise         |
 
 ### Binary Sensors
 
@@ -391,8 +391,9 @@ bindings** instead of events. These bindings send OPENED/CLOSED states to
 Control4, allowing integration with the Contact Sensor proxy.
 
 > **Note:** Events are created dynamically based on the device's capabilities.
-> Multi-button devices will have separate events for each button (e.g., "Button
-> 1 Single Press", "Button 2 Single Press").
+> Multi-button or multi-dimmer devices append an instance suffix to the display
+> name for entities past the first (e.g., `Button (2) Single Press`,
+> `Dimmer (2) Rotate Right`).
 
 ## Variables
 
@@ -406,13 +407,16 @@ match the property names shown in Composer Pro.
 
 ### Common Variables
 
-| Variable    | Type   | Description                     |
-| ----------- | ------ | ------------------------------- |
-| Last Seen   | STRING | Timestamp of last advertisement |
-| RSSI        | NUMBER | Signal strength (dBm)           |
-| Name        | STRING | Device name                     |
-| Device Type | STRING | Detected BTHome device type     |
-| MAC Address | STRING | Device MAC address              |
+| Variable         | Type   | Description                 |
+| ---------------- | ------ | --------------------------- |
+| Name             | STRING | Device name                 |
+| Device Type      | STRING | Detected BTHome device type |
+| Device Type ID   | NUMBER | BTHome device type ID       |
+| Firmware Version | STRING | Device firmware version     |
+| MAC Address      | STRING | Device MAC address          |
+
+> **Note:** `Last Seen` and `RSSI` are read-only driver properties (see
+> [Device Info](#device-info)) and do not appear as programming variables.
 
 ### Primary Sensor Variables
 
@@ -502,18 +506,16 @@ match the property names shown in Composer Pro.
 
 ### Miscellaneous Variables
 
-| Variable         | Type   | Description             |
-| ---------------- | ------ | ----------------------- |
-| Count            | NUMBER | Event counter           |
-| Duration         | NUMBER | Duration                |
-| UV Index         | NUMBER | UV index                |
-| Mass             | NUMBER | Mass/weight             |
-| Conductivity     | NUMBER | Electrical conductivity |
-| Timestamp        | NUMBER | Timestamp value         |
-| Precipitation    | NUMBER | Precipitation amount    |
-| Text             | STRING | Text value              |
-| Device Type ID   | NUMBER | BTHome device type ID   |
-| Firmware Version | STRING | Device firmware version |
+| Variable      | Type   | Description             |
+| ------------- | ------ | ----------------------- |
+| Count         | NUMBER | Event counter           |
+| Duration      | NUMBER | Duration                |
+| UV Index      | NUMBER | UV index                |
+| Mass          | NUMBER | Mass/weight             |
+| Conductivity  | NUMBER | Electrical conductivity |
+| Timestamp     | NUMBER | Timestamp value         |
+| Precipitation | NUMBER | Precipitation amount    |
+| Text          | STRING | Text value              |
 
 ## Connections
 

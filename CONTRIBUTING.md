@@ -113,7 +113,7 @@ make clean-all     # Remove everything (build artifacts, deps, venv)
 2. **Preprocess** — resolve `#ifdef`/`#ifndef` directives per distribution
 3. **Generate squishy** — create squish manifests from .c4zproj files
 4. **Update driver.xml** — stamp version date and modified timestamp
-5. **Generate docs** — Markdown → HTML → PDF, plus README
+5. **Generate docs** — Markdown -> HTML -> PDF, plus README
 6. **Package** — run driverpackager to create .c4z files
 7. **Zip** — bundle .c4z and .pdf files per distribution
 

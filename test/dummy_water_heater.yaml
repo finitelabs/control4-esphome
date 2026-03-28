@@ -1,0 +1,70 @@
+# Water heater entity - tests the WaterHeater entity type and single setpoint mode
+# Tests: water heater modes (Eco, Electric, Performance, Heat Pump, High Demand, Gas),
+#        single setpoint, water_heater_command path
+#
+# Usage:
+#   esphome compile test/dummy_water_heater.yaml
+#   .esphome/build/dummy-water-heater/.pioenvs/dummy-water-heater/program
+
+esphome:
+  name: dummy-water-heater
+  friendly_name: Dummy Water Heater
+
+host:
+
+logger:
+
+
+api:
+  port: 6055
+  services:
+    - service: set_tank_temperature
+      variables:
+        temperature: float
+      then:
+        - globals.set:
+            id: current_temp_value
+            value: !lambda "return temperature;"
+        - lambda: |-
+            ESP_LOGI("water_heater", "Tank temperature set to %.1f C", temperature);
+
+globals:
+  - id: current_temp_value
+    type: float
+    initial_value: "48.9"
+  - id: target_temp_value
+    type: float
+    initial_value: "60.0"
+
+sensor:
+  - platform: template
+    name: "Tank Temperature"
+    id: tank_temp
+    unit_of_measurement: "C"
+    accuracy_decimals: 1
+    update_interval: 10s
+    lambda: "return id(current_temp_value);"
+
+water_heater:
+  - platform: template
+    name: "Test Water Heater"
+    id: test_water_heater
+    optimistic: true
+    restore_mode: NO_RESTORE
+    current_temperature: |-
+      return id(current_temp_value);
+    supported_modes:
+      - "OFF"
+      - "ECO"
+      - "ELECTRIC"
+      - "PERFORMANCE"
+      - "HEAT_PUMP"
+      - "HIGH_DEMAND"
+      - "GAS"
+    set_action:
+      - lambda: |-
+          ESP_LOGI("water_heater", "Set action triggered");
+    visual:
+      min_temperature: 30
+      max_temperature: 75
+      target_temperature_step: 0.5

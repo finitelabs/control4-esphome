@@ -84,13 +84,13 @@ Sensors, Contact Sensors, and Water Leak Detectors.
 
 # <span style="color:#17BCF2">Features</span>
 
-- **Unified driver** for all SwitchBot device types
-- **Active and passive** BLE connection modes
-- **Encryption support** for Relay Switch devices
-- **Automatic key fetching** from SwitchBot cloud
-- **Dynamic bindings** created based on device type
-- **Event programming** for sensors and contact devices
-- **Control4 proxy integration** (Relay, Contact Sensor, Temperature, Humidity)
+- Unified driver for all SwitchBot device types
+- Active and passive BLE connection modes
+- Encryption support for Relay Switch devices
+- Automatic key fetching from SwitchBot cloud
+- Dynamic bindings created based on device type
+- Event programming for sensors and contact devices
+- Control4 proxy integration (Relay, Contact Sensor, Temperature, Humidity)
 
 > **Connection Types:** Active devices (Bot, Plug, Relay) use one of the ESP32's
 > limited connection slots (typically 3 available). Passive devices (Meters,
