@@ -16,7 +16,9 @@
 
 ### Added
 
-- Added Event entity support: stateless triggers (button presses, gestures, doorbell rings) now create Control4 events for programming and track the last event type in a variable
+- Added Event entity support: stateless triggers (button presses, gestures,
+  doorbell rings) now create Control4 events for programming and track the last
+  event type in a variable
 
 ## v20260328 - 2026-03-28
 

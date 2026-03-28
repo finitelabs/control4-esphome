@@ -417,20 +417,20 @@ supported ESPHome entity. Use this reference for Control4 programming.
 
 ### Variables by Entity Type
 
-| Entity Type   | Variable Name  | Type   | Notes                                  |
-| ------------- | -------------- | ------ | -------------------------------------- |
-| Binary Sensor | `{name} State` | BOOL   | "1" = triggered, "0" = clear           |
-| Sensor        | `{name}`       | NUMBER | Read-only, 1 decimal precision         |
-| Switch        | `{name} State` | BOOL   | "1" = on, "0" = off (writable)         |
-| Cover         | `{name} State` | STRING | "open", "closed", "opening", "closing" |
-| Number        | `{name}`       | NUMBER | Writable, 1 decimal precision          |
-| Select        | `{name}`       | STRING | Writable, current option               |
-| Text          | `{name}`       | STRING | Writable                               |
-| Text Sensor   | `{name}`       | STRING | Read-only                              |
-| Button        | (none)         | \-     | Use "Press Button" command (see below) |
-| Fan           | (none)         | \-     | State via Fan proxy                    |
-| Light         | (none)         | \-     | State via Light proxy                  |
-| Lock          | (none)         | \-     | State via Lock proxy                   |
+| Entity Type   | Variable Name       | Type   | Notes                                  |
+| ------------- | ------------------- | ------ | -------------------------------------- |
+| Binary Sensor | `{name} State`      | BOOL   | "1" = triggered, "0" = clear           |
+| Sensor        | `{name}`            | NUMBER | Read-only, 1 decimal precision         |
+| Switch        | `{name} State`      | BOOL   | "1" = on, "0" = off (writable)         |
+| Cover         | `{name} State`      | STRING | "open", "closed", "opening", "closing" |
+| Number        | `{name}`            | NUMBER | Writable, 1 decimal precision          |
+| Select        | `{name}`            | STRING | Writable, current option               |
+| Text          | `{name}`            | STRING | Writable                               |
+| Text Sensor   | `{name}`            | STRING | Read-only                              |
+| Button        | (none)              | \-     | Use "Press Button" command (see below) |
+| Fan           | (none)              | \-     | State via Fan proxy                    |
+| Light         | (none)              | \-     | State via Light proxy                  |
+| Lock          | (none)              | \-     | State via Lock proxy                   |
 | Event         | `{name} Last Event` | STRING | Last event type (e.g., "single_press") |
 
 > **Note:** `{name}` is replaced with the entity's display name from ESPHome
@@ -813,6 +813,14 @@ can file an issue on GitHub:
 <div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Changelog</span>
+
+## Unreleased
+
+### Added
+
+- Added Event entity support: stateless triggers (button presses, gestures,
+  doorbell rings) now create Control4 events for programming and track the last
+  event type in a variable
 
 ## v20260328 - 2026-03-28
 
