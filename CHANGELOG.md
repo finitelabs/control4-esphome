@@ -20,6 +20,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added Media Player entity support using the Control4 Generic Media Player
+  proxy (sub-driver) for native transport controls (play, pause, stop) and
+  real-time playback state synchronization
+
 ### Fixed
 
 - Fixed the HVAC state freezing on the previous value during a heat pump's

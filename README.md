@@ -115,7 +115,7 @@ See the individual sub-driver documentation for device-specific details.
 | Fan                 | ✅                            |
 | Light               | ✅                            |
 | Lock                | ✅                            |
-| Media Player        | ❌                            |
+| Media Player        | ✅                            |
 | Number              | ✅                            |
 | Select              | ✅                            |
 | Sensor              | ✅                            |
@@ -176,13 +176,13 @@ is an outline of the basic steps for your convenience.
 1. Once connected, the driver will automatically create variables and connection
    bindings for each supported entity type.
 
-1. To control climate, lights, fans, locks, and/or water heaters, use the
-   "Search" tab to find the "ESPHome Climate", "ESPHome Light", "ESPHome Fan",
-   and/or "ESPHome Lock" driver. For fans, choose the speed variant that matches
-   your fan (e.g., "ESPHome Fan (3 Speed)"). Water heater entities use the
-   "ESPHome Climate" driver. Add one driver instance for each exposed entity in
-   your project. In the "Connections" tab, select the "ESPHome" driver and bind
-   the entities to the newly added drivers.
+1. To control climate, lights, fans, locks, media players, and/or water heaters,
+   use the "Search" tab to find the "ESPHome Climate", "ESPHome Light", "ESPHome
+   Fan", "ESPHome Lock", and/or "ESPHome Media Player" driver. For fans, choose
+   the speed variant that matches your fan (e.g., "ESPHome Fan (3 Speed)").
+   Water heater entities use the "ESPHome Climate" driver. Add one driver
+   instance for each exposed entity in your project. In the "Connections" tab,
+   select the "ESPHome" driver and bind the entities to the newly added drivers.
 
 ## Driver Setup
 
@@ -460,6 +460,7 @@ matching read-only Device Info properties.
 | Fan           | (none)              | -      | State via Fan proxy                        |
 | Light         | (none)              | -      | State via Light proxy                      |
 | Lock          | (none)              | -      | State via Lock proxy                       |
+| Media Player  | (none)              | -      | State via Media Player proxy               |
 | Number        | `{name}`            | NUMBER | Writable, 1 decimal precision              |
 | Select        | `{name}`            | STRING | Writable, current option                   |
 | Sensor        | `{name}`            | NUMBER | Read-only, 1 decimal precision             |
@@ -485,6 +486,7 @@ matching read-only Device Info properties.
 | Fan           | `ESPHOME_FAN_N_SPEED[_REVERSE]` | Bind to ESPHome Fan sub-driver                                    |
 | Light         | `ESPHOME_LIGHT`                 | Bind to ESPHome Light sub-driver                                  |
 | Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver                                   |
+| Media Player  | `ESPHOME_MEDIA_PLAYER`          | Bind to ESPHome Media Player sub-driver                           |
 | Water Heater  | `ESPHOME_CLIMATE`               | Bind to ESPHome Climate sub-driver                                |
 
 > **Note:** Sensor, Number, Select, Text, Text Sensor, Date, Time, Datetime, and
@@ -907,6 +909,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 -->
 
 ## Unreleased
+
+### Added
+
+- Added Media Player entity support using the Control4 Generic Media Player
+  proxy (sub-driver) for native transport controls (play, pause, stop) and
+  real-time playback state synchronization
 
 ### Fixed
 

@@ -1,0 +1,138 @@
+<devicedata>
+  <name>ESPHome Media Player</name>
+  <version/>
+  <manufacturer>Finite Labs</manufacturer>
+  <model>ESPHome Media Player</model>
+  <creator>Derek Miller</creator>
+  <control>lua_gen</control>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 Finite Labs, LLC. All rights reserved.</copyright>
+  <created>03/27/2026 12:00:00 PM</created>
+  <modified/>
+  <minimum_os_version>3.3.0</minimum_os_version>
+  <composer_categories>
+    <category>Media</category>
+  </composer_categories>
+  <conditionals/>
+  <events/>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <properties>
+      <!-- #ifdef DRIVERCENTRAL -->
+      <property>
+        <name>Cloud Settings</name>
+        <type>LABEL</type>
+        <default>Cloud Settings</default>
+      </property>
+      <property>
+        <name>Cloud Status</name>
+        <default/>
+        <type>STRING</type>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Automatic Updates</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <default>On</default>
+      </property>
+      <!-- #endif -->
+      <property>
+        <name>Driver Settings</name>
+        <type>LABEL</type>
+        <default>Driver Settings</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <default>3 - Info</default>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+      </property>
+    </properties>
+    <commands/>
+    <actions/>
+  </config>
+  <capabilities>
+    <has_pause>True</has_pause>
+    <has_skip_fwd>False</has_skip_fwd>
+    <has_skip_rev>False</has_skip_rev>
+    <has_scan_fwd>False</has_scan_fwd>
+    <has_scan_rev>False</has_scan_rev>
+    <has_repeat>False</has_repeat>
+    <has_shuffle>False</has_shuffle>
+    <has_menu>False</has_menu>
+    <has_search>False</has_search>
+    <has_http_playback>False</has_http_playback>
+  </capabilities>
+  <proxies qty="1">
+    <proxy proxybindingid="5001" name="ESPHome Media Player">generic_media_player</proxy>
+  </proxies>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>Media Player</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>GENERIC_MEDIA_PLAYER</classname>
+        </class>
+      </classes>
+    </connection>
+    <connection>
+      <id>5002</id>
+      <facing>6</facing>
+      <connectionname>ESPHome Media Player</connectionname>
+      <type>2</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>ESPHOME_MEDIA_PLAYER</classname>
+        </class>
+      </classes>
+      <hidden>False</hidden>
+    </connection>
+  </connections>
+</devicedata>
