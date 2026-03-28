@@ -88,33 +88,33 @@ See the individual sub-driver documentation for device-specific details.
 
 <div style="font-size: small">
 
-| Entity Type         | Supported |
-| ------------------- | --------- |
-| Alarm Control Panel | ❌        |
-| API Noise           | ✅        |
-| Binary Sensor       | ✅        |
-| Bluetooth Proxy     | ✅        |
-| Button              | ✅        |
-| Camera              | ❌        |
-| Climate             | ❌        |
-| Cover               | ✅        |
-| Date                | ✅        |
-| Datetime            | ✅        |
-| Event               | ✅        |
-| Fan                 | ✅        |
-| Light               | ✅        |
-| Lock                | ✅        |
-| Media Player        | ❌        |
-| Number              | ✅        |
-| Select              | ✅        |
-| Sensor              | ✅        |
-| Siren               | ❌        |
-| Switch              | ✅        |
-| Text                | ✅        |
-| Text Sensor         | ✅        |
-| Time                | ✅        |
-| Update              | ❌        |
-| Valve               | ❌        |
+| Entity Type         | Supported                     |
+| ------------------- | ----------------------------- |
+| Alarm Control Panel | ❌                            |
+| API Noise           | ✅                            |
+| Binary Sensor       | ✅                            |
+| Bluetooth Proxy     | ✅                            |
+| Button              | ✅                            |
+| Camera              | ❌                            |
+| Climate             | ❌                            |
+| Cover               | ✅                            |
+| Date                | ✅                            |
+| Datetime            | ✅                            |
+| Event               | ✅                            |
+| Fan                 | ✅                            |
+| Light               | ✅                            |
+| Lock                | ✅                            |
+| Media Player        | ❌                            |
+| Number              | ✅                            |
+| Select              | ✅                            |
+| Sensor              | ✅                            |
+| Siren               | ❌                            |
+| Switch              | ✅                            |
+| Text                | ✅                            |
+| Text Sensor         | ✅                            |
+| Time                | ✅                            |
+| Update              | ❌                            |
+| Valve               | ❌                            |
 | Voice Assistant     | ❌[\*](#voice-assistant-note) |
 
 </div>
