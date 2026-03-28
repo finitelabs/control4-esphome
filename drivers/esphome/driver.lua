@@ -57,6 +57,7 @@ local SelectEntity = require("esphome.entities.select")
 local TextEntity = require("esphome.entities.text")
 local TextSensorEntity = require("esphome.entities.text_sensor")
 local TimeEntity = require("esphome.entities.time")
+local ValveEntity = require("esphome.entities.valve")
 local WaterHeaterEntity = require("esphome.entities.water_heater")
 
 local constants = require("constants")
@@ -87,6 +88,7 @@ local Entities = {
   [TextEntity.TYPE] = TextEntity:new(esphome),
   [TextSensorEntity.TYPE] = TextSensorEntity:new(esphome),
   [TimeEntity.TYPE] = TimeEntity:new(esphome),
+  [ValveEntity.TYPE] = ValveEntity:new(esphome),
   [WaterHeaterEntity.TYPE] = WaterHeaterEntity:new(esphome),
 }
 

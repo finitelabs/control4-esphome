@@ -20,6 +20,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added Valve entity support: water valves, gas shutoffs, and irrigation valves
+  are exposed as contact sensor and relay bindings with open/close/stop control
+
 ### Fixed
 
 - Fixed the HVAC state freezing on the previous value during a heat pump's
