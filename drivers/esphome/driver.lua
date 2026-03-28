@@ -48,6 +48,7 @@ local LockEntity = require("esphome.entities.lock")
 local NumberEntity = require("esphome.entities.number")
 local SensorEntity = require("esphome.entities.sensor")
 local SwitchEntity = require("esphome.entities.switch")
+local SelectEntity = require("esphome.entities.select")
 local TextEntity = require("esphome.entities.text")
 local TextSensorEntity = require("esphome.entities.text_sensor")
 
@@ -69,6 +70,7 @@ local Entities = {
   [LightEntity.TYPE] = LightEntity:new(esphome),
   [LockEntity.TYPE] = LockEntity:new(esphome),
   [NumberEntity.TYPE] = NumberEntity:new(esphome),
+  [SelectEntity.TYPE] = SelectEntity:new(esphome),
   [SensorEntity.TYPE] = SensorEntity:new(esphome),
   [SwitchEntity.TYPE] = SwitchEntity:new(esphome),
   [TextEntity.TYPE] = TextEntity:new(esphome),

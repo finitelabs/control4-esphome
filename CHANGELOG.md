@@ -12,6 +12,15 @@
 [//]: # "- Removed"
 <!-- prettier-ignore-end -->
 
+## v20260328 - 2026-03-28
+
+### Added
+
+- Added Select entity support: STRING variable with current option, writable via
+  programming or variable writes
+- Added "Set Select" programming command with dynamic Select and Option
+  dropdowns
+
 ## v20260326 - 2026-03-26
 
 <!-- #ifndef DRIVERCENTRAL -->
