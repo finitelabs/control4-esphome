@@ -529,7 +529,11 @@ function ESPHomeClient:subscribeStates(callback)
 
   for _, schema in pairs(ESPHomeProtoSchema.Message) do
     -- HACK: No reliable way to identify state responses from proto definition.
+    -- Most state responses follow *StateResponse pattern, but EventResponse is an exception.
     local name, _ = schema.name:match("^(.+)StateResponse$")
+    if IsEmpty(name) then
+      name = schema.name:match("^(Event)Response$")
+    end
     if not IsEmpty(name) and not EXCLUDED_STATE_RESPONSES[schema.name] then
       log:debug("Registering %s state callback", name)
       self:_registerCallback(self:_makeMessageCallbackKey(schema), function(message, messageSchema)
