@@ -15,14 +15,14 @@ local log = require("lib.logging")
 
 local PROXY_BINDING = 5001
 local ESPHOME_BINDING = 5002
+local SENSOR_BINDING = 5003
 local TEMPERATURE_OUTPUT_BINDING = 5010
-local OUTDOOR_TEMPERATURE_OUTPUT_BINDING = 5011
 local HUMIDITY_OUTPUT_BINDING = 5012
 
 local ENTITY
 local STATE
 local CAPABILITIES_SENT = false
-local REMOTE_SENSOR_IN_USE = false
+local REMOTE_TEMP_ENABLED = false
 
 --- ESPHome ClimateMode → C4 HVAC mode string
 local CLIMATE_MODE_TO_C4 = {
@@ -207,6 +207,11 @@ local function sendCapabilities(entity)
   if #hold_modes > 0 then
     SendToProxy(PROXY_BINDING, "ALLOWED_HOLD_MODES_CHANGED", { MODES = table.concat(hold_modes, ",") }, "NOTIFY")
   end
+
+  -- Remote sensor capability
+  SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", {
+    HAS_REMOTE_SENSOR = "True",
+  }, "NOTIFY")
 
   -- Humidity capabilities
   if entity.supports_current_humidity or entity.supports_target_humidity then
@@ -814,6 +819,72 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     if c4Preset ~= nil then
       SendToProxy(PROXY_BINDING, "HOLD_MODE_CHANGED", { MODE = c4Preset }, "NOTIFY")
     end
+  end
+end
+
+---------------------------------------------------------------------------
+-- Remote temperature sensor
+---------------------------------------------------------------------------
+
+--- Send a remote temperature command via the ESPHome binding.
+--- @param serviceName string The ESPHome service name to call.
+--- @param celsius number|nil Temperature in Celsius, or nil for no-arg services (e.g. use_internal_temperature).
+local function sendRemoteTemperatureCommand(serviceName, celsius)
+  log:trace("sendRemoteTemperatureCommand(%s, %s)", serviceName, celsius)
+  local params = { service_name = serviceName }
+  if celsius ~= nil then
+    params.temperature = tostring(celsius)
+  end
+  SendToProxy(ESPHOME_BINDING, "SET_REMOTE_TEMPERATURE", params, "NOTIFY")
+end
+
+--- Revert the heat pump to its internal temperature sensor.
+local function revertToInternalTemperature()
+  local internalService = Properties["Internal Temperature Service"]
+  if not IsEmpty(internalService) then
+    sendRemoteTemperatureCommand(internalService, nil)
+  end
+end
+
+function RFP.SET_REMOTE_SENSOR(idBinding, strCommand, tParams)
+  log:trace("RFP.SET_REMOTE_SENSOR(%s, %s, %s)", idBinding, strCommand, tParams)
+  if idBinding ~= PROXY_BINDING then
+    return
+  end
+  REMOTE_TEMP_ENABLED = (Select(tParams, "IN_USE") == "True")
+  local hidden = REMOTE_TEMP_ENABLED and 0 or 1
+  C4:SetPropertyAttribs("Remote Temperature Service", hidden)
+  C4:SetPropertyAttribs("Internal Temperature Service", hidden)
+  if not REMOTE_TEMP_ENABLED then
+    revertToInternalTemperature()
+  end
+end
+
+function RFP.VALUE_CHANGED(idBinding, strCommand, tParams)
+  log:trace("RFP.VALUE_CHANGED(%s, %s, %s)", idBinding, strCommand, tParams)
+  if idBinding ~= SENSOR_BINDING or not REMOTE_TEMP_ENABLED then
+    return
+  end
+  local temp = tonumber(Select(tParams, "VALUE"))
+  if temp == nil then
+    return
+  end
+  local scale = Select(tParams, "SCALE") or "F"
+  local isCelsius = (scale == "C" or scale == "c" or scale == "CELSIUS")
+  local celsius = isCelsius and temp or f2c(temp)
+  local serviceName = Properties["Remote Temperature Service"]
+  if IsEmpty(serviceName) then
+    log:warn("Remote Temperature Service property is empty — cannot send remote temperature")
+    return
+  end
+  sendRemoteTemperatureCommand(serviceName, celsius)
+end
+
+OBC[SENSOR_BINDING] = function()
+  -- Sensor binding changed (connected or disconnected) — revert to internal as a safe default.
+  -- The next TEMPERATURE_CHANGED from a newly bound sensor will re-establish the remote temperature.
+  if REMOTE_TEMP_ENABLED then
+    revertToInternalTemperature()
   end
 end
 

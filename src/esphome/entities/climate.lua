@@ -30,6 +30,16 @@ function ClimateEntity:discovered(entity)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
     if strCommand == "REFRESH_STATE" then
       RefreshStatus()
+    elseif strCommand == "SET_REMOTE_TEMPERATURE" then
+      local serviceName = Select(tParams, "service_name")
+      local temperature = tonumber(Select(tParams, "temperature"))
+      if not IsEmpty(serviceName) then
+        self.client:executeServiceByName(serviceName, temperature):next(function()
+          log:debug("Remote temperature service '%s' called (temp=%s)", serviceName, temperature)
+        end, function(err)
+          log:error("Failed to call remote temperature service '%s': %s", serviceName, err)
+        end)
+      end
     elseif strCommand == "ENTITY_COMMAND" then
       local command = ESPHomeProtoSchema.RPC.APIConnection[Select(tParams, "command")]
         or ESPHomeProtoSchema.RPC.APIConnection.climate_command

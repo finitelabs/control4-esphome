@@ -93,6 +93,16 @@
         <default>None</default>
       </property>
       <!-- Temperature scale is read from the C4 project-level setting via C4:GetProjectProperty("TemperatureScale") -->
+      <property>
+        <name>Remote Temperature Service</name>
+        <type>STRING</type>
+        <default>set_remote_temperature</default>
+      </property>
+      <property>
+        <name>Internal Temperature Service</name>
+        <type>STRING</type>
+        <default>use_internal_temperature</default>
+      </property>
     </properties>
     <commands/>
     <actions/>
@@ -154,11 +164,11 @@
       <hidden>False</hidden>
     </connection>
     <connection>
-      <id>5010</id>
+      <id>5003</id>
       <facing>6</facing>
-      <connectionname>Temperature</connectionname>
-      <type>6</type>
-      <consumer>False</consumer>
+      <connectionname>Remote Temperature Sensor</connectionname>
+      <type>1</type>
+      <consumer>True</consumer>
       <audiosource>False</audiosource>
       <videosource>False</videosource>
       <linelevel>False</linelevel>
@@ -170,9 +180,9 @@
       <hidden>False</hidden>
     </connection>
     <connection>
-      <id>5011</id>
+      <id>5010</id>
       <facing>6</facing>
-      <connectionname>Outdoor Temperature</connectionname>
+      <connectionname>Temperature</connectionname>
       <type>6</type>
       <consumer>False</consumer>
       <audiosource>False</audiosource>
