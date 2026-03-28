@@ -42,6 +42,8 @@ local BluetoothProxyCapability = require("esphome.capabilities.bluetooth_proxy")
 local BinarySensorEntity = require("esphome.entities.binary_sensor")
 local ButtonEntity = require("esphome.entities.button")
 local CoverEntity = require("esphome.entities.cover")
+local DateEntity = require("esphome.entities.date")
+local DateTimeEntity = require("esphome.entities.datetime")
 local EventEntity = require("esphome.entities.event")
 local FanEntity = require("esphome.entities.fan")
 local LightEntity = require("esphome.entities.light")
@@ -52,6 +54,7 @@ local SwitchEntity = require("esphome.entities.switch")
 local SelectEntity = require("esphome.entities.select")
 local TextEntity = require("esphome.entities.text")
 local TextSensorEntity = require("esphome.entities.text_sensor")
+local TimeEntity = require("esphome.entities.time")
 
 local constants = require("constants")
 
@@ -67,6 +70,8 @@ local Entities = {
   [BinarySensorEntity.TYPE] = BinarySensorEntity:new(esphome),
   [ButtonEntity.TYPE] = ButtonEntity:new(esphome),
   [CoverEntity.TYPE] = CoverEntity:new(esphome),
+  [DateEntity.TYPE] = DateEntity:new(esphome),
+  [DateTimeEntity.TYPE] = DateTimeEntity:new(esphome),
   [EventEntity.TYPE] = EventEntity:new(esphome),
   [FanEntity.TYPE] = FanEntity:new(esphome),
   [LightEntity.TYPE] = LightEntity:new(esphome),
@@ -77,6 +82,7 @@ local Entities = {
   [SwitchEntity.TYPE] = SwitchEntity:new(esphome),
   [TextEntity.TYPE] = TextEntity:new(esphome),
   [TextSensorEntity.TYPE] = TextSensorEntity:new(esphome),
+  [TimeEntity.TYPE] = TimeEntity:new(esphome),
 }
 
 --- Get all ESPHome driver instances sorted by device ID

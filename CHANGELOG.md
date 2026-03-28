@@ -19,6 +19,9 @@
 - Added Event entity support: stateless triggers (button presses, gestures,
   doorbell rings) now create Control4 events for programming and track the last
   event type in a variable
+- Added Date, Time, and Datetime entity support: configurable date/time values
+  on the device are exposed as writable string variables (YYYY-MM-DD, HH:MM:SS,
+  YYYY-MM-DD HH:MM:SS)
 
 ## v20260328 - 2026-03-28
 
