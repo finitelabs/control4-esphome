@@ -141,7 +141,7 @@ See the individual sub-driver documentation for device-specific details.
 | Text Sensor         | ✅                            |
 | Time                | ✅                            |
 | Update              | ❌                            |
-| Valve               | ❌                            |
+| Valve               | ✅                            |
 | Voice Assistant     | ❌[\*](#voice-assistant-note) |
 | Water Heater        | ✅                            |
 
