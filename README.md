@@ -107,7 +107,7 @@ See the individual sub-driver documentation for device-specific details.
 | Lock                | ✅        |
 | Media Player        | ❌        |
 | Number              | ✅        |
-| Select              | ❌        |
+| Select              | ✅        |
 | Sensor              | ✅        |
 | Siren               | ❌        |
 | Switch              | ✅        |
@@ -424,6 +424,7 @@ supported ESPHome entity. Use this reference for Control4 programming.
 | Switch        | `{name} State` | BOOL   | "1" = on, "0" = off (writable)         |
 | Cover         | `{name} State` | STRING | "open", "closed", "opening", "closing" |
 | Number        | `{name}`       | NUMBER | Writable, 1 decimal precision          |
+| Select        | `{name}`       | STRING | Writable, current option               |
 | Text          | `{name}`       | STRING | Writable                               |
 | Text Sensor   | `{name}`       | STRING | Read-only                              |
 | Button        | (none)         | \-     | Use "Press Button" command (see below) |
@@ -447,17 +448,19 @@ supported ESPHome entity. Use this reference for Control4 programming.
 | Light         | `ESPHOME_LIGHT`                 | Bind to ESPHome Light sub-driver       |
 | Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver        |
 
-> **Note:** Sensor, Number, Text, and Text Sensor entities do not create
+> **Note:** Sensor, Number, Select, Text, and Text Sensor entities do not create
 > bindings. They expose data only through variables.
 
 ### Commands
 
-| Command      | Parameters | Description                               |
-| ------------ | ---------- | ----------------------------------------- |
-| Press Button | Button     | Triggers an ESPHome button entity by name |
+| Command      | Parameters     | Description                                  |
+| ------------ | -------------- | -------------------------------------------- |
+| Press Button | Button         | Triggers an ESPHome button entity by name    |
+| Set Select   | Select, Option | Sets a select entity to the specified option |
 
 > **Note:** The Button parameter is a dynamic list populated with discovered
-> ESPHome button entities.
+> ESPHome button entities. The Select and Option parameters are dynamic lists
+> populated with discovered ESPHome select entities and their available options.
 
 <div style="page-break-after: always"></div>
 
@@ -798,6 +801,15 @@ can file an issue on GitHub:
 <div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Changelog</span>
+
+## v20260328 - 2026-03-28
+
+### Added
+
+- Added Select entity support: STRING variable with current option, writable via
+  programming or variable writes
+- Added "Set Select" programming command with dynamic Select and Option
+  dropdowns
 
 ## v20260326 - 2026-03-26
 
