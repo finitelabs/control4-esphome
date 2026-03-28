@@ -103,7 +103,7 @@ function EC.Set_Select(params)
   end
 
   local optionValue = Select(params, "Option")
-  if IsEmpty(optionValue) then
+  if optionValue == nil then
     log:warn("Set Select command called without option value")
     return
   end
