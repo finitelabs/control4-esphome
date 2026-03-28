@@ -50,6 +50,7 @@ local SensorEntity = require("esphome.entities.sensor")
 local SwitchEntity = require("esphome.entities.switch")
 local TextEntity = require("esphome.entities.text")
 local TextSensorEntity = require("esphome.entities.text_sensor")
+local MediaPlayerEntity = require("esphome.entities.media_player")
 
 local constants = require("constants")
 
@@ -73,6 +74,7 @@ local Entities = {
   [SwitchEntity.TYPE] = SwitchEntity:new(esphome),
   [TextEntity.TYPE] = TextEntity:new(esphome),
   [TextSensorEntity.TYPE] = TextSensorEntity:new(esphome),
+  [MediaPlayerEntity.TYPE] = MediaPlayerEntity:new(esphome),
 }
 
 --- Get all ESPHome driver instances sorted by device ID

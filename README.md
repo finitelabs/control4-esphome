@@ -105,7 +105,7 @@ See the individual sub-driver documentation for device-specific details.
 | Fan                 | ✅        |
 | Light               | ✅        |
 | Lock                | ✅        |
-| Media Player        | ❌        |
+| Media Player        | ✅        |
 | Number              | ✅        |
 | Select              | ❌        |
 | Sensor              | ✅        |
@@ -430,6 +430,9 @@ supported ESPHome entity. Use this reference for Control4 programming.
 | Fan           | (none)         | \-     | State via Fan proxy                    |
 | Light         | (none)         | \-     | State via Light proxy                  |
 | Lock          | (none)         | \-     | State via Lock proxy                   |
+| Media Player  | `{name} State` | STRING | "none", "idle", "playing", "paused", etc. |
+| Media Player  | `{name} Volume` | NUMBER | 0-100 (writable)                      |
+| Media Player  | `{name} Muted` | BOOL  | "1" = muted, "0" = unmuted             |
 
 > **Note:** `{name}` is replaced with the entity's display name from ESPHome
 > (e.g., a sensor named "Temperature" creates a variable called "Temperature").
@@ -447,17 +450,29 @@ supported ESPHome entity. Use this reference for Control4 programming.
 | Light         | `ESPHOME_LIGHT`                 | Bind to ESPHome Light sub-driver       |
 | Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver        |
 
-> **Note:** Sensor, Number, Text, and Text Sensor entities do not create
-> bindings. They expose data only through variables.
+> **Note:** Sensor, Number, Text, Text Sensor, and Media Player entities do not
+> create bindings. They expose data only through variables (and device actions
+> for Media Player).
 
 ### Commands
 
 | Command      | Parameters | Description                               |
 | ------------ | ---------- | ----------------------------------------- |
-| Press Button | Button     | Triggers an ESPHome button entity by name |
+| Press Button        | Button     | Triggers an ESPHome button entity by name                    |
+| Media Player Play   | (none)     | Play media on an ESPHome media player entity                 |
+| Media Player Pause  | (none)     | Pause media on an ESPHome media player entity                |
+| Media Player Stop   | (none)     | Stop media on an ESPHome media player entity                 |
+| Media Player Mute   | (none)     | Mute an ESPHome media player entity                          |
+| Media Player Unmute | (none)     | Unmute an ESPHome media player entity                        |
+| Media Player Toggle | (none)     | Toggle play/pause on an ESPHome media player entity          |
+| Media Player Volume Up   | (none) | Increase volume on an ESPHome media player entity           |
+| Media Player Volume Down | (none) | Decrease volume on an ESPHome media player entity           |
+| Media Player Turn On     | (none) | Turn on an ESPHome media player entity                      |
+| Media Player Turn Off    | (none) | Turn off an ESPHome media player entity                     |
 
 > **Note:** The Button parameter is a dynamic list populated with discovered
-> ESPHome button entities.
+> ESPHome button entities. Media Player commands are registered dynamically per
+> discovered media player entity.
 
 <div style="page-break-after: always"></div>
 

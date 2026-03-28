@@ -12,6 +12,14 @@
 [//]: # "- Removed"
 <!-- prettier-ignore-end -->
 
+## Unreleased
+
+### Added
+
+- Added Media Player entity support with state, volume, and mute variables plus
+  device actions for play, pause, stop, mute, unmute, toggle, volume up/down,
+  turn on, and turn off
+
 ## v20260326 - 2026-03-26
 
 <!-- #ifndef DRIVERCENTRAL -->
