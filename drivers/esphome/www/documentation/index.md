@@ -120,12 +120,11 @@ See the individual sub-driver documentation for device-specific details.
 | Binary Sensor       | ✅        |
 | Bluetooth Proxy     | ✅        |
 | Button              | ✅        |
+| Camera              | ❌        |
 | Climate             | ❌        |
 | Cover               | ✅        |
-| Datetime            | ✅        |
 | Date                | ✅        |
-| Time                | ✅        |
-| Camera              | ❌        |
+| Datetime            | ✅        |
 | Event               | ✅        |
 | Fan                 | ✅        |
 | Light               | ✅        |
@@ -138,6 +137,7 @@ See the individual sub-driver documentation for device-specific details.
 | Switch              | ✅        |
 | Text                | ✅        |
 | Text Sensor         | ✅        |
+| Time                | ✅        |
 | Update              | ❌        |
 | Valve               | ❌        |
 | Voice Assistant     | ❌        |
@@ -512,24 +512,24 @@ supported ESPHome entity. Use this reference for Control4 programming.
 
 ### Variables by Entity Type
 
-| Entity Type   | Variable Name       | Type   | Notes                                      |
-| ------------- | ------------------- | ------ | ------------------------------------------ |
-| Binary Sensor | `{name} State`      | BOOL   | "1" = triggered, "0" = clear               |
-| Sensor        | `{name}`            | NUMBER | Read-only, 1 decimal precision             |
-| Switch        | `{name} State`      | BOOL   | "1" = on, "0" = off (writable)             |
-| Cover         | `{name} State`      | STRING | "open", "closed", "opening", "closing"     |
-| Number        | `{name}`            | NUMBER | Writable, 1 decimal precision              |
-| Select        | `{name}`            | STRING | Writable, current option                   |
-| Text          | `{name}`            | STRING | Writable                                   |
-| Text Sensor   | `{name}`            | STRING | Read-only                                  |
-| Button        | (none)              | -      | Use "Press Button" command (see below)     |
-| Fan           | (none)              | -      | State via Fan proxy                        |
-| Light         | (none)              | -      | State via Light proxy                      |
-| Lock          | (none)              | -      | State via Lock proxy                       |
-| Date          | `{name}`            | STRING | Writable, formatted as YYYY-MM-DD          |
-| Time          | `{name}`            | STRING | Writable, formatted as HH:MM:SS            |
+| Entity Type   | Variable Name       | Type   | Notes                                       |
+| ------------- | ------------------- | ------ | ------------------------------------------- |
+| Binary Sensor | `{name} State`      | BOOL   | "1" = triggered, "0" = clear                |
+| Button        | (none)              | -      | Use "Press Button" command (see below)      |
+| Cover         | `{name} State`      | STRING | "open", "closed", "opening", "closing"      |
+| Date          | `{name}`            | STRING | Writable, formatted as YYYY-MM-DD           |
 | Datetime      | `{name}`            | STRING | Writable, formatted as YYYY-MM-DD HH:MM:SS |
-| Event         | `{name} Last Event` | STRING | Last event type (e.g., "single_press")     |
+| Event         | `{name} Last Event` | STRING | Last event type (e.g., "single_press")      |
+| Fan           | (none)              | -      | State via Fan proxy                         |
+| Light         | (none)              | -      | State via Light proxy                       |
+| Lock          | (none)              | -      | State via Lock proxy                        |
+| Number        | `{name}`            | NUMBER | Writable, 1 decimal precision               |
+| Select        | `{name}`            | STRING | Writable, current option                    |
+| Sensor        | `{name}`            | NUMBER | Read-only, 1 decimal precision              |
+| Switch        | `{name} State`      | BOOL   | "1" = on, "0" = off (writable)              |
+| Text          | `{name}`            | STRING | Writable                                    |
+| Text Sensor   | `{name}`            | STRING | Read-only                                   |
+| Time          | `{name}`            | STRING | Writable, formatted as HH:MM:SS             |
 
 > **Note:** `{name}` is replaced with the entity's display name from ESPHome
 > (e.g., a sensor named "Temperature" creates a variable called "Temperature").
