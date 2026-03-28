@@ -273,6 +273,20 @@
           </param>
         </params>
       </command>
+      <command>
+        <name>Set Select</name>
+        <description>Set NAME select PARAM1 to PARAM2</description>
+        <params>
+          <param>
+            <name>Select</name>
+            <type>DYNAMIC_LIST</type>
+          </param>
+          <param>
+            <name>Option</name>
+            <type>DYNAMIC_LIST</type>
+          </param>
+        </params>
+      </command>
     </commands>
   </config>
 </devicedata>
