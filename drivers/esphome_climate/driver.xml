@@ -211,5 +211,25 @@
       </classes>
       <hidden>False</hidden>
     </connection>
+    <connection>
+      <id>7000</id>
+      <facing>6</facing>
+      <connectionname>Selection</connectionname>
+      <type>7</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <autobind>True</autobind>
+          <classname>TEMPERATURE</classname>
+        </class>
+        <class>
+          <autobind>True</autobind>
+          <classname>TEMPERATURE_CONTROL</classname>
+        </class>
+      </classes>
+    </connection>
   </connections>
 </devicedata>
