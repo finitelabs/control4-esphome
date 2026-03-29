@@ -23,6 +23,7 @@ local ENTITY
 local STATE
 local CAPABILITIES_SENT = false
 local REMOTE_TEMP_ENABLED = false
+local NOT_DISCOVERED = "(Not discovered)"
 
 --- ESPHome ClimateMode → C4 HVAC mode string
 local CLIMATE_MODE_TO_C4 = {
@@ -248,20 +249,6 @@ local function sendCapabilities(entity)
   -- Scale
   SendToProxy(PROXY_BINDING, "SCALE_CHANGED", { SCALE = getScale() }, "NOTIFY")
 
-  -- Outdoor temperature support (driven by property)
-  local outdoorSource = Properties["Outdoor Temperature Source"]
-  if outdoorSource == "External" then
-    SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", {
-      HAS_OUTDOOR_TEMPERATURE = "true",
-    }, "NOTIFY")
-    if step ~= nil then
-      SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", {
-        OUTDOOR_TEMPERATURE_RESOLUTION_C = tostring(step),
-        OUTDOOR_TEMPERATURE_RESOLUTION_F = tostring(c2f(step) - 32),
-      }, "NOTIFY")
-    end
-  end
-
   CAPABILITIES_SENT = true
 end
 
@@ -348,22 +335,6 @@ end
 
 -- Temperature scale is now read from the project-level setting via C4:GetProjectProperty("TemperatureScale")
 -- No per-driver property handler needed.
-
-function OPC.Outdoor_Temperature_Source(propertyValue)
-  log:trace("OPC.Outdoor_Temperature_Source('%s')", propertyValue)
-  local enabled = propertyValue == "External"
-  SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", {
-    HAS_OUTDOOR_TEMPERATURE = tostring(enabled),
-  }, "NOTIFY")
-  if enabled and ENTITY ~= nil then
-    -- Send outdoor temperature resolution based on entity step
-    local step = ENTITY.visual_target_temperature_step or 0.5
-    SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", {
-      OUTDOOR_TEMPERATURE_RESOLUTION_C = tostring(step),
-      OUTDOOR_TEMPERATURE_RESOLUTION_F = tostring(c2f(step) - 32),
-    }, "NOTIFY")
-  end
-end
 
 ---------------------------------------------------------------------------
 -- Thermostat proxy commands (RFP handlers)
@@ -823,6 +794,42 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
 end
 
 ---------------------------------------------------------------------------
+-- User-defined ESPHome services (DYNAMIC_LIST)
+---------------------------------------------------------------------------
+
+--- Update a DYNAMIC_LIST property with discovered ESPHome service names.
+--- @param propertyName string The property name to update.
+--- @param serviceNames string[] The list of discovered service names.
+local function updateServiceList(propertyName, serviceNames)
+  if #serviceNames == 0 then
+    C4:UpdatePropertyList(propertyName, NOT_DISCOVERED, NOT_DISCOVERED)
+    return
+  end
+  local items = table.concat(serviceNames, ",")
+  -- Preserve current selection if it's still in the list
+  local current = Properties[propertyName]
+  local defaultValue = serviceNames[1]
+  for _, name in ipairs(serviceNames) do
+    if name == current then
+      defaultValue = current
+      break
+    end
+  end
+  C4:UpdatePropertyList(propertyName, items, defaultValue)
+end
+
+function RFP.UPDATE_USER_SERVICES(idBinding, strCommand, tParams)
+  log:trace("RFP.UPDATE_USER_SERVICES(%s, %s, %s)", idBinding, strCommand, tParams)
+  if idBinding ~= ESPHOME_BINDING then
+    return
+  end
+  local serviceNames = DeserializeSafe(Select(tParams, "service_names")) or {}
+  log:info("Discovered %d user-defined ESPHome services: %s", #serviceNames, serviceNames)
+  updateServiceList("Remote Temperature Service", serviceNames)
+  updateServiceList("Internal Temperature Service", serviceNames)
+end
+
+---------------------------------------------------------------------------
 -- Remote temperature sensor
 ---------------------------------------------------------------------------
 
@@ -841,7 +848,7 @@ end
 --- Revert the heat pump to its internal temperature sensor.
 local function revertToInternalTemperature()
   local internalService = Properties["Internal Temperature Service"]
-  if not IsEmpty(internalService) then
+  if not IsEmpty(internalService) and internalService ~= NOT_DISCOVERED then
     sendRemoteTemperatureCommand(internalService, nil)
   end
 end
@@ -873,8 +880,8 @@ function RFP.VALUE_CHANGED(idBinding, strCommand, tParams)
   local isCelsius = (scale == "C" or scale == "c" or scale == "CELSIUS")
   local celsius = isCelsius and temp or f2c(temp)
   local serviceName = Properties["Remote Temperature Service"]
-  if IsEmpty(serviceName) then
-    log:warn("Remote Temperature Service property is empty — cannot send remote temperature")
+  if IsEmpty(serviceName) or serviceName == NOT_DISCOVERED then
+    log:warn("Remote Temperature Service property is empty or not discovered — cannot send remote temperature")
     return
   end
   sendRemoteTemperatureCommand(serviceName, celsius)

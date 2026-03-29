@@ -83,25 +83,16 @@
           <item>Print and Log</item>
         </items>
       </property>
-      <property>
-        <name>Outdoor Temperature Source</name>
-        <type>LIST</type>
-        <items>
-          <item>None</item>
-          <item>External</item>
-        </items>
-        <default>None</default>
-      </property>
       <!-- Temperature scale is read from the C4 project-level setting via C4:GetProjectProperty("TemperatureScale") -->
       <property>
         <name>Remote Temperature Service</name>
-        <type>STRING</type>
-        <default>set_remote_temperature</default>
+        <type>DYNAMIC_LIST</type>
+        <default>(Not discovered)</default>
       </property>
       <property>
         <name>Internal Temperature Service</name>
-        <type>STRING</type>
-        <default>use_internal_temperature</default>
+        <type>DYNAMIC_LIST</type>
+        <default>(Not discovered)</default>
       </property>
     </properties>
     <commands/>
@@ -116,8 +107,7 @@
     <setpoint_resolution_c>0.5</setpoint_resolution_c>
     <setpoint_resolution_f>1</setpoint_resolution_f>
     <has_extras>False</has_extras>
-    <has_outdoor_temperature>False</has_outdoor_temperature>
-    <has_vacation_mode>False</has_vacation_mode>
+<has_vacation_mode>False</has_vacation_mode>
     <has_remote_sensor>True</has_remote_sensor>
     <fan_modes>Auto,On,Low,Medium,High</fan_modes>
     <hvac_modes>Off,Heat,Cool,Auto</hvac_modes>
