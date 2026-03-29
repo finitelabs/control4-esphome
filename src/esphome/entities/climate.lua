@@ -30,6 +30,16 @@ function ClimateEntity:discovered(entity)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
     if strCommand == "REFRESH_STATE" then
       RefreshStatus()
+    elseif strCommand == "SET_REMOTE_TEMPERATURE" then
+      local serviceName = Select(tParams, "service_name")
+      local temperature = tonumber(Select(tParams, "temperature"))
+      if not IsEmpty(serviceName) then
+        self.client:executeServiceByName(serviceName, temperature):next(function()
+          log:debug("Remote temperature service '%s' called (temp=%s)", serviceName, temperature)
+        end, function(err)
+          log:error("Failed to call remote temperature service '%s': %s", serviceName, err)
+        end)
+      end
     elseif strCommand == "ENTITY_COMMAND" then
       local command = ESPHomeProtoSchema.RPC.APIConnection[Select(tParams, "command")]
         or ESPHomeProtoSchema.RPC.APIConnection.climate_command
@@ -58,6 +68,25 @@ function ClimateEntity:discovered(entity)
     end
   end
   OBC[bindingId] = RefreshStatus
+
+  -- Send discovered user-defined services to the child driver for DYNAMIC_LIST population
+  self:_sendUserServices(bindingId)
+end
+
+--- Send the list of discovered user-defined ESPHome services to the child driver.
+--- @param bindingId number The binding ID of the child climate driver.
+function ClimateEntity:_sendUserServices(bindingId)
+  local serviceNames = {}
+  for name, _ in pairs(self.client.userServices) do
+    table.insert(serviceNames, name)
+  end
+  table.sort(serviceNames)
+  if #serviceNames > 0 then
+    log:debug("Sending %d user services to climate driver (binding %s): %s", #serviceNames, bindingId, serviceNames)
+    SendToProxy(bindingId, "UPDATE_USER_SERVICES", {
+      service_names = SerializeSafe(serviceNames),
+    }, "NOTIFY")
+  end
 end
 
 --- Handle updates to the climate entity state.
