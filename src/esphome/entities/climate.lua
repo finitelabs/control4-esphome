@@ -23,8 +23,12 @@ end
 --- @return void
 function ClimateEntity:discovered(entity)
   log:trace("ClimateEntity:discovered(%s)", entity)
+  local displayName = entity.name
+  if IsEmpty(displayName) then
+    displayName = entity.object_id or ("climate_" .. entity.key)
+  end
   local bindingId = assert(
-    bindings:getOrAddDynamicBinding(self.TYPE, "climate_" .. entity.key, "PROXY", true, entity.name, "ESPHOME_CLIMATE")
+    bindings:getOrAddDynamicBinding(self.TYPE, "climate_" .. entity.key, "PROXY", true, displayName, "ESPHOME_CLIMATE")
   ).bindingId
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
