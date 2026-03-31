@@ -80,7 +80,8 @@ ESPHomeClient.EntityType = {
   SWITCH = "switch",
   TEXT_SENSOR = "text_sensor",
   API_NOISE = "api_noise",
-  ESP32_CAMERA = "esp32_camera",
+  -- Keyed off the proto `ifdef` (USE_CAMERA), not the ESP32-specific component name.
+  CAMERA = "camera",
   CLIMATE = "climate",
   NUMBER = "number",
   SELECT = "select",

@@ -20,6 +20,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added Camera entity support with new `ESPHOME_CAMERA` companion driver.
+  Discovers ESP32 cameras via `ListEntitiesCameraResponse` and exposes them
+  through the Control4 camera proxy using the device's MJPEG stream URL.
+  Requires `esp32_camera_web_server` enabled in the ESPHome device config.
+
 ### Fixed
 
 - Fixed the HVAC state freezing on the previous value during a heat pump's
