@@ -2,18 +2,21 @@
 --- Active GATT device. Requires one ESP32 connection slot.
 --- Protocol reverse-engineered from:
 ---   https://github.com/john-k-mcdowell/Homedics-SereneScent
-
+--#ifdef DRIVERCENTRAL
+DC_PID = 819
+DC_X = nil
+DC_FILENAME = "esphome_serenescent.c4z"
+--#endif
 require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
 require("drivers-common-public.global.url")
 
-JSON = require("JSON")
-
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local values = require("lib.values")
+local persist = require("lib.persist")
 local UUID = require("esphome.ble.uuid")
 
 --------------------------------------------------------------------------------
@@ -21,7 +24,6 @@ local UUID = require("esphome.ble.uuid")
 --------------------------------------------------------------------------------
 
 --- Binding IDs
-local PROXY_BINDING = 5001 -- custom proxy (no built-in C4 proxy needed)
 local ESPHOME_BINDING = 5002 -- ESPHome BLE connection binding
 
 --- GATT UUIDs (from const.py)
@@ -97,6 +99,9 @@ local rxHandle = nil
 --- Connection state
 local isConnected = false
 
+--- Last BLE advertisement timestamp (for throttling RSSI updates)
+local lastAdvTime = 0
+
 --- Pending command to send once connected ("power_on","power_off","intensity","color","status")
 local pendingCommand = nil
 local pendingParam = nil -- "low"/"medium"/"high" or color name
@@ -136,6 +141,7 @@ local function pushState()
   values:update("Power", state.power and "On" or "Off", "STRING")
   values:update("Intensity", state.intensity, "STRING")
   values:update("Color", state.color, "STRING")
+  persist:set("deviceState", state)
 end
 
 --- Send a raw binary command via GATT write
@@ -326,6 +332,12 @@ end
 --------------------------------------------------------------------------------
 
 function OnDriverInit()
+  --#ifdef DRIVERCENTRAL
+  require("cloud-client-byte")
+  C4:AllowExecute(false)
+  --#else
+  C4:AllowExecute(true)
+  --#endif
   gInitialized = false
   log:setLogName(C4:GetDeviceData(C4:GetDeviceID(), "name"))
   log:setLogLevel(Properties["Log Level"])
@@ -341,6 +353,13 @@ function OnDriverLateInit()
 
   values:restoreValues()
 
+  -- Restore persisted device state across reboots
+  local savedState = persist:get("deviceState")
+  if savedState then
+    state = savedState
+    pushState()
+  end
+
   for p, _ in pairs(Properties) do
     local ok, err = pcall(OnPropertyChanged, p)
     if not ok and err then
@@ -350,6 +369,8 @@ function OnDriverLateInit()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Disconnected")
+
+  SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
 end
 
 --------------------------------------------------------------------------------
@@ -682,6 +703,7 @@ function EC.Reset_Driver(params)
   log:print("Resetting SereneScent driver")
 
   values:reset()
+  persist:set("deviceState", nil)
   isConnected = false
   txHandle = nil
   rxHandle = nil
@@ -697,4 +719,6 @@ function EC.Reset_Driver(params)
   UpdateProperty("Power", "Off")
   UpdateProperty("Intensity", "low")
   UpdateProperty("Color", "white")
+
+  SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
 end
