@@ -222,6 +222,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Navigator reflect the designated preset, and applies the preset when the fan
   is turned on so `Turn On Fan` runs at the designated speed
 
+## Unreleased
+
+### Added
+
+- Added ESPHome SereneScent sub-driver for Homedics SereneScent BLE diffusers
+  with power, intensity, color control, and automatic status polling
+
 ## v20260512 - 2026-05-12
 
 ### Added
