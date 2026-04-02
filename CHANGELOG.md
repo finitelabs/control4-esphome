@@ -12,6 +12,13 @@
 [//]: # "- Removed"
 <!-- prettier-ignore-end -->
 
+## Unreleased
+
+### Added
+
+- Added ESPHome SereneScent sub-driver for Homedics SereneScent BLE diffusers
+  with power, intensity, color control, and automatic status polling
+
 ## v20260512 - 2026-05-12
 
 ### Added
