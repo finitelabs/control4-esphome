@@ -26,9 +26,17 @@
 
 <!-- #endif -->
 
-Integrate the Homedics SereneScent BLE diffuser into Control4 through an ESPHome
-Bluetooth Proxy. This driver connects to the SereneScent via BLE GATT to control
+Integrate a Homedics SereneScent BLE diffuser into Control4 through an ESPHome
+Bluetooth Proxy. This driver connects to the SereneScent via BLE to control
 power, diffuser intensity, and LED color.
+
+<!-- #ifndef DRIVERCENTRAL -->
+
+> This driver's BLE protocol implementation is based on the
+> [reverse engineering work](https://github.com/john-k-mcdowell/Homedics-SereneScent/blob/development/docs/PROTOCOL.md)
+> by [john-k-mcdowell](https://github.com/john-k-mcdowell/Homedics-SereneScent).
+
+<!-- #endif -->
 
 # <span style="color:#17BCF2">Index</span>
 
@@ -50,7 +58,7 @@ power, diffuser intensity, and LED color.
 - [Programming](#programming)
   - [Commands](#commands)
   - [Variables](#variables)
-  <!-- #ifdef DRIVERCENTRAL -->
+<!-- #ifdef DRIVERCENTRAL -->
 - [Developer Information](#developer-information)
 <!-- #endif -->
 - [Support](#support)
@@ -88,14 +96,14 @@ power, diffuser intensity, and LED color.
 > consumes one active connection slot on the ESP32 Bluetooth proxy.
 
 > **Important:** The Homedics SereneScent mobile app must be closed before using
-> this driver. The app maintains an exclusive BLE connection to the device,
-> which prevents the ESP32 proxy from connecting.
+> this driver. The app maintains an exclusive BLE connection to the device, which
+> prevents the ESP32 proxy from connecting.
 
 ## Tested Devices
 
-| Model    | Notes        |
-| -------- | ------------ |
-| ARMH-972 | Fully tested |
+| Model    | Notes            |
+| -------- | ---------------- |
+| ARMH-972 | Fully tested     |
 
 <div style="page-break-after: always"></div>
 
@@ -258,15 +266,15 @@ Resets the driver state and clears all cached values.
 
 ## Commands
 
-| Command              | Parameter | Values                                                                 | Description                         |
-| -------------------- | --------- | ---------------------------------------------------------------------- | ----------------------------------- |
-| Power On             |           |                                                                        | Turns on the diffuser               |
-| Power Off            |           |                                                                        | Turns off the diffuser              |
-| Toggle Power         |           |                                                                        | Toggles the diffuser on or off      |
-| Set Intensity        | Level     | `low`, `medium`, `high`                                                | Sets the diffuser mist intensity    |
-| Set Color            | Color     | `off`, `rotating`, `white`, `red`, `blue`, `violet`, `green`, `orange` | Sets the LED light color            |
-| Request Status       |           |                                                                        | Requests an immediate status update |
-| Set Polling Interval | Interval  | 1 - 10                                                                 | Sets the poll interval (minutes)    |
+| Command              | Parameter | Values                                                     | Description                                |
+| -------------------- | --------- | ---------------------------------------------------------- | ------------------------------------------ |
+| Power On             |           |                                                            | Turns on the diffuser                      |
+| Power Off            |           |                                                            | Turns off the diffuser                     |
+| Toggle Power         |           |                                                            | Toggles the diffuser on or off             |
+| Set Intensity        | Level     | `low`, `medium`, `high`                                    | Sets the diffuser mist intensity           |
+| Set Color            | Color     | `off`, `rotating`, `white`, `red`, `blue`, `violet`, `green`, `orange` | Sets the LED light color |
+| Request Status       |           |                                                            | Requests an immediate status update        |
+| Set Polling Interval | Interval  | 1 - 10                                                     | Sets the poll interval (minutes)           |
 
 ## Variables
 
