@@ -63,7 +63,7 @@
         </items>
       </property>
      <property>
-        <name>Polling Interval (Minutes)</name>
+        <name>Polling Interval</name>
         <type>RANGED_INTEGER</type>
         <minimum>1</minimum>
         <maximum>10</maximum>
