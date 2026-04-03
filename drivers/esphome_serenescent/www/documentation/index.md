@@ -53,6 +53,7 @@ power, diffuser intensity, and LED color.
   <!-- #endif -->
   - [Adding the Driver](#adding-the-driver)
   - [Binding to ESPHome Proxy](#binding-to-esphome-proxy)
+  - [Button Links & Relay](#button-links--relay)
   - [Driver Properties](#driver-properties)
   - [Driver Actions](#driver-actions)
 - [Programming](#programming)
@@ -155,6 +156,37 @@ for setting it up.
    connection binding will be automatically created.
 4. Go to the "Connections" tab and bind the ESPHome SereneScent driver to the
    newly created SereneScent connection.
+
+## Button Links & Relay
+
+The driver exposes optional control bindings that can be connected to keypad
+buttons and relay devices in Control4.
+
+### Button Links
+
+| Binding                          | Action                                  |
+| -------------------------------- | --------------------------------------- |
+| On Button Link                   | Powers on the diffuser                  |
+| Off Button Link                  | Powers off the diffuser                 |
+| Toggle Button Link               | Toggles diffuser power                  |
+| Intensity Up Button Link         | Cycles intensity up (low → medium → high) |
+| Intensity Down Button Link       | Cycles intensity down (high → medium → low) |
+| Set Low Intensity Button Link    | Sets intensity to `low`                 |
+| Set Medium Intensity Button Link | Sets intensity to `medium`              |
+| Set High Intensity Button Link   | Sets intensity to `high`                |
+
+Connect a keypad button or button link source to any of these bindings in the
+Connections tab. The corresponding action fires when the button is pressed.
+
+### Power Relay
+
+The `Power Relay` binding (class `RELAY`) reflects and controls the diffuser's
+power state bidirectionally:
+
+- Sending `CLOSE` (or binding a relay that closes) turns the diffuser on.
+- Sending `OPEN` (or binding a relay that opens) turns the diffuser off.
+- When the diffuser state changes via any control method, the relay binding
+  automatically reflects the updated state to the connected device.
 
 ## Driver Properties
 
