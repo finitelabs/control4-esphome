@@ -14,7 +14,7 @@ require("drivers-common-public.global.timer")
 require("drivers-common-public.global.url")
 
 local log = require("lib.logging")
-local bindings = require("lib.bindings")
+local constants = require("constants")
 local values = require("lib.values")
 local persist = require("lib.persist")
 local UUID = require("esphome.ble.uuid")
@@ -24,6 +24,15 @@ local UUID = require("esphome.ble.uuid")
 --------------------------------------------------------------------------------
 
 --- Binding IDs
+local ON_BINDING = 300
+local OFF_BINDING = 301
+local TOGGLE_BINDING = 302
+local INTENSITY_UP_BINDING = 303
+local INTENSITY_DOWN_BINDING = 304
+local SET_LOW_BINDING = 305
+local SET_MEDIUM_BINDING = 306
+local SET_HIGH_BINDING = 307
+local RELAY_BINDING = 308
 local ESPHOME_BINDING = 5002 -- ESPHome BLE connection binding
 
 --- GATT UUIDs (from const.py)
@@ -113,6 +122,9 @@ local state = {
   color = "white",
 }
 
+--- Ordered intensity levels for cycling
+local INTENSITY_CYCLE = { "low", "medium", "high" }
+
 --- Forward declaration (defined after schedulePoll)
 local initiateCommand
 
@@ -142,6 +154,9 @@ local function pushState()
   values:update("Intensity", state.intensity, "STRING")
   values:update("Color", state.color, "STRING")
   persist:set("deviceState", state)
+
+  -- Update relay proxy state
+  SendToProxy(RELAY_BINDING, state.power and "CLOSED" or "OPENED", {}, "NOTIFY")
 end
 
 --- Send a raw binary command via GATT write
@@ -343,6 +358,9 @@ function OnDriverInit()
   log:setLogLevel(Properties["Log Level"])
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
+
+  -- Restore persisted state
+  values:restoreValues()
 end
 
 function OnDriverLateInit()
@@ -350,8 +368,6 @@ function OnDriverLateInit()
   if not CheckMinimumVersion("Driver Status") then
     return
   end
-
-  values:restoreValues()
 
   -- Restore persisted device state across reboots
   local savedState = persist:get("deviceState")
@@ -361,8 +377,8 @@ function OnDriverLateInit()
   end
 
   for p, _ in pairs(Properties) do
-    local ok, err = pcall(OnPropertyChanged, p)
-    if not ok and err then
+    local status, err = pcall(OnPropertyChanged, p)
+    if not status and err then
       log:error("Error in OnPropertyChanged for '%s': %s", p, err or "unknown")
     end
   end
@@ -407,9 +423,15 @@ function OPC.Log_Level(propertyValue)
   if log:getLogLevel() >= 6 and log:isPrintEnabled() then
     DEBUGPRINT = true
     DEBUG_TIMER = true
+    DEBUG_RFN = true
+    DEBUG_URL = true
+    DEBUG_WEBSOCKET = true
   else
     DEBUGPRINT = false
     DEBUG_TIMER = false
+    DEBUG_RFN = false
+    DEBUG_URL = false
+    DEBUG_WEBSOCKET = false
   end
 end
 
@@ -621,6 +643,92 @@ function RFP.GATT_WRITE_RESPONSE(idBinding, strCommand, tParams, args)
   local success = Select(tParams, "success") == "true"
   if not success then
     log:warn("GATT write failed: %s", Select(tParams, "error") or "unknown")
+  end
+end
+
+--------------------------------------------------------------------------------
+-- RFP Handlers - Control Bindings (button links and relay)
+--------------------------------------------------------------------------------
+
+function RFP.DO_CLICK(idBinding, strCommand, tParams, args)
+  log:trace("RFP.DO_CLICK(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
+  if idBinding == ON_BINDING then
+    initiateCommand("power_on")
+  elseif idBinding == OFF_BINDING then
+    initiateCommand("power_off")
+  elseif idBinding == TOGGLE_BINDING then
+    initiateCommand(state.power and "power_off" or "power_on")
+  elseif idBinding == INTENSITY_UP_BINDING then
+    for i, v in ipairs(INTENSITY_CYCLE) do
+      if v == state.intensity then
+        initiateCommand("intensity", INTENSITY_CYCLE[(i % #INTENSITY_CYCLE) + 1])
+        return
+      end
+    end
+    initiateCommand("intensity", "medium")
+  elseif idBinding == INTENSITY_DOWN_BINDING then
+    for i, v in ipairs(INTENSITY_CYCLE) do
+      if v == state.intensity then
+        initiateCommand("intensity", INTENSITY_CYCLE[((i - 2) % #INTENSITY_CYCLE) + 1])
+        return
+      end
+    end
+    initiateCommand("intensity", "medium")
+  elseif idBinding == SET_LOW_BINDING then
+    initiateCommand("intensity", "low")
+  elseif idBinding == SET_MEDIUM_BINDING then
+    initiateCommand("intensity", "medium")
+  elseif idBinding == SET_HIGH_BINDING then
+    initiateCommand("intensity", "high")
+  else
+    log:error("RFP.DO_CLICK called with unexpected binding %s", idBinding)
+  end
+end
+
+function RFP.BUTTON_ACTION(idBinding, strCommand, tParams, args)
+  log:trace("RFP.BUTTON_ACTION(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
+  local buttonId = tointeger(Select(tParams, "BUTTON_ID"))
+  local action = tointeger(Select(tParams, "ACTION"))
+
+  if action ~= constants.ButtonActions.PRESS then
+    return
+  end
+  if buttonId == constants.ButtonIds.TOP then
+    initiateCommand("power_on")
+  elseif buttonId == constants.ButtonIds.BOTTOM then
+    initiateCommand("power_off")
+  elseif buttonId == constants.ButtonIds.TOGGLE then
+    initiateCommand(state.power and "power_off" or "power_on")
+  else
+    log:error("RFP.BUTTON_ACTION called with invalid BUTTON_ID %s", buttonId)
+  end
+end
+
+function RFP.CLOSE(idBinding, strCommand, _tParams, _args)
+  log:trace("RFP.CLOSE(%s, %s)", idBinding, strCommand)
+  if idBinding == RELAY_BINDING then
+    initiateCommand("power_on")
+  end
+end
+
+function RFP.OPEN(idBinding, strCommand, _tParams, _args)
+  log:trace("RFP.OPEN(%s, %s)", idBinding, strCommand)
+  if idBinding == RELAY_BINDING then
+    initiateCommand("power_off")
+  end
+end
+
+function RFP.TOGGLE(idBinding, strCommand, _tParams, _args)
+  log:trace("RFP.TOGGLE(%s, %s)", idBinding, strCommand)
+  if idBinding == RELAY_BINDING then
+    initiateCommand(state.power and "power_off" or "power_on")
+  end
+end
+
+OBC[RELAY_BINDING] = function(idBinding, strClass, bIsBound, otherDeviceId)
+  log:trace("OBC[RELAY_BINDING](%s, %s, %s, %s)", idBinding, strClass, bIsBound, otherDeviceId)
+  if bIsBound then
+    SendToProxy(RELAY_BINDING, state.power and "STATE_CLOSED" or "STATE_OPENED", {}, "NOTIFY")
   end
 end
 
