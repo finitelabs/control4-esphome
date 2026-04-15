@@ -43,14 +43,34 @@ end
 --- @return void
 function SelectEntity:updated(entity, state)
   log:trace("SelectEntity:updated(%s, %s)", entity, state)
-  values:update(entity.name, state.state or "", "STRING", function(newValue)
+  local currentState = state.state or ""
+  values:update(entity.name, currentState, "STRING", function(newValue)
+    newValue = newValue or ""
+    local options = Select(selectRegistry, entity.name, "options") or {}
+    local isValid = false
+    for _, opt in ipairs(options) do
+      if opt == newValue then
+        isValid = true
+        break
+      end
+    end
+    if not isValid then
+      log:error(
+        "Invalid option '%s' for select.%s (valid: %s); reverting",
+        newValue,
+        entity.object_id,
+        table.concat(options, ", ")
+      )
+      C4:SetVariable(entity.name, currentState)
+      return
+    end
     self.client
       :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.select_command, {
         key = entity.key,
-        state = newValue or "",
+        state = newValue,
       })
       :next(function()
-        log:info("Select option updated to '%s' for select.%s", newValue or "", entity.object_id)
+        log:info("Select option updated to '%s' for select.%s", newValue, entity.object_id)
       end, function(error)
         log:error("Failed to update select option for select.%s: %s", entity.name, error)
       end)
@@ -111,6 +131,23 @@ function EC.Set_Select(params)
   local entry = selectRegistry[selectName]
   if not entry then
     log:warn("Set Select command called for unknown select: %s", selectName)
+    return
+  end
+
+  local isValid = false
+  for _, opt in ipairs(entry.options) do
+    if opt == optionValue then
+      isValid = true
+      break
+    end
+  end
+  if not isValid then
+    log:warn(
+      "Set Select called with invalid option '%s' for '%s' (valid: %s)",
+      optionValue,
+      selectName,
+      table.concat(entry.options, ", ")
+    )
     return
   end
 
