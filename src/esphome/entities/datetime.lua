@@ -30,8 +30,10 @@ function DateTimeEntity:updated(entity, state)
     return
   end
 
+  -- The wire uses UTC epoch; format in the project's local time (os.date defaults to local)
+  -- so the variable round-trips with os.time on write.
   local epochSeconds = state.epoch_seconds or 0
-  local t = os.date("!*t", epochSeconds)
+  local t = os.date("*t", epochSeconds)
   local formatted = string.format("%04d-%02d-%02d %02d:%02d:%02d", t.year, t.month, t.day, t.hour, t.min, t.sec)
   values:update(entity.name, formatted, "STRING", function(newValue)
     local year, month, day, hour, minute, second = (newValue or ""):match(

@@ -1,0 +1,133 @@
+# Host-mode ESPHome mock exercising user-input entity types:
+#   - Select   (DRV-25)
+#   - Event    (DRV-31)
+#   - Date     (DRV-30)
+#   - Time     (DRV-30)
+#   - Datetime (DRV-30)
+#
+# Usage:
+#   esphome compile test/dummy_inputs.yaml
+#   .esphome/build/dummy-inputs/.pioenvs/dummy-inputs/program
+#
+# API services (callable from the Control4 driver or test scripts):
+#   - fire_button_press()         fires "press" on the test event
+#   - fire_button_double()        fires "double_press" on the test event
+#   - fire_button_long()          fires "long_press" on the test event
+#   - device_set_mode(opt)        changes the select option from the device side
+#   - device_set_date(y, m, d)    changes the date from the device side
+#   - device_set_time(h, m, s)    changes the time from the device side
+#   - device_set_datetime(epoch)  changes the datetime (UTC epoch) from the device side
+
+esphome:
+  name: dummy-inputs
+  friendly_name: Dummy Inputs
+
+host:
+
+logger:
+  level: DEBUG
+
+api:
+  services:
+    - service: fire_button_press
+      then:
+        - event.trigger:
+            id: test_event
+            event_type: "press"
+    - service: fire_button_double
+      then:
+        - event.trigger:
+            id: test_event
+            event_type: "double_press"
+    - service: fire_button_long
+      then:
+        - event.trigger:
+            id: test_event
+            event_type: "long_press"
+    - service: device_set_mode
+      variables:
+        opt: string
+      then:
+        - select.set:
+            id: test_mode_select
+            option: !lambda 'return opt;'
+    - service: device_set_date
+      variables:
+        y: int
+        m: int
+        d: int
+      then:
+        - datetime.date.set:
+            id: test_date
+            date: !lambda |-
+              ESPTime t{};
+              t.year = y; t.month = m; t.day_of_month = d;
+              return t;
+    - service: device_set_time
+      variables:
+        h: int
+        m: int
+        s: int
+      then:
+        - datetime.time.set:
+            id: test_time
+            time: !lambda |-
+              ESPTime t{};
+              t.hour = h; t.minute = m; t.second = s;
+              return t;
+    - service: device_set_datetime
+      variables:
+        epoch: int
+      then:
+        - datetime.datetime.set:
+            id: test_datetime
+            datetime: !lambda |-
+              return ESPTime::from_epoch_utc(static_cast<time_t>(epoch));
+
+select:
+  - platform: template
+    name: "Test Mode"
+    id: test_mode_select
+    optimistic: true
+    initial_option: "Auto"
+    restore_value: false
+    options:
+      - "Auto"
+      - "Manual"
+      - "Off"
+      - "Eco"
+
+event:
+  - platform: template
+    name: "Test Button"
+    id: test_event
+    device_class: button
+    event_types:
+      - "press"
+      - "double_press"
+      - "long_press"
+
+datetime:
+  - platform: template
+    name: "Test Date"
+    id: test_date
+    type: date
+    optimistic: true
+    initial_value: "2026-04-15"
+    restore_value: false
+
+  - platform: template
+    name: "Test Time"
+    id: test_time
+    type: time
+    optimistic: true
+    initial_value: "12:30:45"
+    restore_value: false
+
+  - platform: template
+    name: "Test Datetime"
+    id: test_datetime
+    type: datetime
+    optimistic: true
+    initial_value: "2026-04-15 09:00:00"
+    restore_value: false
