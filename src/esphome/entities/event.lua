@@ -34,6 +34,10 @@ function EventEntity:discovered(entity)
       entity.name .. " " .. eventType .. " event"
     )
   end
+
+  -- Create the Last Event variable so programming can reference it before the
+  -- first event fires. Events have no persistent state, so the initial value is empty.
+  values:update(entity.name .. " Last Event", "", "STRING")
 end
 
 --- Handle updates to the event entity state.
