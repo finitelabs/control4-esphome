@@ -61,6 +61,7 @@ is only used during initial setup to retrieve the offline key.
     - [Device Info](#device-info)
   - [Driver Actions](#driver-actions)
   - [Programming Commands](#programming-commands)
+  - [Programming Variables](#programming-variables)
   - [Connections](#connections)
 - [Troubleshooting](#troubleshooting)
 <!-- #ifdef DRIVERCENTRAL -->
@@ -245,13 +246,15 @@ Enables or disables automatic driver updates via DriverCentral.
 
 Displays the current driver state. Common values:
 
+- `Initializing` - Driver is starting up
+- `Waiting for data` - Driver is up, waiting for the first BLE advertisement
 - `Disconnected` - Not receiving BLE advertisements
 - `Listening` - Receiving advertisements, not connected
 - `Listening (next poll in Ns)` - Poll mode, waiting for next cycle
 - `Connected` - Active BLE session (Persistent mode or mid-query)
 - `Reconnecting (N/5)` - Persistent mode auto-reconnect with attempt count
 - `Listening (reconnect failed)` - Persistent mode max retries exhausted
-- `Error: ...` - Configuration or connection error
+- `Error: <message>` - Configuration or connection error
 
 #### Driver Version (read-only)
 
@@ -425,6 +428,18 @@ Changes the polling interval at runtime.
 
 - **Interval** [ 15 - 300 ] - The polling interval in seconds.
 
+## Programming Variables
+
+The driver exposes the following variables to Control4 programming. These mirror
+the matching read-only Device Info properties and can be used in programming
+conditions and event handlers.
+
+| Variable    | Type   | Description                        |
+| ----------- | ------ | ---------------------------------- |
+| Battery     | NUMBER | Lock battery level (0 - 100)       |
+| Name        | STRING | Friendly name reported by the lock |
+| MAC Address | STRING | Lock BLE MAC address               |
+
 ## Connections
 
 ### Lock (provider)
@@ -437,6 +452,15 @@ by the driver and provides lock/unlock/toggle functionality to Control4.
 The BLE connection to the lock via the ESPHome driver (binding 5002). Bind this
 to the Yale Lock device exposed by the main ESPHome driver after scanning for
 Bluetooth devices.
+
+### Door (dynamic, provider)
+
+A `CONTACT_SENSOR` proxy binding named **Door** that the driver adds at runtime
+the first time DoorSense is detected on the lock (see
+[Door Sense](#door-sense)). Bind this to a Contact Sensor in Composer Pro to
+expose open/closed state to Control4 programming, room occupancy, and
+notifications. The binding is not created on locks that do not report a
+DoorSense configuration.
 
 <div style="page-break-after: always"></div>
 

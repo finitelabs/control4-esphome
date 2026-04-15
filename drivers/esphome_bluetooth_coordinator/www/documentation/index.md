@@ -263,11 +263,11 @@ If you want room-level presence tracking:
 
 ## Cloud Settings
 
-#### Cloud Status (read-only)
+### Cloud Status (read-only)
 
 Displays the current DriverCentral cloud connection and license status.
 
-#### Automatic Updates [ Off | **_On_** ]
+### Automatic Updates [ Off | **_On_** ]
 
 When enabled, the driver will automatically update to the latest version when
 available. Default is `On`.
@@ -276,36 +276,36 @@ available. Default is `On`.
 
 ## Driver Settings
 
-#### Driver Status (read-only)
+### Driver Status (read-only)
 
 Displays the current status of the coordinator.
 
-#### Driver Version (read-only)
+### Driver Version (read-only)
 
 Displays the current version of the driver.
 
-#### Log Level [ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra ]
+### Log Level [ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra ]
 
 Sets the logging level. Default is `3 - Info`.
 
-#### Log Mode [ **_Off_** | Print | Log | Print and Log ]
+### Log Mode [ **_Off_** | Print | Log | Print and Log ]
 
 Sets the logging mode. Default is `Off`.
 
 ## Coordinator Status
 
-#### Connected Proxies (read-only)
+### Connected Proxies (read-only)
 
 Shows the number of ESPHome Bluetooth proxies currently connected.
 
-#### Selected Devices (read-only)
+### Selected Devices (read-only)
 
 Shows the number of BLE devices selected for tracking via the "Select Bluetooth
 Devices" property.
 
 ## Device Settings
 
-#### Select Bluetooth Devices
+### Select Bluetooth Devices
 
 A dropdown list showing BLE devices discovered across all connected proxies.
 Selecting a device:
@@ -315,19 +315,19 @@ Selecting a device:
 - Enables RSSI-based routing for that device
 - Tracks the device across all proxies
 
-#### Scan Duration (seconds) [ 5 - 60, default: **_30_** ]
+### Scan Duration (seconds) [ 5 - 60, default: **_30_** ]
 
 Sets the duration in seconds to scan for BLE devices when refreshing the device
 list.
 
-#### RSSI Freshness (seconds) [ 10 - 300, default: **_60_** ]
+### RSSI Freshness (seconds) [ 10 - 300, default: **_60_** ]
 
 Sets how long RSSI readings remain valid for proxy selection. After this time,
 stale readings are discarded.
 
 ## Presence Settings
 
-#### Select Presence Devices
+### Select Presence Devices
 
 A dropdown list for selecting devices to track for presence/location. Any BLE
 device can be tracked, including:
@@ -338,14 +338,14 @@ device can be tracked, including:
 - BLE beacons
 - Any other device with a consistent MAC address
 
-#### RSSI Smoothing Factor [ 0.1 - 0.5, default: **_0.2_** ]
+### RSSI Smoothing Factor [ 0.1 - 0.5, default: **_0.2_** ]
 
 Controls how quickly the RSSI tracking responds to signal changes.
 
 - **Lower values (0.1)** - Smoother, slower response; better for stable tracking
 - **Higher values (0.5)** - Faster response; may cause more room "flapping"
 
-#### Room Change Hysteresis (dBm) [ 3 - 15, default: **_6_** ]
+### Room Change Hysteresis (dBm) [ 3 - 15, default: **_6_** ]
 
 The signal improvement (in dBm) required before changing rooms. This prevents
 bouncing between rooms when a device is near a boundary.
@@ -353,18 +353,18 @@ bouncing between rooms when a device is near a boundary.
 - **Higher values** - More stable, slower transitions
 - **Lower values** - Faster transitions, may cause flapping
 
-#### Room Change Dwell Time (seconds) [ 2 - 30, default: **_5_** ]
+### Room Change Dwell Time (seconds) [ 2 - 30, default: **_5_** ]
 
 How long a new room must have the best signal before committing to the change.
 
 - **Higher values** - More stable, ignores brief signal spikes
 - **Lower values** - Faster room changes
 
-#### Away Timeout (seconds) [ 30 - 600, default: **_120_** ]
+### Away Timeout (seconds) [ 30 - 600, default: **_120_** ]
 
 How long without any signal before marking a device as "away" from home.
 
-#### Minimum Room RSSI (dBm) [ -100 - -40, default: **_-100_** ]
+### Minimum Room RSSI (dBm) [ -100 - -40, default: **_-100_** ]
 
 Sets the global minimum signal strength (in dBm) required to assign a device to
 a room. Devices with weaker signals will be considered "home" but not in any
@@ -400,21 +400,21 @@ specific room.
 
 # <span style="color:#17BCF2">Connections</span>
 
-#### Bluetooth Proxies (provider)
+## Bluetooth Proxies (provider)
 
 The provider binding that all ESPHome Bluetooth proxy drivers connect to. Each
 ESPHome driver instance with Bluetooth proxy capability binds to this connection
 as a consumer, enabling the coordinator to aggregate signals and route commands
 across all proxies.
 
-#### Dynamic Device Bindings (provider)
+## Dynamic Device Bindings (provider)
 
 When BLE devices are selected via "Select Bluetooth Devices", the coordinator
 dynamically creates provider bindings for each device. These bindings allow
 sub-drivers (BTHome, SwitchBot, Govee, etc.) to connect and communicate with BLE
 devices through the coordinator's RSSI-based routing.
 
-#### Dynamic Contact Sensor Bindings (provider)
+## Dynamic Contact Sensor Bindings (provider)
 
 The coordinator dynamically creates CONTACT_SENSOR bindings for presence
 tracking integration. See [Contact Sensor Bindings](#contact-sensor-bindings)
@@ -424,7 +424,7 @@ for details.
 
 # <span style="color:#17BCF2">Driver Actions</span>
 
-#### Reset Driver
+## Reset Driver
 
 > ⚠️ This will clear all device selections, presence tracking configuration, and
 > dynamic bindings.
@@ -464,10 +464,10 @@ The presence tracker uses a multi-layer approach to prevent false room changes:
 
 **Example scenario:** Device is in Kitchen (RSSI -55), walks toward Living Room:
 
-1. Living Room proxy sees device at -58 → No change (not 6dB better than -55)
-2. Device moves further, Living Room at -50 → Pending transition starts
-3. 3 seconds later, still -50 → Still dwelling
-4. 5 seconds later, still consistently better → **Transition to Living Room**
+1. Living Room proxy sees device at -58 -> No change (not 6dB better than -55)
+2. Device moves further, Living Room at -50 -> Pending transition starts
+3. 3 seconds later, still -50 -> Still dwelling
+4. 5 seconds later, still consistently better -> **Transition to Living Room**
 
 ## Unsupported Devices
 

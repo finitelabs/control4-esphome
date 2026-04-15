@@ -341,7 +341,7 @@ local function schedulePoll()
   end)
 end
 
---- Called when the status chain completes (lock → door → battery done).
+--- Called when the status chain completes (lock -> door -> battery done).
 --- Replaces direct startKeepalive() calls — branches on connection mode.
 local function onStatusChainComplete()
   log:debug("onStatusChainComplete() mode=%s", connectionMode)

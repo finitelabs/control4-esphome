@@ -38,6 +38,7 @@ entities, allowing them to be controlled through the Control4 light proxy.
 - [Compatibility](#compatibility)
   - [Supported Color Modes](#supported-color-modes)
 - [Installer Setup](#installer-setup)
+  - [Adding the Driver](#adding-the-driver)
   - [Driver Properties](#driver-properties)
     <!-- #ifdef DRIVERCENTRAL -->
     - [Cloud Settings](#cloud-settings)
@@ -63,10 +64,14 @@ entities, allowing them to be controlled through the Control4 light proxy.
 # <span style="color:#17BCF2">Features</span>
 
 - Control4 Light Proxy integration for native Control4 lighting control
+- On/Off control for binary ESPHome light entities
 - Button Link connections for programming integration
 - Real-time state synchronization with ESPHome device
 
 # <span style="color:#17BCF2">Compatibility</span>
+
+This driver currently supports binary (on/off) ESPHome light entities only.
+Dimmable and color lights are not supported in this version.
 
 ## Supported Color Modes
 
@@ -93,6 +98,13 @@ entities, allowing them to be controlled through the Control4 light proxy.
 Refer to the main ESPHome driver documentation for setup instructions. Once the
 main driver is configured and connected to your ESPHome device, bind the ESPHome
 Light driver to the light entity exposed by the main driver.
+
+## Adding the Driver
+
+1. In Composer Pro, add the ESPHome Light driver to your project.
+2. Bind the `ESPHome Light` connection to the matching light entity exposed by
+   the main ESPHome driver.
+3. The driver will automatically synchronize its state once bound.
 
 ## Driver Properties
 

@@ -36,6 +36,7 @@ allowing them to be controlled through the Control4 lock proxy.
 - [System Requirements](#system-requirements)
 - [Features](#features)
 - [Installer Setup](#installer-setup)
+  - [Adding the Driver](#adding-the-driver)
   - [Driver Properties](#driver-properties)
     <!-- #ifdef DRIVERCENTRAL -->
     - [Cloud Settings](#cloud-settings)
@@ -62,14 +63,25 @@ allowing them to be controlled through the Control4 lock proxy.
 # <span style="color:#17BCF2">Features</span>
 
 - Control4 Lock Proxy integration for native Control4 lock control
-- Lock/unlock commands with optional lock code support
+- Lock, unlock, and toggle commands with optional lock code support
 - Real-time state synchronization with ESPHome device
+
+<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Installer Setup</span>
 
 Refer to the main ESPHome driver documentation for setup instructions. Once the
 main driver is configured and connected to your ESPHome device, bind the ESPHome
 Lock driver to the lock entity exposed by the main driver.
+
+## Adding the Driver
+
+1. In Composer Pro, add the ESPHome Lock driver.
+2. Bind the `ESPHome Lock` connection to the lock entity exposed by the main
+   ESPHome driver.
+3. If the lock requires a code, set the `Lock Code` property under Device
+   Settings.
+4. The driver will automatically synchronize its state once bound.
 
 ## Driver Properties
 
@@ -109,8 +121,8 @@ Sets the logging mode. Default is `Off`.
 
 #### Lock Code
 
-Sets the lock code to be used for locking and unlocking the device. If the
-device does not require a code to lock/unlock, leave this field blank.
+Code sent with lock and unlock commands. Leave blank if the device does not
+require a code.
 
 ## Connections
 
@@ -133,7 +145,7 @@ Bind this connection to the lock entity exposed by the main ESPHome driver.
 <img alt="Finite Labs" src="./images/finite-labs-logo.png" width="400"/>
 </p>
 
-Copyright © 2026 Finite Labs LLC
+Copyright &copy; 2026 Finite Labs LLC
 
 All information contained herein is, and remains the property of Finite Labs LLC
 and its suppliers, if any. The intellectual and technical concepts contained

@@ -91,7 +91,7 @@
       <property>
         <name>Lock Code</name>
         <type>STRING</type>
-        <description>If the device does not have a code, leave this field blank.</description>
+        <description>Code sent with lock/unlock commands. Leave blank if the device does not require a code.</description>
         <default/>
       </property>
     </properties>

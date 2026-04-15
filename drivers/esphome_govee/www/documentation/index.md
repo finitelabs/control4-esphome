@@ -293,22 +293,22 @@ Resets the driver state and clears cached sensor values.
 
 The following events are available for meat thermometer models:
 
-| Event                 | Description                        |
-| --------------------- | ---------------------------------- |
-| Probe 1 Alarm Active  | Probe 1 reached target temperature |
-| Probe 1 Alarm Cleared | Probe 1 below target temperature   |
-| Probe 2 Alarm Active  | Probe 2 reached target temperature |
-| Probe 2 Alarm Cleared | Probe 2 below target temperature   |
+| Event                 | Description                       |
+| --------------------- | --------------------------------- |
+| Probe 1 Alarm Active  | Probe 1 reached alarm temperature |
+| Probe 1 Alarm Cleared | Probe 1 below alarm temperature   |
+| Probe 2 Alarm Active  | Probe 2 reached alarm temperature |
+| Probe 2 Alarm Cleared | Probe 2 below alarm temperature   |
 
 > **Note:** Only Probe 1 and Probe 2 support alarm events. Probes 3 and 4
 > provide temperature readings only.
 
 The following events are available for sensors with error reporting:
 
-| Event          | Description           |
-| -------------- | --------------------- |
-| Error Detected | Sensor error detected |
-| Error Cleared  | Sensor error cleared  |
+| Event          | Description              |
+| -------------- | ------------------------ |
+| Error Detected | Sensor reported an error |
+| Error Cleared  | Sensor error cleared     |
 
 **Models with error event support:**
 
@@ -325,13 +325,14 @@ All sensor values are exposed as variables for programming:
 
 ### Common Variables
 
-| Variable    | Type   | Description                     |
-| ----------- | ------ | ------------------------------- |
-| Device Type | STRING | Detected device model           |
-| Last Seen   | STRING | Timestamp of last advertisement |
-| MAC Address | STRING | Device MAC address              |
-| Name        | STRING | Device name                     |
-| RSSI        | NUMBER | Signal strength (dBm)           |
+| Variable    | Type   | Description                 |
+| ----------- | ------ | --------------------------- |
+| Name        | STRING | Device name                 |
+| Device Type | STRING | Detected Govee device model |
+| MAC Address | STRING | Device MAC address          |
+
+> **Note:** `Last Seen` and `RSSI` are read-only driver properties (see
+> [Device Info](#device-info)) and do not appear as programming variables.
 
 ### Temperature/Humidity Sensor Variables
 

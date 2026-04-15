@@ -65,6 +65,7 @@ local Indicator = {
 --- @field _btScannerStateCallbacks table<string, fun(state: BluetoothScannerState)?> Callbacks for scanner state changes.
 --- @field _btAdvertisementsCallbacks table<string, fun(advertisement: BLEAdvertisement)?> Callbacks for BLE advertisements.
 --- @field _btProxyInitDeferred Deferred|nil In-flight deferred for initBluetoothProxy (re-entrancy guard).
+--- @field userServices table<string, number> Map of user-defined service names to their numeric keys, populated during listEntities().
 local ESPHomeClient = {}
 ESPHomeClient.__index = ESPHomeClient
 
@@ -96,6 +97,7 @@ ESPHomeClient.EntityType = {
   VALVE = "valve",
   DATETIME_DATETIME = "datetime_datetime",
   UPDATE = "update",
+  WATER_HEATER = "water_heater",
 }
 
 --- @class BluetoothConnectionState
@@ -137,6 +139,7 @@ function ESPHomeClient:new()
   instance._btScannerStateCallbacks = {}
   instance._btAdvertisementsCallbacks = {}
   instance._btProxyInitDeferred = nil
+  instance.userServices = {}
   return instance
 end
 
@@ -421,6 +424,7 @@ function ESPHomeClient:disconnect()
     initialized = false,
   }
   self._btProxyInitDeferred = nil
+  self.userServices = {}
 
   if pingTimer ~= nil then
     pingTimer:Cancel()
@@ -489,6 +493,14 @@ function ESPHomeClient:listEntities()
             log:trace("Received %s entity: %s", entityType, message)
             message.entity_type = entityType
             entities[tostring(message.key)] = message
+          end)
+          table.insert(addedCallbackKeys, key)
+        elseif schema.name == "ListEntitiesServicesResponse" then
+          local key = self:_registerCallback(self:_makeMessageCallbackKey(schema), function(message)
+            log:debug("Discovered user service: %s (key=%s)", message.name, message.key)
+            if not IsEmpty(message.name) and message.key ~= nil then
+              self.userServices[message.name] = message.key
+            end
           end)
           table.insert(addedCallbackKeys, key)
         else
@@ -1687,6 +1699,25 @@ function ESPHomeClient:callServiceMethod(method, body, timeout)
 
   -- Use sendMessage to handle the actual sending
   return self:sendMessage(method.inputType, body, responseSchema, timeout)
+end
+
+--- Execute a user-defined ESPHome service by name.
+--- The service key is resolved from the cache populated during listEntities().
+--- @param name string The service name as defined in the ESPHome YAML (e.g. "set_remote_temperature").
+--- @param floatValue? number Optional float argument. Pass nil for services with no arguments.
+--- @return Deferred<any, string> result A promise that resolves when the service is executed.
+function ESPHomeClient:executeServiceByName(name, floatValue)
+  log:trace("ESPHomeClient:executeServiceByName(%s, %s)", name, floatValue)
+  local key = self.userServices[name]
+  if key == nil then
+    log:warn("executeServiceByName: service '%s' not found (known services: %s)", name, self.userServices)
+    return deferred.new():reject("Service not found: " .. tostring(name))
+  end
+  local body = { key = key }
+  if floatValue ~= nil then
+    body.args = { { float_ = floatValue } }
+  end
+  return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.execute_service, body)
 end
 
 --- Send a message to the ESPHome device.
