@@ -155,9 +155,10 @@ local function getEntityTempStep()
   return ENTITY.visual_target_temperature_step or ENTITY.target_temperature_step or 0.5
 end
 
---- Valid C4 setpoint resolutions per the thermostatV2 proxy docs.
-local VALID_RESOLUTIONS_C = { 0.5, 1, 2, 5 }
-local VALID_RESOLUTIONS_F = { 0.5, 1, 2, 5 }
+--- Valid C4 temperature resolutions per the thermostatV2 proxy docs.
+--- F floor is 0.2; C has no documented floor.
+local VALID_RESOLUTIONS_C = { 0.1, 0.5, 1, 2, 5 }
+local VALID_RESOLUTIONS_F = { 0.2, 0.5, 1, 2, 5 }
 
 --- Snap a resolution value to the nearest valid C4 resolution.
 --- @param value number The raw resolution value.
@@ -177,6 +178,13 @@ local function snapResolution(value, validValues)
     end
   end
   return best
+end
+
+--- Convert a Celsius delta to a Fahrenheit delta.
+--- @param value number Temperature delta in Celsius.
+--- @return number Temperature delta in Fahrenheit.
+local function celsiusDeltaToFahrenheit(value)
+  return value * 9 / 5
 end
 
 --- Clamp a Celsius temperature to the entity's min/max range.
@@ -398,7 +406,7 @@ local function sendCapabilities(entity)
   local step = entity.visual_target_temperature_step or entity.target_temperature_step
   if step ~= nil then
     local res_c = snapResolution(step, VALID_RESOLUTIONS_C)
-    local res_f = snapResolution(step * 9 / 5, VALID_RESOLUTIONS_F)
+    local res_f = snapResolution(celsiusDeltaToFahrenheit(step), VALID_RESOLUTIONS_F)
     SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", {
       HEAT_SETPOINT_RESOLUTION_C = res_c,
       HEAT_SETPOINT_RESOLUTION_F = res_f,
@@ -406,6 +414,14 @@ local function sendCapabilities(entity)
       COOL_SETPOINT_RESOLUTION_F = res_f,
       SINGLE_SETPOINT_RESOLUTION_C = res_c,
       SINGLE_SETPOINT_RESOLUTION_F = res_f,
+    }, "NOTIFY")
+  end
+
+  local currentStep = entity.visual_current_temperature_step
+  if currentStep ~= nil then
+    SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", {
+      CURRENT_TEMPERATURE_RESOLUTION_C = snapResolution(currentStep, VALID_RESOLUTIONS_C),
+      CURRENT_TEMPERATURE_RESOLUTION_F = snapResolution(celsiusDeltaToFahrenheit(currentStep), VALID_RESOLUTIONS_F),
     }, "NOTIFY")
   end
 
