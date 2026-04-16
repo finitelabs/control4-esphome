@@ -112,8 +112,8 @@
     <current_temperature_max_c>150</current_temperature_max_c>
     <current_temperature_min_f>-58</current_temperature_min_f>
     <current_temperature_max_f>302</current_temperature_max_f>
-    <current_temperature_resolution_c>0.1</current_temperature_resolution_c>
-    <current_temperature_resolution_f>0.1</current_temperature_resolution_f>
+    <current_temperature_resolution_c>0.5</current_temperature_resolution_c>
+    <current_temperature_resolution_f>1</current_temperature_resolution_f>
     <setpoint_resolution_c>0.5</setpoint_resolution_c>
     <setpoint_resolution_f>1</setpoint_resolution_f>
     <setpoint_heat_min_c>0</setpoint_heat_min_c>
@@ -135,9 +135,9 @@
     <has_extras>False</has_extras>
     <has_vacation_mode>False</has_vacation_mode>
     <has_remote_sensor>True</has_remote_sensor>
-    <fan_modes></fan_modes>
+    <fan_modes/>
     <hvac_modes>Off,Heat,Cool,Auto</hvac_modes>
-    <hold_modes></hold_modes>
+    <hold_modes/>
   </capabilities>
   <proxies>
     <proxy proxybindingid="5001" primary="True" name="ESPHome Climate">thermostatV2</proxy>
