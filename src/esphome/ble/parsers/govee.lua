@@ -41,6 +41,8 @@ Govee.ManufacturerId = {
 --- Govee device model codes (derived from name or service UUID)
 --- @enum GoveeDeviceModel
 Govee.DeviceModel = {
+  -- H512x sleepy sensors
+  H5121 = "H5121", -- Motion sensor
   -- Temperature/Humidity sensors (EC88)
   H5051 = "H5051",
   H5052 = "H5052",
@@ -78,6 +80,7 @@ Govee.DeviceModel = {
 --- Device model to friendly name mapping
 --- @type table<GoveeDeviceModel, string?>
 Govee.DEVICE_NAMES = {
+  [Govee.DeviceModel.H5121] = "Govee H5121",
   -- Temperature/Humidity sensors
   [Govee.DeviceModel.H5051] = "Govee H5051",
   [Govee.DeviceModel.H5052] = "Govee H5052",
@@ -126,6 +129,7 @@ Govee.DEVICE_NAMES = {
 --- @field probe1Alarm number|nil Probe 1 alarm temperature
 --- @field probe2Alarm number|nil Probe 2 alarm temperature
 --- @field ambientTemp number|nil Ambient temperature (H5191)
+--- @field motionDetected boolean|nil Motion detected state (H5121)
 
 --------------------------------------------------------------------------------
 -- Common Helper Functions (offset-based, like SwitchBot pattern)
@@ -272,6 +276,41 @@ local function createResult(model)
     deviceType = deviceType,
     model = model,
   }
+end
+
+--- Calculate CRC-CCITT (0x1021 polynomial, init 0x1D0F) for H512x encrypted packets
+--- @param data string
+--- @return integer crc
+local function calculateCRC(data)
+  local crc = 0x1D0F
+  for i = 1, #data do
+    local b = string.byte(data, i)
+    for s = 7, 0, -1 do
+      local mask = 0
+      if bit32.bxor(bit32.rshift(crc, 15), bit32.band(bit32.rshift(b, s), 0x01)) ~= 0 then
+        mask = 0x1021
+      end
+      crc = bit32.band(bit32.bxor(bit32.lshift(crc, 1), mask), 0xFFFF)
+    end
+  end
+  return crc
+end
+
+--- Decrypt H512x payload using native Control4 AES-128-ECB, mirroring govee-ble's reverse-key/reverse-data flow.
+--- @param key string 16-byte AES key
+--- @param data string 16-byte encrypted payload
+--- @return string|nil decrypted
+local function decryptH512x(key, data)
+  if #key ~= 16 or #data ~= 16 then
+    return nil
+  end
+  local reversedKey = key:reverse()
+  local reversedData = data:reverse()
+  local ok, decrypted = pcall(C4.Decrypt, C4, "AES-128-ECB", reversedKey, "", reversedData, { padding = false })
+  if not ok or type(decrypted) ~= "string" or #decrypted ~= 16 then
+    return nil
+  end
+  return decrypted:reverse()
 end
 
 --- Format bytes as hex string for debug logging
@@ -454,6 +493,48 @@ local function parseH5112(data, model)
     else
       result.sensorId = probeIdByte
     end
+  end
+
+  return result
+end
+
+--- Parse H5121 motion sensor encrypted payload.
+--- Closely follows govee-ble: 24-byte manufacturer payload, key from bytes 3-6 plus zeros,
+--- CRC over encrypted bytes 7-22, decrypt via reversed AES-ECB, H5121 model_id = 3, event byte 6 = motion.
+--- @param data string Manufacturer data
+--- @param deviceName string|nil Device name from advertisement
+--- @return GoveeParsedData|nil
+local function parseH5121(data, deviceName)
+  if #data ~= 24 then
+    return nil
+  end
+
+  local encData = data:sub(7, 22)
+  local crcExpected = parseBigEndian16(data, 23)
+  if not crcExpected or calculateCRC(encData) ~= crcExpected then
+    return nil
+  end
+
+  local key = data:sub(3, 6) .. string.rep("\0", 12)
+  local decrypted = decryptH512x(key, encData)
+  if not decrypted or #decrypted ~= 16 then
+    return nil
+  end
+
+  local modelId = getByte(decrypted, 3)
+  if not ((deviceName and deviceName:find("GV5121")) or modelId == 3) then
+    return nil
+  end
+
+  local result = createResult(Govee.DeviceModel.H5121)
+  if not result then
+    return nil
+  end
+
+  result.battery = getByte(decrypted, 5)
+  local buttonNumberPressed = getByte(decrypted, 6)
+  if buttonNumberPressed ~= nil then
+    result.motionDetected = buttonNumberPressed == 1
   end
 
   return result
@@ -703,6 +784,8 @@ local function getModelFromName(name)
   -- Temperature/Humidity sensors (check longer model numbers first)
   elseif name:find("H5174") then
     return Govee.DeviceModel.H5174
+  elseif name:find("H5121") or name:find("GV5121") then
+    return Govee.DeviceModel.H5121
   elseif name:find("H5177") then
     return Govee.DeviceModel.H5177
   elseif name:find("H5178") or name:find("B5178") then
@@ -856,6 +939,14 @@ function Govee.parse(manufacturerData, serviceData, deviceName)
   end
 
   local dataLen = #mfgData
+
+  if dataLen == 24 then
+    local h5121 = parseH5121(mfgData, deviceName)
+    if h5121 then
+      log:debug("Govee: parsed H5121 encrypted payload for device %q", deviceName or "")
+      return h5121
+    end
+  end
 
   -- Try to determine model from device name first
   local model = getModelFromName(deviceName)

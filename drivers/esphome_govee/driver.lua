@@ -39,6 +39,18 @@ local SENSOR_TYPE = {
   HUMIDITY = "humidity",
 }
 
+--- @enum GoveeContactType
+local CONTACT_TYPE = {
+  MOTION = "motion",
+}
+
+--- @type table<GoveeContactType, {displayName: string, openEvent: string, closedEvent: string}?>
+local CONTACT_BINDINGS = {
+  [CONTACT_TYPE.MOTION] = { displayName = "Motion", openEvent = "OPENED", closedEvent = "CLOSED" },
+}
+
+local MOTION_CLEAR_DELAY_MS = 30 * 1000
+
 --- Event definitions for probe alarms and errors
 --- @type table<string, {key: string, name: string, description: string}?>
 local EVENT_DEFS = {
@@ -160,6 +172,7 @@ local OPTIONAL_PROPERTIES = {
   "Probe 4 F",
   "Ambient C",
   "Ambient F",
+  "Motion",
 }
 
 --------------------------------------------------------------------------------
@@ -310,6 +323,75 @@ local function sendSensorValue(sensorType, value)
   SendToProxy(binding.bindingId, "VALUE_CHANGED", { VALUE = value, SCALE = config.scale })
 end
 
+--- Get or create a contact sensor binding
+--- @param contactType GoveeContactType
+--- @return Binding|nil binding
+local function getOrCreateContactBinding(contactType)
+  local config = CONTACT_BINDINGS[contactType]
+  if not config then
+    return nil
+  end
+
+  local binding = bindings:getOrAddDynamicBinding(
+    BINDINGS_NAMESPACE,
+    "contact_" .. contactType,
+    "PROXY",
+    true,
+    config.displayName,
+    "CONTACT_SENSOR"
+  )
+
+  if binding then
+    log:info("Created CONTACT_SENSOR binding for %s (id=%s)", config.displayName, binding.bindingId)
+  end
+
+  return binding
+end
+
+--- Send contact sensor state when it changes.
+--- OPENED means active/detected, CLOSED means clear.
+--- Repeated motion events restart the clear timer.
+--- @param contactType GoveeContactType
+--- @param isActive boolean
+local function sendContactState(contactType, isActive)
+  local binding = getOrCreateContactBinding(contactType)
+  if not binding then
+    return
+  end
+
+  local stateKey = "contact_" .. contactType
+  local prevState = persist:get("previousState", {})
+  local config = CONTACT_BINDINGS[contactType]
+
+  if isActive then
+    local wasActive = prevState[stateKey] == true
+    prevState[stateKey] = true
+    persist:set("previousState", prevState)
+
+    CancelTimer("MotionClear")
+    SetTimer("MotionClear", MOTION_CLEAR_DELAY_MS, function()
+      log:debug("Auto-clearing motion contact after timeout")
+      sendContactState(contactType, false)
+    end)
+
+    if not wasActive then
+      log:debug("Sending %s to contact binding %s", config.openEvent, binding.bindingId)
+      SendToProxy(binding.bindingId, config.openEvent, {}, "NOTIFY")
+    end
+    return
+  end
+
+  CancelTimer("MotionClear")
+  if prevState[stateKey] == false then
+    return
+  end
+
+  prevState[stateKey] = false
+  persist:set("previousState", prevState)
+  log:debug("Sending %s to contact binding %s", config.closedEvent, binding.bindingId)
+  SendToProxy(binding.bindingId, config.closedEvent, {}, "NOTIFY")
+end
+
 --------------------------------------------------------------------------------
 -- Event Firing (Sensor)
 --------------------------------------------------------------------------------
@@ -410,6 +492,15 @@ local function processGoveeData(data, rssi)
   if type(data.pm25) == "number" then
     values:update("PM2.5", data.pm25, "NUMBER", nil, " µg/m³")
     table.insert(summaryParts, "PM2.5: " .. data.pm25 .. " µg/m³")
+  end
+
+  -- Motion (H5121)
+  if data.motionDetected ~= nil then
+    local motionStr = data.motionDetected and "Detected" or "Clear"
+    values:update("Motion", motionStr, "STRING")
+    C4:SetPropertyAttribs("Motion", constants.SHOW_PROPERTY)
+    table.insert(summaryParts, "Motion: " .. motionStr)
+    sendContactState(CONTACT_TYPE.MOTION, data.motionDetected)
   end
 
   -- Probe 1 temperature (meat thermometers)
