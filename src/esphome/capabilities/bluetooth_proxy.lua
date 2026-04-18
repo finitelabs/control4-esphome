@@ -1295,8 +1295,9 @@ function BluetoothProxyCapability:onRoomChanged()
 end
 
 --- Handle coordinator binding state change.
---- When coordinator connects, start forwarding all advertisements to it and disable local device management.
---- When coordinator disconnects, stop forwarding and re-enable local device management.
+--- When coordinator connects, start forwarding all advertisements to it and disable local standalone BLE handling.
+--- When coordinator disconnects, stop forwarding and re-enable local standalone BLE handling.
+--- This transition must be non-destructive so transient binding churn does not erase standalone configuration.
 --- @param bIsBound boolean Whether coordinator is now bound
 function BluetoothProxyCapability:onCoordinatorBindingChanged(bIsBound)
   log:info("Coordinator binding changed: %s", bIsBound)
@@ -1306,26 +1307,26 @@ function BluetoothProxyCapability:onCoordinatorBindingChanged(bIsBound)
     return
   end
 
+  if self._coordinatorConnected == bIsBound then
+    log:debug("Coordinator binding state unchanged, skipping transition")
+    return
+  end
+
+  self._coordinatorConnected = bIsBound
+
+  -- Update property visibility for the active mode.
+  self:setPropertiesAttribs(constants.SHOW_PROPERTY)
+
   if bIsBound then
-    self._coordinatorConnected = true
+    -- Suspend standalone BLE handling without deleting bindings or persisted selections.
+    for mac, device in pairs(self._addedDevices) do
+      self:_stopAdvertisementMonitoring(mac)
 
-    -- Switch to coordinator mode properties: show room, hide device selection
-    self:setPropertiesAttribs(constants.SHOW_PROPERTY)
-
-    -- Clean up all existing standalone mode state
-    -- Collect MACs first to avoid modifying table while iterating
-    local macsToRemove = {}
-    for mac in pairs(self._addedDevices) do
-      table.insert(macsToRemove, mac)
+      if not device.passive and self._client:isBluetoothDeviceAllocated(mac) then
+        self._client:bluetoothDeviceDisconnect(mac)
+        device.services = nil
+      end
     end
-
-    -- Remove all devices (stops monitoring, disconnects GATT, removes bindings)
-    for _, mac in ipairs(macsToRemove) do
-      self:removeDevice(mac)
-    end
-
-    -- Clear persisted device selection
-    bleScannerProperties:clearSelection(self.PROPERTY_NAME)
 
     -- Start forwarding all advertisements to coordinator
     self:_startCoordinatorForwarding()
@@ -1343,30 +1344,15 @@ function BluetoothProxyCapability:onCoordinatorBindingChanged(bIsBound)
       featureFlags = tostring(self._featureFlags),
       minRssiOverride = roomInfo and tostring(roomInfo.minRssiOverride) or "-100",
     }, "NOTIFY")
-
-    -- Update status to indicate coordinator mode
-    self:_updateStatusProperty()
   else
-    self._coordinatorConnected = false
     self:_stopCoordinatorForwarding()
 
-    -- Switch back to standalone mode properties: hide room, show device selection
-    self:setPropertiesAttribs(constants.SHOW_PROPERTY)
-
-    -- Re-enable local advertisement monitoring for bound devices
-    for mac, device in pairs(self._addedDevices) do
-      if device.bindingId then
-        local deviceId = C4:GetDeviceID()
-        local hasBoundDevices = not IsEmpty(C4:GetBoundConsumerDevices(deviceId, device.bindingId))
-        if hasBoundDevices then
-          self:_startAdvertisementMonitoring(mac, device.bindingId)
-        end
-      end
-    end
-
-    -- Update status property
-    self:_updateStatusProperty()
+    -- Re-enable local advertisement monitoring for any bound child drivers.
+    self:_connectBoundDevices()
   end
+
+  -- Update status property
+  self:_updateStatusProperty()
 end
 
 --- Start forwarding BLE advertisements to the coordinator.

@@ -12,6 +12,12 @@
 [//]: # "- Removed"
 <!-- prettier-ignore-end -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed Bluetooth Coordinator mode transitions in the ESPHome driver to preserve standalone BLE selections and bindings during coordinator bind flaps
+
 ## v20260418 - 2026-04-18
 
 ### Added
