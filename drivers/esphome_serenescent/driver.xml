@@ -69,6 +69,12 @@
         <maximum>10</maximum>
         <default>5</default>
       </property>
+      <property>
+        <name>Detected Capabilities</name>
+        <type>STRING</type>
+        <default>Not detected</default>
+        <readonly>true</readonly>
+      </property>
       <!-- Device State (read-only, updated automatically) -->
       <property>
         <name>Device State</name>
@@ -173,6 +179,10 @@
         </params>
       </action>
       <action>
+        <name>Detect Capabilities</name>
+        <command>Detect_Capabilities</command>
+      </action>
+      <action>
         <name>Request Status</name>
         <command>Request_Status</command>
       </action>
@@ -210,12 +220,7 @@
         <params>
           <param>
             <name>Level</name>
-            <type>LIST</type>
-            <items>
-              <item>low</item>
-              <item>medium</item>
-              <item>high</item>
-            </items>
+            <type>DYNAMIC_LIST</type>
           </param>
         </params>
       </command>
@@ -225,17 +230,7 @@
         <params>
           <param>
             <name>Color</name>
-            <type>LIST</type>
-            <items>
-              <item>off</item>
-              <item>rotating</item>
-              <item>white</item>
-              <item>red</item>
-              <item>blue</item>
-              <item>violet</item>
-              <item>green</item>
-              <item>orange</item>
-            </items>
+            <type>DYNAMIC_LIST</type>
           </param>
         </params>
       </command>
@@ -259,141 +254,6 @@
   </config>
   <proxies/>
   <connections>
-    <connection>
-      <id>300</id>
-      <facing>6</facing>
-      <connectionname>On Button Link</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>BUTTON_LINK</classname>
-        </class>
-      </classes>
-    </connection>
-    <connection>
-      <id>301</id>
-      <facing>6</facing>
-      <connectionname>Off Button Link</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>BUTTON_LINK</classname>
-        </class>
-      </classes>
-    </connection>
-    <connection>
-      <id>302</id>
-      <facing>6</facing>
-      <connectionname>Toggle Button Link</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>BUTTON_LINK</classname>
-        </class>
-      </classes>
-    </connection>
-    <connection>
-      <id>303</id>
-      <facing>6</facing>
-      <connectionname>Intensity Up Button Link</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>BUTTON_LINK</classname>
-        </class>
-      </classes>
-    </connection>
-    <connection>
-      <id>304</id>
-      <facing>6</facing>
-      <connectionname>Intensity Down Button Link</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>BUTTON_LINK</classname>
-        </class>
-      </classes>
-    </connection>
-    <connection>
-      <id>305</id>
-      <facing>6</facing>
-      <connectionname>Set Low Intensity Button Link</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>BUTTON_LINK</classname>
-        </class>
-      </classes>
-    </connection>
-    <connection>
-      <id>306</id>
-      <facing>6</facing>
-      <connectionname>Set Medium Intensity Button Link</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>BUTTON_LINK</classname>
-        </class>
-      </classes>
-    </connection>
-    <connection>
-      <id>307</id>
-      <facing>6</facing>
-      <connectionname>Set High Intensity Button Link</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>BUTTON_LINK</classname>
-        </class>
-      </classes>
-    </connection>
-    <connection>
-      <id>308</id>
-      <facing>6</facing>
-      <connectionname>Power Relay</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>RELAY</classname>
-        </class>
-      </classes>
-    </connection>
     <connection>
       <id>5002</id>
       <facing>6</facing>

@@ -15,6 +15,7 @@ require("drivers-common-public.global.url")
 
 local log = require("lib.logging")
 local constants = require("constants")
+local bindings = require("lib.bindings")
 local values = require("lib.values")
 local persist = require("lib.persist")
 local UUID = require("esphome.ble.uuid")
@@ -24,16 +25,27 @@ local UUID = require("esphome.ble.uuid")
 --------------------------------------------------------------------------------
 
 --- Binding IDs
-local ON_BINDING = 300
-local OFF_BINDING = 301
-local TOGGLE_BINDING = 302
-local INTENSITY_UP_BINDING = 303
-local INTENSITY_DOWN_BINDING = 304
-local SET_LOW_BINDING = 305
-local SET_MEDIUM_BINDING = 306
-local SET_HIGH_BINDING = 307
-local RELAY_BINDING = 308
 local ESPHOME_BINDING = 5002 -- ESPHome BLE connection binding
+
+--- Dynamic bindings namespace
+local BINDINGS_NAMESPACE = "SereneScent"
+
+--- Capability group definitions: maps capability name to binding definitions
+local CAPABILITY_BINDINGS = {
+  power = {
+    { key = "on", class = "BUTTON_LINK", name = "On Button Link" },
+    { key = "off", class = "BUTTON_LINK", name = "Off Button Link" },
+    { key = "toggle", class = "BUTTON_LINK", name = "Toggle Button Link" },
+    { key = "relay", class = "RELAY", name = "Power Relay" },
+  },
+  intensity = {
+    { key = "intensity_up", class = "BUTTON_LINK", name = "Intensity Up Button Link" },
+    { key = "intensity_down", class = "BUTTON_LINK", name = "Intensity Down Button Link" },
+    { key = "set_low", class = "BUTTON_LINK", name = "Set Low Intensity Button Link" },
+    { key = "set_medium", class = "BUTTON_LINK", name = "Set Medium Intensity Button Link" },
+    { key = "set_high", class = "BUTTON_LINK", name = "Set High Intensity Button Link" },
+  },
+}
 
 --- GATT UUIDs (from const.py)
 local SERVICE_UUID = "53527aa4-29f7-ae11-4e74-997334782568"
@@ -125,6 +137,12 @@ local state = {
 --- Ordered intensity levels for cycling
 local INTENSITY_CYCLE = { "low", "medium", "high" }
 
+--- Whether capability detection is in progress
+local detectingCapabilities = false
+
+--- Whether we powered on the device during detection (to restore state after)
+local detectionPoweredOn = false
+
 --- Forward declaration (defined after schedulePoll)
 local initiateCommand
 
@@ -147,16 +165,26 @@ end
 
 --- Push current state into driver variables and properties
 local function pushState()
-  UpdateProperty("Power", state.power and "On" or "Off")
-  UpdateProperty("Intensity", state.intensity)
-  UpdateProperty("Color", state.color)
-  values:update("Power", state.power and "On" or "Off", "STRING")
-  values:update("Intensity", state.intensity, "STRING")
-  values:update("Color", state.color, "STRING")
+  local caps = persist:get("detectedCapabilities")
+  local intensityDisplay = not caps and "Undetected" or (caps.intensity and state.intensity or "N/A")
+  local colorDisplay = not caps and "Undetected" or (caps.color and state.color or "N/A")
+
+  local savedState = persist:get("deviceState")
+  local powerDisplay = savedState and (state.power and "On" or "Off") or "N/A"
+
+  UpdateProperty("Power", powerDisplay)
+  UpdateProperty("Intensity", intensityDisplay)
+  UpdateProperty("Color", colorDisplay)
+  values:update("Power", powerDisplay, "STRING")
+  values:update("Intensity", intensityDisplay, "STRING")
+  values:update("Color", colorDisplay, "STRING")
   persist:set("deviceState", state)
 
-  -- Update relay proxy state
-  SendToProxy(RELAY_BINDING, state.power and "CLOSED" or "OPENED", {}, "NOTIFY")
+  -- Update relay proxy state (dynamic binding)
+  local relayBinding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "relay")
+  if relayBinding then
+    SendToProxy(relayBinding.bindingId, state.power and "CLOSED" or "OPENED", {}, "NOTIFY")
+  end
 end
 
 --- Send a raw binary command via GATT write
@@ -338,8 +366,198 @@ local function parseStatusResponse(data)
 
   log:info("Status: power=%s intensity=%s color=%s", tostring(state.power), state.intensity, state.color)
 
+  -- Handle capability detection flow
+  if detectingCapabilities then
+    if not state.power then
+      -- Device is off; power it on to get valid capability readings
+      if not detectionPoweredOn then
+        log:info("Device is off during detection - powering on to read capabilities")
+        detectionPoweredOn = true
+        -- Reset disconnect timer to allow time for power-on + re-query
+        CancelTimer("Disconnect")
+        SetTimer("Disconnect", DISCONNECT_DELAY_MS, function()
+          log:debug("Disconnect timer fired (detection)")
+          requestDisconnect()
+        end)
+        gattWrite(CMD_POWER_ON)
+        SetTimer("StatusPoll", STATUS_POLL_DELAY_MS, function()
+          gattWrite(CMD_STATUS_HOME)
+        end)
+        return
+      end
+    end
+
+    -- We have a valid status response with the device on - infer capabilities
+    local caps = { power = true }
+    if INTENSITY_MAP[intensityVal] then
+      caps.intensity = true
+    end
+    if COLOR_MAP[colorVal] ~= nil then
+      caps.color = true
+    end
+
+    persist:set("detectedCapabilities", caps)
+
+    local capsStr = "Power"
+    if caps.intensity then
+      capsStr = capsStr .. ", Intensity"
+    end
+    if caps.color then
+      capsStr = capsStr .. ", Color"
+    end
+    UpdateProperty("Detected Capabilities", capsStr)
+    log:info("Detected capabilities: %s", capsStr)
+
+    -- Create dynamic bindings for discovered capabilities
+    createBindingsForCapabilities(caps)
+
+    -- Restore power state if we turned it on for detection
+    if detectionPoweredOn then
+      log:info("Restoring power off after capability detection")
+      gattWrite(CMD_POWER_OFF)
+      state.power = false
+    end
+
+    detectingCapabilities = false
+    detectionPoweredOn = false
+  end
+
   updateLastSeen()
   pushState()
+end
+
+--------------------------------------------------------------------------------
+-- Dynamic Bindings & Capability Management
+--------------------------------------------------------------------------------
+
+--- Button action map: binding key -> function to execute
+local BUTTON_ACTIONS = {
+  on = function()
+    initiateCommand("power_on")
+  end,
+  off = function()
+    initiateCommand("power_off")
+  end,
+  toggle = function()
+    initiateCommand(state.power and "power_off" or "power_on")
+  end,
+  intensity_up = function()
+    for i, v in ipairs(INTENSITY_CYCLE) do
+      if v == state.intensity then
+        initiateCommand("intensity", INTENSITY_CYCLE[(i % #INTENSITY_CYCLE) + 1])
+        return
+      end
+    end
+    initiateCommand("intensity", "medium")
+  end,
+  intensity_down = function()
+    for i, v in ipairs(INTENSITY_CYCLE) do
+      if v == state.intensity then
+        initiateCommand("intensity", INTENSITY_CYCLE[((i - 2) % #INTENSITY_CYCLE) + 1])
+        return
+      end
+    end
+    initiateCommand("intensity", "medium")
+  end,
+  set_low = function()
+    initiateCommand("intensity", "low")
+  end,
+  set_medium = function()
+    initiateCommand("intensity", "medium")
+  end,
+  set_high = function()
+    initiateCommand("intensity", "high")
+  end,
+}
+
+--- Register RFP/OBC handlers for a single dynamic binding
+--- @param binding Binding The dynamic binding object
+--- @param def table The binding definition ({ key, class, name })
+local function registerHandlerForBinding(binding, def)
+  if def.class == "BUTTON_LINK" then
+    local action = BUTTON_ACTIONS[def.key]
+    if action then
+      RFP[binding.bindingId] = function(idBinding, strCommand, tParams, args)
+        if strCommand == "DO_CLICK" or strCommand == "DO_PUSH" then
+          action()
+        elseif strCommand == "BUTTON_ACTION" then
+          local buttonId = tointeger(Select(tParams, "BUTTON_ID"))
+          local buttonAction = tointeger(Select(tParams, "ACTION"))
+          if buttonAction ~= constants.ButtonActions.PRESS then
+            return
+          end
+          if buttonId == constants.ButtonIds.TOP then
+            initiateCommand("power_on")
+          elseif buttonId == constants.ButtonIds.BOTTOM then
+            initiateCommand("power_off")
+          elseif buttonId == constants.ButtonIds.TOGGLE then
+            initiateCommand(state.power and "power_off" or "power_on")
+          end
+        end
+      end
+    end
+  elseif def.class == "RELAY" then
+    OBC[binding.bindingId] = function(idBinding, strClass, bIsBound, otherDeviceId)
+      log:trace("OBC[relay](%s, %s, %s, %s)", idBinding, strClass, bIsBound, otherDeviceId)
+      if bIsBound then
+        SendToProxy(binding.bindingId, state.power and "STATE_CLOSED" or "STATE_OPENED", {}, "NOTIFY")
+      end
+    end
+  end
+end
+
+--- Create or remove dynamic bindings based on detected capabilities.
+--- @param caps table Capabilities table: { power = bool, intensity = bool, color = bool }
+function createBindingsForCapabilities(caps)
+  log:info("Creating bindings for capabilities")
+
+  for capName, bindingDefs in pairs(CAPABILITY_BINDINGS) do
+    if caps[capName] then
+      -- Create bindings for this capability
+      for _, def in ipairs(bindingDefs) do
+        local binding =
+          bindings:getOrAddDynamicBinding(BINDINGS_NAMESPACE, def.key, "CONTROL", true, def.name, def.class)
+        if binding then
+          registerHandlerForBinding(binding, def)
+        end
+      end
+    else
+      -- Remove bindings for this capability
+      for _, def in ipairs(bindingDefs) do
+        bindings:deleteBinding(BINDINGS_NAMESPACE, def.key)
+      end
+    end
+  end
+end
+
+--- Helper to check if a binding ID matches the dynamic relay binding
+--- @param idBinding integer The binding ID to check
+--- @return boolean
+local function isRelayBinding(idBinding)
+  local relayBinding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "relay")
+  return relayBinding ~= nil and relayBinding.bindingId == idBinding
+end
+
+--------------------------------------------------------------------------------
+-- Dynamic Command Parameter Lists
+--------------------------------------------------------------------------------
+
+--- Provides dynamic parameter lists for Set Intensity and Set Color commands.
+--- Returns empty list when capability is not detected (effectively disabling the command).
+function GetCommandParamList(commandName, paramName)
+  local caps = persist:get("detectedCapabilities", {})
+  if commandName == "Set Intensity" and paramName == "Level" then
+    if caps.intensity then
+      return { "low", "medium", "high" }
+    end
+    return {}
+  elseif commandName == "Set Color" and paramName == "Color" then
+    if caps.color then
+      return { "off", "rotating", "white", "red", "blue", "violet", "green", "orange" }
+    end
+    return {}
+  end
+  return {}
 end
 
 --------------------------------------------------------------------------------
@@ -359,8 +577,9 @@ function OnDriverInit()
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
 
-  -- Restore persisted state
+  -- Restore persisted state and dynamic bindings
   values:restoreValues()
+  bindings:restoreBindings()
 end
 
 function OnDriverLateInit()
@@ -372,8 +591,26 @@ function OnDriverLateInit()
   -- Restore persisted device state across reboots
   local savedState = persist:get("deviceState")
   if savedState then
-    state = savedState
-    pushState()
+    state.power = savedState.power or false
+    state.intensity = savedState.intensity or "low"
+    state.color = savedState.color or "white"
+  end
+  pushState()
+
+  -- Always create power bindings; restore intensity bindings if previously detected
+  local caps = persist:get("detectedCapabilities", { power = true })
+  createBindingsForCapabilities(caps)
+
+  -- Restore Detected Capabilities property display
+  local capsStr = "Power"
+  if caps.intensity then
+    capsStr = capsStr .. ", Intensity"
+  end
+  if caps.color then
+    capsStr = capsStr .. ", Color"
+  end
+  if persist:get("detectedCapabilities") then
+    UpdateProperty("Detected Capabilities", capsStr)
   end
 
   for p, _ in pairs(Properties) do
@@ -647,88 +884,29 @@ function RFP.GATT_WRITE_RESPONSE(idBinding, strCommand, tParams, args)
 end
 
 --------------------------------------------------------------------------------
--- RFP Handlers - Control Bindings (button links and relay)
+-- RFP Handlers - Control Bindings (relay commands use dynamic lookup)
+-- NOTE: Button link handlers (DO_CLICK, BUTTON_ACTION) are registered
+-- dynamically per-binding in registerHandlerForBinding().
 --------------------------------------------------------------------------------
-
-function RFP.DO_CLICK(idBinding, strCommand, tParams, args)
-  log:trace("RFP.DO_CLICK(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
-  if idBinding == ON_BINDING then
-    initiateCommand("power_on")
-  elseif idBinding == OFF_BINDING then
-    initiateCommand("power_off")
-  elseif idBinding == TOGGLE_BINDING then
-    initiateCommand(state.power and "power_off" or "power_on")
-  elseif idBinding == INTENSITY_UP_BINDING then
-    for i, v in ipairs(INTENSITY_CYCLE) do
-      if v == state.intensity then
-        initiateCommand("intensity", INTENSITY_CYCLE[(i % #INTENSITY_CYCLE) + 1])
-        return
-      end
-    end
-    initiateCommand("intensity", "medium")
-  elseif idBinding == INTENSITY_DOWN_BINDING then
-    for i, v in ipairs(INTENSITY_CYCLE) do
-      if v == state.intensity then
-        initiateCommand("intensity", INTENSITY_CYCLE[((i - 2) % #INTENSITY_CYCLE) + 1])
-        return
-      end
-    end
-    initiateCommand("intensity", "medium")
-  elseif idBinding == SET_LOW_BINDING then
-    initiateCommand("intensity", "low")
-  elseif idBinding == SET_MEDIUM_BINDING then
-    initiateCommand("intensity", "medium")
-  elseif idBinding == SET_HIGH_BINDING then
-    initiateCommand("intensity", "high")
-  else
-    log:error("RFP.DO_CLICK called with unexpected binding %s", idBinding)
-  end
-end
-
-function RFP.BUTTON_ACTION(idBinding, strCommand, tParams, args)
-  log:trace("RFP.BUTTON_ACTION(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
-  local buttonId = tointeger(Select(tParams, "BUTTON_ID"))
-  local action = tointeger(Select(tParams, "ACTION"))
-
-  if action ~= constants.ButtonActions.PRESS then
-    return
-  end
-  if buttonId == constants.ButtonIds.TOP then
-    initiateCommand("power_on")
-  elseif buttonId == constants.ButtonIds.BOTTOM then
-    initiateCommand("power_off")
-  elseif buttonId == constants.ButtonIds.TOGGLE then
-    initiateCommand(state.power and "power_off" or "power_on")
-  else
-    log:error("RFP.BUTTON_ACTION called with invalid BUTTON_ID %s", buttonId)
-  end
-end
 
 function RFP.CLOSE(idBinding, strCommand, _tParams, _args)
   log:trace("RFP.CLOSE(%s, %s)", idBinding, strCommand)
-  if idBinding == RELAY_BINDING then
+  if isRelayBinding(idBinding) then
     initiateCommand("power_on")
   end
 end
 
 function RFP.OPEN(idBinding, strCommand, _tParams, _args)
   log:trace("RFP.OPEN(%s, %s)", idBinding, strCommand)
-  if idBinding == RELAY_BINDING then
+  if isRelayBinding(idBinding) then
     initiateCommand("power_off")
   end
 end
 
 function RFP.TOGGLE(idBinding, strCommand, _tParams, _args)
   log:trace("RFP.TOGGLE(%s, %s)", idBinding, strCommand)
-  if idBinding == RELAY_BINDING then
+  if isRelayBinding(idBinding) then
     initiateCommand(state.power and "power_off" or "power_on")
-  end
-end
-
-OBC[RELAY_BINDING] = function(idBinding, strClass, bIsBound, otherDeviceId)
-  log:trace("OBC[RELAY_BINDING](%s, %s, %s, %s)", idBinding, strClass, bIsBound, otherDeviceId)
-  if bIsBound then
-    SendToProxy(RELAY_BINDING, state.power and "STATE_CLOSED" or "STATE_OPENED", {}, "NOTIFY")
   end
 end
 
@@ -770,6 +948,11 @@ function EC.Toggle_Power()
 end
 
 function EC.Set_Intensity(params)
+  local caps = persist:get("detectedCapabilities", {})
+  if not caps.intensity then
+    log:warn("Intensity control not supported by this device. Run 'Detect Capabilities' action.")
+    return
+  end
   local level = Select(params, "Level") or ""
   level = level:lower()
   log:info("EC.Set_Intensity(%s)", level)
@@ -781,6 +964,11 @@ function EC.Set_Intensity(params)
 end
 
 function EC.Set_Color(params)
+  local caps = persist:get("detectedCapabilities", {})
+  if not caps.color then
+    log:warn("Color control not supported by this device. Run 'Detect Capabilities' action.")
+    return
+  end
   local color = Select(params, "Color") or ""
   color = color:lower()
   log:info("EC.Set_Color(%s)", color)
@@ -789,6 +977,13 @@ function EC.Set_Color(params)
   else
     log:warn("Invalid color: %s", color)
   end
+end
+
+function EC.Detect_Capabilities()
+  log:info("EC.Detect_Capabilities()")
+  detectingCapabilities = true
+  detectionPoweredOn = false
+  initiateCommand("status")
 end
 
 function EC.Request_Status()
@@ -810,13 +1005,17 @@ function EC.Reset_Driver(params)
   end
   log:print("Resetting SereneScent driver")
 
+  bindings:reset()
   values:reset()
   persist:set("deviceState", nil)
+  persist:set("detectedCapabilities", nil)
   isConnected = false
   txHandle = nil
   rxHandle = nil
   pendingCommand = nil
   pendingParam = nil
+  detectingCapabilities = false
+  detectionPoweredOn = false
   state = { power = false, intensity = "low", color = "white" }
 
   CancelTimer("StatusPoll")
@@ -824,6 +1023,7 @@ function EC.Reset_Driver(params)
   CancelTimer("PollCycle")
 
   UpdateProperty("Driver Status", "Disconnected")
+  UpdateProperty("Detected Capabilities", "Not detected")
   UpdateProperty("Power", "Off")
   UpdateProperty("Intensity", "low")
   UpdateProperty("Color", "white")
