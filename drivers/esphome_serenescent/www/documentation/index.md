@@ -267,15 +267,15 @@ before the device has been connected for the first time.
 #### Intensity (read-only)
 
 Displays the current diffuser intensity: `low`, `medium`, or `high`. Shows
-`Undetected` before **Detect Capabilities** has been run, and `N/A` if the
-device does not support intensity control.
+`Undetected` before **Detect Capabilities** has been run, `N/A` if the device
+does not support intensity control, and `Off` when the diffuser is powered off.
 
 #### Color (read-only)
 
 Displays the current LED color: `off`, `rotating`, `white`, `red`, `blue`,
 `violet`, `green`, or `orange`. Shows `Undetected` before **Detect
-Capabilities** has been run, and `N/A` if the device does not support LED color
-control.
+Capabilities** has been run, `N/A` if the device does not support LED color
+control, and `Off` when the diffuser is powered off.
 
 ### Device Info
 
@@ -375,8 +375,8 @@ Resets the driver state and clears all cached values.
 | Variable    | Type   | Description                                                                                      |
 | ----------- | ------ | ------------------------------------------------------------------------------------------------ |
 | Power       | STRING | Current power state: `On` or `Off`. `N/A` before first connection.                               |
-| Intensity   | STRING | Current intensity: `low`, `medium`, `high`. `Undetected` before detection; `N/A` if unsupported. |
-| Color       | STRING | Current LED color name. `Undetected` before detection; `N/A` if unsupported.                     |
+| Intensity   | STRING | Current intensity: `low`, `medium`, `high`. `Undetected` before detection; `N/A` if unsupported; `Off` when powered off. |
+| Color       | STRING | Current LED color name. `Undetected` before detection; `N/A` if unsupported; `Off` when powered off.                    |
 | Device Name | STRING | Bluetooth device name                                                                            |
 | MAC Address | STRING | Device Bluetooth MAC address                                                                     |
 | RSSI        | NUMBER | Signal strength in dBm                                                                           |
