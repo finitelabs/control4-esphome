@@ -166,8 +166,14 @@ end
 --- Push current state into driver variables and properties
 local function pushState()
   local caps = persist:get("detectedCapabilities")
-  local intensityDisplay = not caps and "Undetected" or (caps.intensity and state.intensity or "N/A")
-  local colorDisplay = not caps and "Undetected" or (caps.color and state.color or "N/A")
+  local intensityDisplay = (not caps and "Undetected")
+    or (not caps.intensity and "N/A")
+    or (not state.power and "Off")
+    or state.intensity
+  local colorDisplay = (not caps and "Undetected")
+    or (not caps.color and "N/A")
+    or (not state.power and "Off")
+    or state.color
 
   local savedState = persist:get("deviceState")
   local powerDisplay = savedState and (state.power and "On" or "Off") or "N/A"
