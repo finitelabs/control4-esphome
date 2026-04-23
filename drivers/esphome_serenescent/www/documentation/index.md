@@ -53,6 +53,7 @@ power, diffuser intensity, and LED color.
   <!-- #endif -->
   - [Adding the Driver](#adding-the-driver)
   - [Binding to ESPHome Proxy](#binding-to-esphome-proxy)
+  - [Detecting Device Capabilities](#detecting-device-capabilities)
   - [Button Links & Relay](#button-links--relay)
   - [Driver Properties](#driver-properties)
   - [Driver Actions](#driver-actions)
@@ -78,8 +79,10 @@ power, diffuser intensity, and LED color.
 # <span style="color:#17BCF2">Features</span>
 
 - Power on/off and toggle control
-- Diffuser intensity control (low, medium, high)
-- LED color control (off, rotating, white, red, blue, violet, green, orange)
+- Diffuser intensity control (low, medium, high) — if supported by device
+- LED color control (off, rotating, white, red, blue, violet, green, orange) —
+  if supported by device
+- Automatic capability detection with dynamic control bindings
 - Real-time device state feedback via GATT notifications
 - Periodic status polling at a configurable interval
 - Signal strength and last-seen monitoring
@@ -157,23 +160,56 @@ for setting it up.
 4. Go to the "Connections" tab and bind the ESPHome SereneScent driver to the
    newly created SereneScent connection.
 
+## Detecting Device Capabilities
+
+After binding the driver to the ESPHome proxy, you must run the **Detect
+Capabilities** action to discover what features the device supports.
+
+1. Go to the driver's **Actions** tab in Composer.
+2. Run the **Detect Capabilities** action.
+3. The driver connects to the device via BLE, queries its status, and determines
+   which capabilities are supported (power, intensity, color).
+4. The **Detected Capabilities** property displays the result (e.g., "Power,
+   Intensity, Color").
+5. Control bindings (button links and relay) are automatically created for the
+   detected capabilities.
+
+> **Note:** If the device is powered off during detection, the driver will
+> briefly turn it on to read its capabilities, then restore the power-off state.
+
+> **Tip:** Re-run the **Detect Capabilities** action anytime, for example after
+> replacing the device with a different model.
+
 ## Button Links & Relay
 
-The driver exposes optional control bindings that can be connected to keypad
-buttons and relay devices in Control4.
+The driver exposes control bindings that can be connected to keypad buttons and
+relay devices in Control4. These bindings are created dynamically based on the
+detected capabilities of the device.
+
+> **Important:** Power bindings (On, Off, Toggle, and Power Relay) are always
+> available. Intensity bindings only appear if the device supports intensity
+> control. Run the **Detect Capabilities** action to discover and create the
+> appropriate bindings.
 
 ### Button Links
 
-| Binding                          | Action                                      |
-| -------------------------------- | ------------------------------------------- |
-| On Button Link                   | Powers on the diffuser                      |
-| Off Button Link                  | Powers off the diffuser                     |
-| Toggle Button Link               | Toggles diffuser power                      |
-| Intensity Up Button Link         | Cycles intensity up (low → medium → high)   |
-| Intensity Down Button Link       | Cycles intensity down (high → medium → low) |
-| Set Low Intensity Button Link    | Sets intensity to `low`                     |
-| Set Medium Intensity Button Link | Sets intensity to `medium`                  |
-| Set High Intensity Button Link   | Sets intensity to `high`                    |
+**Always available:**
+
+| Binding            | Action                  |
+| ------------------ | ----------------------- |
+| On Button Link     | Powers on the diffuser  |
+| Off Button Link    | Powers off the diffuser |
+| Toggle Button Link | Toggles diffuser power  |
+
+**Capability-dependent (created after Detect Capabilities):**
+
+| Binding                          | Requires  | Action                                      |
+| -------------------------------- | :-------: | ------------------------------------------- |
+| Intensity Up Button Link         | Intensity | Cycles intensity up (low → medium → high)   |
+| Intensity Down Button Link       | Intensity | Cycles intensity down (high → medium → low) |
+| Set Low Intensity Button Link    | Intensity | Sets intensity to `low`                     |
+| Set Medium Intensity Button Link | Intensity | Sets intensity to `medium`                  |
+| Set High Intensity Button Link   | Intensity | Sets intensity to `high`                    |
 
 Connect a keypad button or button link source to any of these bindings in the
 Connections tab. The corresponding action fires when the button is pressed.
@@ -215,20 +251,31 @@ after 3 hours.
 Sets how often (in minutes) the driver connects to query the device status.
 Default is `5` minutes.
 
+#### Detected Capabilities (read-only)
+
+Displays the capabilities detected after running the **Detect Capabilities**
+action. Shows "Not detected" until the action has been run. Example values:
+`Power`, `Power, Intensity`, `Power, Intensity, Color`.
+
 ### Device State
 
 #### Power (read-only)
 
-Displays the current power state of the diffuser: `On` or `Off`.
+Displays the current power state of the diffuser: `On` or `Off`. Shows `N/A`
+before the device has been connected for the first time.
 
 #### Intensity (read-only)
 
-Displays the current diffuser intensity: `low`, `medium`, or `high`.
+Displays the current diffuser intensity: `low`, `medium`, or `high`. Shows
+`Undetected` before **Detect Capabilities** has been run, and `N/A` if the
+device does not support intensity control.
 
 #### Color (read-only)
 
 Displays the current LED color: `off`, `rotating`, `white`, `red`, `blue`,
-`violet`, `green`, or `orange`.
+`violet`, `green`, or `orange`. Shows `Undetected` before **Detect
+Capabilities** has been run, and `N/A` if the device does not support LED color
+control.
 
 ### Device Info
 
@@ -266,6 +313,10 @@ Toggles the diffuser on or off based on its current state.
 
 Sets the diffuser mist intensity.
 
+> **Note:** Requires intensity capability to be detected. Run **Detect
+> Capabilities** first. If the device does not support intensity control, this
+> action has no effect.
+
 **Parameters:**
 
 - **Level** [ low | medium | high ] - The desired intensity level.
@@ -274,10 +325,21 @@ Sets the diffuser mist intensity.
 
 Sets the LED light color.
 
+> **Note:** Requires color capability to be detected. Run **Detect
+> Capabilities** first. If the device does not support LED color control, this
+> action has no effect.
+
 **Parameters:**
 
 - **Color** [ off | rotating | white | red | blue | violet | green | orange ] -
   The desired LED color.
+
+### Detect Capabilities
+
+Connects to the device, queries its status, and determines which capabilities
+are supported (power, intensity, color). Creates or removes control bindings
+(button links and relay) based on the result. If the device is off, it will be
+briefly powered on to read capabilities.
 
 ### Request Status
 
@@ -310,15 +372,15 @@ Resets the driver state and clears all cached values.
 
 ## Variables
 
-| Variable    | Type   | Description                                |
-| ----------- | ------ | ------------------------------------------ |
-| Power       | STRING | Current power state: `On` or `Off`         |
-| Intensity   | STRING | Current intensity: `low`, `medium`, `high` |
-| Color       | STRING | Current LED color name                     |
-| Device Name | STRING | Bluetooth device name                      |
-| MAC Address | STRING | Device Bluetooth MAC address               |
-| RSSI        | NUMBER | Signal strength in dBm                     |
-| Last Seen   | STRING | Timestamp of last BLE advertisement        |
+| Variable    | Type   | Description                                                                                      |
+| ----------- | ------ | ------------------------------------------------------------------------------------------------ |
+| Power       | STRING | Current power state: `On` or `Off`. `N/A` before first connection.                               |
+| Intensity   | STRING | Current intensity: `low`, `medium`, `high`. `Undetected` before detection; `N/A` if unsupported. |
+| Color       | STRING | Current LED color name. `Undetected` before detection; `N/A` if unsupported.                     |
+| Device Name | STRING | Bluetooth device name                                                                            |
+| MAC Address | STRING | Device Bluetooth MAC address                                                                     |
+| RSSI        | NUMBER | Signal strength in dBm                                                                           |
+| Last Seen   | STRING | Timestamp of last BLE advertisement                                                              |
 
 <div style="page-break-after: always"></div>
 
