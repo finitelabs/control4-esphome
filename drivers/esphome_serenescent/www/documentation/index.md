@@ -372,15 +372,15 @@ Resets the driver state and clears all cached values.
 
 ## Variables
 
-| Variable    | Type   | Description                                                                                      |
-| ----------- | ------ | ------------------------------------------------------------------------------------------------ |
-| Power       | STRING | Current power state: `On` or `Off`. `N/A` before first connection.                               |
+| Variable    | Type   | Description                                                                                                              |
+| ----------- | ------ | ------------------------------------------------------------------------------------------------------------------------ |
+| Power       | STRING | Current power state: `On` or `Off`. `N/A` before first connection.                                                       |
 | Intensity   | STRING | Current intensity: `low`, `medium`, `high`. `Undetected` before detection; `N/A` if unsupported; `Off` when powered off. |
-| Color       | STRING | Current LED color name. `Undetected` before detection; `N/A` if unsupported; `Off` when powered off.                    |
-| Device Name | STRING | Bluetooth device name                                                                            |
-| MAC Address | STRING | Device Bluetooth MAC address                                                                     |
-| RSSI        | NUMBER | Signal strength in dBm                                                                           |
-| Last Seen   | STRING | Timestamp of last BLE advertisement                                                              |
+| Color       | STRING | Current LED color name. `Undetected` before detection; `N/A` if unsupported; `Off` when powered off.                     |
+| Device Name | STRING | Bluetooth device name                                                                                                    |
+| MAC Address | STRING | Device Bluetooth MAC address                                                                                             |
+| RSSI        | NUMBER | Signal strength in dBm                                                                                                   |
+| Last Seen   | STRING | Timestamp of last BLE advertisement                                                                                      |
 
 <div style="page-break-after: always"></div>
 
