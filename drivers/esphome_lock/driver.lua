@@ -49,7 +49,7 @@ function OnDriverLateInit()
   end
   gInitialized = true
   UpdateProperty("Driver Status", "Disconnected")
-  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = "false" }, "NOTIFY")
+  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
 end
 
@@ -182,6 +182,17 @@ local function convertLockStateToStatus(lockState)
   return "unknown"
 end
 
+function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
+  log:trace("RFP.UPDATE_DISCONNECT(%s, %s)", idBinding, strCommand)
+  if idBinding ~= ESPHOME_BINDING then
+    return
+  end
+  ENTITY = nil
+  STATE = nil
+  UpdateProperty("Driver Status", "Disconnected")
+  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
+end
+
 function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   log:trace("RFP.UPDATE_STATE(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
   if idBinding ~= ESPHOME_BINDING then
@@ -208,7 +219,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
 
   if oldStatus ~= newStatus then
     UpdateProperty("Driver Status", "Connected")
-    SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = "true" }, "NOTIFY")
+    SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
     log:debug("State changed from %s -> %s", oldStatus, newStatus)
     SendToProxy(PROXY_BINDING, "LOCK_STATUS_CHANGED", { LOCK_STATUS = newStatus }, "NOTIFY")
   end

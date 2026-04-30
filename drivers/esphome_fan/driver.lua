@@ -78,7 +78,7 @@ function OnDriverLateInit()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Disconnected")
-  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = "false" }, "NOTIFY")
+  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
 end
 
@@ -305,12 +305,23 @@ function RFP.GET_CURRENT_STATE(idBinding, strCommand)
   local speed = getCurrentSpeed()
   local direction = tointeger(Select(STATE, "direction")) or 0
 
-  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = "true" }, "NOTIFY")
+  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
   SendToProxy(PROXY_BINDING, is_on and "ON" or "OFF", {}, "NOTIFY")
   if is_on and speed > 0 then
     SendToProxy(PROXY_BINDING, "CURRENT_SPEED", { SPEED = tostring(speed) }, "NOTIFY")
   end
   SendToProxy(PROXY_BINDING, "DIRECTION", { DIRECTION = direction == 0 and "forward" or "reverse" }, "NOTIFY")
+end
+
+function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
+  log:trace("RFP.UPDATE_DISCONNECT(%s, %s)", idBinding, strCommand)
+  if idBinding ~= ESPHOME_BINDING then
+    return
+  end
+  ENTITY = nil
+  STATE = nil
+  UpdateProperty("Driver Status", "Disconnected")
+  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
 end
 
 function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
@@ -341,7 +352,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
 
   -- Always update connection status
   UpdateProperty("Driver Status", "Connected")
-  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = "true" }, "NOTIFY")
+  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
 
   -- Send ON/OFF notification
   if oldIsOn ~= newIsOn then

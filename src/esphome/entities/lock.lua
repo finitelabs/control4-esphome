@@ -61,6 +61,15 @@ function LockEntity:discovered(entity)
   OBC[bindingId] = RefreshStatus
 end
 
+--- Notify sub-drivers that the ESPHome device has disconnected.
+--- @return void
+function LockEntity:disconnected()
+  log:trace("LockEntity:disconnected()")
+  for _, binding in pairs(bindings:getDynamicBindings(self.TYPE)) do
+    SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", {}, "NOTIFY")
+  end
+end
+
 --- Handle updates to the lock entity state.
 --- @param entity table<string, any> The entity data received from the ESPHome client.
 --- @param state table<string, any> The state data received from the ESPHome client.

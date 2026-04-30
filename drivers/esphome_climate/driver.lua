@@ -494,7 +494,7 @@ function OnDriverLateInit()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Disconnected")
-  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = "false" }, "NOTIFY")
+  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
 end
 
@@ -875,6 +875,24 @@ end
 -- State update handler
 ---------------------------------------------------------------------------
 
+function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
+  log:trace("RFP.UPDATE_DISCONNECT(%s, %s)", idBinding, strCommand)
+  if idBinding ~= ESPHOME_BINDING then
+    return
+  end
+  ENTITY = nil
+  STATE = nil
+  CAPABILITIES_SENT = false
+  -- The bulb's firmware can change while we're disconnected; drop derived
+  -- caps so the next UPDATE_STATE re-runs sendCapabilities and re-discovers
+  -- user services. LAST_WATER_HEATER_MODE / REMOTE_SENSOR_IN_USE / SENSOR_
+  -- BINDING are persisted or proxy-driven and stay across reconnects.
+  IS_SINGLE_SETPOINT = false
+  USER_SERVICES_DISCOVERED = false
+  UpdateProperty("Driver Status", "Disconnected")
+  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
+end
+
 function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   log:trace("RFP.UPDATE_STATE(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
   if idBinding ~= ESPHOME_BINDING then
@@ -897,7 +915,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
 
   -- Always update connection status
   UpdateProperty("Driver Status", "Connected")
-  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = "true" }, "NOTIFY")
+  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
 
   -- Send capabilities on first state update
   if not CAPABILITIES_SENT then
