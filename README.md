@@ -874,6 +874,18 @@ can file an issue on GitHub:
 
 # <span style="color:#17BCF2">Changelog</span>
 
+## Unreleased
+
+### Added
+
+- Added brightness and dimming support to ESPHome lights with smooth ramping,
+  preset management, and hold-to-dim button control
+- Added color and color-temperature support to ESPHome lights for every ESPHome
+  color mode (white, color-temperature, cold/warm white, RGB, RGBW, and combined
+  RGB + white modes)
+- Added Advanced Lighting Scenes support to ESPHome lights so they can
+  participate in lighting scenes alongside other Control4 dimmers
+
 ## v20260418 - 2026-04-18
 
 ### Added

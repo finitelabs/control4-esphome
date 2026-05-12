@@ -423,6 +423,18 @@ function Connect()
 
   local lastUpdateTime = os.time() -- Don't check for updates on the first cycle
   local lastFatalErrorTime = 0 -- Track when the last fatal error occurred
+  local wasConnected = false -- Track connection state transitions
+
+  local function notifyEntitiesDisconnected()
+    for _, handler in pairs(Entities) do
+      if type(handler.disconnected) == "function" then
+        local success, err = pcall(handler.disconnected, handler)
+        if not success then
+          log:error("Entity disconnected handler failed: %s", err or "unknown error")
+        end
+      end
+    end
+  end
 
   local heartbeat = function()
     --#ifdef DRIVERCENTRAL
@@ -438,6 +450,13 @@ function Connect()
       CancelTimer("heartbeat")
       return
     end
+
+    local connected = esphome:isConnected()
+    if wasConnected and not connected then
+      log:info("Connection lost, notifying sub-drivers")
+      notifyEntitiesDisconnected()
+    end
+    wasConnected = connected
 
     local now = os.time()
     local secondsSinceLastUpdate = now - lastUpdateTime
@@ -469,6 +488,7 @@ function Connect()
       updateStatus("Connecting")
       esphome:connect():next(function()
         lastFatalErrorTime = 0 -- Clear on successful connection
+        wasConnected = true
         -- If using password authentication, show "waiting for authentication" status
         -- until first successful operation confirms auth succeeded
         if Properties["Authentication Mode"] == "Password" and not IsEmpty(Properties["Password"]) then

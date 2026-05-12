@@ -64,14 +64,22 @@ entities, allowing them to be controlled through the Control4 light proxy.
 # <span style="color:#17BCF2">Features</span>
 
 - Control4 Light Proxy integration for native Control4 lighting control
-- On/Off control for binary ESPHome light entities
-- Button Link connections for programming integration
-- Real-time state synchronization with ESPHome device
+- On/Off, dimming, color, and color-temperature control across every ESPHome
+  light type
+- Smooth ramps via ESPHome's transition feature, with click and hold ramp rates
+  configurable per driver
+- "Default On" preset and "Previous Level" on-mode handling
+- Hold-to-dim button control on virtual buttons and the On/Off/Toggle button
+  link bindings
+- Advanced Lighting Scenes participation: dim and color steps, ramp/stop, and
+  flash mode
+- Real-time state synchronization with the ESPHome device
 
 # <span style="color:#17BCF2">Compatibility</span>
 
-This driver currently supports binary (on/off) ESPHome light entities only.
-Dimmable and color lights are not supported in this version.
+The driver detects each ESPHome light's capabilities at runtime and exposes the
+appropriate Composer controls automatically. Binary, dimmable, white,
+color-temperature, and full-color lights are all supported.
 
 ## Supported Color Modes
 
@@ -80,14 +88,14 @@ Dimmable and color lights are not supported in this version.
 | Mode                                                                       | Supported |
 | -------------------------------------------------------------------------- | --------- |
 | [Binary (On/Off)](https://esphome.io/components/light/binary)              | ✅        |
-| [Brightness](https://esphome.io/components/light/monochromatic)            | ❌        |
-| White                                                                      | ❌        |
-| [Color Temperature](https://esphome.io/components/light/color_temperature) | ❌        |
-| [Cold White + Warm White Light](https://esphome.io/components/light/cwww)  | ❌        |
-| [RGB](https://esphome.io/components/light/rgb)                             | ❌        |
-| [RGBW](https://esphome.io/components/light/rgbw)                           | ❌        |
-| [RGBCT](https://esphome.io/components/light/rgbct)                         | ❌        |
-| [RGBWW](https://esphome.io/components/light/rgbww)                         | ❌        |
+| [Brightness](https://esphome.io/components/light/monochromatic)            | ✅        |
+| White                                                                      | ✅        |
+| [Color Temperature](https://esphome.io/components/light/color_temperature) | ✅        |
+| [Cold White + Warm White Light](https://esphome.io/components/light/cwww)  | ✅        |
+| [RGB](https://esphome.io/components/light/rgb)                             | ✅        |
+| [RGBW](https://esphome.io/components/light/rgbw)                           | ✅        |
+| [RGBCT](https://esphome.io/components/light/rgbct)                         | ✅        |
+| [RGBWW](https://esphome.io/components/light/rgbww)                         | ✅        |
 
 </div>
 

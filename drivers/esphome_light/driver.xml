@@ -88,21 +88,64 @@
     <actions/>
   </config>
   <capabilities>
-    <dimmer>False</dimmer>
-    <set_level>False</set_level>
-    <ramp_level>False</ramp_level>
+    <dimmer>True</dimmer>
+    <set_level>True</set_level>
+    <supports_target>True</supports_target>
+    <supports_brightness_stop>True</supports_brightness_stop>
+    <!--
+      on_off, ramp_level, and supports_default_on are documented as
+      "deprecated in 3.3.2" but Composer's test panel still gates UI
+      elements on them: on_off enables the On/Off level buttons;
+      ramp_level enables the Ramp button; supports_default_on enables
+      the Default On preset editor including its Inactive Color picker.
+    -->
     <on_off>True</on_off>
-    <min_max>False</min_max>
-    <click_rates>False</click_rates>
-    <hold_rates>False</hold_rates>
+    <ramp_level>True</ramp_level>
+    <supports_default_on>True</supports_default_on>
+    <!--
+      has_fixed_ramp_rate=true means the bulb has a fixed ramp rate that
+      cannot be changed; we want the user to set rates so this is false.
+      fixed_ramp_rate=0 is the placeholder when has_fixed_ramp_rate=false.
+      Default is false but we declare explicitly because Composer's test
+      panel UI gating sometimes treats undeclared caps differently than
+      declared-as-default.
+    -->
+    <has_fixed_ramp_rate>False</has_fixed_ramp_rate>
+    <fixed_ramp_rate>0</fixed_ramp_rate>
+    <hide_proxy_properties>False</hide_proxy_properties>
+    <hide_proxy_events>False</hide_proxy_events>
+    <click_rates>True</click_rates>
+    <hold_rates>True</hold_rates>
     <cold_start>False</cold_start>
     <has_leds>False</has_leds>
+    <has_button_events>True</has_button_events>
     <supports_broadcast_scenes>False</supports_broadcast_scenes>
     <supports_multichannel_scenes>False</supports_multichannel_scenes>
     <reduced_als_support>False</reduced_als_support>
     <advanced_scene_support>True</advanced_scene_support>
     <load_group_support>False</load_group_support>
-    <buttons_are_virtual>True</buttons_are_virtual>
+    <brightness_on_mode_preset>True</brightness_on_mode_preset>
+    <brightness_on_mode_previous>True</brightness_on_mode_previous>
+    <color_on_mode_fade>True</color_on_mode_fade>
+    <color_on_mode_preset>True</color_on_mode_preset>
+    <color_on_mode_previous>True</color_on_mode_previous>
+    <multi_click>False</multi_click>
+    <has_extras>False</has_extras>
+    <disable_flash>False</disable_flash>
+    <brightness_rate_min>0</brightness_rate_min>
+    <brightness_rate_max>65535</brightness_rate_max>
+    <click_rate_min>0</click_rate_min>
+    <click_rate_max>65535</click_rate_max>
+    <hold_rate_min>1000</hold_rate_min>
+    <hold_rate_max>86400000</hold_rate_max>
+    <supports_color>True</supports_color>
+    <supports_color_correlated_temperature>True</supports_color_correlated_temperature>
+    <supports_color_stop>True</supports_color_stop>
+    <color_correlated_temperature_min>2000</color_correlated_temperature_min>
+    <color_correlated_temperature_max>6500</color_correlated_temperature_max>
+    <color_rate_behavior>1</color_rate_behavior>
+    <color_rate_min>0</color_rate_min>
+    <color_rate_max>65535</color_rate_max>
   </capabilities>
   <proxies>
     <proxy proxybindingid="5001" primary="True" name="ESPHome Light">light_v2</proxy>

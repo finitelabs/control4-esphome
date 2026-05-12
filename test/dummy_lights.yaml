@@ -1,0 +1,471 @@
+# Host-mode ESPHome mock exercising every light color mode the C4 ESPHome Light
+# driver cares about. Used to validate the brightness/dimming support added on
+# branch feat/light-brightness.
+#
+# Lights covered:
+#   - Binary           -> COLOR_MODE_ON_OFF                  (non-dimmable)
+#   - Monochromatic    -> COLOR_MODE_BRIGHTNESS              (dimmable)
+#   - Color Temp       -> COLOR_MODE_COLOR_TEMPERATURE       (dimmable, white)
+#   - CWWW             -> COLOR_MODE_COLD_WARM_WHITE         (dimmable, dual white)
+#   - RGB              -> COLOR_MODE_RGB                     (dimmable, color)
+#   - RGBW             -> COLOR_MODE_RGB_WHITE               (dimmable, color + white)
+#   - RGBCT            -> COLOR_MODE_RGB_COLOR_TEMPERATURE   (dimmable, color + tunable)
+#   - RGBWW            -> COLOR_MODE_RGB_COLD_WARM_WHITE     (dimmable, color + dual white)
+#
+# Each light's state lambda logs every transition so the test driver output
+# can be matched against C4-side notifications during round-trip verification.
+#
+# Usage:
+#   esphome compile test/dummy_lights.yaml
+#   .esphome/build/dummy-lights/.pioenvs/dummy-lights/program
+#
+# API services (callable from ESPHome dashboard or aioesphomeapi for round-trip):
+#   - device_set_on(name)        turn a light on by name (uses the C4-side default)
+#   - device_set_off(name)       turn a light off by name
+#   - device_set_level(name, p)  set a light to brightness percent 0-100 (device side)
+
+esphome:
+  name: dummy-lights
+  friendly_name: Dummy Lights
+
+host:
+
+logger:
+  level: DEBUG
+
+api:
+  services:
+    - service: device_set_on
+      variables:
+        light_name: string
+      then:
+        - lambda: |-
+            ESP_LOGI("device_cmd", "Device-side ON for %s", light_name.c_str());
+        - if:
+            condition:
+              lambda: 'return light_name == "binary";'
+            then:
+              - light.turn_on: binary_light
+        - if:
+            condition:
+              lambda: 'return light_name == "mono";'
+            then:
+              - light.turn_on: mono_light
+        - if:
+            condition:
+              lambda: 'return light_name == "ct";'
+            then:
+              - light.turn_on: ct_light
+        - if:
+            condition:
+              lambda: 'return light_name == "cwww";'
+            then:
+              - light.turn_on: cwww_light
+        - if:
+            condition:
+              lambda: 'return light_name == "rgb";'
+            then:
+              - light.turn_on: rgb_light
+        - if:
+            condition:
+              lambda: 'return light_name == "rgbw";'
+            then:
+              - light.turn_on: rgbw_light
+        - if:
+            condition:
+              lambda: 'return light_name == "rgbct";'
+            then:
+              - light.turn_on: rgbct_light
+        - if:
+            condition:
+              lambda: 'return light_name == "rgbww";'
+            then:
+              - light.turn_on: rgbww_light
+
+    - service: device_set_off
+      variables:
+        light_name: string
+      then:
+        - lambda: |-
+            ESP_LOGI("device_cmd", "Device-side OFF for %s", light_name.c_str());
+        - if:
+            condition:
+              lambda: 'return light_name == "binary";'
+            then:
+              - light.turn_off: binary_light
+        - if:
+            condition:
+              lambda: 'return light_name == "mono";'
+            then:
+              - light.turn_off: mono_light
+        - if:
+            condition:
+              lambda: 'return light_name == "ct";'
+            then:
+              - light.turn_off: ct_light
+        - if:
+            condition:
+              lambda: 'return light_name == "cwww";'
+            then:
+              - light.turn_off: cwww_light
+        - if:
+            condition:
+              lambda: 'return light_name == "rgb";'
+            then:
+              - light.turn_off: rgb_light
+        - if:
+            condition:
+              lambda: 'return light_name == "rgbw";'
+            then:
+              - light.turn_off: rgbw_light
+        - if:
+            condition:
+              lambda: 'return light_name == "rgbct";'
+            then:
+              - light.turn_off: rgbct_light
+        - if:
+            condition:
+              lambda: 'return light_name == "rgbww";'
+            then:
+              - light.turn_off: rgbww_light
+
+    - service: device_set_level
+      variables:
+        light_name: string
+        percent: float
+      then:
+        - lambda: |-
+            ESP_LOGI("device_cmd", "Device-side LEVEL %.1f%% for %s",
+                     percent, light_name.c_str());
+        - if:
+            condition:
+              lambda: 'return light_name == "mono";'
+            then:
+              - light.turn_on:
+                  id: mono_light
+                  brightness: !lambda 'return percent / 100.0f;'
+        - if:
+            condition:
+              lambda: 'return light_name == "ct";'
+            then:
+              - light.turn_on:
+                  id: ct_light
+                  brightness: !lambda 'return percent / 100.0f;'
+        - if:
+            condition:
+              lambda: 'return light_name == "cwww";'
+            then:
+              - light.turn_on:
+                  id: cwww_light
+                  brightness: !lambda 'return percent / 100.0f;'
+        - if:
+            condition:
+              lambda: 'return light_name == "rgb";'
+            then:
+              - light.turn_on:
+                  id: rgb_light
+                  brightness: !lambda 'return percent / 100.0f;'
+        - if:
+            condition:
+              lambda: 'return light_name == "rgbw";'
+            then:
+              - light.turn_on:
+                  id: rgbw_light
+                  brightness: !lambda 'return percent / 100.0f;'
+        - if:
+            condition:
+              lambda: 'return light_name == "rgbct";'
+            then:
+              - light.turn_on:
+                  id: rgbct_light
+                  brightness: !lambda 'return percent / 100.0f;'
+        - if:
+            condition:
+              lambda: 'return light_name == "rgbww";'
+            then:
+              - light.turn_on:
+                  id: rgbww_light
+                  brightness: !lambda 'return percent / 100.0f;'
+
+# ---------------------------------------------------------------------------
+# Outputs (all template; host platform has no real GPIOs)
+# ---------------------------------------------------------------------------
+
+output:
+  # Binary light backing output
+  - platform: template
+    id: out_binary
+    type: binary
+    write_action:
+      - lambda: 'ESP_LOGI("out", "binary -> %s", state ? "ON" : "OFF");'
+
+  # Monochromatic light backing output
+  - platform: template
+    id: out_mono
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "mono -> %.3f", state);'
+
+  # Color temperature light backing outputs
+  - platform: template
+    id: out_ct_brightness
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "ct.brightness -> %.3f", state);'
+  - platform: template
+    id: out_ct_temp
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "ct.temp -> %.3f", state);'
+
+  # Cold/warm white outputs
+  - platform: template
+    id: out_cw
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "cwww.cold -> %.3f", state);'
+  - platform: template
+    id: out_ww
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "cwww.warm -> %.3f", state);'
+
+  # RGB outputs
+  - platform: template
+    id: out_r
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgb.r -> %.3f", state);'
+  - platform: template
+    id: out_g
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgb.g -> %.3f", state);'
+  - platform: template
+    id: out_b
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgb.b -> %.3f", state);'
+
+  # RGBW (extra white)
+  - platform: template
+    id: out_rgbw_r
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgbw.r -> %.3f", state);'
+  - platform: template
+    id: out_rgbw_g
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgbw.g -> %.3f", state);'
+  - platform: template
+    id: out_rgbw_b
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgbw.b -> %.3f", state);'
+  - platform: template
+    id: out_rgbw_w
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgbw.w -> %.3f", state);'
+
+  # RGBCT (RGB + tunable white via CT)
+  - platform: template
+    id: out_rgbct_r
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgbct.r -> %.3f", state);'
+  - platform: template
+    id: out_rgbct_g
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgbct.g -> %.3f", state);'
+  - platform: template
+    id: out_rgbct_b
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgbct.b -> %.3f", state);'
+  - platform: template
+    id: out_rgbct_w_brightness
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgbct.w_bright -> %.3f", state);'
+  - platform: template
+    id: out_rgbct_w_temp
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgbct.w_temp -> %.3f", state);'
+
+  # RGBWW (RGB + cold/warm white)
+  - platform: template
+    id: out_rgbww_r
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgbww.r -> %.3f", state);'
+  - platform: template
+    id: out_rgbww_g
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgbww.g -> %.3f", state);'
+  - platform: template
+    id: out_rgbww_b
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgbww.b -> %.3f", state);'
+  - platform: template
+    id: out_rgbww_cw
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgbww.cold -> %.3f", state);'
+  - platform: template
+    id: out_rgbww_ww
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("out", "rgbww.warm -> %.3f", state);'
+
+# ---------------------------------------------------------------------------
+# Lights (one per ESPHome ColorMode, log every state change for round-trip)
+# ---------------------------------------------------------------------------
+
+light:
+  # 1. Binary (on/off only) -> COLOR_MODE_ON_OFF, dimmer=false
+  - platform: binary
+    name: "Test Binary Light"
+    id: binary_light
+    output: out_binary
+    on_turn_on:
+      - lambda: 'ESP_LOGI("light", "binary_light -> ON");'
+    on_turn_off:
+      - lambda: 'ESP_LOGI("light", "binary_light -> OFF");'
+    on_state:
+      - lambda: |-
+          ESP_LOGI("light", "binary_light state: on=%d", id(binary_light).remote_values.is_on());
+
+  # 2. Monochromatic -> COLOR_MODE_BRIGHTNESS, dimmer=true
+  - platform: monochromatic
+    name: "Test Mono Light"
+    id: mono_light
+    output: out_mono
+    default_transition_length: 0s
+    on_state:
+      - lambda: |-
+          ESP_LOGI("light", "mono_light state: on=%d brightness=%.3f",
+                   id(mono_light).remote_values.is_on(),
+                   id(mono_light).remote_values.get_brightness());
+
+  # 3. Color Temperature -> COLOR_MODE_COLOR_TEMPERATURE, dimmer=true
+  - platform: color_temperature
+    name: "Test CT Light"
+    id: ct_light
+    brightness: out_ct_brightness
+    color_temperature: out_ct_temp
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    default_transition_length: 0s
+    on_state:
+      - lambda: |-
+          ESP_LOGI("light", "ct_light state: on=%d brightness=%.3f temp=%.0f",
+                   id(ct_light).remote_values.is_on(),
+                   id(ct_light).remote_values.get_brightness(),
+                   id(ct_light).remote_values.get_color_temperature());
+
+  # 4. CWWW (Cold White / Warm White) -> COLOR_MODE_COLD_WARM_WHITE, dimmer=true
+  - platform: cwww
+    name: "Test CWWW Light"
+    id: cwww_light
+    cold_white: out_cw
+    warm_white: out_ww
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    constant_brightness: false
+    default_transition_length: 0s
+    on_state:
+      - lambda: |-
+          ESP_LOGI("light", "cwww_light state: on=%d brightness=%.3f cw=%.3f ww=%.3f",
+                   id(cwww_light).remote_values.is_on(),
+                   id(cwww_light).remote_values.get_brightness(),
+                   id(cwww_light).remote_values.get_cold_white(),
+                   id(cwww_light).remote_values.get_warm_white());
+
+  # 5. RGB -> COLOR_MODE_RGB, dimmer=true
+  - platform: rgb
+    name: "Test RGB Light"
+    id: rgb_light
+    red: out_r
+    green: out_g
+    blue: out_b
+    default_transition_length: 0s
+    on_state:
+      - lambda: |-
+          ESP_LOGI("light", "rgb_light state: on=%d brightness=%.3f rgb=(%.2f,%.2f,%.2f)",
+                   id(rgb_light).remote_values.is_on(),
+                   id(rgb_light).remote_values.get_brightness(),
+                   id(rgb_light).remote_values.get_red(),
+                   id(rgb_light).remote_values.get_green(),
+                   id(rgb_light).remote_values.get_blue());
+
+  # 6. RGBW (RGB + dedicated white) -> COLOR_MODE_RGB_WHITE, dimmer=true
+  - platform: rgbw
+    name: "Test RGBW Light"
+    id: rgbw_light
+    red: out_rgbw_r
+    green: out_rgbw_g
+    blue: out_rgbw_b
+    white: out_rgbw_w
+    default_transition_length: 0s
+    on_state:
+      - lambda: |-
+          ESP_LOGI("light", "rgbw_light state: on=%d brightness=%.3f rgb=(%.2f,%.2f,%.2f) w=%.2f",
+                   id(rgbw_light).remote_values.is_on(),
+                   id(rgbw_light).remote_values.get_brightness(),
+                   id(rgbw_light).remote_values.get_red(),
+                   id(rgbw_light).remote_values.get_green(),
+                   id(rgbw_light).remote_values.get_blue(),
+                   id(rgbw_light).remote_values.get_white());
+
+  # 7. RGBCT (RGB + color-temp white) -> COLOR_MODE_RGB_COLOR_TEMPERATURE, dimmer=true
+  - platform: rgbct
+    name: "Test RGBCT Light"
+    id: rgbct_light
+    red: out_rgbct_r
+    green: out_rgbct_g
+    blue: out_rgbct_b
+    white_brightness: out_rgbct_w_brightness
+    color_temperature: out_rgbct_w_temp
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    default_transition_length: 0s
+    on_state:
+      - lambda: |-
+          ESP_LOGI("light", "rgbct_light state: on=%d brightness=%.3f rgb=(%.2f,%.2f,%.2f) w=%.2f temp=%.0f",
+                   id(rgbct_light).remote_values.is_on(),
+                   id(rgbct_light).remote_values.get_brightness(),
+                   id(rgbct_light).remote_values.get_red(),
+                   id(rgbct_light).remote_values.get_green(),
+                   id(rgbct_light).remote_values.get_blue(),
+                   id(rgbct_light).remote_values.get_white(),
+                   id(rgbct_light).remote_values.get_color_temperature());
+
+  # 8. RGBWW (RGB + cold + warm white) -> COLOR_MODE_RGB_COLD_WARM_WHITE, dimmer=true
+  - platform: rgbww
+    name: "Test RGBWW Light"
+    id: rgbww_light
+    red: out_rgbww_r
+    green: out_rgbww_g
+    blue: out_rgbww_b
+    cold_white: out_rgbww_cw
+    warm_white: out_rgbww_ww
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    constant_brightness: false
+    default_transition_length: 0s
+    on_state:
+      - lambda: |-
+          ESP_LOGI("light", "rgbww_light state: on=%d brightness=%.3f rgb=(%.2f,%.2f,%.2f) cw=%.2f ww=%.2f",
+                   id(rgbww_light).remote_values.is_on(),
+                   id(rgbww_light).remote_values.get_brightness(),
+                   id(rgbww_light).remote_values.get_red(),
+                   id(rgbww_light).remote_values.get_green(),
+                   id(rgbww_light).remote_values.get_blue(),
+                   id(rgbww_light).remote_values.get_cold_white(),
+                   id(rgbww_light).remote_values.get_warm_white());

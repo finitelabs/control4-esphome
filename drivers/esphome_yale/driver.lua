@@ -723,7 +723,7 @@ local function handleInitResponse(data)
   handshakeState = HANDSHAKE_STATE.COMPLETE
   reconnectAttempts = 0
   UpdateProperty("Driver Status", "Connected")
-  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = "true" }, "NOTIFY")
+  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
 
   -- Per yalexs-ble: subscribe regular read AFTER handshake completes
   local _, readHandle = getHandles()
@@ -1218,7 +1218,7 @@ function OnDriverLateInit()
   end
   gInitialized = true
   UpdateProperty("Driver Status", "Disconnected")
-  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = "false" }, "NOTIFY")
+  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
 
   -- Restore lock status from persisted property
   local savedStatus = Properties["Lock Status"]
@@ -1446,7 +1446,7 @@ function RFP.BLE_ADVERTISEMENT(idBinding, strCommand, tParams, args)
   local driverStatus = Properties["Driver Status"]
   if driverStatus == "Disconnected" then
     UpdateProperty("Driver Status", "Listening")
-    SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = "true" }, "NOTIFY")
+    SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
     if currentLockStatus then
       SendToProxy(PROXY_BINDING, "LOCK_STATUS_CHANGED", { LOCK_STATUS = currentLockStatus }, "NOTIFY")
     end

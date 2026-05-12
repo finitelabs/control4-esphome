@@ -84,6 +84,15 @@ function ClimateEntity:discovered(entity)
   self:_sendUserServices(bindingId)
 end
 
+--- Notify sub-drivers that the ESPHome device has disconnected.
+--- @return void
+function ClimateEntity:disconnected()
+  log:trace("ClimateEntity:disconnected()")
+  for _, binding in pairs(bindings:getDynamicBindings(self.TYPE)) do
+    SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", {}, "NOTIFY")
+  end
+end
+
 --- Send the list of discovered user-defined ESPHome services to the child driver.
 --- @param bindingId number The binding ID of the child climate driver.
 function ClimateEntity:_sendUserServices(bindingId)
