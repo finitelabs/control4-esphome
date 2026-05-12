@@ -874,7 +874,7 @@ can file an issue on GitHub:
 
 # <span style="color:#17BCF2">Changelog</span>
 
-## Unreleased
+## v20260512 - 2026-05-12
 
 ### Added
 
