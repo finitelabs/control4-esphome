@@ -15,6 +15,7 @@ require("drivers-common-public.global.timer")
 JSON = require("JSON")
 
 local log = require("lib.logging")
+local persist = require("lib.persist")
 
 local constants = require("constants")
 
@@ -47,6 +48,25 @@ local function getCurrentSpeed()
   return math.max(1, math.min(DISCRETE_LEVELS, speed_level))
 end
 
+--- Clamp a raw preset value into the valid range, or nil if not a positive integer.
+--- @param raw any
+--- @return integer|nil
+local function clampPresetSpeed(raw)
+  local n = tointeger(raw)
+  if n == nil or n <= 0 then
+    return nil
+  end
+  return math.max(1, math.min(DISCRETE_LEVELS, n))
+end
+
+--- Notify the fan proxy of the currently designated preset speed, if any.
+local function notifyPresetSpeed()
+  if PRESET_SPEED == nil then
+    return
+  end
+  SendToProxy(PROXY_BINDING, "PRESET_SPEED", { SPEED = tostring(PRESET_SPEED) }, "NOTIFY")
+end
+
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
   require("cloud-client-byte")
@@ -76,9 +96,13 @@ function OnDriverLateInit()
     end
   end
 
+  -- Restore persisted state
+  PRESET_SPEED = clampPresetSpeed(persist:get("PRESET_SPEED"))
+
   gInitialized = true
   UpdateProperty("Driver Status", "Disconnected")
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
+  notifyPresetSpeed()
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
 end
 
@@ -131,11 +155,16 @@ end
 
 local function on()
   log:trace("on()")
+  local body = {
+    has_state = true,
+    state = true,
+  }
+  if PRESET_SPEED ~= nil then
+    body.has_speed_level = true
+    body.speed_level = PRESET_SPEED
+  end
   SendToProxy(ESPHOME_BINDING, "ENTITY_COMMAND", {
-    body = SerializeSafe({
-      has_state = true,
-      state = true,
-    }),
+    body = SerializeSafe(body),
   })
 end
 
@@ -288,8 +317,15 @@ function RFP.DESIGNATE_PRESET(idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  PRESET_SPEED = tointeger(Select(tParams, "SPEED"))
+  local preset = clampPresetSpeed(Select(tParams, "PRESET"))
+  if preset == nil then
+    log:warn("DESIGNATE_PRESET ignored: invalid PRESET param %s", tParams)
+    return
+  end
+  PRESET_SPEED = preset
+  persist:set("PRESET_SPEED", PRESET_SPEED)
   log:debug("Preset speed set to %s", PRESET_SPEED)
+  notifyPresetSpeed()
 end
 
 function RFP.GET_CURRENT_STATE(idBinding, strCommand)
@@ -311,6 +347,7 @@ function RFP.GET_CURRENT_STATE(idBinding, strCommand)
     SendToProxy(PROXY_BINDING, "CURRENT_SPEED", { SPEED = tostring(speed) }, "NOTIFY")
   end
   SendToProxy(PROXY_BINDING, "DIRECTION", { DIRECTION = direction == 0 and "forward" or "reverse" }, "NOTIFY")
+  notifyPresetSpeed()
 end
 
 function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
