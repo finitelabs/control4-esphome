@@ -874,6 +874,15 @@ can file an issue on GitHub:
 
 # <span style="color:#17BCF2">Changelog</span>
 
+## Unreleased
+
+### Fixed
+
+- Fixed BOOL variables (`<Entity> State` for binary_sensor and switch, plus all
+  BTHome boolean sensors) staying as `False` in the Variables Agent even when
+  the underlying state was changing. Variables now serialize as `"0"`/`"1"`
+  matching what Control4 expects.
+
 ## v20260512 - 2026-05-12
 
 ### Added
