@@ -5,6 +5,7 @@ local persist = require("lib.persist")
 local constants = require("constants")
 
 --- @class Values
+--- @field _callbacks table<string, function?> In-memory registry of OVC callbacks keyed by variable name.
 --- A class representing a collection of named values with optional variable/property support.
 local Values = {}
 Values.__index = Values
@@ -23,6 +24,7 @@ end
 --- @field varType VariableType? Optional variable type if registered as a variable
 --- @field value string|integer|number|boolean|nil The stored value
 --- @field suffix string? Optional suffix for property display (e.g., " °C", " %")
+--- @field writable boolean? Whether the variable accepts writes from programming. Persisted so restore can recreate the C4 variable with the correct readOnly flag.
 --- @field deleted boolean? If true, the value slot is reserved but the variable is hidden (preserves ID ordering)
 
 --- Creates a new Values instance.
@@ -30,19 +32,82 @@ end
 function Values:new()
   log:trace("Values:new()")
   local instance = setmetatable({}, self)
+  instance._callbacks = {}
   return instance
+end
+
+--- Register (or clear) the OnVariableChanged callback for a variable. Callback
+--- wiring is managed independently of value updates so that inbound state
+--- changes never accidentally clear an entity's programming handler.
+---
+--- Persists the writable flag so future restores recreate the C4 variable with
+--- the correct readOnly state. Does NOT delete/recreate an already-created C4
+--- variable, since that would orphan any programming attached to it; flipping
+--- writable on an existing variable takes effect on the next restart.
+--- @param name string The variable name.
+--- @param callback (fun(newValue: string|integer|number): void)? The callback, or nil to clear.
+function Values:setCallback(name, callback)
+  log:trace("Values:setCallback(%s, %s)", name, callback)
+
+  self._callbacks[name] = callback
+
+  OVC[ovcKey(name)] = callback
+      and function(newValue)
+        log:debug("Variable %s changed to %s", name, newValue)
+        callback(newValue)
+      end
+    or nil
+
+  local values = self:getValues()
+  local existing = values[name]
+  if existing == nil then
+    return
+  end
+
+  local desiredWritable = (callback ~= nil)
+  if existing.writable ~= desiredWritable then
+    existing.writable = desiredWritable
+    self:_saveValues(values)
+  end
 end
 
 --- Updates a value. If the value does not exist, it will be created. If the
 --- `name` is also a property, it will also be updated.
+---
+--- The `callbackOrWritable` argument (arg 4) controls callback wiring and
+--- writability. It is dispatched by type:
+---
+---   * `nil`      — no change; any previously registered callback/writable
+---                  state is left alone. This is what 3-arg callers get.
+---   * `false`    — clears the callback (equivalent to
+---                  `setCallback(name, nil)`), marking the variable read-only.
+---   * `true`     — registers a no-op placeholder callback so the variable is
+---                  writable from C4 programming. No change-notification path;
+---                  the driver observes updates by reading `Variables[name]`.
+---   * function   — registers the callback (equivalent to
+---                  `setCallback(name, fn)`) and marks the variable writable.
+---
+--- When a function (or `true`) is passed, `setCallback` runs before the C4
+--- variable is created on this call, so a newly-created variable comes up
+--- writable on the very first call. For existing variables, flipping
+--- writability takes effect on the next restart (see `setCallback`).
+---
 --- @param name string The name of the value to update or create. Must be globally unique.
 --- @param value string|integer|number|boolean|nil The value to set, can be `nil`.
 --- @param varType VariableType? The type of the variable, if `nil` it will not be registered as a variable.
---- @param varChangedCallback (fun(newValue: string|integer|number): void)? The callback function to be called when the variable changes.
+--- @param callbackOrWritable (fun(newValue: string|integer|number): void)|boolean|nil Callback to register, `true` for writable-with-placeholder, `false` to clear, or `nil` for no change.
 --- @param propertySuffix string? Optional suffix to append to the property value (e.g., "°C" for temperature units).
 --- @return boolean changed True if the value changed, false otherwise.
-function Values:update(name, value, varType, varChangedCallback, propertySuffix)
-  log:trace("Values:update(%s, %s, %s, %s, %s)", name, value, varType, varChangedCallback, propertySuffix)
+function Values:update(name, value, varType, callbackOrWritable, propertySuffix)
+  log:trace("Values:update(%s, %s, %s, %s, %s)", name, value, varType, callbackOrWritable, propertySuffix)
+
+  if type(callbackOrWritable) == "function" then
+    self:setCallback(name, callbackOrWritable)
+  elseif callbackOrWritable == true then
+    self:setCallback(name, function() end)
+  elseif callbackOrWritable == false then
+    self:setCallback(name, nil)
+  end
 
   -- Convert value to appropriate type based on varType
   if varType == "BOOL" then
@@ -58,38 +123,47 @@ function Values:update(name, value, varType, varChangedCallback, propertySuffix)
   local values = self:getValues()
   local existing = values[name]
 
+  -- Writable iff a callback is currently registered, or the persisted record
+  -- already says so (lets restore recreate the C4 variable correctly before
+  -- items have a chance to re-register their callbacks).
+  local writable = self._callbacks[name] ~= nil or (existing and existing.writable) or false
+
   -- Check if the entry has changed
   local changed = not existing
     or existing.value ~= value
     or existing.suffix ~= propertySuffix
     or existing.varType ~= varType
+    or existing.writable ~= writable
   if changed then
     values[name] = {
       index = Select(values, name, "index") or self:_getNextValueId(),
       varType = varType,
       value = value,
       suffix = propertySuffix,
+      writable = writable,
     }
     self:_saveValues(values)
   end
 
-  local strValue = value == nil and "" or tostring(value)
+  -- C4 BOOL variables expect "0"/"1", not "true"/"false".
+  local strValue
+  if value == nil then
+    strValue = ""
+  elseif type(value) == "boolean" then
+    strValue = value and "1" or "0"
+  else
+    strValue = tostring(value)
+  end
 
   if varType ~= nil then
-    -- Register an OVC handler for this variable if a callback is provided
-    OVC[ovcKey(name)] = varChangedCallback
-        and function(newValue)
-          log:debug("Variable %s changed to %s", name, newValue)
-          varChangedCallback(newValue)
-        end
-      or nil
     if Variables[name] == nil then
-      C4:AddVariable(name, strValue, varType, varChangedCallback == nil, false)
+      C4:AddVariable(name, strValue, varType, not writable, false)
     elseif Variables[name] ~= strValue then
       C4:SetVariable(name, strValue)
     end
   elseif Variables[name] ~= nil then
     OVC[ovcKey(name)] = nil
+    self._callbacks[name] = nil
     C4:DeleteVariable(name)
     Variables[name] = nil
   end
@@ -136,6 +210,7 @@ function Values:delete(name)
 
   -- Remove the OVC handler and delete the variable
   OVC[ovcKey(name)] = nil
+  self._callbacks[name] = nil
   if Variables[name] ~= nil then
     C4:DeleteVariable(name)
     Variables[name] = nil
@@ -264,6 +339,7 @@ function Values:reset()
       Variables[name] = nil
     end
   end
+  self._callbacks = {}
   self:_saveValues(nil)
 end
 
