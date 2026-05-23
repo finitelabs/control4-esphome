@@ -20,6 +20,11 @@
   BTHome boolean sensors) staying as `False` in the Variables Agent even when
   the underlying state was changing. Variables now serialize as `"0"`/`"1"`
   matching what Control4 expects.
+- Fixed ESPHome fan `Designate Preset` command: the handler now reads the
+  correct `PRESET` param (was `SPEED`), clamps to the driver's speed count,
+  persists the value across driver restarts, notifies the proxy so Composer and
+  Navigator reflect the designated preset, and applies the preset when the fan
+  is turned on so `Turn On Fan` runs at the designated speed.
 
 ## v20260512 - 2026-05-12
 
