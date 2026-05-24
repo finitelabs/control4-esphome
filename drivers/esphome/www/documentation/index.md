@@ -760,11 +760,13 @@ BLE devices into Control4.
 The following POE-powered Bluetooth proxies are excellent choices with 4 active
 connection slots:
 
-- [Seeed Studio XIAO ESP32C6](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32C6-p-5884.html)
-  with POE expansion board
+- [Seeed Studio XIAO W5500 Ethernet Adapter](https://www.seeedstudio.com/XIAO-W5500-Ethernet-Adapter-p-6472.html?sensecap_affiliate=sikqXSu&referring_service=link)
 - [Olimex ESP32-POE](https://www.olimex.com/Products/IoT/ESP32/ESP32-POE/open-source-hardware)
   or
   [ESP32-POE-ISO](https://www.olimex.com/Products/IoT/ESP32/ESP32-POE-ISO/open-source-hardware)
+
+_Some hardware links above are affiliate links. Purchases through them help
+support driver development at no extra cost to you._
 
 **Firmware Installation:**
 
