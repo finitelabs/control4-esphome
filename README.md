@@ -880,6 +880,11 @@ can file an issue on GitHub:
 
 ### Fixed
 
+- Declare ESPHome light hardware capabilities (dimming, color, color
+  temperature) conservatively in the static baseline and enable them at runtime
+  from the entity's discovered color modes. A full static baseline advertised
+  brightness and color for an on/off-only ESPHome light to capability consumers
+  that read the static declaration instead of the runtime-narrowed set.
 - Fixed BOOL variables (`<Entity> State` for binary_sensor and switch, plus all
   BTHome boolean sensors) staying as `False` in the Variables Agent even when
   the underlying state was changing. Variables now serialize as `"0"`/`"1"`
