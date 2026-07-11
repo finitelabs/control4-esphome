@@ -1199,6 +1199,10 @@ function OnDriverInit()
   log:setLogLevel(Properties["Log Level"])
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
+
+  -- Restore persisted state
+  values:restoreValues()
+  bindings:restoreBindings()
 end
 
 function OnDriverLateInit()
@@ -1206,9 +1210,6 @@ function OnDriverLateInit()
   if not CheckMinimumVersion("Driver Status") then
     return
   end
-
-  bindings:restoreBindings()
-  values:restoreValues()
 
   for p, _ in pairs(Properties) do
     local status, err = pcall(OnPropertyChanged, p)

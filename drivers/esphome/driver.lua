@@ -130,6 +130,10 @@ function OnDriverInit()
   log:setLogLevel(Properties["Log Level"])
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
+
+  -- Restore persisted state
+  values:restoreValues()
+  bindings:restoreBindings()
 end
 
 function OnDriverLateInit()
@@ -144,8 +148,6 @@ function OnDriverLateInit()
   bluetoothProxyCapability:setPropertiesAttribs(constants.HIDE_PROPERTY)
 
   C4:FileSetDir("c29tZXNwZWNpYWxrZXk=++11")
-  bindings:restoreBindings()
-  values:restoreValues()
 
   -- Fire OnPropertyChanged to set the initial Headers and other Property
   -- global sets, they'll change if Property is changed.

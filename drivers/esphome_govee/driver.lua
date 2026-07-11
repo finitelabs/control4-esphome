@@ -510,7 +510,6 @@ function OnDriverInit()
 
   -- Restore persisted state
   values:restoreValues()
-  events:restoreEvents()
   bindings:restoreBindings()
 end
 
@@ -519,6 +518,9 @@ function OnDriverLateInit()
   if not CheckMinimumVersion("Driver Status") then
     return
   end
+
+  -- Restore persisted events (C4:AddEvent is unavailable before OnDriverLateInit)
+  events:restoreEvents()
 
   -- Hide all optional properties initially
   hideOptionalProperties()
