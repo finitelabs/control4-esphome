@@ -458,6 +458,9 @@ function OnDriverInit()
   log:setLogLevel(Properties["Log Level"])
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
+
+  -- Restore persisted state
+  bindings:restoreBindings()
 end
 
 function OnDriverLateInit()
@@ -474,9 +477,6 @@ function OnDriverLateInit()
       log:error("Error in OnPropertyChanged for property '%s': %s", p, err or "unknown error")
     end
   end
-  -- Restore dynamic bindings from persistence
-  bindings:restoreBindings()
-
   -- Restore persisted state
   LAST_WATER_HEATER_MODE = persist:get("LastWaterHeaterMode")
   REMOTE_SENSOR_IN_USE = persist:get("RemoteSensorInUse") or false

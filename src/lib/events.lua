@@ -101,6 +101,8 @@ function Events:deleteEvent(namespace, key)
 end
 
 --- Restores all events from persistent storage. Ensures that all events are re-added and removes unknown events.
+---
+--- Call this from OnDriverLateInit: C4:AddEvent is unavailable earlier.
 function Events:restoreEvents()
   log:trace("Events:restoreEvents()")
   --- @type table<number, boolean>

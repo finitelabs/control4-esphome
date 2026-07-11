@@ -243,6 +243,9 @@ end
 --- values are re-added in a consistent order based on their index.
 --- Deleted values are restored as hidden placeholders to preserve
 --- variable ID ordering for subsequent variables.
+---
+--- Call this from OnDriverInit: programming attached to variables added
+--- after OnDriverInit may not work after a Director restart.
 --- @return void
 function Values:restoreValues()
   log:trace("Values:restoreValues()")

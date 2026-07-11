@@ -16,6 +16,10 @@
 
 ### Fixed
 
+- Fixed Bluetooth Coordinator connections to ESPHome proxies (and other
+  dynamically created connections) disappearing after a controller reboot or
+  Director restart. Dynamic bindings are now restored early enough in driver
+  startup for Director to reconnect them.
 - Declare ESPHome light hardware capabilities (dimming, color, color
   temperature) conservatively in the static baseline and enable them at runtime
   from the entity's discovered color modes. A full static baseline advertised

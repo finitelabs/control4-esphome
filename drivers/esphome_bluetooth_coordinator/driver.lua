@@ -617,6 +617,10 @@ function OnDriverInit()
   log:setLogLevel(Properties["Log Level"])
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
+
+  -- Restore persisted state
+  values:restoreValues()
+  bindings:restoreBindings()
 end
 
 function OnDriverLateInit()
@@ -635,10 +639,8 @@ function OnDriverLateInit()
   log:info("Initializing Bluetooth Coordinator")
   C4:UpdateProperty("Driver Status", "Initializing...")
 
-  -- Restore persisted bindings, events, and values
-  bindings:restoreBindings()
+  -- Restore persisted events (C4:AddEvent is unavailable before OnDriverLateInit)
   events:restoreEvents()
-  values:restoreValues()
 
   -- Set up proxy bindings
   setupProxyBindings()
