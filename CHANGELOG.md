@@ -19,6 +19,23 @@
 - Added ESPHome SereneScent sub-driver for Homedics SereneScent BLE diffusers
   with power, intensity, color control, and automatic status polling
 
+### Fixed
+
+- Declare ESPHome light hardware capabilities (dimming, color, color
+  temperature) conservatively in the static baseline and enable them at runtime
+  from the entity's discovered color modes. A full static baseline advertised
+  brightness and color for an on/off-only ESPHome light to capability consumers
+  that read the static declaration instead of the runtime-narrowed set.
+- Fixed BOOL variables (`<Entity> State` for binary_sensor and switch, plus all
+  BTHome boolean sensors) staying as `False` in the Variables Agent even when
+  the underlying state was changing. Variables now serialize as `"0"`/`"1"`
+  matching what Control4 expects.
+- Fixed ESPHome fan `Designate Preset` command: the handler now reads the
+  correct `PRESET` param (was `SPEED`), clamps to the driver's speed count,
+  persists the value across driver restarts, notifies the proxy so Composer and
+  Navigator reflect the designated preset, and applies the preset when the fan
+  is turned on so `Turn On Fan` runs at the designated speed.
+
 ## v20260512 - 2026-05-12
 
 ### Added

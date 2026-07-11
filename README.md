@@ -665,11 +665,13 @@ BLE devices into Control4.
 The following POE-powered Bluetooth proxies are excellent choices with 4 active
 connection slots:
 
-- [Seeed Studio XIAO ESP32C6](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32C6-p-5884.html)
-  with POE expansion board
+- [Seeed Studio XIAO W5500 Ethernet Adapter](https://www.seeedstudio.com/XIAO-W5500-Ethernet-Adapter-p-6472.html?sensecap_affiliate=sikqXSu&referring_service=link)
 - [Olimex ESP32-POE](https://www.olimex.com/Products/IoT/ESP32/ESP32-POE/open-source-hardware)
   or
   [ESP32-POE-ISO](https://www.olimex.com/Products/IoT/ESP32/ESP32-POE-ISO/open-source-hardware)
+
+_Some hardware links above are affiliate links. Purchases through them help
+support driver development at no extra cost to you._
 
 **Firmware Installation:**
 
@@ -881,6 +883,23 @@ can file an issue on GitHub:
 
 - Added ESPHome SereneScent sub-driver for Homedics SereneScent BLE diffusers
   with power, intensity, color control, and automatic status polling
+
+### Fixed
+
+- Declare ESPHome light hardware capabilities (dimming, color, color
+  temperature) conservatively in the static baseline and enable them at runtime
+  from the entity's discovered color modes. A full static baseline advertised
+  brightness and color for an on/off-only ESPHome light to capability consumers
+  that read the static declaration instead of the runtime-narrowed set.
+- Fixed BOOL variables (`<Entity> State` for binary_sensor and switch, plus all
+  BTHome boolean sensors) staying as `False` in the Variables Agent even when
+  the underlying state was changing. Variables now serialize as `"0"`/`"1"`
+  matching what Control4 expects.
+- Fixed ESPHome fan `Designate Preset` command: the handler now reads the
+  correct `PRESET` param (was `SPEED`), clamps to the driver's speed count,
+  persists the value across driver restarts, notifies the proxy so Composer and
+  Navigator reflect the designated preset, and applies the preset when the fan
+  is turned on so `Turn On Fan` runs at the designated speed.
 
 ## v20260512 - 2026-05-12
 
