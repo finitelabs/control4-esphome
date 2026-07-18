@@ -12,6 +12,14 @@
 [//]: # "- Removed"
 <!-- prettier-ignore-end -->
 
+## Unreleased
+
+### Fixed
+
+- Bumped the ESPHome native API version advertised in `HelloRequest` from 1.0
+  to 1.14 so devices no longer log `using outdated API 1.0, update to 1.14+` on
+  every connection.
+
 ## v20260711 - 2026-07-11
 
 ### Fixed
