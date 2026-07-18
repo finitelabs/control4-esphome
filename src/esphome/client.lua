@@ -1517,7 +1517,7 @@ function ESPHomeClient:sendHello()
       deviceId
     ),
     api_version_major = 1,
-    api_version_minor = 0,
+    api_version_minor = 14,
   })
 end
 
