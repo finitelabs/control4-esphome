@@ -42,6 +42,7 @@ synced with `copier update`.
 - `drivers-common-public/` — Control4's official shared libraries
 - `xml/` — XML parser (xml2lua)
 - `bitn.lua` — bit manipulation library
+- `crypto.lua` — cryptographic primitives (core build; requires `bitn`)
 - `bthome.lua` — BTHome protocol support
 - `noiseprotocol.lua` — Noise Protocol encryption
 - `protobuf.lua` — Protocol Buffers
