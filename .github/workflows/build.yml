@@ -73,10 +73,7 @@ jobs:
             exit 1
           fi
 
-<<<<<<< before updating
-=======
 
->>>>>>> after updating
       - name: Upload drivercentral artifacts
         if: always()
         uses: actions/upload-artifact@v7
