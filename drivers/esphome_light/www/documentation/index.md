@@ -1,4 +1,4 @@
-[copyright]: # "Copyright 2026 Finite Labs, LLC. All rights reserved."
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
 
 <style>
 @media print {
@@ -15,7 +15,7 @@
 
 <img alt="ESPHome Light" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
@@ -47,7 +47,9 @@ entities, allowing them to be controlled through the Control4 light proxy.
   - [Connections](#connections)
   <!-- #ifdef DRIVERCENTRAL -->
 - [Developer Information](#developer-information)
+
 <!-- #endif -->
+
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -110,9 +112,9 @@ Light driver to the light entity exposed by the main driver.
 ## Adding the Driver
 
 1. In Composer Pro, add the ESPHome Light driver to your project.
-2. Bind the `ESPHome Light` connection to the matching light entity exposed by
+1. Bind the `ESPHome Light` connection to the matching light entity exposed by
    the main ESPHome driver.
-3. The driver will automatically synchronize its state once bound.
+1. The driver will automatically synchronize its state once bound.
 
 ## Driver Properties
 
@@ -124,7 +126,7 @@ Light driver to the light entity exposed by the main driver.
 
 Displays the DriverCentral cloud license status.
 
-#### Automatic Updates [ Off | **_On_** ]
+#### Automatic Updates \[ Off | **_On_** \]
 
 Enables or disables automatic driver updates via DriverCentral.
 
@@ -140,11 +142,11 @@ Displays the current status of the driver.
 
 Displays the current version of the driver.
 
-#### Log Level [ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra ]
+#### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
 
 Sets the logging level. Default is `3 - Info`.
 
-#### Log Mode [ **_Off_** | Print | Log | Print and Log ]
+#### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
 
 Sets the logging mode. Default is `Off`.
 
