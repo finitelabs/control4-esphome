@@ -41,6 +41,11 @@ PYGMENTS_CSS = HtmlFormatter(style="default").get_style_defs(".highlight")
 LAYOUT_CSS = """
 .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
 @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+/* The docs index is authored in a small-font <div>. Preprocessor #ifdef blocks
+   can leave a blank line in the list for some distributions, which makes markdown
+   render it "loose" — each <li> wrapped in a <p> whose paragraph margins add
+   large vertical gaps. Keep the index compact regardless. */
+.markdown-body div[style*="font-size"] li > p { margin: 0; }
 @page { size: Letter; margin: 0.4in; }
 @media print {
   .markdown-body { max-width: none; padding: 0 45px; margin: 0; }
