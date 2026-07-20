@@ -3423,7 +3423,7 @@ bthome.UUID_V1_ENCRYPTED = bthome.parser.UUID_V1_ENCRYPTED
 bthome.UUID_V2 = bthome.parser.UUID_V2
 
 --- Library version (injected at build time for releases).
-local VERSION = "v0.1.1"
+local VERSION = "v0.1.2"
 
 --- Get the library version string.
 --- @return string version Version string (e.g., "v1.0.0" or "dev")

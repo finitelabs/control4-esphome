@@ -1,0 +1,243 @@
+#!/usr/bin/env bash
+# Check the GitHub repository for this project against the standard
+# repository settings. By default this is a dry run that prints the changes
+# it would make. Pass --apply to make them, including creating the
+# repository if it does not exist.
+#
+# Usage: tools/github-setup [--apply] [--public]
+#
+# The repository is <github_org>/<project_name> from .copier-answers.yml, so
+# it targets whatever organization or personal account the project was
+# scaffolded for. Personal accounts get a repository admin bypass actor on
+# the ruleset instead of the organization admin one.
+#
+# New repositories are created private. Pass --public to create a public
+# repository instead. The flag does not change the visibility of an existing
+# repository; flip that deliberately in the GitHub UI when a driver is ready
+# for release.
+#
+# Standard settings:
+#   - Projects and wiki disabled
+#   - Squash merges only, auto-merge allowed, head branches deleted on merge
+#   - Default branch "main" (renames "master" if found)
+#   - Branch ruleset "Default": no deletions or force pushes, PRs require one
+#     approval and a passing "build" check, admins can bypass
+#   - Dependabot alerts and security updates enabled
+#
+# Requires the GitHub CLI (gh) authenticated with admin access to the
+# target organization or account.
+
+set -euo pipefail
+
+ANSWERS=.copier-answers.yml
+APPLY=false
+VISIBILITY=private
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply) APPLY=true ;;
+    --public) VISIBILITY=public ;;
+    -h|--help)
+      sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *) echo "error: unknown argument: $1 (see --help)" >&2; exit 1 ;;
+  esac
+  shift
+done
+
+command -v gh >/dev/null || { echo "error: gh is not installed" >&2; exit 1; }
+[ -f "$ANSWERS" ] || { echo "error: $ANSWERS not found; run from the project root" >&2; exit 1; }
+
+answer() { sed -n "s/^$1: *//p" "$ANSWERS" | tr -d '"'; }
+ORG=$(answer github_org)
+NAME=$(answer project_name)
+DESCRIPTION=$(answer project_description)
+REPO="$ORG/$NAME"
+
+[ -n "$ORG" ] && [ -n "$NAME" ] || { echo "error: github_org or project_name missing from $ANSWERS" >&2; exit 1; }
+
+DRIFT=0
+note() { echo "  ok:     $*"; }
+change() {
+  DRIFT=$((DRIFT + 1))
+  if $APPLY; then echo "  apply:  $*"; else echo "  would:  $*"; fi
+}
+
+# Organizations use the organization admin bypass actor. Personal accounts
+# have no organization roles, so use the repository admin role instead.
+BYPASS_ACTOR='{"actor_id": null, "actor_type": "OrganizationAdmin", "bypass_mode": "always"}'
+if [ "$(gh api "users/$ORG" --jq .type 2>/dev/null)" = "User" ]; then
+  BYPASS_ACTOR='{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}'
+fi
+
+RULESET=$(cat << EOF
+{
+  "name": "Default",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [
+    $BYPASS_ACTOR
+  ],
+  "conditions": {"ref_name": {"exclude": [], "include": ["~DEFAULT_BRANCH"]}},
+  "rules": [
+    {"type": "deletion"},
+    {"type": "non_fast_forward"},
+    {"type": "pull_request", "parameters": {
+      "allowed_merge_methods": ["squash"],
+      "dismiss_stale_reviews_on_push": true,
+      "dismissal_restriction": {"allowed_actors": [], "enabled": false},
+      "require_code_owner_review": false,
+      "require_last_push_approval": false,
+      "required_approving_review_count": 1,
+      "required_review_thread_resolution": false,
+      "required_reviewers": []
+    }},
+    {"type": "required_status_checks", "parameters": {
+      "do_not_enforce_on_create": false,
+      "required_status_checks": [{"context": "build", "integration_id": 15368}],
+      "strict_required_status_checks_policy": false
+    }}
+  ]
+}
+EOF
+)
+
+echo "Repository: $REPO"
+$APPLY || echo "Dry run; no changes will be made."
+
+# Repository existence. In a dry run against a missing repository there is
+# nothing to compare, so report the full plan and stop.
+if ! gh repo view "$REPO" --json name >/dev/null 2>&1; then
+  if ! $APPLY; then
+    change "create $VISIBILITY repository"
+    change "apply standard repository settings"
+    change "create branch ruleset Default"
+    change "enable Dependabot alerts and security updates"
+    echo
+    echo "Run again with --apply to make these changes."
+    exit 0
+  fi
+  change "create $VISIBILITY repository"
+  gh repo create "$REPO" "--$VISIBILITY" --description "$DESCRIPTION" >/dev/null
+  CREATED=true
+else
+  CREATED=false
+fi
+
+# Local git wiring. Initialize if needed and point origin at the repository,
+# but leave committing and pushing history to the user unless the repository
+# was just created and there is something to push.
+if [ ! -d .git ]; then
+  change "initialize local git repository on main"
+  $APPLY && git init -b main >/dev/null
+fi
+if [ -d .git ] && ! git remote get-url origin >/dev/null 2>&1; then
+  change "add origin remote git@github.com:$REPO.git"
+  $APPLY && git remote add origin "git@github.com:$REPO.git"
+fi
+if $CREATED; then
+  if git rev-parse HEAD >/dev/null 2>&1; then
+    git push -u origin "$(git branch --show-current)"
+  else
+    echo "note: no local commits yet; push with: git push -u origin main"
+  fi
+fi
+
+# Repository settings.
+IFS=$'\t' read -r C_BRANCH C_PROJ C_WIKI C_SQUASH C_MERGE C_REBASE C_AUTO C_DEL < <(
+  gh api "repos/$REPO" --jq '[.default_branch, .has_projects, .has_wiki,
+    .allow_squash_merge, .allow_merge_commit, .allow_rebase_merge,
+    .allow_auto_merge, .delete_branch_on_merge] | @tsv')
+
+if [ "$C_BRANCH" = "master" ]; then
+  change "rename default branch master to main"
+  $APPLY && gh api -X POST "repos/$REPO/branches/master/rename" -f new_name=main >/dev/null
+else
+  note "default branch is $C_BRANCH"
+fi
+
+SETTINGS_DRIFT=""
+[ "$C_PROJ" = "false" ]  || SETTINGS_DRIFT+=" projects=off"
+[ "$C_WIKI" = "false" ]  || SETTINGS_DRIFT+=" wiki=off"
+[ "$C_SQUASH" = "true" ] || SETTINGS_DRIFT+=" squash-merge=on"
+[ "$C_MERGE" = "false" ] || SETTINGS_DRIFT+=" merge-commit=off"
+[ "$C_REBASE" = "false" ] || SETTINGS_DRIFT+=" rebase-merge=off"
+[ "$C_AUTO" = "true" ]   || SETTINGS_DRIFT+=" auto-merge=on"
+[ "$C_DEL" = "true" ]    || SETTINGS_DRIFT+=" delete-branch-on-merge=on"
+if [ -n "$SETTINGS_DRIFT" ]; then
+  change "set repository settings:$SETTINGS_DRIFT"
+  $APPLY && gh api -X PATCH "repos/$REPO" \
+    -F has_projects=false \
+    -F has_wiki=false \
+    -F allow_squash_merge=true \
+    -F allow_merge_commit=false \
+    -F allow_rebase_merge=false \
+    -F allow_auto_merge=true \
+    -F delete_branch_on_merge=true >/dev/null
+else
+  note "repository settings match the standard"
+fi
+
+# Branch ruleset.
+RULESET_ID=$(gh api "repos/$REPO/rulesets" --jq '[.[] | select(.name == "Default")][0].id // empty')
+ruleset_warn() {
+  echo "  warning: could not apply the ruleset; note that private repositories"
+  echo "  on free personal accounts do not support rulesets"
+}
+if [ -z "$RULESET_ID" ]; then
+  change "create branch ruleset Default"
+  $APPLY && { echo "$RULESET" | gh api -X POST "repos/$REPO/rulesets" --input - >/dev/null || ruleset_warn; }
+else
+  DIFF_KEYS=$(gh api "repos/$REPO/rulesets/$RULESET_ID" | python3 -c '
+import json, sys
+
+# The API may add fields we do not manage, so only compare the fields the
+# desired ruleset specifies.
+def covered(desired, existing):
+    if isinstance(desired, dict):
+        return isinstance(existing, dict) and all(
+            covered(v, existing.get(k)) for k, v in desired.items())
+    if isinstance(desired, list):
+        return (isinstance(existing, list) and len(desired) == len(existing)
+                and all(covered(d, e) for d, e in zip(desired, existing)))
+    return desired == existing
+
+existing = json.load(sys.stdin)
+desired = json.loads(sys.argv[1])
+print(" ".join(k for k, v in desired.items() if not covered(v, existing.get(k))))
+' "$RULESET")
+  if [ -n "$DIFF_KEYS" ]; then
+    change "update branch ruleset Default (drifted: $DIFF_KEYS)"
+    $APPLY && { echo "$RULESET" | gh api -X PUT "repos/$REPO/rulesets/$RULESET_ID" --input - >/dev/null || ruleset_warn; }
+  else
+    note "branch ruleset Default matches the standard"
+  fi
+fi
+
+# Dependabot.
+if gh api "repos/$REPO/vulnerability-alerts" >/dev/null 2>&1; then
+  note "Dependabot alerts enabled"
+else
+  change "enable Dependabot alerts"
+  $APPLY && gh api -X PUT "repos/$REPO/vulnerability-alerts" >/dev/null
+fi
+if [ "$(gh api "repos/$REPO/automated-security-fixes" --jq .enabled 2>/dev/null)" = "true" ]; then
+  note "Dependabot security updates enabled"
+else
+  change "enable Dependabot security updates"
+  $APPLY && gh api -X PUT "repos/$REPO/automated-security-fixes" >/dev/null
+fi
+
+echo
+if [ "$DRIFT" -eq 0 ]; then
+  echo "No changes needed."
+elif $APPLY; then
+  echo "Done."
+else
+  echo "Run again with --apply to make these changes."
+fi
+echo
+echo "Reminder: the YouTrack VCS integration is manual. Add this repository"
+echo "under the project's VCS settings in YouTrack so the webhook gets"
+echo "installed."
