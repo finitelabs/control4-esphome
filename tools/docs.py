@@ -41,6 +41,16 @@ PYGMENTS_CSS = HtmlFormatter(style="default").get_style_defs(".highlight")
 LAYOUT_CSS = """
 .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
 @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+/* github-markdown-css ends its font stack with color-emoji fonts. On Linux
+   (CI) fontconfig matches digit codepoints to the emoji font (it carries keycap
+   digits), and WeasyPrint can't render color-emoji as text — so digits vanish.
+   Override with a text-only stack that resolves on Linux (DejaVu/Noto) and mac. */
+.markdown-body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "DejaVu Sans", "Liberation Sans", Helvetica, Arial, sans-serif;
+}
+.markdown-body code, .markdown-body pre, .markdown-body tt {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", "DejaVu Sans Mono", Menlo, monospace;
+}
 /* The docs index is authored in a small-font <div>. Preprocessor #ifdef blocks
    can leave a blank line in the list for some distributions, which makes markdown
    render it "loose" — each <li> wrapped in a <p> whose paragraph margins add
