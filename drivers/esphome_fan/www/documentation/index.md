@@ -1,4 +1,4 @@
-[copyright]: # "Copyright 2026 Finite Labs, LLC. All rights reserved."
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
 
 <style>
 @media print {
@@ -15,7 +15,7 @@
 
 <img alt="ESPHome Fan" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
@@ -49,7 +49,9 @@ allowing them to be controlled through the Control4 fan proxy with
   - [Connections](#connections)
   <!-- #ifdef DRIVERCENTRAL -->
 - [Developer Information](#developer-information)
+
 <!-- #endif -->
+
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -66,9 +68,13 @@ allowing them to be controlled through the Control4 fan proxy with
 
 - Control4 Fan Proxy integration for native Control4 fan control
 - On/Off and speed control with %%FAN_SPEED_COUNT%% discrete speed levels
+
 <!-- #ifdef FAN_CAN_REVERSE -->
+
 - Direction control (forward/reverse)
+
 <!-- #endif -->
+
 - Oscillation control via programming command
 - Button Link connections for programming integration
 - Real-time state synchronization with ESPHome device
@@ -112,9 +118,9 @@ Fan driver to the fan entity exposed by the main driver.
 
 1. In Composer Pro, add the ESPHome Fan driver matching your fan's speed count
    and direction support.
-2. Bind the `ESPHome Fan` connection to the matching fan entity exposed by the
+1. Bind the `ESPHome Fan` connection to the matching fan entity exposed by the
    main ESPHome driver.
-3. The driver will automatically synchronize its state once bound.
+1. The driver will automatically synchronize its state once bound.
 
 ## Driver Properties
 
@@ -126,7 +132,7 @@ Fan driver to the fan entity exposed by the main driver.
 
 Displays the DriverCentral cloud license status.
 
-#### Automatic Updates [ Off | **_On_** ]
+#### Automatic Updates \[ Off | **_On_** \]
 
 Enables or disables automatic driver updates via DriverCentral.
 
@@ -142,11 +148,11 @@ Displays the current status of the driver.
 
 Displays the current version of the driver.
 
-#### Log Level [ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra ]
+#### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
 
 Sets the logging level. Default is `3 - Info`.
 
-#### Log Mode [ **_Off_** | Print | Log | Print and Log ]
+#### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
 
 Sets the logging mode. Default is `Off`.
 
@@ -158,7 +164,7 @@ Sets the fan oscillation on or off. Available in Composer Pro programming.
 
 **Parameters:**
 
-- **Oscillation** [ **_True_** | False ] - Whether the fan should oscillate.
+- **Oscillation** \[ **_True_** | False \] - Whether the fan should oscillate.
 
 ## Connections
 
@@ -208,7 +214,7 @@ The driver provides button link connections for programming integration:
 <img alt="Finite Labs" src="./images/finite-labs-logo.png" width="400"/>
 </p>
 
-Copyright &copy; 2026 Finite Labs LLC
+Copyright © 2026 Finite Labs LLC
 
 All information contained herein is, and remains the property of Finite Labs LLC
 and its suppliers, if any. The intellectual and technical concepts contained

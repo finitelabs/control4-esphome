@@ -14,11 +14,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-
       - name: Setup Lua
         uses: leafo/gh-actions-lua@v12
         with:
@@ -29,6 +24,13 @@ jobs:
         with:
           python-version: '3.x'
 
+      - name: Setup stylua
+        uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --version
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -37,30 +39,17 @@ jobs:
             libxslt-dev \
             libssl-dev \
             swig \
-            pandoc \
-            xmlstarlet \
-            xvfb \
-            libnss3 \
-            libatk1.0-0 \
-            libatk-bridge2.0-0 \
-            libcups2 \
-            libdrm2 \
-            libxkbcommon0 \
-            libxcomposite1 \
-            libxdamage1 \
-            libxrandr2 \
-            libgbm1 \
             libpango-1.0-0 \
+            libpangocairo-1.0-0 \
             libcairo2 \
-            libasound2t64
+            libgdk-pixbuf-2.0-0 \
+            libffi-dev
 
       - name: Initialize project
         run: make init
 
       - name: Build
-        run: xvfb-run make build
-        env:
-          ELECTRON_DISABLE_SANDBOX: '1'
+        run: make build
 
       - name: Verify PDFs were generated
         run: |
@@ -84,6 +73,10 @@ jobs:
             exit 1
           fi
 
+<<<<<<< before updating
+=======
+
+>>>>>>> after updating
       - name: Upload drivercentral artifacts
         if: always()
         uses: actions/upload-artifact@v7
