@@ -44,9 +44,11 @@ LAYOUT_CSS = """
 /* github-markdown-css ends its font stack with color-emoji fonts. On Linux
    (CI) fontconfig matches digit codepoints to the emoji font (it carries keycap
    digits), and WeasyPrint can't render color-emoji as text — so digits vanish.
-   Override with a text-only stack that resolves on Linux (DejaVu/Noto) and mac. */
+   Override with a text-only stack that resolves on Linux (DejaVu/Noto) and mac.
+   Symbola (monochrome) sits last so symbol chars the docs use in tables/callouts
+   (✅ ❌ ⚠) render as legible glyphs instead of blank color-emoji boxes. */
 .markdown-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "DejaVu Sans", "Liberation Sans", Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "DejaVu Sans", "Liberation Sans", Helvetica, Arial, "Symbola", sans-serif;
 }
 .markdown-body code, .markdown-body pre, .markdown-body tt {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", "DejaVu Sans Mono", Menlo, monospace;
@@ -117,9 +119,40 @@ def _img_dims_to_style(html: str) -> str:
     return _IMG_TAG_RE.sub(repl, html)
 
 
+_ALIGN_TAG_RE = re.compile(
+    r'<(?!img\b|/)[a-zA-Z][\w-]*\b[^>]*\balign\s*=\s*"[^"]*"[^>]*>', re.I
+)
+_ALIGN_ATTR_RE = re.compile(r'\salign\s*=\s*"(left|right|center|justify)"', re.I)
+
+
+def _align_to_style(html: str) -> str:
+    """Move the presentational `align` attribute into an inline text-align style.
+
+    Like width/height, WeasyPrint ignores the `align` attribute, so authored
+    `<p align="center">` blocks (centered headers, logos, captions) render
+    left-aligned in the PDF. Rewrite to `text-align`, which WeasyPrint honors.
+    `<img align>` (float) is left alone — the docs don't use it.
+    """
+
+    def repl(m: "re.Match[str]") -> str:
+        tag = m.group(0)
+        am = _ALIGN_ATTR_RE.search(tag)
+        if not am:
+            return tag
+        tag = _ALIGN_ATTR_RE.sub("", tag)
+        css = f"text-align: {am.group(1).lower()};"
+        style_at = re.search(r'\sstyle\s*=\s*"', tag, re.I)
+        if style_at:
+            i = style_at.end()
+            return tag[:i] + css + " " + tag[i:]
+        return re.sub(r"^(<[a-zA-Z][\w-]*)", rf'\1 style="{css}"', tag, flags=re.I)
+
+    return _ALIGN_TAG_RE.sub(repl, html)
+
+
 def md2html(input_path: Path, output_dir: Path) -> None:
     source = input_path.read_text(encoding="utf-8")
-    body = _img_dims_to_style(_make_md().render(source))
+    body = _align_to_style(_img_dims_to_style(_make_md().render(source)))
     title = input_path.stem
     html = f"""<!doctype html>
 <html lang="en">

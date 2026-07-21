@@ -46,7 +46,8 @@ jobs:
             libffi-dev \
             fonts-dejavu-core \
             fonts-liberation \
-            fonts-noto-core
+            fonts-noto-core \
+            fonts-symbola
 
       - name: Initialize project
         run: make init
