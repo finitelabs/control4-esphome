@@ -178,10 +178,24 @@ def _status_symbols(html: str) -> str:
     return _WARN_RE.sub('<span style="color:#9a6700">⚠</span>', html)
 
 
+_PAGE_BREAK_RE = re.compile(r"<div\b[^>]*\bpage-break[^>]*>\s*</div>\s*", re.I)
+
+
+def _drop_manual_page_breaks(html: str) -> str:
+    """Remove hand-placed page-break separators.
+
+    Docs authored `<div style="page-break-after: always"></div>` to force breaks
+    at fixed spots. Pagination is now automatic and content-aware (headings kept
+    with their content, rows/images/code never split, tables split with a
+    repeated header), so these hard breaks only fight the layout — drop them.
+    """
+    return _PAGE_BREAK_RE.sub("", html)
+
+
 def md2html(input_path: Path, output_dir: Path) -> None:
     source = input_path.read_text(encoding="utf-8")
-    body = _status_symbols(
-        _align_to_style(_img_dims_to_style(_make_md().render(source)))
+    body = _drop_manual_page_breaks(
+        _status_symbols(_align_to_style(_img_dims_to_style(_make_md().render(source))))
     )
     title = input_path.stem
     html = f"""<!doctype html>
