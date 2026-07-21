@@ -46,7 +46,7 @@ LAYOUT_CSS = """
    digits), and WeasyPrint can't render color-emoji as text — so digits vanish.
    Override with a text-only stack that resolves on Linux (DejaVu/Noto) and mac.
    Symbola (monochrome) sits last so symbol chars the docs use in tables/callouts
-   (✅ ❌ ⚠) render as legible glyphs instead of blank color-emoji boxes. */
+   (check/cross/warning) render as glyphs instead of blank color-emoji boxes. */
 .markdown-body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "DejaVu Sans", "Liberation Sans", Helvetica, Arial, "Symbola", sans-serif;
 }
@@ -150,9 +150,33 @@ def _align_to_style(html: str) -> str:
     return _ALIGN_TAG_RE.sub(repl, html)
 
 
+_STATUS_SYMBOLS = {
+    "✅": '<span style="color:#1a7f37">✓</span>',  # ✅ -> green ✓
+    "❌": '<span style="color:#cf222e">✗</span>',  # ❌ -> red ✗
+}
+# ⚠ optionally followed by the emoji-presentation selector U+FE0F.
+_WARN_RE = re.compile("⚠️?")
+
+
+def _status_symbols(html: str) -> str:
+    """Render status emoji as text glyphs so the PDF shows them legibly.
+
+    ✅/❌ carry default *emoji presentation* and ⚠️ an explicit emoji selector
+    (U+FE0F), so the shaper forces a color-emoji font — which WeasyPrint can't
+    rasterize, collapsing them to illegible specks. Map to text-presentation
+    glyphs (✓ ✗ ⚠, present in DejaVu/Symbola) with GitHub-style semantic colors;
+    browsers render these the same, so the Control4 viewer stays consistent.
+    """
+    for emoji, replacement in _STATUS_SYMBOLS.items():
+        html = html.replace(emoji, replacement)
+    return _WARN_RE.sub('<span style="color:#9a6700">⚠</span>', html)
+
+
 def md2html(input_path: Path, output_dir: Path) -> None:
     source = input_path.read_text(encoding="utf-8")
-    body = _align_to_style(_img_dims_to_style(_make_md().render(source)))
+    body = _status_symbols(
+        _align_to_style(_img_dims_to_style(_make_md().render(source)))
+    )
     title = input_path.stem
     html = f"""<!doctype html>
 <html lang="en">
