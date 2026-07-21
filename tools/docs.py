@@ -87,9 +87,39 @@ def _make_md() -> MarkdownIt:
     return md
 
 
+_IMG_TAG_RE = re.compile(r"<img\b[^>]*>", re.I)
+_IMG_DIM_RE = re.compile(r'\s(width|height)\s*=\s*"(\d+)"', re.I)
+
+
+def _img_dims_to_style(html: str) -> str:
+    """Move presentational width/height attrs on <img> into inline styles.
+
+    WeasyPrint ignores the HTML width/height *attributes* on images (it uses the
+    intrinsic pixel size), so authored sizes like width="300" are lost in the
+    PDF — the image renders full-bleed and only max-width:100% reins it in.
+    WeasyPrint does honor inline CSS, so rewrite `width="N"` -> `width: Npx`.
+    Browsers honor both forms, so the on-screen docs are unaffected.
+    """
+
+    def repl(m: "re.Match[str]") -> str:
+        tag = m.group(0)
+        dims = _IMG_DIM_RE.findall(tag)
+        if not dims:
+            return tag
+        tag = _IMG_DIM_RE.sub("", tag)
+        css = "".join(f"{name.lower()}: {value}px; " for name, value in dims)
+        style_at = re.search(r'\sstyle\s*=\s*"', tag, re.I)
+        if style_at:
+            i = style_at.end()
+            return tag[:i] + css + tag[i:]
+        return re.sub(r"^<img\b", f'<img style="{css.strip()}"', tag, flags=re.I)
+
+    return _IMG_TAG_RE.sub(repl, html)
+
+
 def md2html(input_path: Path, output_dir: Path) -> None:
     source = input_path.read_text(encoding="utf-8")
-    body = _make_md().render(source)
+    body = _img_dims_to_style(_make_md().render(source))
     title = input_path.stem
     html = f"""<!doctype html>
 <html lang="en">
