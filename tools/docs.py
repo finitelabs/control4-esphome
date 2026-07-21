@@ -58,6 +58,10 @@ LAYOUT_CSS = """
    render it "loose" — each <li> wrapped in a <p> whose paragraph margins add
    large vertical gaps. Keep the index compact regardless. */
 .markdown-body div[style*="font-size"] li > p { margin: 0; }
+/* The browser default 3rd-level (and deeper) list marker is a heavy full-size
+   black square that reads as clunky next to the level 1/2 disc & circle. Use a
+   small square instead so deep index nesting stays clean. */
+.markdown-body ul ul ul { list-style-type: "▪ "; }
 @page { size: Letter; margin: 0.4in; }
 @media print {
   .markdown-body { max-width: none; padding: 0 45px; margin: 0; }
