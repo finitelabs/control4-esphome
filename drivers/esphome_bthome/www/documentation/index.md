@@ -1,4 +1,4 @@
-[copyright]: # "Copyright 2026 Finite Labs, LLC. All rights reserved."
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
 
 <style>
 @media print {
@@ -15,7 +15,7 @@
 
 <img alt="ESPHome BTHome" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
@@ -61,7 +61,9 @@ Control4.
   - [Connections](#connections)
   <!-- #ifdef DRIVERCENTRAL -->
 - [Developer Information](#developer-information)
+
 <!-- #endif -->
+
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -135,26 +137,26 @@ for setting it up.
 
 1. Download the latest `control4-esphome.zip` from
    [DriverCentral](https://drivercentral.io/platforms/control4-drivers/utility/esphome).
-2. Extract and install the `esphome_bthome.c4z` driver.
-3. Use the "Search" tab to find "ESPHome BTHome" and add it to your project.
+1. Extract and install the `esphome_bthome.c4z` driver.
+1. Use the "Search" tab to find "ESPHome BTHome" and add it to your project.
 
 <!-- #else -->
 
 1. Download the latest `control4-esphome.zip` from
    [Github](https://github.com/finitelabs/control4-esphome/releases/latest).
-2. Extract and install the `esphome_bthome.c4z` driver.
-3. Use the "Search" tab to find "ESPHome BTHome" and add it to your project.
+1. Extract and install the `esphome_bthome.c4z` driver.
+1. Use the "Search" tab to find "ESPHome BTHome" and add it to your project.
 
 <!-- #endif -->
 
 ## Binding to ESPHome Proxy
 
 1. Ensure the main ESPHome driver is connected and Bluetooth Proxy is ready.
-2. In the main ESPHome driver properties, select "Refresh List" from the "Select
+1. In the main ESPHome driver properties, select "Refresh List" from the "Select
    Bluetooth Devices" dropdown.
-3. Select your BTHome device from the list. A connection binding will be
+1. Select your BTHome device from the list. A connection binding will be
    automatically created.
-4. Go to the "Connections" tab and bind the ESPHome BTHome driver to the newly
+1. Go to the "Connections" tab and bind the ESPHome BTHome driver to the newly
    created BTHome connection.
 
 ## Driver Properties
@@ -167,7 +169,7 @@ for setting it up.
 
 Displays the DriverCentral cloud license status.
 
-#### Automatic Updates [ Off | **_On_** ]
+#### Automatic Updates \[ Off | **_On_** \]
 
 Enables or disables automatic driver updates via DriverCentral.
 
@@ -183,11 +185,11 @@ Displays the current status of the driver.
 
 Displays the current version of the driver.
 
-#### Log Level [ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra ]
+#### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
 
 Sets the logging level. Default is `3 - Info`.
 
-#### Log Mode [ **_Off_** | Print | Log | Print and Log ]
+#### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
 
 Sets the logging mode. Default is `Off`.
 
@@ -346,7 +348,7 @@ Resets the driver state and clears cached sensor values.
 
 **Parameters:**
 
-- **Are You Sure?** [ **_No_** | Yes ] - Confirmation to reset the driver.
+- **Are You Sure?** \[ **_No_** | Yes \] - Confirmation to reset the driver.
 
 <div style="page-break-after: always"></div>
 

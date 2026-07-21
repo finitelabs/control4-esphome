@@ -1,4 +1,4 @@
-[copyright]: # "Copyright 2026 Finite Labs, LLC. All rights reserved."
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
 
 <style>
 @media print {
@@ -15,7 +15,7 @@
 
 <img alt="ESPHome SwitchBot" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
@@ -66,9 +66,13 @@ Sensors, Contact Sensors, and Water Leak Detectors.
   - [Variables](#variables)
   - [Connections](#connections)
 - [Troubleshooting](#troubleshooting)
+
 <!-- #ifdef DRIVERCENTRAL -->
+
 - [Developer Information](#developer-information)
+
 <!-- #endif -->
+
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -142,15 +146,15 @@ for setting it up.
 
 1. Download the latest `control4-esphome.zip` from
    [DriverCentral](https://drivercentral.io/platforms/control4-drivers/utility/esphome).
-2. Extract and install the `esphome_switchbot.c4z` driver.
-3. Use the "Search" tab to find "ESPHome SwitchBot" and add it to your project.
+1. Extract and install the `esphome_switchbot.c4z` driver.
+1. Use the "Search" tab to find "ESPHome SwitchBot" and add it to your project.
 
 <!-- #else -->
 
 1. Download the latest `control4-esphome.zip` from
    [Github](https://github.com/finitelabs/control4-esphome/releases/latest).
-2. Extract and install the `esphome_switchbot.c4z` driver.
-3. Use the "Search" tab to find "ESPHome SwitchBot" and add it to your project.
+1. Extract and install the `esphome_switchbot.c4z` driver.
+1. Use the "Search" tab to find "ESPHome SwitchBot" and add it to your project.
 
 <!-- #endif -->
 
@@ -158,11 +162,11 @@ for setting it up.
 
 1. Ensure the main ESPHome driver is connected and Bluetooth Proxy shows
    available connection slots (for active devices).
-2. In the main ESPHome driver properties, select "Refresh List" from the "Select
+1. In the main ESPHome driver properties, select "Refresh List" from the "Select
    Bluetooth Devices" dropdown.
-3. Select your SwitchBot device from the list. A connection binding will be
+1. Select your SwitchBot device from the list. A connection binding will be
    automatically created.
-4. Go to the "Connections" tab and bind the ESPHome SwitchBot driver to the
+1. Go to the "Connections" tab and bind the ESPHome SwitchBot driver to the
    newly created SwitchBot connection.
 
 ## Driver Properties
@@ -175,7 +179,7 @@ for setting it up.
 
 Displays the DriverCentral cloud license status.
 
-#### Automatic Updates [ Off | **_On_** ]
+#### Automatic Updates \[ Off | **_On_** \]
 
 Enables or disables automatic driver updates via DriverCentral.
 
@@ -191,11 +195,11 @@ Displays the current status of the driver.
 
 Displays the current version of the driver.
 
-#### Log Level [ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra ]
+#### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
 
 Sets the logging level. Default is `3 - Info`.
 
-#### Log Mode [ **_Off_** | Print | Log | Print and Log ]
+#### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
 
 Sets the logging mode. Default is `Off`.
 
@@ -315,7 +319,7 @@ Resets the driver state to defaults.
 
 **Parameters:**
 
-- **Are You Sure?** [ **_No_** | Yes ] - Confirmation to reset the driver.
+- **Are You Sure?** \[ **_No_** | Yes \] - Confirmation to reset the driver.
 
 <div style="page-break-after: always"></div>
 
@@ -369,9 +373,9 @@ require encryption keys from SwitchBot cloud.
 ### Encryption Setup
 
 1. Enter your SwitchBot account email in "SwitchBot Username"
-2. Enter your SwitchBot account password in "SwitchBot Password"
-3. Keys are automatically fetched when both credentials are provided
-4. Check "Encryption Status" to confirm keys were retrieved
+1. Enter your SwitchBot account password in "SwitchBot Password"
+1. Keys are automatically fetched when both credentials are provided
+1. Check "Encryption Status" to confirm keys were retrieved
 
 ## Meters
 
@@ -525,36 +529,36 @@ If the device doesn't respond to commands:
 
 1. Check that the Bluetooth Proxy has available connection slots (active
    devices)
-2. Verify the device is within BLE range of the ESP32
-3. Check the battery level - low battery can cause connection issues
-4. For Relay Switches, ensure encryption keys are configured
+1. Verify the device is within BLE range of the ESP32
+1. Check the battery level - low battery can cause connection issues
+1. For Relay Switches, ensure encryption keys are configured
 
 ## Encryption Key Errors
 
 If you see encryption errors for Relay Switches:
 
 1. Verify your SwitchBot account credentials are correct
-2. Clear and re-enter the username and password to trigger key fetch
-3. Ensure the device is registered to your SwitchBot account
-4. Check that the MAC address is correctly detected
-5. Check "Encryption Status" property for detailed error messages
+1. Clear and re-enter the username and password to trigger key fetch
+1. Ensure the device is registered to your SwitchBot account
+1. Check that the MAC address is correctly detected
+1. Check "Encryption Status" property for detailed error messages
 
 ## Sensor Not Updating
 
 If passive sensors aren't showing data:
 
 1. Passive devices rely on BLE advertisements
-2. Ensure the device is within range of the ESP32
-3. Check that the device has battery remaining
-4. Some devices only advertise periodically (every few seconds)
+1. Ensure the device is within range of the ESP32
+1. Check that the device has battery remaining
+1. Some devices only advertise periodically (every few seconds)
 
 ## Wrong Device Type Detected
 
 If the driver detects the wrong device type:
 
 1. Use "Reset Driver" action to clear state
-2. Unbind and rebind the device connection
-3. Ensure you're binding to the correct device
+1. Unbind and rebind the device connection
+1. Ensure you're binding to the correct device
 
 <div style="page-break-after: always"></div>
 

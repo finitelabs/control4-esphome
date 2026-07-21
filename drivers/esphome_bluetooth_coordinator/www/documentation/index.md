@@ -1,4 +1,4 @@
-[copyright]: # "Copyright 2026 Finite Labs, LLC. All rights reserved."
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
 
 <style>
 @media print {
@@ -15,7 +15,7 @@
 
 <img alt="ESPHome Bluetooth Coordinator" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
@@ -109,9 +109,13 @@ with BLE devices.
   - [Tuning Anti-Flapping Settings](#understanding-the-anti-flapping-settings)
   - [Performance Considerations](#performance-considerations)
 - [Troubleshooting](#troubleshooting)
+
 <!-- #ifdef DRIVERCENTRAL -->
+
 - [Developer Information](#developer-information)
+
 <!-- #endif -->
+
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -159,16 +163,16 @@ for setting it up.
 
 1. Download the latest `control4-esphome.zip` from
    [DriverCentral](https://drivercentral.io/platforms/control4-drivers/utility/esphome).
-2. Extract and install the `esphome_bluetooth_coordinator.c4z` driver.
-3. Use the "Search" tab to find "ESPHome Bluetooth Coordinator" and add it to
+1. Extract and install the `esphome_bluetooth_coordinator.c4z` driver.
+1. Use the "Search" tab to find "ESPHome Bluetooth Coordinator" and add it to
    your project.
 
 <!-- #else -->
 
 1. Download the latest `control4-esphome.zip` from
    [Github](https://github.com/finitelabs/control4-esphome/releases/latest).
-2. Extract and install the `esphome_bluetooth_coordinator.c4z` driver.
-3. Use the "Search" tab to find "ESPHome Bluetooth Coordinator" and add it to
+1. Extract and install the `esphome_bluetooth_coordinator.c4z` driver.
+1. Use the "Search" tab to find "ESPHome Bluetooth Coordinator" and add it to
    your project.
 
 <!-- #endif -->
@@ -184,13 +188,13 @@ for setting it up.
 For each Bluetooth proxy in your home:
 
 1. Use the "Search" tab to find "ESPHome" and add it to your project
-2. Place the driver in the room where the physical proxy is located (this sets
+1. Place the driver in the room where the physical proxy is located (this sets
    the default room for presence tracking)
-3. Configure the driver properties:
+1. Configure the driver properties:
    - Set the **IP Address** of the device
    - Set **Authentication Mode** and credentials if required
-4. Wait for **Driver Status** to show "Connected"
-5. Verify **Bluetooth Proxy Status** appears
+1. Wait for **Driver Status** to show "Connected"
+1. Verify **Bluetooth Proxy Status** appears
 
 Repeat the above steps for each proxy. You should have one ESPHome driver
 instance per physical device.
@@ -199,14 +203,14 @@ instance per physical device.
 
 1. Use the "Search" tab to find "ESPHome Bluetooth Coordinator" and add it to
    your project
-2. You only need **one** Coordinator instance regardless of how many proxies you
+1. You only need **one** Coordinator instance regardless of how many proxies you
    have
 
 ### Step 3: Connect ESPHome Drivers to the Coordinator
 
 1. Go to the **Connections** tab in Composer Pro
-2. Select the **Bluetooth Coordinator** driver
-3. For each ESPHome driver:
+1. Select the **Bluetooth Coordinator** driver
+1. For each ESPHome driver:
    - Find the ESPHome driver's "Bluetooth Coordinator" connection (under the
      ESPHome driver)
    - Bind it to the Coordinator's "Bluetooth Proxies" connection
@@ -219,7 +223,7 @@ By default, each proxy uses the Control4 room where its ESPHome driver is placed
 in the project. If you need to override this:
 
 1. Select the **ESPHome driver**
-2. Set the **Bluetooth Proxy Room** property to a different room name
+1. Set the **Bluetooth Proxy Room** property to a different room name
 
 > **Note:** The "Bluetooth Proxy Room" property only appears after the ESPHome
 > driver is connected to the Coordinator.
@@ -227,12 +231,12 @@ in the project. If you need to override this:
 ### Step 5: Select BLE Devices (Optional)
 
 1. Select the **Bluetooth Coordinator** driver
-2. In the **Select Bluetooth Devices** dropdown, select "Refresh List" to scan
+1. In the **Select Bluetooth Devices** dropdown, select "Refresh List" to scan
    for devices
-3. Wait for scanning to complete (the dropdown shows "-- Scanning..." during the
+1. Wait for scanning to complete (the dropdown shows "-- Scanning..." during the
    scan)
-4. Select each BLE device you want to connect to from the dropdown
-5. A connection binding is automatically created for each selected device
+1. Select each BLE device you want to connect to from the dropdown
+1. A connection binding is automatically created for each selected device
 
 ### Step 6: Add and Bind Sub-Drivers (Optional)
 
@@ -242,8 +246,8 @@ For each BLE device you selected:
    - **ESPHome SwitchBot** - for SwitchBot devices
    - **ESPHome BTHome** - for Shelly BLU, BTHome sensors
    - **ESPHome Govee** - for Govee sensors
-2. Add the sub-driver to your project
-3. Go to the **Connections** tab and bind the sub-driver to the device
+1. Add the sub-driver to your project
+1. Go to the **Connections** tab and bind the sub-driver to the device
    connection created in Step 5
 
 ### Step 7: Configure Presence Tracking (Optional)
@@ -251,8 +255,8 @@ For each BLE device you selected:
 If you want room-level presence tracking:
 
 1. Select the **Bluetooth Coordinator** driver
-2. In the **Select Presence Devices** dropdown, select devices to track
-3. Adjust presence settings as needed (see
+1. In the **Select Presence Devices** dropdown, select devices to track
+1. Adjust presence settings as needed (see
    [Presence Settings](#presence-settings))
 
 <div style="page-break-after: always"></div>
@@ -267,7 +271,7 @@ If you want room-level presence tracking:
 
 Displays the current DriverCentral cloud connection and license status.
 
-### Automatic Updates [ Off | **_On_** ]
+### Automatic Updates \[ Off | **_On_** \]
 
 When enabled, the driver will automatically update to the latest version when
 available. Default is `On`.
@@ -284,11 +288,11 @@ Displays the current status of the coordinator.
 
 Displays the current version of the driver.
 
-### Log Level [ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra ]
+### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
 
 Sets the logging level. Default is `3 - Info`.
 
-### Log Mode [ **_Off_** | Print | Log | Print and Log ]
+### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
 
 Sets the logging mode. Default is `Off`.
 
@@ -315,12 +319,12 @@ Selecting a device:
 - Enables RSSI-based routing for that device
 - Tracks the device across all proxies
 
-### Scan Duration (seconds) [ 5 - 60, default: **_30_** ]
+### Scan Duration (seconds) \[ 5 - 60, default: **_30_** \]
 
 Sets the duration in seconds to scan for BLE devices when refreshing the device
 list.
 
-### RSSI Freshness (seconds) [ 10 - 300, default: **_60_** ]
+### RSSI Freshness (seconds) \[ 10 - 300, default: **_60_** \]
 
 Sets how long RSSI readings remain valid for proxy selection. After this time,
 stale readings are discarded.
@@ -338,14 +342,14 @@ device can be tracked, including:
 - BLE beacons
 - Any other device with a consistent MAC address
 
-### RSSI Smoothing Factor [ 0.1 - 0.5, default: **_0.2_** ]
+### RSSI Smoothing Factor \[ 0.1 - 0.5, default: **_0.2_** \]
 
 Controls how quickly the RSSI tracking responds to signal changes.
 
 - **Lower values (0.1)** - Smoother, slower response; better for stable tracking
 - **Higher values (0.5)** - Faster response; may cause more room "flapping"
 
-### Room Change Hysteresis (dBm) [ 3 - 15, default: **_6_** ]
+### Room Change Hysteresis (dBm) \[ 3 - 15, default: **_6_** \]
 
 The signal improvement (in dBm) required before changing rooms. This prevents
 bouncing between rooms when a device is near a boundary.
@@ -353,18 +357,18 @@ bouncing between rooms when a device is near a boundary.
 - **Higher values** - More stable, slower transitions
 - **Lower values** - Faster transitions, may cause flapping
 
-### Room Change Dwell Time (seconds) [ 2 - 30, default: **_5_** ]
+### Room Change Dwell Time (seconds) \[ 2 - 30, default: **_5_** \]
 
 How long a new room must have the best signal before committing to the change.
 
 - **Higher values** - More stable, ignores brief signal spikes
 - **Lower values** - Faster room changes
 
-### Away Timeout (seconds) [ 30 - 600, default: **_120_** ]
+### Away Timeout (seconds) \[ 30 - 600, default: **_120_** \]
 
 How long without any signal before marking a device as "away" from home.
 
-### Minimum Room RSSI (dBm) [ -100 - -40, default: **_-100_** ]
+### Minimum Room RSSI (dBm) \[ -100 - -40, default: **_-100_** \]
 
 Sets the global minimum signal strength (in dBm) required to assign a device to
 a room. Devices with weaker signals will be considered "home" but not in any
@@ -434,7 +438,7 @@ or are experiencing issues.
 
 **Parameters:**
 
-- **Are You Sure?** [ **_No_** | Yes ] - Confirmation to reset the driver.
+- **Are You Sure?** \[ **_No_** | Yes \] - Confirmation to reset the driver.
 
 <div style="page-break-after: always"></div>
 
@@ -444,11 +448,11 @@ or are experiencing issues.
 
 1. **Signal Collection** - Each proxy reports the RSSI (signal strength) when it
    sees a tracked device's BLE advertisement
-2. **Signal Smoothing** - RSSI values are smoothed using an exponential moving
+1. **Signal Smoothing** - RSSI values are smoothed using an exponential moving
    average to filter noise
-3. **Room Determination** - The device is considered to be in the room of the
+1. **Room Determination** - The device is considered to be in the room of the
    proxy with the strongest smoothed signal
-4. **Anti-Flapping** - Multiple safeguards prevent rapid room changes when
+1. **Anti-Flapping** - Multiple safeguards prevent rapid room changes when
    devices are near room boundaries
 
 ## Anti-Flapping Algorithm
@@ -465,9 +469,9 @@ The presence tracker uses a multi-layer approach to prevent false room changes:
 **Example scenario:** Device is in Kitchen (RSSI -55), walks toward Living Room:
 
 1. Living Room proxy sees device at -58 -> No change (not 6dB better than -55)
-2. Device moves further, Living Room at -50 -> Pending transition starts
-3. 3 seconds later, still -50 -> Still dwelling
-4. 5 seconds later, still consistently better -> **Transition to Living Room**
+1. Device moves further, Living Room at -50 -> Pending transition starts
+1. 3 seconds later, still -50 -> Still dwelling
+1. 5 seconds later, still consistently better -> **Transition to Living Room**
 
 ## Unsupported Devices
 
@@ -719,18 +723,18 @@ shows the wrong room.
 **Common Causes:**
 
 1. **Proxies too close together** - Two proxies reporting similar RSSI values
-2. **Device near room boundary** - Signal strength is similar to multiple
+1. **Device near room boundary** - Signal strength is similar to multiple
    proxies
-3. **Signal reflections** - Metal objects causing unpredictable RSSI
-4. **Smoothing too aggressive** - System responding to noise
+1. **Signal reflections** - Metal objects causing unpredictable RSSI
+1. **Smoothing too aggressive** - System responding to noise
 
 **Solutions:**
 
 1. Increase **Room Change Hysteresis** to 8-12 dBm
-2. Increase **Dwell Time** to 8-10 seconds
-3. Decrease **RSSI Smoothing Factor** to 0.1
-4. Relocate proxies further apart or reposition away from metal
-5. Check that each room has a dedicated proxy
+1. Increase **Dwell Time** to 8-10 seconds
+1. Decrease **RSSI Smoothing Factor** to 0.1
+1. Relocate proxies further apart or reposition away from metal
+1. Check that each room has a dedicated proxy
 
 ## Device Shows Wrong Room
 
@@ -739,15 +743,15 @@ shows the wrong room.
 **Common Causes:**
 
 1. **Proxy misconfigured** - Wrong room assignment in ESPHome driver
-2. **Antenna differences** - One proxy has stronger/weaker antenna
-3. **Environmental factors** - Walls, furniture affecting signal path
+1. **Antenna differences** - One proxy has stronger/weaker antenna
+1. **Environmental factors** - Walls, furniture affecting signal path
 
 **Solutions:**
 
 1. Verify "Bluetooth Proxy Room" is set correctly on each ESPHome driver
-2. If one proxy consistently "wins," it may have a better antenna; consider
+1. If one proxy consistently "wins," it may have a better antenna; consider
    relocating other proxies closer to their rooms
-3. Add a proxy to the room where the device should be detected
+1. Add a proxy to the room where the device should be detected
 
 ## Device Shows "Away" When Home
 
@@ -757,15 +761,15 @@ home.
 **Common Causes:**
 
 1. **Device not advertising** - Bluetooth disabled or device in deep sleep
-2. **Out of range** - No proxy close enough to receive signal
-3. **Away Timeout too short** - Gaps in advertisements trigger away state
+1. **Out of range** - No proxy close enough to receive signal
+1. **Away Timeout too short** - Gaps in advertisements trigger away state
 
 **Solutions:**
 
 1. Verify device has Bluetooth enabled and is advertising
-2. Add a proxy closer to where the device usually is
-3. Increase **Away Timeout** to 180-300 seconds
-4. Check that the device has a static MAC address (see Unsupported Devices)
+1. Add a proxy closer to where the device usually is
+1. Increase **Away Timeout** to 180-300 seconds
+1. Check that the device has a static MAC address (see Unsupported Devices)
 
 ## Slow Room Transitions
 
@@ -774,8 +778,8 @@ home.
 **Solutions:**
 
 1. Decrease **Dwell Time** to 2-3 seconds
-2. Decrease **Room Change Hysteresis** to 4-5 dBm
-3. Increase **RSSI Smoothing Factor** to 0.25-0.3
+1. Decrease **Room Change Hysteresis** to 4-5 dBm
+1. Increase **RSSI Smoothing Factor** to 0.25-0.3
 
 ## High CPU or Network Usage
 
@@ -784,8 +788,8 @@ home.
 **Solutions:**
 
 1. Reduce the number of tracked presence devices
-2. Remove devices from "Select Bluetooth Devices" that don't need tracking
-3. Consider using fewer proxies if you have more than 6-8
+1. Remove devices from "Select Bluetooth Devices" that don't need tracking
+1. Consider using fewer proxies if you have more than 6-8
 
 <!-- #ifdef DRIVERCENTRAL -->
 

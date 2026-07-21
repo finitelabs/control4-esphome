@@ -1,4 +1,4 @@
-[copyright]: # "Copyright 2026 Finite Labs, LLC. All rights reserved."
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
 
 <style>
 @media print {
@@ -15,7 +15,7 @@
 
 <img alt="ESPHome Yale" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
@@ -64,9 +64,13 @@ is only used during initial setup to retrieve the offline key.
   - [Programming Variables](#programming-variables)
   - [Connections](#connections)
 - [Troubleshooting](#troubleshooting)
+
 <!-- #ifdef DRIVERCENTRAL -->
+
 - [Developer Information](#developer-information)
+
 <!-- #endif -->
+
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -188,10 +192,10 @@ Settings section to activate the license and enable automatic updates.
 ## Adding the Driver
 
 1. Add the ESPHome driver and configure it with Bluetooth proxy enabled
-2. The ESPHome driver will scan for nearby BLE devices - Yale/August locks
+1. The ESPHome driver will scan for nearby BLE devices - Yale/August locks
    appear as "Yale Lock" or similar
-3. Add the ESPHome Yale driver from the Lock category
-4. Bind the ESPHome Yale connection to the Yale Lock device exposed by the
+1. Add the ESPHome Yale driver from the Lock category
+1. Bind the ESPHome Yale connection to the Yale Lock device exposed by the
    ESPHome driver
 
 ## Key Setup
@@ -203,9 +207,9 @@ two ways to obtain it:
 
 1. Enter your Yale/August email and password in the **Yale Cloud Settings**
    section
-2. Run the **Request Verification Code** action - a code is sent to your email
-3. Run the **Verify and Fetch Keys** action and enter the verification code
-4. The driver automatically populates the **Offline Key** and **Key Slot**
+1. Run the **Request Verification Code** action - a code is sent to your email
+1. Run the **Verify and Fetch Keys** action and enter the verification code
+1. The driver automatically populates the **Offline Key** and **Key Slot**
    fields
 
 ### Manual
@@ -213,7 +217,7 @@ two ways to obtain it:
 If you already have the offline key (e.g., from another integration):
 
 1. Enter the 32-character hex string in the **Offline Key** field
-2. Set the **Key Slot** (usually `1`)
+1. Set the **Key Slot** (usually `1`)
 
 Once the key is configured, the driver will connect to the lock on the next BLE
 advertisement.
@@ -234,7 +238,7 @@ advertisement.
 
 Displays the DriverCentral cloud license status.
 
-#### Automatic Updates [ Off | **_On_** ]
+#### Automatic Updates \[ Off | **_On_** \]
 
 Enables or disables automatic driver updates via DriverCentral.
 
@@ -260,16 +264,16 @@ Displays the current driver state. Common values:
 
 Displays the current version of the driver.
 
-#### Log Level [ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra ]
+#### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
 
 Sets the logging level. Default is `3 - Info`.
 
-#### Log Mode [ **_Off_** | Print | Log | Print and Log ]
+#### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
 
 Sets the logging mode. Logging automatically turns off after 3 hours to prevent
 excessive log output. Default is `Off`.
 
-#### Connection Mode [ Persistent | **_Poll_** ]
+#### Connection Mode \[ Persistent | **_Poll_** \]
 
 Controls how the driver connects to the lock. See
 [Connection Modes](#connection-modes) for details.
@@ -279,7 +283,7 @@ Controls how the driver connects to the lock. See
 - **Persistent** - Maintain a continuous BLE connection with 20s keepalive.
   Lowest latency but higher battery drain and monopolizes the lock's BLE slot.
 
-#### Polling Interval [ 15 - 300, default: **_60_** ]
+#### Polling Interval \[ 15 - 300, default: **_60_** \]
 
 How often (in seconds) to connect and query lock status in Poll mode. Only
 visible when Connection Mode is set to `Poll`.
@@ -391,7 +395,7 @@ preserved.
 
 **Parameters:**
 
-- **Are You Sure?** [ **_No_** | Yes ] - Confirmation to reset the driver.
+- **Are You Sure?** \[ **_No_** | Yes \] - Confirmation to reset the driver.
 
 ## Programming Commands
 
@@ -511,7 +515,7 @@ re-run the **Verify and Fetch Keys** action to retrieve the updated key.
 <img alt="Finite Labs" src="./images/finite-labs-logo.png" width="400"/>
 </p>
 
-Copyright &copy; 2026 Finite Labs LLC
+Copyright © 2026 Finite Labs LLC
 
 All information contained herein is, and remains the property of Finite Labs LLC
 and its suppliers, if any. The intellectual and technical concepts contained

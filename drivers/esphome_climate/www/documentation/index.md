@@ -1,4 +1,4 @@
-[copyright]: # "Copyright 2026 Finite Labs, LLC. All rights reserved."
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
 
 <style>
 @media print {
@@ -15,7 +15,7 @@
 
 <img alt="ESPHome Climate" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
@@ -49,9 +49,13 @@ thermostat proxy.
 - [Remote Temperature Sensor](#remote-temperature-sensor)
   - [ESPHome Configuration](#esphome-configuration)
 - [Water Heater Support](#water-heater-support)
+
 <!-- #ifdef DRIVERCENTRAL -->
+
 - [Developer Information](#developer-information)
+
 <!-- #endif -->
+
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -91,10 +95,10 @@ This driver works with any ESPHome device that exposes a `climate` or
 
 Compatible third-party ESPHome components:
 
-- **[esphome-mitsubishiheatpump](https://github.com/geoffdavis/esphome-mitsubishiheatpump)** -
-  Mitsubishi mini-split heat pumps via CN105 connector
-- **[MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome)** -
-  Alternative Mitsubishi CN105 component
+- **[esphome-mitsubishiheatpump](https://github.com/geoffdavis/esphome-mitsubishiheatpump)**
+  \- Mitsubishi mini-split heat pumps via CN105 connector
+- **[MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome)**
+  \- Alternative Mitsubishi CN105 component
 - **[esphome-econet](https://github.com/esphome-econet/esphome-econet)** -
   Rheem/Ruud EcoNet water heaters and HVAC systems
 
@@ -107,9 +111,9 @@ Climate driver to the climate or water heater entity exposed by the main driver.
 ## Adding the Driver
 
 1. In Composer Pro, add the ESPHome Climate driver to your project.
-2. Bind the `ESPHome Climate` connection to the climate or water heater entity
+1. Bind the `ESPHome Climate` connection to the climate or water heater entity
    exposed by the main ESPHome driver.
-3. The driver will automatically synchronize its state and capabilities once
+1. The driver will automatically synchronize its state and capabilities once
    bound.
 
 ## Driver Properties
@@ -122,7 +126,7 @@ Climate driver to the climate or water heater entity exposed by the main driver.
 
 Displays the DriverCentral cloud license status.
 
-#### Automatic Updates [ Off | **_On_** ]
+#### Automatic Updates \[ Off | **_On_** \]
 
 Enables or disables automatic driver updates via DriverCentral.
 
@@ -138,11 +142,11 @@ Displays the current connection status.
 
 Displays the current version of the driver.
 
-#### Log Level [ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra ]
+#### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
 
 Sets the logging level. Default is `3 - Info`.
 
-#### Log Mode [ **_Off_** | Print | Log | Print and Log ]
+#### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
 
 Sets the logging mode. Default is `Off`. Automatically reverts to `Off` after 3
 hours to prevent excessive logging.
@@ -153,7 +157,7 @@ These properties become visible when the ESPHome device exposes user-defined
 services. They are used to configure the
 [Remote Temperature Sensor](#remote-temperature-sensor) feature.
 
-#### Remote Temperature Service [ **_(Select)_** | *discovered services...* ]
+#### Remote Temperature Service \[ **_(Select)_** | *discovered services...* \]
 
 The ESPHome user-defined service that accepts a remote temperature reading. This
 service must accept a `float` parameter named `temperature` (in Celsius).
@@ -162,7 +166,7 @@ driver for connecting an external Control4 temperature sensor.
 
 Set to `(Select)` to disable the remote sensor feature and remove the binding.
 
-#### Internal Temperature Service [ **_None_** | *discovered services...* ]
+#### Internal Temperature Service \[ **_None_** | *discovered services...* \]
 
 The ESPHome user-defined service to call when reverting to the device's internal
 temperature sensor. This service should take no parameters. Called when the

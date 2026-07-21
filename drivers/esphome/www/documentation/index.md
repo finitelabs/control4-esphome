@@ -1,4 +1,4 @@
-[copyright]: # "Copyright 2026 Finite Labs, LLC. All rights reserved."
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
 
 <style>
 @media print {
@@ -15,7 +15,7 @@
 
 <img alt="ESPHome" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
@@ -61,7 +61,9 @@ monitoring and control of ESPHome devices directly from your Control4 system.
   - [Bluetooth Proxy Configuration Guide](#bluetooth-proxy-configuration-guide)
   <!-- #ifdef DRIVERCENTRAL -->
 - [Developer Information](#developer-information)
+
 <!-- #endif -->
+
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -160,7 +162,7 @@ See the individual sub-driver documentation for device-specific details.
 > unexpected behavior. However, you can have multiple instances of this driver
 > connected to **_different_** ESPHome devices.
 
- <!-- #ifdef DRIVERCENTRAL -->
+<!-- #ifdef DRIVERCENTRAL -->
 
 ## DriverCentral Cloud Setup
 
@@ -185,32 +187,39 @@ is an outline of the basic steps for your convenience.
 
 1. Download the latest `control4-esphome.zip` from
    [DriverCentral](https://drivercentral.io/platforms/control4-drivers/utility/esphome).
-2. Extract and
+
+1. Extract and
    [install](https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)
    all `.c4z` files.
-3. Use the "Search" tab to find the "ESPHome" driver and add it to your project.
+
+1. Use the "Search" tab to find the "ESPHome" driver and add it to your project.
 
    > ⚠️ A **_single_** driver instance is required per ESPHome device.
 
    ![Search Drivers](images/search-drivers.png)
 
-4. Select the newly added driver in the "System Design" tab. You will notice
+1. Select the newly added driver in the "System Design" tab. You will notice
    that the `Cloud Status` reflects the license state. If you have purchased a
    license it will show `License Activated`, otherwise `Trial Running` and
    remaining trial duration.
-5. You can refresh license status by selecting the "DriverCentral Cloud" driver
+
+1. You can refresh license status by selecting the "DriverCentral Cloud" driver
    in the "System Design" tab and perform the "Check Drivers" action.
    <br><img alt="Check Drivers" src="./images/check-drivers.png" width="300"/>
-6. Configure the [Device Settings](#device-settings) with the connection
+
+1. Configure the [Device Settings](#device-settings) with the connection
    information.
-7. After a few moments the [`Driver Status`](#driver-status-read-only) will
+
+1. After a few moments the [`Driver Status`](#driver-status-read-only) will
    display `Connected`. If the driver fails to connect, set the
    [`Log Mode`](#log-mode--off--print--log--print-and-log-) property to `Print`
    and re-set the [`IP Address`](#ip-address) field to reconnect. Then check the
    lua output window for more information.
-8. Once connected, the driver will automatically create variables and connection
+
+1. Once connected, the driver will automatically create variables and connection
    bindings for each supported entity type.
-9. To control climate, lights, fans, locks, and/or water heaters, use the
+
+1. To control climate, lights, fans, locks, and/or water heaters, use the
    "Search" tab to find the "ESPHome Climate", "ESPHome Light", "ESPHome Fan",
    and/or "ESPHome Lock" driver. For fans, choose the speed variant that matches
    your fan (e.g., "ESPHome Fan (3 Speed)"). Water heater entities use the
@@ -222,25 +231,30 @@ is an outline of the basic steps for your convenience.
 
 1. Download the latest `control4-esphome.zip` from
    [Github](https://github.com/finitelabs/control4-esphome/releases/latest).
-2. Extract and
+
+1. Extract and
    [install](https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)
    all `.c4z` files.
-3. Use the "Search" tab to find the "ESPHome" driver and add it to your project.
+
+1. Use the "Search" tab to find the "ESPHome" driver and add it to your project.
 
    > ⚠️ A **_single_** driver instance is required per ESPHome device.
 
    ![Search Drivers](images/search-drivers.png)
 
-4. Configure the [Device Settings](#device-settings) with the connection
+1. Configure the [Device Settings](#device-settings) with the connection
    information.
-5. After a few moments the [`Driver Status`](#driver-status-read-only) will
+
+1. After a few moments the [`Driver Status`](#driver-status-read-only) will
    display `Connected`. If the driver fails to connect, set the
    [`Log Mode`](#log-mode--off--print--log--print-and-log-) property to `Print`
    and re-set the [`IP Address`](#ip-address) field to reconnect. Then check the
    lua output window for more information.
-6. Once connected, the driver will automatically create variables and connection
+
+1. Once connected, the driver will automatically create variables and connection
    bindings for each supported entity type.
-7. To control climate, lights, fans, locks, and/or water heaters, use the
+
+1. To control climate, lights, fans, locks, and/or water heaters, use the
    "Search" tab to find the "ESPHome Climate", "ESPHome Light", "ESPHome Fan",
    and/or "ESPHome Lock" driver. For fans, choose the speed variant that matches
    your fan (e.g., "ESPHome Fan (3 Speed)"). Water heater entities use the
@@ -264,7 +278,7 @@ Displays the DriverCentral cloud license status.
 
 <!-- #endif -->
 
-##### Automatic Updates [ Off | **_On_** ]
+##### Automatic Updates \[ Off | **_On_** \]
 
 <!-- #ifdef DRIVERCENTRAL -->
 
@@ -274,7 +288,7 @@ Enables or disables automatic driver updates via DriverCentral.
 
 Enables or disables automatic driver updates from GitHub releases.
 
-##### Update Channel [ **_Production_** | Prerelease ]
+##### Update Channel \[ **_Production_** | Prerelease \]
 
 Sets the update channel for which releases are considered during automatic
 updates from GitHub releases.
@@ -291,15 +305,15 @@ Displays the current status of the driver.
 
 Displays the current version of the driver.
 
-##### Log Level [ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra ]
+##### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
 
 Sets the logging level. Default is `3 - Info`.
 
-##### Log Mode [ **_Off_** | Print | Log | Print and Log ]
+##### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
 
 Sets the logging mode. Default is `Off`.
 
-##### Device Log Forwarding [ **_Off_** | On ]
+##### Device Log Forwarding \[ **_Off_** | On \]
 
 Forward ESPHome device logs to the driver's Lua output at the current Log Level.
 Changing Log Level or disabling Log Mode will reconnect to apply the new
@@ -316,11 +330,11 @@ HTTPS is not supported.
 > ⚠️ If you are using an IP address, you should ensure it will not change by
 > assigning a static IP or creating a DHCP reservation.
 
-##### Port [ 1 - 65535, default: **_6053_** ]
+##### Port \[ 1 - 65535, default: **_6053_** \]
 
 Sets the device port. The default port for ESPHome devices is `6053`.
 
-##### Authentication Mode [ **_None_** | Password | Encryption Key ]
+##### Authentication Mode \[ **_None_** | Password | Encryption Key \]
 
 Selects the authentication method for connecting to the ESPHome device.
 
@@ -354,7 +368,7 @@ set to `Encryption Key`. Sets the device encryption key for secure
 communication. This must match the encryption key configured on the ESPHome
 device.
 
-##### Use OpenSSL [ **_Yes_** | No ]
+##### Use OpenSSL \[ **_Yes_** | No \]
 
 Use OpenSSL for encryption. This should typically be left at the default value
 of `Yes` for better performance and compatibility.
@@ -430,7 +444,7 @@ appropriate sub-driver.
 > sensors, or opening/closing contact sensors during the scan to ensure they
 > appear in the device list.
 
-##### Bluetooth Scan Duration [ 5 - 60, default: **_30_** ]
+##### Bluetooth Scan Duration \[ 5 - 60, default: **_30_** \]
 
 > Only visible in **Standalone Mode**.
 
@@ -446,7 +460,7 @@ Sets the room where this Bluetooth proxy is physically located. This is used for
 presence tracking to determine which room a device is in based on signal
 strength.
 
-##### Minimum Room RSSI Override (dBm) [ -100 - -40, default: **_-100_** ]
+##### Minimum Room RSSI Override (dBm) \[ -100 - -40, default: **_-100_** \]
 
 > Only visible in **Coordinator Mode** (when connected to a Bluetooth
 > Coordinator).
@@ -512,7 +526,7 @@ device or there are stale connections or variables.
 
 **Parameters:**
 
-- **Are You Sure?** [ **_No_** | Yes ] - Confirmation to reset the driver.
+- **Are You Sure?** \[ **_No_** | Yes \] - Confirmation to reset the driver.
 
 ## Programming Reference
 
@@ -729,8 +743,8 @@ You can create programming in Control4 to:
 Using the "Still Open Time" property from the relay controller driver:
 
 1. Set the "Still Open Time" to your desired duration (e.g., 10 minutes)
-2. Create a programming rule that triggers when the "Still Open" event fires
-3. Add actions to send notifications or perform other tasks
+1. Create a programming rule that triggers when the "Still Open" event fires
+1. Add actions to send notifications or perform other tasks
 
 ## Additional Entities
 
@@ -822,23 +836,25 @@ and retry until a slot becomes available.
 
 1. **Add the ESPHome driver** and configure it to connect to your ESP32 device.
 
-2. **Verify Bluetooth Proxy Status** shows "Ready" with available slots.
+1. **Verify Bluetooth Proxy Status** shows "Ready" with available slots.
 
-3. **Scan for devices:**
+1. **Scan for devices:**
+
    - Set "Bluetooth Scan Duration" (30 seconds recommended)
    - Select "Refresh List" from the "Select Bluetooth Devices" dropdown
    - Wait for the scan to complete
 
-4. **Select a discovered device** from the dropdown. A connection will be
+1. **Select a discovered device** from the dropdown. A connection will be
    automatically created.
 
-5. **Add the appropriate sub-driver:**
+1. **Add the appropriate sub-driver:**
+
    - Search for the driver matching your device type (e.g., "ESPHome BTHome")
    - Add it to your project
 
-6. **Bind the sub-driver** to the connection created in step 4.
+1. **Bind the sub-driver** to the connection created in step 4.
 
-7. **Configure the sub-driver** properties as needed.
+1. **Configure the sub-driver** properties as needed.
 
 ## Supported Device Types
 
@@ -886,9 +902,9 @@ wireless speakers, neighbors' devices), performance may degrade:
 
 1. Use Ethernet-connected ESP32 boards (Olimex ESP32-POE) to avoid WiFi/BLE
    contention
-2. Position proxies away from WiFi routers (at least 2-3 meters)
-3. Use the Bluetooth Coordinator to distribute load across multiple proxies
-4. Reduce scan duration if not actively discovering new devices
+1. Position proxies away from WiFi routers (at least 2-3 meters)
+1. Use the Bluetooth Coordinator to distribute load across multiple proxies
+1. Reduce scan duration if not actively discovering new devices
 
 ### Proxy Placement Tips
 
@@ -940,12 +956,12 @@ provides:
 ### Coordinator Setup Steps
 
 1. **Add the Bluetooth Coordinator driver** to your project
-2. **Connect your ESPHome drivers** to the coordinator's proxy bindings
+1. **Connect your ESPHome drivers** to the coordinator's proxy bindings
    (Connections tab)
-3. **Set the "Bluetooth Proxy Room" property** on each ESPHome driver to
+1. **Set the "Bluetooth Proxy Room" property** on each ESPHome driver to
    indicate where that proxy is physically located
-4. **Select devices** via the coordinator's "Select Bluetooth Devices" property
-5. **For presence tracking**, select devices via "Select Presence Devices"
+1. **Select devices** via the coordinator's "Select Bluetooth Devices" property
+1. **For presence tracking**, select devices via "Select Presence Devices"
 
 When an ESPHome driver is connected to the coordinator:
 
