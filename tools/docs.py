@@ -48,7 +48,7 @@ LAYOUT_CSS = """
    Symbola (monochrome) sits last so symbol chars the docs use in tables/callouts
    (check/cross/warning) render as glyphs instead of blank color-emoji boxes. */
 .markdown-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "DejaVu Sans", "Liberation Sans", Helvetica, Arial, "Symbola", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, "Liberation Sans", "DejaVu Sans", "Noto Sans", "Symbola", sans-serif;
 }
 .markdown-body code, .markdown-body pre, .markdown-body tt {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", "DejaVu Sans Mono", Menlo, monospace;
@@ -61,9 +61,11 @@ LAYOUT_CSS = """
 @page { size: Letter; margin: 0.4in; }
 @media print {
   .markdown-body { max-width: none; padding: 0 45px; margin: 0; }
-  [style*="page-break"] { page-break-after: auto !important; page-break-before: auto !important; }
   h1, h2, h3, h4, h5, h6 { break-after: avoid; }
-  table, pre, figure, tr { break-inside: avoid; }
+  /* Keep code, images and individual rows intact, but let long tables split
+     across pages (WeasyPrint repeats <thead>) — pinning the whole table with
+     break-inside:avoid strands big blank gaps and orphans the heading above it. */
+  pre, figure, tr { break-inside: avoid; }
   p, li { orphans: 3; widows: 3; }
 }
 """
