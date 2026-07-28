@@ -20,6 +20,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added `TEMPERATURE_VALUE` and `HUMIDITY_VALUE` connections for sensors with a
+  `temperature` or `humidity` device class, so they can be bound to thermostats
+  and other value consumers; the reported scale honors the sensor's declared
+  unit of measurement
+
 ### Fixed
 
 - Fixed all entity states appearing frozen in Control4 (covers stuck on
@@ -28,7 +35,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   `object_id`, and log messages now identify entities as `type 'Name' (key=N)`.
 - Bumped the ESPHome native API version advertised in `HelloRequest` from 1.0 to
   1.14 so devices no longer log `using outdated API 1.0, update to 1.14+` on
-  every connection.
+  every connection
 
 ## v20260711 - 2026-07-11
 

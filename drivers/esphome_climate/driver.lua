@@ -128,6 +128,9 @@ local function getCelsiusFromParams(tParams)
     if scale == "C" or scale == "c" or scale == "CELSIUS" then
       return value
     end
+    if scale == "K" or scale == "k" or scale == "KELVIN" then
+      return value - 273.15
+    end
     return f2c(value)
   end
   return nil
