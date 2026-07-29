@@ -620,6 +620,12 @@ end
 -- Data Processing
 --------------------------------------------------------------------------------
 
+--- Last value notified per variable this session. In-memory on purpose: a
+--- driver restart clears it, so bound consumers are re-notified even when the
+--- value matches the persisted variable.
+--- @type table<string, any>
+local lastNotified = {}
+
 --- Process a BTHome object and update the corresponding variable/property
 --- @param reading BTHomeReading The BTHome object with value, unit, event fields
 --- @param summaryParts string[] Table to append summary parts to
@@ -695,7 +701,7 @@ local function processBTHomeReading(reading, summaryParts)
   end
 
   -- Update the variable (and property if applicable via suffix)
-  local changed = values:update(varName, displayValue, varDef.type, nil, reading.unit and (" " .. reading.unit) or nil)
+  values:update(varName, displayValue, varDef.type, nil, reading.unit and (" " .. reading.unit) or nil)
 
   -- Add to summary
   local unit = reading.unit and (" " .. reading.unit) or ""
@@ -706,10 +712,12 @@ local function processBTHomeReading(reading, summaryParts)
     values:update("Temperature F", c2f(value), varDef.type, nil, " °F")
   end
 
-  -- Only send to bindings if value changed
-  if not changed then
+  -- Only send to bindings when the value changed this session. Deduped in
+  -- memory so a driver restart re-notifies bound consumers.
+  if lastNotified[varName] == displayValue then
     return
   end
+  lastNotified[varName] = displayValue
 
   -- Send to sensor binding if applicable
   local sensorConfig = SENSOR_BINDINGS[reading.name]

@@ -917,6 +917,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed cover contacts, Yale DoorSense, BTHome bindings, and the SwitchBot Bot
+  relay leaving bound consumers stale after a driver restart or update until the
+  next state change
 - Fixed all entity states appearing frozen in Control4 (covers stuck on
   "Unknown", sensor variables never updating) on ESPHome 2026.7+ firmware, which
   no longer sends the deprecated `object_id` field. The driver no longer reads

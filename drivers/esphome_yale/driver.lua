@@ -510,16 +510,24 @@ local function setDoorSenseConfigured(configured)
   end
 end
 
+--- Last door status notified this session. In-memory on purpose: a driver
+--- restart clears it, so the bound consumer is re-notified even when the
+--- status matches the persisted variable.
+--- @type string|nil
+local lastNotifiedDoorStatus = nil
+
 --- Update the door status and notify dynamic contact sensor binding.
---- Persists state via the values lib so it survives reboots/driver updates.
---- Deduplicates: only sends a proxy notification when the state actually changes.
+--- Deduplicates within the session: only sends a proxy notification when the
+--- status changes or on the first reading after a driver start.
 --- @param doorStatus string "CLOSED" or "OPENED"
 local function updateDoorStatus(doorStatus)
   setDoorSenseConfigured(true)
 
-  if not values:update("Door Status", doorStatus) then
+  values:update("Door Status", doorStatus)
+  if lastNotifiedDoorStatus == doorStatus then
     return
   end
+  lastNotifiedDoorStatus = doorStatus
 
   log:info("Door status: %s", doorStatus)
 
