@@ -16,6 +16,12 @@ local CoverEntity = {
 }
 CoverEntity.__index = CoverEntity
 
+--- Clear the in-memory notify memo so the next state dump re-notifies bound
+--- consumers (driver reset).
+function CoverEntity.clearNotifiedState()
+  lastNotified = {}
+end
+
 --- Create a new instance of the cover entity.
 --- @param client ESPHomeClient The ESPHome client instance.
 --- @return CoverEntity entity A new instance of the CoverEntity entity.

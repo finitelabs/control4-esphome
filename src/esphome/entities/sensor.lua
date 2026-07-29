@@ -66,6 +66,12 @@ end
 --- @type table<string, number>
 local lastPushed = {}
 
+--- Clear the in-memory push memo so the next reading re-notifies bound
+--- consumers (driver reset).
+function SensorEntity.clearNotifiedState()
+  lastPushed = {}
+end
+
 --- Build the dynamic binding key for a sensor entity.
 --- @param entity table<string, any> The entity data received from the ESPHome client.
 --- @return string key The dynamic binding key.

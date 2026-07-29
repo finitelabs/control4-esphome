@@ -1039,6 +1039,8 @@ function EC.Reset_Driver(params)
   -- Reset local state
   knownObjects = {}
   cachedMacBytes = nil
+  -- Clear the in-memory notify memo so recreated bindings receive the next reading
+  lastNotified = {}
 
   -- Reset properties to defaults (excludes user-entered credentials)
   local resetValues = GetPropertyResetValues({ "Bind Key" })
