@@ -81,6 +81,8 @@ local CLIMATE_ACTION_TO_C4 = {
   [ESPHomeProtoSchema.Enum.ClimateAction.CLIMATE_ACTION_IDLE] = "Idle",
   [ESPHomeProtoSchema.Enum.ClimateAction.CLIMATE_ACTION_DRYING] = "Drying",
   [ESPHomeProtoSchema.Enum.ClimateAction.CLIMATE_ACTION_FAN] = "Fan Only",
+  -- Defrost is a heating-cycle sub-state; the C4 proxy has no defrost state
+  [ESPHomeProtoSchema.Enum.ClimateAction.CLIMATE_ACTION_DEFROSTING] = "Heating",
 }
 
 --- ESPHome ClimateFanMode -> C4 fan mode string
@@ -896,6 +898,12 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
 end
 
+--- Last unmapped mode/action warned about. State pushes repeat every few
+--- seconds (temperature changes included), so warn once per value, not per
+--- push.
+local warnedMode = nil
+local warnedAction = nil
+
 function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   log:trace("RFP.UPDATE_STATE(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
   if idBinding ~= ESPHOME_BINDING then
@@ -945,6 +953,9 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     local c4Mode = CLIMATE_MODE_TO_C4[mode]
     if c4Mode ~= nil then
       SendToProxy(PROXY_BINDING, "HVAC_MODE_CHANGED", { MODE = c4Mode }, "NOTIFY")
+    elseif warnedMode ~= mode then
+      warnedMode = mode
+      log:warn("Unmapped ESPHome climate mode %s; HVAC mode not updated", mode)
     end
   end
 
@@ -954,6 +965,9 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     local c4State = CLIMATE_ACTION_TO_C4[action]
     if c4State ~= nil then
       SendToProxy(PROXY_BINDING, "HVAC_STATE_CHANGED", { STATE = c4State }, "NOTIFY")
+    elseif warnedAction ~= action then
+      warnedAction = action
+      log:warn("Unmapped ESPHome climate action %s; HVAC state not updated", action)
     end
   end
 

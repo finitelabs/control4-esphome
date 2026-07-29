@@ -22,6 +22,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed the HVAC state freezing on the previous value during a heat pump's
+  defrost cycle; defrosting now reports as Heating, and unmapped climate
+  modes/actions log a warning instead of being silently dropped
 - Fixed latch-style ESPHome locks (`supports_open`) reading as "unknown" in
   Control4 while reporting the open or opening state; both now map to unlocked
 - Fixed overlapping status refreshes silently racing each other for the same
