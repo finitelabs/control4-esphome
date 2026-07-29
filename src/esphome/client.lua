@@ -42,7 +42,14 @@ local Indicator = {
 --- @class CallbackEntry
 --- @field callback CallbackFunction The callback function to invoke
 --- @field timer C4LuaTimer|nil Optional timeout timer for auto-unregistration
---- @field onAbort fun(err?: string)|nil Optional handler that settles the waiting deferred when the wait is aborted (timeout or disconnect)
+--- @field onAbort fun(err?: string)|nil Optional handler that settles the waiting deferred when the wait is aborted (timeout, disconnect, or supersession)
+
+--- A registration receipt returned by _registerCallback. Callback keys are derived from the
+--- message schema (plus address/handle), so overlapping requests share a key; the entry
+--- reference makes a handle identify one specific registration rather than just the slot.
+--- @class CallbackHandle
+--- @field key CallbackKey The key the callback was registered under
+--- @field entry CallbackEntry The specific entry this handle refers to
 
 --- A class representing the ESPHome API client.
 --- @class ESPHomeClient
@@ -506,9 +513,9 @@ function ESPHomeClient:listEntities()
   --- @type table<string, table?>
   local entities = {}
 
-  -- Track the callback keys that are added so they can be removed once we receive the done message
-  --- @type CallbackKey[]
-  local addedCallbackKeys = {}
+  -- Track the callbacks that are added so they can be removed once we receive the done message
+  --- @type CallbackHandle[]
+  local addedCallbackHandles = {}
 
   for _, schema in pairs(ESPHomeProtoSchema.Message) do
     -- HACK: No reliable way to identify list_entity responses from proto definition.
@@ -516,40 +523,40 @@ function ESPHomeClient:listEntities()
     if not IsEmpty(name) then
       if schema.name == "ListEntitiesDoneResponse" then
         -- Register callback for ListEntitiesDoneResponse with timeout
-        local key = self:_registerCallback(
+        local handle = self:_registerCallback(
           self:_makeMessageCallbackKey(schema),
           function(_)
             log:debug("Received %d entities: %s", TableLength(entities), entities)
-            self:_unregisterCallbacks(addedCallbackKeys)
+            self:_unregisterCallbacks(addedCallbackHandles)
             d:resolve(entities)
           end,
           10 * ONE_SECOND,
           function(err)
-            self:_unregisterCallbacks(addedCallbackKeys)
+            self:_unregisterCallbacks(addedCallbackHandles)
             d:reject(err or "Timeout waiting for list entities response")
           end
         )
-        table.insert(addedCallbackKeys, key)
+        table.insert(addedCallbackHandles, handle)
       else
         -- HACK: No reliable way to identify entity types from proto definition.
         local entityType = Select(self.EntityType, (Select(schema, "options", "ifdef") or ""):match("^USE_(.+)$"))
         if not IsEmpty(entityType) then
           log:trace("Registering %s entity callback", name)
 
-          local key = self:_registerCallback(self:_makeMessageCallbackKey(schema), function(message)
+          local handle = self:_registerCallback(self:_makeMessageCallbackKey(schema), function(message)
             log:trace("Received %s entity: %s", entityType, message)
             message.entity_type = entityType
             entities[tostring(message.key)] = message
           end)
-          table.insert(addedCallbackKeys, key)
+          table.insert(addedCallbackHandles, handle)
         elseif schema.name == "ListEntitiesServicesResponse" then
-          local key = self:_registerCallback(self:_makeMessageCallbackKey(schema), function(message)
+          local handle = self:_registerCallback(self:_makeMessageCallbackKey(schema), function(message)
             log:debug("Discovered user service: %s (key=%s)", message.name, message.key)
             if not IsEmpty(message.name) and message.key ~= nil then
               self.userServices[message.name] = message.key
             end
           end)
-          table.insert(addedCallbackKeys, key)
+          table.insert(addedCallbackHandles, handle)
         else
           log:trace("Unknown entity type for %s (ifdef=%s)", name, Select(schema, "options", "ifdef") or "nil")
         end
@@ -691,7 +698,7 @@ function ESPHomeClient:bluetoothDeviceConnect(mac, addressType, withCache)
   local d = deferred.new()
 
   -- Register callback for connection responses
-  local callbackKey = self:_registerCallback(
+  local callbackHandle = self:_registerCallback(
     self:_makeBluetoothCallbackKey(ESPHomeProtoSchema.Message.BluetoothDeviceConnectionResponse, address),
     function(message)
       --- @cast message ProtoBluetoothDeviceConnectionResponse
@@ -740,10 +747,10 @@ function ESPHomeClient:bluetoothDeviceConnect(mac, addressType, withCache)
   end)
 
   return d:next(function(message)
-    self:_unregisterCallback(callbackKey)
+    self:_unregisterCallback(callbackHandle)
     return message
   end, function(err)
-    self:_unregisterCallback(callbackKey)
+    self:_unregisterCallback(callbackHandle)
     return reject(err)
   end)
 end
@@ -784,15 +791,15 @@ function ESPHomeClient:_bluetoothGattGetServicesInternal(mac)
   --- @type Deferred<ProtoBluetoothGATTService[], string>
   local d = deferred.new()
 
-  --- @type string[]
-  local callbackKeys = {}
+  --- @type CallbackHandle[]
+  local callbackHandles = {}
 
   -- Accumulate services from multiple responses
   --- @type ProtoBluetoothGATTService[]
   local allServices = {}
 
   table.insert(
-    callbackKeys,
+    callbackHandles,
     self:_registerCallback(
       self:_makeBluetoothCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTGetServicesResponse, address),
       function(message)
@@ -807,7 +814,7 @@ function ESPHomeClient:_bluetoothGattGetServicesInternal(mac)
   )
 
   table.insert(
-    callbackKeys,
+    callbackHandles,
     self:_registerCallback(
       self:_makeBluetoothCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTGetServicesDoneResponse, address),
       function(message)
@@ -823,7 +830,7 @@ function ESPHomeClient:_bluetoothGattGetServicesInternal(mac)
   )
 
   table.insert(
-    callbackKeys,
+    callbackHandles,
     self:_registerCallback(
       self:_makeBluetoothCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address),
       function(message)
@@ -841,10 +848,10 @@ function ESPHomeClient:_bluetoothGattGetServicesInternal(mac)
     end)
 
   return d:next(function(message)
-    self:_unregisterCallbacks(callbackKeys)
+    self:_unregisterCallbacks(callbackHandles)
     return message
   end, function(err)
-    self:_unregisterCallbacks(callbackKeys)
+    self:_unregisterCallbacks(callbackHandles)
     return reject(err)
   end)
 end
@@ -874,11 +881,11 @@ function ESPHomeClient:_bluetoothGattReadInternal(mac, handle)
   --- @type Deferred<string, string>
   local d = deferred.new()
 
-  --- @type string[]
-  local callbackKeys = {}
+  --- @type CallbackHandle[]
+  local callbackHandles = {}
 
   table.insert(
-    callbackKeys,
+    callbackHandles,
     self:_registerCallback(
       self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTReadResponse, address, handle),
       function(message)
@@ -894,7 +901,7 @@ function ESPHomeClient:_bluetoothGattReadInternal(mac, handle)
   )
 
   table.insert(
-    callbackKeys,
+    callbackHandles,
     self:_registerCallback(
       self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
       function(message)
@@ -913,10 +920,10 @@ function ESPHomeClient:_bluetoothGattReadInternal(mac, handle)
     end)
 
   return d:next(function(message)
-    self:_unregisterCallbacks(callbackKeys)
+    self:_unregisterCallbacks(callbackHandles)
     return message
   end, function(err)
-    self:_unregisterCallbacks(callbackKeys)
+    self:_unregisterCallbacks(callbackHandles)
     return reject(err)
   end)
 end
@@ -950,12 +957,12 @@ function ESPHomeClient:_bluetoothGattWriteInternal(mac, handle, data, response)
   --- @type Deferred<nil, string>
   local d = deferred.new()
 
-  --- @type string[]
-  local callbackKeys = {}
+  --- @type CallbackHandle[]
+  local callbackHandles = {}
 
   if response then
     table.insert(
-      callbackKeys,
+      callbackHandles,
       self:_registerCallback(
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTWriteResponse, address, handle),
         function(message)
@@ -971,7 +978,7 @@ function ESPHomeClient:_bluetoothGattWriteInternal(mac, handle, data, response)
     )
 
     table.insert(
-      callbackKeys,
+      callbackHandles,
       self:_registerCallback(
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
         function(message)
@@ -1000,10 +1007,10 @@ function ESPHomeClient:_bluetoothGattWriteInternal(mac, handle, data, response)
     end)
 
   return d:next(function(message)
-    self:_unregisterCallbacks(callbackKeys)
+    self:_unregisterCallbacks(callbackHandles)
     return message
   end, function(err)
-    self:_unregisterCallbacks(callbackKeys)
+    self:_unregisterCallbacks(callbackHandles)
     return reject(err)
   end)
 end
@@ -1025,13 +1032,13 @@ function ESPHomeClient:bluetoothGattWriteDescriptor(mac, handle, data, addressTy
     --- @type Deferred<nil, string>
     local d = deferred.new()
 
-    --- @type string[]
-    local callbackKeys = {}
+    --- @type CallbackHandle[]
+    local callbackHandles = {}
 
     -- The firmware sends BluetoothGATTWriteResponse for descriptor writes
     -- (same response type as characteristic writes).
     table.insert(
-      callbackKeys,
+      callbackHandles,
       self:_registerCallback(
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTWriteResponse, address, handle),
         function()
@@ -1046,7 +1053,7 @@ function ESPHomeClient:bluetoothGattWriteDescriptor(mac, handle, data, addressTy
     )
 
     table.insert(
-      callbackKeys,
+      callbackHandles,
       self:_registerCallback(
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
         function(message)
@@ -1068,10 +1075,10 @@ function ESPHomeClient:bluetoothGattWriteDescriptor(mac, handle, data, addressTy
       end)
 
     return d:next(function(message)
-      self:_unregisterCallbacks(callbackKeys)
+      self:_unregisterCallbacks(callbackHandles)
       return message
     end, function(err)
-      self:_unregisterCallbacks(callbackKeys)
+      self:_unregisterCallbacks(callbackHandles)
       return reject(err)
     end)
   end)
@@ -1106,15 +1113,17 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(mac, handle, enable, callbac
   --- @type Deferred<nil, string>
   local d = deferred.new()
 
-  --- @type string[]
-  local confirmCallbackKeys = {}
+  --- @type CallbackHandle[]
+  local confirmCallbackHandles = {}
   local notifyCallbackKey =
     self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTNotifyDataResponse, address, handle)
+  --- @type CallbackHandle|nil
+  local notifyCallbackHandle
 
   if enable then
     -- Register persistent callback for notification data
     if callback then
-      self:_registerCallback(notifyCallbackKey, function(message)
+      notifyCallbackHandle = self:_registerCallback(notifyCallbackKey, function(message)
         --- @cast message ProtoBluetoothGATTNotifyDataResponse
         log:debug("Bluetooth GATT notify data for %s handle %s: %d bytes", mac, handle, #(message.data or ""))
         local callbackSuccess, err = pcall(callback, message.data or "")
@@ -1126,7 +1135,7 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(mac, handle, enable, callbac
 
     -- Register one-time confirmation callback
     table.insert(
-      confirmCallbackKeys,
+      confirmCallbackHandles,
       self:_registerCallback(
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTNotifyResponse, address, handle),
         function(message)
@@ -1143,7 +1152,7 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(mac, handle, enable, callbac
 
     -- Register error callback
     table.insert(
-      confirmCallbackKeys,
+      confirmCallbackHandles,
       self:_registerCallback(
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
         function(message)
@@ -1159,7 +1168,7 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(mac, handle, enable, callbac
 
     -- Register one-time confirmation callback for unsubscribe
     table.insert(
-      confirmCallbackKeys,
+      confirmCallbackHandles,
       self:_registerCallback(
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTNotifyResponse, address, handle),
         function(message)
@@ -1176,7 +1185,7 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(mac, handle, enable, callbac
 
     -- Register error callback
     table.insert(
-      confirmCallbackKeys,
+      confirmCallbackHandles,
       self:_registerCallback(
         self:_makeGattCallbackKey(ESPHomeProtoSchema.Message.BluetoothGATTErrorResponse, address, handle),
         function(message)
@@ -1199,11 +1208,13 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(mac, handle, enable, callbac
     end)
 
   return d:next(function(message)
-    self:_unregisterCallbacks(confirmCallbackKeys)
+    self:_unregisterCallbacks(confirmCallbackHandles)
     return message
   end, function(err)
-    self:_unregisterCallbacks(confirmCallbackKeys)
-    self:_unregisterCallback(notifyCallbackKey)
+    self:_unregisterCallbacks(confirmCallbackHandles)
+    -- By handle, not by key: a concurrent subscribe for the same characteristic may already
+    -- own this key, and rolling back our failed subscribe must not tear down theirs.
+    self:_unregisterCallback(notifyCallbackHandle)
     return reject(err)
   end)
 end
@@ -1833,9 +1844,9 @@ function ESPHomeClient:sendMessage(messageSchema, body, responseSchema, timeout)
   end
 
   -- Store callback for response if one is expected
-  local responseKey
+  local responseHandle
   if responseSchema then
-    responseKey = self:_registerCallback(
+    responseHandle = self:_registerCallback(
       self:_makeMessageCallbackKey(responseSchema),
       function(message)
         log:debug("Received response to %s", messageSchema.name)
@@ -1856,10 +1867,10 @@ function ESPHomeClient:sendMessage(messageSchema, body, responseSchema, timeout)
   self._client:Write(frame)
 
   return d:next(function(message)
-    self:_unregisterCallback(responseKey)
+    self:_unregisterCallback(responseHandle)
     return message
   end, function(err)
-    self:_unregisterCallback(responseKey)
+    self:_unregisterCallback(responseHandle)
     return reject(err)
   end)
 end
@@ -1905,23 +1916,11 @@ end
 --- @param key CallbackKey The callback key
 --- @param callback CallbackFunction The callback function
 --- @param timeout? number Optional timeout in milliseconds for auto-unregistration
---- @param onTimeout? fun(err?: string): void Optional callback invoked when the wait is aborted (timeout, or disconnect with a reason), before unregistration
---- @return CallbackKey key The registered key (for later unregistration)
+--- @param onTimeout? fun(err?: string): void Optional callback invoked when the wait is aborted (timeout, or disconnect/supersession with a reason), before unregistration
+--- @return CallbackHandle handle The registration receipt (for later unregistration)
 --- @private
 function ESPHomeClient:_registerCallback(key, callback, timeout, onTimeout)
   log:trace("ESPHomeClient:_registerCallback(%s, <fn>, %s)", key, timeout)
-
-  -- Cancel any existing timer for this key
-  local existing = self._callbacks[key]
-  if existing and existing.timer then
-    existing.timer:Cancel()
-  end
-  if existing and existing.onAbort then
-    -- The displaced waiter cannot be settled safely from here: its abort
-    -- handlers may unregister keys the new entry now owns. Callers must
-    -- serialize same-type requests instead (e.g. RefreshStatus).
-    log:warn("Displacing a pending request callback for key: %s", key)
-  end
 
   --- @type CallbackEntry
   local entry = {
@@ -1930,6 +1929,29 @@ function ESPHomeClient:_registerCallback(key, callback, timeout, onTimeout)
     onAbort = onTimeout,
   }
 
+  --- @type CallbackHandle
+  local handle = { key = key, entry = entry }
+
+  -- Displace whoever already holds this key. The slot is cleared before the abort handler
+  -- runs and the new entry installed after, so a displaced caller that tears down a set of
+  -- shared keys on rejection cannot remove the registrations replacing it.
+  local existing = self._callbacks[key]
+  if existing then
+    self._callbacks[key] = nil
+    if existing.timer then
+      existing.timer:Cancel()
+    end
+    if existing.onAbort then
+      -- Kept from #81: same-key concurrency is worth seeing in production logs even
+      -- though the displaced waiter is now settled rather than stranded.
+      log:warn("Superseding a pending request callback for key: %s", key)
+      local success, err = pcall(existing.onAbort, "Superseded by a newer request")
+      if not success then
+        log:error("Abort handler for callback %s failed: %s", key, err or "unknown error")
+      end
+    end
+  end
+
   -- Set up timeout timer if specified
   if timeout and timeout > 0 then
     entry.timer = C4:SetTimer(timeout, function()
@@ -1937,40 +1959,54 @@ function ESPHomeClient:_registerCallback(key, callback, timeout, onTimeout)
       if onTimeout then
         onTimeout()
       end
-      self:_unregisterCallback(key)
+      self:_unregisterCallback(handle)
     end)
   end
 
   self._callbacks[key] = entry
   log:trace("Registered callback for key: %s (timeout: %s ms)", key, timeout or "none")
-  return key
+  return handle
 end
 
---- Unregister a callback by key. No-op if key is nil.
---- @param key CallbackKey|nil The callback key to unregister
+--- Unregister a callback. No-op if the handle is nil or already superseded.
+--- Accepts a handle from _registerCallback, or a bare key to drop whatever currently
+--- holds it (used for persistent handlers that are torn down by key).
+--- @param handle CallbackHandle|CallbackKey|nil The registration to unregister
 --- @private
-function ESPHomeClient:_unregisterCallback(key)
-  log:trace("ESPHomeClient:_unregisterCallback(%s)", key)
-  if key == nil then
+function ESPHomeClient:_unregisterCallback(handle)
+  if handle == nil then
     return
   end
 
+  local key = type(handle) == "table" and handle.key or handle
+  --- @cast key CallbackKey
+  log:trace("ESPHomeClient:_unregisterCallback(%s)", key)
+
   local entry = self._callbacks[key]
-  if entry then
-    if entry.timer then
-      entry.timer:Cancel()
-    end
-    self._callbacks[key] = nil
-    log:trace("Unregistered callback for key: %s", key)
+  if entry == nil then
+    return
   end
+
+  -- A handle only unregisters its own entry. Overlapping requests share a key, so without
+  -- this check a superseded caller's cleanup would drop the entry that replaced it.
+  if type(handle) == "table" and entry ~= handle.entry then
+    log:trace("Not unregistering key %s: held by a newer registration", key)
+    return
+  end
+
+  if entry.timer then
+    entry.timer:Cancel()
+  end
+  self._callbacks[key] = nil
+  log:trace("Unregistered callback for key: %s", key)
 end
 
---- Unregister multiple callbacks by key. Convenience wrapper around _unregisterCallback.
---- @param keys CallbackKey[] Array of callback keys to unregister
+--- Unregister multiple callbacks. Convenience wrapper around _unregisterCallback.
+--- @param handles (CallbackHandle|CallbackKey)[] Array of registrations to unregister
 --- @private
-function ESPHomeClient:_unregisterCallbacks(keys)
-  for _, key in ipairs(keys) do
-    self:_unregisterCallback(key)
+function ESPHomeClient:_unregisterCallbacks(handles)
+  for _, handle in ipairs(handles) do
+    self:_unregisterCallback(handle)
   end
 end
 
