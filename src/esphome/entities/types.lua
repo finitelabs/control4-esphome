@@ -4,3 +4,4 @@
 --- @field new (fun(client: ESPHomeClient): Entity) A constructor function to create a new entity instance.
 --- @field discovered (fun(self: Entity, entity: table<string, any>): void )? A function to handle entity discovery.
 --- @field updated (fun(self: Entity, entity: table<string, any>, state: table<string, any>): void)? A function to update the entity state.
+--- @field restored (fun(self: Entity): void)? A function to re-arm handlers for bindings restored from persistent storage, called from OnDriverInit before any connection exists.

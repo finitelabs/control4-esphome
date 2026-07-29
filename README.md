@@ -910,6 +910,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed cover contacts and sensor values not seeding a consumer that binds after
+  the driver restarted while the ESPHome node was offline; the bind-time
+  handlers are now armed from the persisted bindings at startup instead of only
+  on a successful connect
 - Fixed the HVAC state freezing on the previous value during a heat pump's
   defrost cycle; defrosting now reports as Heating, and unmapped climate
   modes/actions log a warning instead of being silently dropped

@@ -40,6 +40,24 @@ local function registerContactSeeder(bindingId, valueName)
   end
 end
 
+--- Re-arm the contact seeders for bindings restored from persistent storage.
+--- `discovered()` only runs on a successful connect, so without this a driver
+--- restart while the node is offline leaves a consumer that binds with no
+--- seeder and no state dump coming -- exactly what seeding exists for.
+---
+--- The values key for a contact binding is its display name by construction:
+--- `discovered()` creates the binding with `entity.name .. " Closed"` (or
+--- `" Open"`) and `updated()` stores the state under that same name.
+--- @return void
+function CoverEntity:restored()
+  log:trace("CoverEntity:restored()")
+  for _, binding in pairs(bindings:getDynamicBindings(self.TYPE)) do
+    if binding.class == "CONTACT_SENSOR" then
+      registerContactSeeder(binding.bindingId, binding.displayName)
+    end
+  end
+end
+
 --- Create a new instance of the cover entity.
 --- @param client ESPHomeClient The ESPHome client instance.
 --- @return CoverEntity entity A new instance of the CoverEntity entity.

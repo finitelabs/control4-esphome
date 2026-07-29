@@ -134,6 +134,21 @@ function OnDriverInit()
   -- Restore persisted state
   values:restoreValues()
   bindings:restoreBindings()
+
+  -- Re-arm bind-time handlers for the restored bindings. Entity discovery only
+  -- runs on a successful connect, so without this a consumer that binds while
+  -- the node is offline gets nothing until the node comes back.
+  for entityType, entity in pairs(Entities) do
+    if type(entity.restored) == "function" then
+      log:debug("Calling Entities['%s']:restored() handler", entityType)
+      local success, ret = xpcall(function()
+        entity:restored()
+      end, debug.traceback)
+      if not success then
+        log:error("Entities['%s']:restored() handler failed; %s", entityType, ret or "unknown error")
+      end
+    end
+  end
 end
 
 function OnDriverLateInit()
@@ -684,6 +699,9 @@ function EC.Reset_Driver(params)
   -- Clear in-memory notify memos so recreated bindings receive the next state
   CoverEntity.clearNotifiedState()
   SensorEntity.clearNotifiedState()
+
+  -- Drop persisted seeding metadata for the bindings that were just removed
+  SensorEntity.clearPersistedScales()
 
   -- Reset BLE scanner state
   bleScanner:abortScan()
