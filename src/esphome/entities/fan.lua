@@ -45,21 +45,19 @@ function FanEntity:discovered(entity)
       body.key = body.key or entity.key
       self.client:callServiceMethod(command, body):next(function()
         log:debug(
-          "Method %s.%s(%s) called by entity %s.%s",
+          "Method %s.%s(%s) called by entity %s",
           command.service,
           command.method,
           body,
-          entity.entity_type,
-          entity.object_id
+          ESPHomeClient.describeEntity(entity)
         )
       end, function(error)
         log:error(
-          "An error occurred calling method %s.%s(%s) by entity %s.%s; %s",
+          "An error occurred calling method %s.%s(%s) by entity %s; %s",
           command.service,
           command.method,
           body,
-          entity.entity_type,
-          entity.object_id,
+          ESPHomeClient.describeEntity(entity),
           error
         )
       end)

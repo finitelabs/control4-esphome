@@ -25,14 +25,12 @@ function ClimateEntity:discovered(entity)
   log:trace("ClimateEntity:discovered(%s)", entity)
   local displayName = entity.name
   if IsEmpty(displayName) then
-    if not IsEmpty(entity.object_id) then
-      -- Convert snake_case object_id to Title Case (e.g. "water_heater" -> "Water Heater")
-      displayName = entity.object_id:gsub("_", " "):gsub("(%a)([%w]*)", function(first, rest)
-        return first:upper() .. rest
-      end)
-    else
-      displayName = (entity.entity_type or "climate"):gsub("^%l", string.upper) .. " " .. entity.key
-    end
+    -- An empty name marks the device's main entity; show it under the device
+    -- name, the way Home Assistant does.
+    displayName = self.client:getDeviceName()
+  end
+  if IsEmpty(displayName) then
+    displayName = (entity.entity_type or "climate"):gsub("^%l", string.upper) .. " " .. entity.key
   end
   local bindingId = assert(
     bindings:getOrAddDynamicBinding(self.TYPE, "climate_" .. entity.key, "PROXY", true, displayName, "ESPHOME_CLIMATE")
@@ -58,21 +56,19 @@ function ClimateEntity:discovered(entity)
       body.key = body.key or entity.key
       self.client:callServiceMethod(command, body):next(function()
         log:debug(
-          "Method %s.%s(%s) called by entity %s.%s",
+          "Method %s.%s(%s) called by entity %s",
           command.service,
           command.method,
           body,
-          entity.entity_type,
-          entity.object_id
+          ESPHomeClient.describeEntity(entity)
         )
       end, function(error)
         log:error(
-          "An error occurred calling method %s.%s(%s) by entity %s.%s; %s",
+          "An error occurred calling method %s.%s(%s) by entity %s; %s",
           command.service,
           command.method,
           body,
-          entity.entity_type,
-          entity.object_id,
+          ESPHomeClient.describeEntity(entity),
           error
         )
       end)

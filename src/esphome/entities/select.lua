@@ -56,9 +56,9 @@ function SelectEntity:updated(entity, state)
     end
     if not isValid then
       log:error(
-        "Invalid option '%s' for select.%s (valid: %s); reverting",
+        "Invalid option '%s' for %s (valid: %s); reverting",
         newValue,
-        entity.object_id,
+        ESPHomeClient.describeEntity(entity),
         table.concat(options, ", ")
       )
       C4:SetVariable(entity.name, currentState)
@@ -70,9 +70,9 @@ function SelectEntity:updated(entity, state)
         state = newValue,
       })
       :next(function()
-        log:info("Select option updated to '%s' for select.%s", newValue, entity.object_id)
+        log:info("Select option updated to '%s' for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
-        log:error("Failed to update select option for select.%s: %s", entity.name, error)
+        log:error("Failed to update select option for %s: %s", ESPHomeClient.describeEntity(entity), error)
       end)
   end)
 end

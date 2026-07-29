@@ -35,9 +35,8 @@ function TimeEntity:updated(entity, state)
     local hour, minute, second = (newValue or ""):match("^(%d%d):(%d%d):(%d%d)$")
     if not hour then
       log:error(
-        "Invalid time format for %s.%s: %s (expected HH:MM:SS)",
-        entity.entity_type,
-        entity.object_id,
+        "Invalid time format for %s: %s (expected HH:MM:SS)",
+        ESPHomeClient.describeEntity(entity),
         newValue or ""
       )
       return
@@ -50,9 +49,9 @@ function TimeEntity:updated(entity, state)
         second = tonumber(second),
       })
       :next(function()
-        log:info("Time updated to %s for %s.%s", newValue, entity.entity_type, entity.object_id)
+        log:info("Time updated to %s for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
-        log:error("Failed to update time for %s.%s: %s", entity.entity_type, entity.object_id, error)
+        log:error("Failed to update time for %s: %s", ESPHomeClient.describeEntity(entity), error)
       end)
   end)
 end

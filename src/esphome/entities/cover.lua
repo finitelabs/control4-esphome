@@ -101,7 +101,7 @@ function CoverEntity:discovered(entity)
         stopCommand = true
         coverCommand = "stop"
       else
-        log:warn("Unknown binding id %s for %s.%s", idBinding, entity.entity_type, entity.object_id)
+        log:warn("Unknown binding id %s for %s", idBinding, ESPHomeClient.describeEntity(entity))
         return
       end
     else
@@ -115,7 +115,7 @@ function CoverEntity:discovered(entity)
         legacyCommand = ESPHomeProtoSchema.Enum.LegacyCoverCommand.LEGACY_COVER_COMMAND_STOP
         coverCommand = "stop"
       else
-        log:warn("Unknown binding id %s for %s.%s", idBinding, entity.entity_type, entity.object_id)
+        log:warn("Unknown binding id %s for %s", idBinding, ESPHomeClient.describeEntity(entity))
         return
       end
     end
@@ -133,13 +133,12 @@ function CoverEntity:discovered(entity)
           stop = stopCommand,
         })
         :next(function()
-          log:debug("Command %s sent to %s.%s", coverCommand, entity.entity_type, entity.object_id)
+          log:debug("Command %s sent to %s", coverCommand, ESPHomeClient.describeEntity(entity))
         end, function(error)
           log:error(
-            "An error occurred sending command %s to %s.%s; %s",
+            "An error occurred sending command %s to %s; %s",
             coverCommand,
-            entity.entity_type,
-            entity.object_id,
+            ESPHomeClient.describeEntity(entity),
             error
           )
         end)

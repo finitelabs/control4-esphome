@@ -35,9 +35,8 @@ function DateEntity:updated(entity, state)
     local year, month, day = (newValue or ""):match("^(%d%d%d%d)-(%d%d)-(%d%d)$")
     if not year then
       log:error(
-        "Invalid date format for %s.%s: %s (expected YYYY-MM-DD)",
-        entity.entity_type,
-        entity.object_id,
+        "Invalid date format for %s: %s (expected YYYY-MM-DD)",
+        ESPHomeClient.describeEntity(entity),
         newValue or ""
       )
       return
@@ -50,9 +49,9 @@ function DateEntity:updated(entity, state)
         day = tonumber(day),
       })
       :next(function()
-        log:info("Date updated to %s for %s.%s", newValue, entity.entity_type, entity.object_id)
+        log:info("Date updated to %s for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
-        log:error("Failed to update date for %s.%s: %s", entity.entity_type, entity.object_id, error)
+        log:error("Failed to update date for %s: %s", ESPHomeClient.describeEntity(entity), error)
       end)
   end)
 end

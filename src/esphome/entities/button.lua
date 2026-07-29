@@ -43,9 +43,9 @@ function ButtonEntity:discovered(entity)
       self.client
         :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.button_command, { key = entity.key })
         :next(function()
-          log:debug("Command press sent to %s.%s", entity.entity_type, entity.object_id)
+          log:debug("Command press sent to %s", ESPHomeClient.describeEntity(entity))
         end, function(error)
-          log:error("An error occurred sending command press to %s.%s; %s", entity.entity_type, entity.object_id, error)
+          log:error("An error occurred sending command press to %s; %s", ESPHomeClient.describeEntity(entity), error)
         end)
     end
   end

@@ -910,6 +910,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed all entity states appearing frozen in Control4 (covers stuck on
+  "Unknown", sensor variables never updating) on ESPHome 2026.7+ firmware, which
+  no longer sends the deprecated `object_id` field. The driver no longer reads
+  `object_id`, and log messages now identify entities as `type 'Name' (key=N)`.
 - Bumped the ESPHome native API version advertised in `HelloRequest` from 1.0 to
   1.14 so devices no longer log `using outdated API 1.0, update to 1.14+` on
   every connection.

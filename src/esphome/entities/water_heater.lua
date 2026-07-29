@@ -35,13 +35,12 @@ function WaterHeaterEntity:discovered(entity)
   entity.is_water_heater = true
   local displayName = entity.name
   if IsEmpty(displayName) then
-    if not IsEmpty(entity.object_id) then
-      displayName = entity.object_id:gsub("_", " "):gsub("(%a)([%w]*)", function(first, rest)
-        return first:upper() .. rest
-      end)
-    else
-      displayName = "Water Heater " .. entity.key
-    end
+    -- An empty name marks the device's main entity; show it under the device
+    -- name, the way Home Assistant does.
+    displayName = self.client:getDeviceName()
+  end
+  if IsEmpty(displayName) then
+    displayName = "Water Heater " .. entity.key
   end
   local bindingId = assert(
     bindings:getOrAddDynamicBinding(
@@ -74,21 +73,19 @@ function WaterHeaterEntity:discovered(entity)
       body.key = body.key or entity.key
       self.client:callServiceMethod(command, body):next(function()
         log:debug(
-          "Method %s.%s(%s) called by entity %s.%s",
+          "Method %s.%s(%s) called by entity %s",
           command.service,
           command.method,
           body,
-          entity.entity_type,
-          entity.object_id
+          ESPHomeClient.describeEntity(entity)
         )
       end, function(error)
         log:error(
-          "An error occurred calling method %s.%s(%s) by entity %s.%s; %s",
+          "An error occurred calling method %s.%s(%s) by entity %s; %s",
           command.service,
           command.method,
           body,
-          entity.entity_type,
-          entity.object_id,
+          ESPHomeClient.describeEntity(entity),
           error
         )
       end)
@@ -128,7 +125,7 @@ function WaterHeaterEntity:updated(entity, state, messageSchema)
   -- overwrites the climate entity during discovery (same key), ClimateStateResponse
   -- will route here with stale data. Ignore it.
   if messageSchema and messageSchema.name ~= "WaterHeaterStateResponse" then
-    log:debug("Ignoring %s for water heater entity %s", messageSchema.name, entity.object_id)
+    log:debug("Ignoring %s for %s", messageSchema.name, ESPHomeClient.describeEntity(entity))
     return
   end
   -- Translate WaterHeaterMode to ClimateMode + custom_preset

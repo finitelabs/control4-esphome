@@ -50,28 +50,27 @@ function SwitchEntity:discovered(entity)
         state = state,
       })
       :next(function()
-        log:debug("Command %s sent to %s.%s", state and "on" or "off", entity.entity_type, entity.object_id)
+        log:debug("Command %s sent to %s", state and "on" or "off", ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error(
-          "An error occurred sending command %s to %s.%s; %s",
+          "An error occurred sending command %s to %s; %s",
           state and "on" or "off",
-          entity.entity_type,
-          entity.object_id,
+          ESPHomeClient.describeEntity(entity),
           error
         )
       end)
     if pulseTime > 0 then
       SetTimer("FinishPulse", pulseTime, function()
-        log:debug("Turning off %s.%s after pulse time of %dms", entity.entity_type, entity.object_id, pulseTime)
+        log:debug("Turning off %s after pulse time of %dms", ESPHomeClient.describeEntity(entity), pulseTime)
         self.client
           :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
             key = entity.key,
             state = false,
           })
           :next(function()
-            log:debug("Command off sent to %s.%s", entity.entity_type, entity.object_id)
+            log:debug("Command off sent to %s", ESPHomeClient.describeEntity(entity))
           end, function(error)
-            log:error("An error occurred sending command off to %s.%s; %s", entity.entity_type, entity.object_id, error)
+            log:error("An error occurred sending command off to %s; %s", ESPHomeClient.describeEntity(entity), error)
           end)
       end)
     end
@@ -96,12 +95,11 @@ function SwitchEntity:updated(entity, state)
         state = boolValue,
       })
       :next(function()
-        log:info("Commanded %s.%s to %s", entity.entity_type, entity.object_id, boolValue and "on" or "off")
+        log:info("Commanded %s to %s", ESPHomeClient.describeEntity(entity), boolValue and "on" or "off")
       end, function(error)
         log:error(
-          "Failed to command %s.%s to %s: %s",
-          entity.entity_type,
-          entity.object_id,
+          "Failed to command %s to %s: %s",
+          ESPHomeClient.describeEntity(entity),
           boolValue and "on" or "off",
           error
         )

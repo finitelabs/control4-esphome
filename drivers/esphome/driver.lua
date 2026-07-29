@@ -521,7 +521,7 @@ function RefreshStatus()
         log:debug("Device Info: %s", deviceInfo)
         -- First successful operation confirms authentication succeeded
         updateStatus("Connected")
-        values:update("Name", Select(deviceInfo, "friendly_name") or Select(deviceInfo, "name") or "N/A", "STRING")
+        values:update("Name", esphome:getDeviceName() or "N/A", "STRING")
         values:update("Model", Select(deviceInfo, "model") or "N/A", "STRING")
         values:update("Manufacturer", Select(deviceInfo, "manufacturer") or "N/A", "STRING")
         values:update("MAC Address", Select(deviceInfo, "mac_address") or "N/A", "STRING")
@@ -552,9 +552,9 @@ function RefreshStatus()
 
           -- Detect restart button for scanner recovery
           if entity.entity_type == "button" then
-            local objectId = entity.object_id or ""
-            if objectId:lower():find("restart") then
-              log:info("Found restart button entity: %s (key=%s)", objectId, entity.key)
+            local buttonName = entity.name or ""
+            if buttonName:lower():find("restart") then
+              log:info("Found restart button entity: %s", ESPHomeClient.describeEntity(entity))
               bluetoothProxyCapability:setRestartButtonKey(entity.key)
             end
           end
@@ -575,7 +575,7 @@ function RefreshStatus()
           end
 
           local entity = Select(entities, tostring(key))
-          if IsEmpty(Select(entity, "entity_type")) or IsEmpty(Select(entity, "object_id")) then
+          if IsEmpty(Select(entity, "entity_type")) then
             log:warn("Received state update for unknown entity with key %s", state.key)
             return
           end
@@ -583,7 +583,7 @@ function RefreshStatus()
 
           state.key = nil -- Just remove this as its no longer needed
 
-          log:info("State update for %s.%s entity -> %s", entity.entity_type, entity.object_id, state)
+          log:info("State update for %s entity -> %s", ESPHomeClient.describeEntity(entity), state)
 
           if Entities[entity.entity_type] ~= nil and type(Entities[entity.entity_type].updated) == "function" then
             log:debug("Calling Entities['%s']:updated(%s, %s) handler", entity.entity_type, entity, state)
