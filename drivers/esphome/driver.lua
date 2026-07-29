@@ -511,12 +511,37 @@ function Connect()
   heartbeat()
 end
 
+--- Whether a refresh chain is currently in flight. The ESPHome API has no
+--- request correlation, so two concurrent refreshes would displace each
+--- other's response callbacks in the client registry; refreshes are
+--- serialized instead.
+local refreshInFlight = false
+
 function RefreshStatus()
   log:trace("RefreshStatus()")
   -- Debounce the status refresh calls
   SetTimer("RefreshStatus", ONE_SECOND * 3, function()
-    esphome
-      :getDeviceInfo()
+    if refreshInFlight then
+      -- Re-arm and try again once the running chain settles (every chain
+      -- settles: responses and timeouts resolve it, disconnect rejects it).
+      log:debug("Status refresh already in flight; retrying after it settles")
+      RefreshStatus()
+      return
+    end
+    refreshInFlight = true
+    -- sendMessage can raise synchronously (encode, handshake assert, write);
+    -- the chain's error handler only exists once the deferred is returned, so
+    -- a raise here must clear the flag itself or it wedges permanently.
+    local ok, result = pcall(esphome.getDeviceInfo, esphome)
+    if not ok then
+      refreshInFlight = false
+      local startError = tostring(result or "unknown error")
+      log:error("An error occurred refreshing device status; %s", startError)
+      updateStatus("Refresh failed: " .. startError)
+      esphome:disconnect()
+      return
+    end
+    result
       :next(function(deviceInfo)
         log:debug("Device Info: %s", deviceInfo)
         -- First successful operation confirms authentication succeeded
@@ -609,8 +634,10 @@ function RefreshStatus()
         end
       end)
       :next(function()
+        refreshInFlight = false
         log:info("Successfully refreshed device status")
       end, function(error)
+        refreshInFlight = false
         if type(error) ~= "string" then
           error = "unknown error"
         end
@@ -680,6 +707,8 @@ function EC.Reset_Driver(params)
   -- Password, Encryption Key, and Use OpenSSL based on preserved setting
   OnPropertyChanged("Authentication Mode")
 
+  -- Escape hatch: never let a wedged in-flight flag survive a driver reset
+  refreshInFlight = false
   RefreshStatus()
 end
 
