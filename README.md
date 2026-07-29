@@ -913,6 +913,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed SwitchBot channel relays and contact sensors (motion, contact, leak,
   tamper) leaving bound consumers stale after a driver restart until the next
   state change
+- Fixed Yale DoorSense contact sensors going permanently stale after the lock
+  briefly reports an unknown door state. The contact binding is removed and
+  recreated on redetection, but the recreated binding was never sent an initial
+  state, so it read as unknown in Navigator until the door was physically opened
+  or closed
+- Fixed cover contacts and BTHome contact and sensor bindings leaving bound
+  consumers stale after a driver reset or an ESPHome rebind until the next state
+  change
 
 ## v20260728 - 2026-07-28
 

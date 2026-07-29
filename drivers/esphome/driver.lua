@@ -651,6 +651,10 @@ function EC.Reset_Driver(params)
   -- Reset all dynamic bindings
   bindings:reset()
 
+  -- Drop the entity notify memos so the recreated bindings are notified on the
+  -- next state update instead of deduping against the destroyed ones
+  CoverEntity.clearNotifiedState()
+
   -- Reset all values (variables and properties)
   values:reset()
 

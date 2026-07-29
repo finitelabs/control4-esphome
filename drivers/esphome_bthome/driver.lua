@@ -626,6 +626,13 @@ end
 --- @type table<string, any>
 local lastNotified = {}
 
+--- Clear the in-memory notify memos so the next reading re-notifies bound
+--- consumers. Called wherever dynamic bindings are torn down or recreated to
+--- force a resync (ESPHome rebind, driver reset).
+local function clearNotifiedState()
+  lastNotified = {}
+end
+
 --- Process a BTHome object and update the corresponding variable/property
 --- @param reading BTHomeReading The BTHome object with value, unit, event fields
 --- @param summaryParts string[] Table to append summary parts to
@@ -1007,6 +1014,7 @@ OBC[ESPHOME_BINDING] = function(idBinding, strClass, bIsBound, otherDeviceId)
   log:trace("OBC[%s](%s, %s, %s, %s)", ESPHOME_BINDING, idBinding, strClass, bIsBound, otherDeviceId)
   -- Reset state when binding changes
   knownObjects = {}
+  clearNotifiedState()
 
   if bIsBound then
     UpdateProperty("Driver Status", "Waiting for data")
@@ -1039,6 +1047,7 @@ function EC.Reset_Driver(params)
   -- Reset local state
   knownObjects = {}
   cachedMacBytes = nil
+  clearNotifiedState()
 
   -- Reset properties to defaults (excludes user-entered credentials)
   local resetValues = GetPropertyResetValues({ "Bind Key" })

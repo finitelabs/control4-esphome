@@ -488,6 +488,19 @@ local function updateLockStatus(status)
   SendToProxy(PROXY_BINDING, "LOCK_STATUS_CHANGED", { LOCK_STATUS = status }, "NOTIFY")
 end
 
+--- Last door status notified this session. In-memory on purpose: a driver
+--- restart clears it, so the bound consumer is re-notified even when the
+--- status matches the persisted variable.
+--- @type string|nil
+local lastNotifiedDoorStatus = nil
+
+--- Clear the in-memory notify memos so the next reading re-notifies bound
+--- consumers. Called wherever dynamic bindings are torn down or recreated to
+--- force a resync (DoorSense removal, ESPHome rebind, driver reset).
+local function clearNotifiedState()
+  lastNotifiedDoorStatus = nil
+end
+
 --- Enable or disable DoorSense contact sensor based on detection.
 --- When DoorSense is configured on the lock, creates a dynamic CONTACT_SENSOR binding
 --- and shows the Door Status property. When not configured, removes the binding and hides it.
@@ -505,16 +518,13 @@ local function setDoorSenseConfigured(configured)
   else
     log:info("DoorSense not configured - removing contact sensor binding")
     bindings:deleteBinding(BINDINGS_NAMESPACE, "door")
+    -- The binding is gone; drop the memo so a later DoorSense redetection
+    -- notifies the recreated binding instead of deduping against it.
+    clearNotifiedState()
     UpdateProperty("Door Status", "")
     C4:SetPropertyAttribs("Door Status", constants.HIDE_PROPERTY)
   end
 end
-
---- Last door status notified this session. In-memory on purpose: a driver
---- restart clears it, so the bound consumer is re-notified even when the
---- status matches the persisted variable.
---- @type string|nil
-local lastNotifiedDoorStatus = nil
 
 --- Update the door status and notify dynamic contact sensor binding.
 --- Deduplicates within the session: only sends a proxy notification when the
@@ -1676,6 +1686,7 @@ end
 OBC[ESPHOME_BINDING] = function(idBinding, strClass, bIsBound, otherDeviceId)
   log:trace("OBC[%s](%s, %s, %s, %s)", ESPHOME_BINDING, idBinding, strClass, bIsBound, otherDeviceId)
   resetConnectionState(true)
+  clearNotifiedState()
 
   if bIsBound then
     UpdateProperty("Driver Status", "Waiting for data")
@@ -1742,6 +1753,7 @@ function EC.Reset_Driver(params)
   bindings:reset()
   values:reset()
   resetConnectionState(true)
+  clearNotifiedState()
   initialStatusTriggered = false
   doorSenseConfigured = nil
 
