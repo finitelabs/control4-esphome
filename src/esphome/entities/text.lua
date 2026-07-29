@@ -32,9 +32,9 @@ function TextEntity:updated(entity, state)
         state = newValue or "",
       })
       :next(function()
-        log:info("Text value updated to %s for text.%s", newValue or "", entity.object_id)
+        log:info("Text value updated to %s for %s", newValue or "", ESPHomeClient.describeEntity(entity))
       end, function(error)
-        log:error("Failed to update text value for number.%s: %s", entity.name, error)
+        log:error("Failed to update text value for %s: %s", ESPHomeClient.describeEntity(entity), error)
       end)
   end)
 end

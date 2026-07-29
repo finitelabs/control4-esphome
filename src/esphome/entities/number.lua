@@ -33,9 +33,9 @@ function NumberEntity:updated(entity, state)
         state = numValue,
       })
       :next(function()
-        log:info("Number value updated to %s for %s.%s", numValue, entity.entity_type, entity.object_id)
+        log:info("Number value updated to %s for %s", numValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
-        log:error("Failed to update number value for %s.%s: %s", entity.entity_type, entity.object_id, error)
+        log:error("Failed to update number value for %s: %s", ESPHomeClient.describeEntity(entity), error)
       end)
   end)
 end

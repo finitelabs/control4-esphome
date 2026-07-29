@@ -41,9 +41,8 @@ function DateTimeEntity:updated(entity, state)
     )
     if not year then
       log:error(
-        "Invalid datetime format for %s.%s: %s (expected YYYY-MM-DD HH:MM:SS)",
-        entity.entity_type,
-        entity.object_id,
+        "Invalid datetime format for %s: %s (expected YYYY-MM-DD HH:MM:SS)",
+        ESPHomeClient.describeEntity(entity),
         newValue or ""
       )
       return
@@ -62,9 +61,9 @@ function DateTimeEntity:updated(entity, state)
         epoch_seconds = epoch,
       })
       :next(function()
-        log:info("Datetime updated to %s for %s.%s", newValue, entity.entity_type, entity.object_id)
+        log:info("Datetime updated to %s for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
-        log:error("Failed to update datetime for %s.%s: %s", entity.entity_type, entity.object_id, error)
+        log:error("Failed to update datetime for %s: %s", ESPHomeClient.describeEntity(entity), error)
       end)
   end)
 end

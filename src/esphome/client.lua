@@ -100,6 +100,20 @@ ESPHomeClient.EntityType = {
   WATER_HEATER = "water_heater",
 }
 
+--- Human-readable entity identity for log messages: `type 'Name' (key=N)`.
+--- Names are display strings (spaces, capitalization, possible duplicates), so
+--- the key is included to keep log lines unambiguous.
+--- @param entity table<string, any> The entity data received from the ESPHome client.
+--- @return string identity The formatted entity identity.
+function ESPHomeClient.describeEntity(entity)
+  return string.format(
+    "%s '%s' (key=%s)",
+    Select(entity, "entity_type") or "entity",
+    Select(entity, "name") or "",
+    Select(entity, "key") or "?"
+  )
+end
+
 --- @class BluetoothConnectionState
 --- @field free number Number of available connection slots
 --- @field limit number Maximum number of connection slots
@@ -438,7 +452,25 @@ end
 --- @return Deferred<ProtoDeviceInfoResponse, string> result A promise that resolves with the device information.
 function ESPHomeClient:getDeviceInfo()
   log:trace("ESPHomeClient:getDeviceInfo()")
-  return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.device_info, {})
+  return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.device_info, {}):next(function(deviceInfo)
+    self._deviceInfo = deviceInfo
+    return deviceInfo
+  end)
+end
+
+--- The device's display name from the most recent device info response.
+--- @return string|nil name The friendly name, or nil if not yet known.
+function ESPHomeClient:getDeviceName()
+  -- Unset proto string fields decode as "" (truthy in Lua), so fall back with
+  -- IsEmpty rather than `or`.
+  local name = Select(self._deviceInfo, "friendly_name")
+  if IsEmpty(name) then
+    name = Select(self._deviceInfo, "name")
+  end
+  if IsEmpty(name) then
+    return nil
+  end
+  return name
 end
 
 --- Press a button entity by its key.

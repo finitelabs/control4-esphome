@@ -49,7 +49,7 @@ function EventEntity:updated(entity, state)
 
   local eventType = state.event_type or ""
   if IsEmpty(eventType) then
-    log:warn("Received event with empty event_type for %s.%s", entity.entity_type, entity.object_id)
+    log:warn("Received event with empty event_type for %s", ESPHomeClient.describeEntity(entity))
     return
   end
 
@@ -58,7 +58,7 @@ function EventEntity:updated(entity, state)
 
   -- Fire the corresponding C4 event
   events:fire("event_" .. entity.key, eventType)
-  log:info("Fired event %s for %s.%s", eventType, entity.entity_type, entity.object_id)
+  log:info("Fired event %s for %s", eventType, ESPHomeClient.describeEntity(entity))
 end
 
 return EventEntity
