@@ -910,6 +910,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed overlapping status refreshes silently racing each other for the same
+  response callbacks; refreshes are now serialized and a displaced request
+  callback logs a warning
 - Fixed cover contacts and Yale DoorSense sending nothing to a newly bound
   consumer (or after a DoorSense drop and re-detect) until the state changed;
   consumers are now seeded with the last known state on bind

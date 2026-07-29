@@ -1916,6 +1916,12 @@ function ESPHomeClient:_registerCallback(key, callback, timeout, onTimeout)
   if existing and existing.timer then
     existing.timer:Cancel()
   end
+  if existing and existing.onAbort then
+    -- The displaced waiter cannot be settled safely from here: its abort
+    -- handlers may unregister keys the new entry now owns. Callers must
+    -- serialize same-type requests instead (e.g. RefreshStatus).
+    log:warn("Displacing a pending request callback for key: %s", key)
+  end
 
   --- @type CallbackEntry
   local entry = {
