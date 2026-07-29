@@ -22,6 +22,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed the Reset Driver action leaving bound consumers stale until the next
+  state change (sensor values, cover contacts, BTHome bindings, Yale DoorSense)
 - Fixed pending requests (refresh, Bluetooth GATT operations) hanging forever
   when the connection dropped mid-request; they now fail immediately with a
   "Disconnected" error

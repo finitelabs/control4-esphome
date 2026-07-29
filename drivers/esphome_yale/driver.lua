@@ -1744,6 +1744,9 @@ function EC.Reset_Driver(params)
   resetConnectionState(true)
   initialStatusTriggered = false
   doorSenseConfigured = nil
+  -- Clear the in-memory notify memo so a recreated contact binding receives
+  -- the next door status
+  lastNotifiedDoorStatus = nil
 
   -- Restore connection mode from property
   connectionMode = Properties["Connection Mode"] or CONNECTION_MODE.POLL
