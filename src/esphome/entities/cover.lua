@@ -4,6 +4,12 @@ local values = require("lib.values")
 local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 
+--- Last contact state notified per binding this session. In-memory on
+--- purpose: a driver restart clears it, so bound consumers are re-notified
+--- even when the state matches the persisted variable.
+--- @type table<string, string>
+local lastNotified = {}
+
 --- @class CoverEntity:Entity
 local CoverEntity = {
   TYPE = ESPHomeClient.EntityType.COVER,
@@ -207,14 +213,18 @@ function CoverEntity:updated(entity, state)
   local coverOpenBinding = bindings:getDynamicBinding(self.TYPE, "cover_open_" .. entity.key)
   if coverOpenBinding ~= nil then
     local coverOpenState = coverOpen and "CLOSED" or "OPENED"
-    if values:update(entity.name .. " Open", coverOpenState) then
+    values:update(entity.name .. " Open", coverOpenState)
+    if lastNotified["open_" .. entity.key] ~= coverOpenState then
+      lastNotified["open_" .. entity.key] = coverOpenState
       SendToProxy(coverOpenBinding.bindingId, coverOpenState, {}, "NOTIFY")
     end
   end
   local coverClosedBinding = bindings:getDynamicBinding(self.TYPE, "cover_closed_" .. entity.key)
   if coverClosedBinding ~= nil then
     local coverClosedState = coverClosed and "CLOSED" or "OPENED"
-    if values:update(entity.name .. " Closed", coverClosedState) then
+    values:update(entity.name .. " Closed", coverClosedState)
+    if lastNotified["closed_" .. entity.key] ~= coverClosedState then
+      lastNotified["closed_" .. entity.key] = coverClosedState
       SendToProxy(coverClosedBinding.bindingId, coverClosedState, {}, "NOTIFY")
     end
   end

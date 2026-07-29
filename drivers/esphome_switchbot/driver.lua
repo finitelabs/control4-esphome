@@ -515,12 +515,19 @@ local function isBotSwitchMode()
   return Select(values:getValue("Mode"), "value") == "Switch"
 end
 
+--- Last Bot state notified this session. In-memory on purpose: a driver
+--- restart clears it, so the bound consumer is re-notified.
+--- @type boolean|nil
+local lastNotifiedBotState = nil
+
 --- Set the Bot state and notify bound consumers
 --- @param isOn boolean Whether the Bot is on
 local function setBotState(isOn)
   log:trace("setBotState(%s)", isOn)
-  local changed = values:update("State", isOn and "On" or "Off", "STRING")
-  if changed then
+  values:update("State", isOn and "On" or "Off", "STRING")
+  -- Deduped in memory so a driver restart re-notifies the bound consumer.
+  if lastNotifiedBotState ~= isOn then
+    lastNotifiedBotState = isOn
     local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "botRelay")
     if binding then
       SendToProxy(binding.bindingId, isOn and "CLOSED" or "OPENED", {}, "NOTIFY")
