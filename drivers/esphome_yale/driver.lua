@@ -488,6 +488,32 @@ local function updateLockStatus(status)
   SendToProxy(PROXY_BINDING, "LOCK_STATUS_CHANGED", { LOCK_STATUS = status }, "NOTIFY")
 end
 
+--- Last door status notified this session. In-memory on purpose: a driver
+--- restart clears it, so the bound consumer is re-notified even when the
+--- status matches the persisted variable.
+--- @type string|nil
+local lastNotifiedDoorStatus = nil
+
+--- Register a bind-time seeder on the door contact binding that sends the
+--- last known door status to a newly bound consumer. The send bypasses the
+--- notify memo, matching the sensor value seed. No-op if the binding is gone.
+local function registerDoorContactSeeder()
+  local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "door")
+  if not binding then
+    return
+  end
+  OBC[binding.bindingId] = function(idBinding, _strClass, bIsBound, _otherDeviceId, _otherBindingId)
+    log:trace("OBC[%s](%s, %s)", binding.bindingId, idBinding, bIsBound)
+    if not bIsBound then
+      return
+    end
+    local doorStatus = Select(values:getValue("Door Status"), "value")
+    if not IsEmpty(doorStatus) then
+      SendToProxy(binding.bindingId, doorStatus, {}, "NOTIFY")
+    end
+  end
+end
+
 --- Enable or disable DoorSense contact sensor based on detection.
 --- When DoorSense is configured on the lock, creates a dynamic CONTACT_SENSOR binding
 --- and shows the Door Status property. When not configured, removes the binding and hides it.
@@ -501,20 +527,18 @@ local function setDoorSenseConfigured(configured)
   if configured then
     log:info("DoorSense detected - creating contact sensor binding")
     bindings:getOrAddDynamicBinding(BINDINGS_NAMESPACE, "door", "PROXY", true, "Door", "CONTACT_SENSOR")
+    registerDoorContactSeeder()
     C4:SetPropertyAttribs("Door Status", constants.SHOW_PROPERTY)
   else
     log:info("DoorSense not configured - removing contact sensor binding")
     bindings:deleteBinding(BINDINGS_NAMESPACE, "door")
+    -- The binding is gone; drop the memo so a later DoorSense redetection
+    -- re-notifies the recreated binding instead of deduping against it.
+    lastNotifiedDoorStatus = nil
     UpdateProperty("Door Status", "")
     C4:SetPropertyAttribs("Door Status", constants.HIDE_PROPERTY)
   end
 end
-
---- Last door status notified this session. In-memory on purpose: a driver
---- restart clears it, so the bound consumer is re-notified even when the
---- status matches the persisted variable.
---- @type string|nil
-local lastNotifiedDoorStatus = nil
 
 --- Update the door status and notify dynamic contact sensor binding.
 --- Deduplicates within the session: only sends a proxy notification when the
@@ -1243,6 +1267,7 @@ function OnDriverLateInit()
   local doorBinding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "door")
   if doorBinding then
     doorSenseConfigured = true
+    registerDoorContactSeeder()
     C4:SetPropertyAttribs("Door Status", constants.SHOW_PROPERTY)
   else
     doorSenseConfigured = nil

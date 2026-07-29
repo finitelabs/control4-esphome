@@ -22,6 +22,24 @@ function CoverEntity.clearNotifiedState()
   lastNotified = {}
 end
 
+--- Register a bind-time seeder that sends the last known contact state to a
+--- newly bound consumer. The send bypasses the notify memo, matching the
+--- sensor value seed.
+--- @param bindingId number The contact binding ID.
+--- @param valueName string The values key holding the contact state.
+local function registerContactSeeder(bindingId, valueName)
+  OBC[bindingId] = function(idBinding, _strClass, bIsBound, _otherDeviceId, _otherBindingId)
+    log:trace("OBC[%s](%s, %s)", bindingId, idBinding, bIsBound)
+    if not bIsBound then
+      return
+    end
+    local state = Select(values:getValue(valueName), "value")
+    if not IsEmpty(state) then
+      SendToProxy(bindingId, state, {}, "NOTIFY")
+    end
+  end
+end
+
 --- Create a new instance of the cover entity.
 --- @param client ESPHomeClient The ESPHome client instance.
 --- @return CoverEntity entity A new instance of the CoverEntity entity.
@@ -40,7 +58,7 @@ function CoverEntity:discovered(entity)
   local supportsPosition = toboolean(entity.supports_position)
 
   -- Contacts
-  assert(
+  local coverClosedContactId = assert(
     bindings:getOrAddDynamicBinding(
       self.TYPE,
       "cover_closed_" .. entity.key,
@@ -49,8 +67,8 @@ function CoverEntity:discovered(entity)
       entity.name .. " Closed",
       "CONTACT_SENSOR"
     )
-  )
-  assert(
+  ).bindingId
+  local coverOpenContactId = assert(
     bindings:getOrAddDynamicBinding(
       self.TYPE,
       "cover_open_" .. entity.key,
@@ -59,7 +77,9 @@ function CoverEntity:discovered(entity)
       entity.name .. " Open",
       "CONTACT_SENSOR"
     )
-  )
+  ).bindingId
+  registerContactSeeder(coverClosedContactId, entity.name .. " Closed")
+  registerContactSeeder(coverOpenContactId, entity.name .. " Open")
 
   -- Relays
   local openCoverBindingId = assert(
