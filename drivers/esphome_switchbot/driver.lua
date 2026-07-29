@@ -527,9 +527,9 @@ local function setBotState(isOn)
   values:update("State", isOn and "On" or "Off", "STRING")
   -- Deduped in memory so a driver restart re-notifies the bound consumer.
   if lastNotifiedBotState ~= isOn then
-    lastNotifiedBotState = isOn
     local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "botRelay")
     if binding then
+      lastNotifiedBotState = isOn
       SendToProxy(binding.bindingId, isOn and "CLOSED" or "OPENED", {}, "NOTIFY")
     end
   end
@@ -566,14 +566,22 @@ local function getChannel1State()
   return Select(values:getValue("Channel 1 State"), "value") == "On"
 end
 
+--- Last channel states notified this session, keyed by binding key. In-memory
+--- on purpose: a driver restart clears them, so bound consumers are
+--- re-notified even when the state matches the persisted variable.
+--- @type table<string, boolean>
+local lastNotifiedChannelState = {}
+
 --- Set the Channel 1 state and notify bound consumers
 --- @param isOn boolean Whether Channel 1 is on
 local function setChannel1State(isOn)
   log:trace("setChannel1State(%s)", isOn)
-  local changed = values:update("Channel 1 State", isOn and "On" or "Off", "STRING")
-  if changed then
+  values:update("Channel 1 State", isOn and "On" or "Off", "STRING")
+  -- Deduped in memory so a driver restart re-notifies the bound consumer.
+  if lastNotifiedChannelState.channel1 ~= isOn then
     local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "channel1")
     if binding then
+      lastNotifiedChannelState.channel1 = isOn
       SendToProxy(binding.bindingId, isOn and "CLOSED" or "OPENED", {}, "NOTIFY")
     end
   end
@@ -593,10 +601,12 @@ local function setChannel2State(isOn)
   if not isDualChannel then
     return
   end
-  local changed = values:update("Channel 2 State", isOn and "On" or "Off", "STRING")
-  if changed then
+  values:update("Channel 2 State", isOn and "On" or "Off", "STRING")
+  -- Deduped in memory so a driver restart re-notifies the bound consumer.
+  if lastNotifiedChannelState.channel2 ~= isOn then
     local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "channel2")
     if binding then
+      lastNotifiedChannelState.channel2 = isOn
       SendToProxy(binding.bindingId, isOn and "CLOSED" or "OPENED", {}, "NOTIFY")
     end
   end
@@ -886,11 +896,17 @@ local function getOrCreateContactBinding(contactType)
   return binding
 end
 
---- Send contact sensor state (only on state change)
+--- Last contact states notified this session, keyed by contact type.
+--- In-memory on purpose: a driver restart clears them, so bound consumers are
+--- re-notified even when the state matches the last persisted reading.
+--- @type table<string, boolean>
+local lastNotifiedContactState = {}
+
+--- Send contact sensor state (only on state change this session)
 --- @param contactType ContactType
 --- @param isActive boolean
 local function sendContactState(contactType, isActive)
-  log:trace("sendContactState(%s, %s, %s)", contactType, isActive)
+  log:trace("sendContactState(%s, %s)", contactType, isActive)
   local binding = getOrCreateContactBinding(contactType)
   if not binding then
     return
@@ -901,21 +917,24 @@ local function sendContactState(contactType, isActive)
     return
   end
 
-  -- Check if state has changed from last known value
-  local stateKey = "contact_" .. contactType
-  local prevState = persist:get("previousState", {})
-  local lastState = prevState[stateKey]
-  if lastState == isActive then
+  -- Deduped in memory so a driver restart re-notifies bound consumers.
+  if lastNotifiedContactState[contactType] == isActive then
     return
   end
-
-  -- Update persisted state
-  prevState[stateKey] = isActive
-  persist:set("previousState", prevState)
+  lastNotifiedContactState[contactType] = isActive
 
   local event = isActive and config.closedEvent or config.openEvent
   log:debug("Sending %s to contact binding %s (state changed)", event, binding.bindingId)
   SendToProxy(binding.bindingId, event, {}, "NOTIFY")
+end
+
+--- Clear the in-memory notify memos so the next reading re-notifies bound
+--- consumers. Called wherever persisted state is cleared to force a resync
+--- (ESPHome rebind, driver reset).
+local function clearNotifiedState()
+  lastNotifiedBotState = nil
+  lastNotifiedChannelState = {}
+  lastNotifiedContactState = {}
 end
 
 --- Get or create a button binding
@@ -2636,6 +2655,7 @@ OBC[ESPHOME_BINDING] = function(idBinding, strClass, bIsBound, otherDeviceId)
   log:trace("OBC[%s](%s, %s, %s, %s)", ESPHOME_BINDING, idBinding, strClass, bIsBound, otherDeviceId)
   resetConnectionState(true)
   persist:set("previousState", {})
+  clearNotifiedState()
 
   if bIsBound then
     UpdateProperty("Driver Status", "Waiting for data")
@@ -2663,6 +2683,7 @@ function EC.Reset_Driver(params)
 
   -- Reset sensor state tracking
   persist:set("previousState", {})
+  clearNotifiedState()
 
   -- Reset device identification
   deviceType = nil

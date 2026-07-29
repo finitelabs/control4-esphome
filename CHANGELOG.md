@@ -18,6 +18,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed SwitchBot channel relays and contact sensors (motion, contact, leak,
+  tamper) leaving bound consumers stale after a driver restart until the next
+  state change
+
 ## v20260728 - 2026-07-28
 
 ### Added
