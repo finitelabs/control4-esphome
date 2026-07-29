@@ -22,6 +22,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed cover contacts and Yale DoorSense sending nothing to a newly bound
+  consumer (or after a DoorSense drop and re-detect) until the state changed;
+  consumers are now seeded with the last known state on bind
 - Fixed the Reset Driver action leaving bound consumers stale until the next
   state change (sensor values, cover contacts, BTHome bindings, Yale DoorSense)
 - Fixed pending requests (refresh, Bluetooth GATT operations) hanging forever
