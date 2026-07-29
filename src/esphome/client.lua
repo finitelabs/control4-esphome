@@ -42,6 +42,7 @@ local Indicator = {
 --- @class CallbackEntry
 --- @field callback CallbackFunction The callback function to invoke
 --- @field timer C4LuaTimer|nil Optional timeout timer for auto-unregistration
+--- @field onAbort fun(err?: string)|nil Optional handler that settles the waiting deferred when the wait is aborted (timeout or disconnect)
 
 --- A class representing the ESPHome API client.
 --- @class ESPHomeClient
@@ -419,12 +420,9 @@ function ESPHomeClient:disconnect()
   self._buffer = ""
   self._logsSubscribed = false
 
-  -- Cancel all callback timers before clearing
-  for _, entry in pairs(self._callbacks) do
-    if entry and entry.timer then
-      entry.timer:Cancel()
-    end
-  end
+  -- Swap the callback registry out first: the abort handlers invoked at the
+  -- end of this function may re-enter disconnect() or register new callbacks.
+  local callbacks = self._callbacks
   self._callbacks = {}
   self._pingTimer = nil
 
@@ -445,6 +443,23 @@ function ESPHomeClient:disconnect()
   end
   if client ~= nil then
     client:Close()
+  end
+
+  -- Settle requests that were awaiting a response so their promise chains
+  -- take the error path instead of stalling forever. Runs after teardown is
+  -- complete so a rejection handler can safely start a reconnect.
+  for key, entry in pairs(callbacks) do
+    if entry then
+      if entry.timer then
+        entry.timer:Cancel()
+      end
+      if entry.onAbort then
+        local success, err = pcall(entry.onAbort, "Disconnected")
+        if not success then
+          log:error("Abort handler for callback %s failed: %s", key, err or "unknown error")
+        end
+      end
+    end
   end
 end
 
@@ -509,9 +524,9 @@ function ESPHomeClient:listEntities()
             d:resolve(entities)
           end,
           10 * ONE_SECOND,
-          function()
+          function(err)
             self:_unregisterCallbacks(addedCallbackKeys)
-            d:reject("Timeout waiting for list entities response")
+            d:reject(err or "Timeout waiting for list entities response")
           end
         )
         table.insert(addedCallbackKeys, key)
@@ -699,8 +714,8 @@ function ESPHomeClient:bluetoothDeviceConnect(mac, addressType, withCache)
       -- Ignore intermediate responses (connected=nil)
     end,
     30 * ONE_SECOND, -- timeout for BLE connections
-    function()
-      d:reject("Connection timeout")
+    function(err)
+      d:reject(err or "Connection timeout")
     end
   )
 
@@ -801,8 +816,8 @@ function ESPHomeClient:_bluetoothGattGetServicesInternal(mac)
         d:resolve(allServices)
       end,
       30 * ONE_SECOND,
-      function()
-        d:reject("GATT service discovery timeout")
+      function(err)
+        d:reject(err or "GATT service discovery timeout")
       end
     )
   )
@@ -872,8 +887,8 @@ function ESPHomeClient:_bluetoothGattReadInternal(mac, handle)
         d:resolve(message.data or "")
       end,
       10 * ONE_SECOND,
-      function()
-        d:reject("GATT read timeout")
+      function(err)
+        d:reject(err or "GATT read timeout")
       end
     )
   )
@@ -949,8 +964,8 @@ function ESPHomeClient:_bluetoothGattWriteInternal(mac, handle, data, response)
           d:resolve(nil)
         end,
         10 * ONE_SECOND,
-        function()
-          d:reject("GATT write timeout")
+        function(err)
+          d:reject(err or "GATT write timeout")
         end
       )
     )
@@ -1024,8 +1039,8 @@ function ESPHomeClient:bluetoothGattWriteDescriptor(mac, handle, data, addressTy
           d:resolve(nil)
         end,
         10 * ONE_SECOND,
-        function()
-          d:reject("GATT descriptor write timeout")
+        function(err)
+          d:reject(err or "GATT descriptor write timeout")
         end
       )
     )
@@ -1120,8 +1135,8 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(mac, handle, enable, callbac
           d:resolve(nil)
         end,
         10 * ONE_SECOND,
-        function()
-          d:reject("GATT notify subscription timeout")
+        function(err)
+          d:reject(err or "GATT notify subscription timeout")
         end
       )
     )
@@ -1153,8 +1168,8 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(mac, handle, enable, callbac
           d:resolve(nil)
         end,
         10 * ONE_SECOND,
-        function()
-          d:reject("GATT notify unsubscription timeout")
+        function(err)
+          d:reject(err or "GATT notify unsubscription timeout")
         end
       )
     )
@@ -1589,9 +1604,13 @@ function ESPHomeClient:sendNoiseHello()
       d:resolve(nil)
     end,
     5 * ONE_SECOND,
-    function()
-      self._hsState = NoiseState.ERROR
-      d:reject("Timeout waiting for SERVER_HELLO response")
+    function(err)
+      -- On a disconnect abort (err set) the state was already cleared; only a
+      -- real timeout marks the handshake as failed.
+      if not err then
+        self._hsState = NoiseState.ERROR
+      end
+      d:reject(err or "Timeout waiting for SERVER_HELLO response")
     end
   )
 
@@ -1655,10 +1674,14 @@ function ESPHomeClient:sendHandshake()
       d:resolve(nil)
     end,
     5 * ONE_SECOND,
-    function()
-      self:checkHandshakeState(NoiseState.HANDSHAKE)
-      self._hsState = NoiseState.ERROR
-      d:reject("Timeout waiting for HANDSHAKE response")
+    function(err)
+      -- On a disconnect abort (err set) the state was already cleared; only a
+      -- real timeout checks and marks the handshake as failed.
+      if not err then
+        self:checkHandshakeState(NoiseState.HANDSHAKE)
+        self._hsState = NoiseState.ERROR
+      end
+      d:reject(err or "Timeout waiting for HANDSHAKE response")
     end
   )
 
@@ -1819,8 +1842,8 @@ function ESPHomeClient:sendMessage(messageSchema, body, responseSchema, timeout)
         d:resolve(message)
       end,
       timeout or (5 * ONE_SECOND),
-      function()
-        d:reject("Timeout waiting for response to " .. messageSchema.name)
+      function(err)
+        d:reject(err or ("Timeout waiting for response to " .. messageSchema.name))
       end
     )
   else
@@ -1882,7 +1905,7 @@ end
 --- @param key CallbackKey The callback key
 --- @param callback CallbackFunction The callback function
 --- @param timeout? number Optional timeout in milliseconds for auto-unregistration
---- @param onTimeout? fun(): void Optional callback invoked on timeout (before unregistration)
+--- @param onTimeout? fun(err?: string): void Optional callback invoked when the wait is aborted (timeout, or disconnect with a reason), before unregistration
 --- @return CallbackKey key The registered key (for later unregistration)
 --- @private
 function ESPHomeClient:_registerCallback(key, callback, timeout, onTimeout)
@@ -1898,6 +1921,7 @@ function ESPHomeClient:_registerCallback(key, callback, timeout, onTimeout)
   local entry = {
     callback = callback,
     timer = nil,
+    onAbort = onTimeout,
   }
 
   -- Set up timeout timer if specified

@@ -910,6 +910,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed pending requests (refresh, Bluetooth GATT operations) hanging forever
+  when the connection dropped mid-request; they now fail immediately with a
+  "Disconnected" error
 - Fixed SwitchBot channel relays and contact sensors (motion, contact, leak,
   tamper) leaving bound consumers stale after a driver restart until the next
   state change
