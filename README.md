@@ -910,6 +910,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed latch-style ESPHome locks (`supports_open`) reading as "unknown" in
+  Control4 while reporting the open or opening state; both now map to unlocked
 - Fixed overlapping status refreshes silently racing each other for the same
   response callbacks; refreshes are now serialized and a displaced request
   callback logs a warning

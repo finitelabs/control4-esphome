@@ -178,6 +178,10 @@ local function convertLockStateToStatus(lockState)
     return "unlocked"
   elseif lockState == ESPHomeProtoSchema.Enum.LockState.LOCK_STATE_UNLOCKING then
     return "locked"
+  elseif lockState == ESPHomeProtoSchema.Enum.LockState.LOCK_STATE_OPENING then
+    return "unlocked"
+  elseif lockState == ESPHomeProtoSchema.Enum.LockState.LOCK_STATE_OPEN then
+    return "unlocked"
   end
   return "unknown"
 end
