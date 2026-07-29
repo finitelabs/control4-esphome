@@ -25,6 +25,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed SwitchBot channel relays and contact sensors (motion, contact, leak,
   tamper) leaving bound consumers stale after a driver restart until the next
   state change
+- Fixed cover open/closed contacts, binary sensors, and the Yale DoorSense
+  contact reading unknown until the next physical state change after a consumer
+  binds to them
 
 ## v20260728 - 2026-07-28
 

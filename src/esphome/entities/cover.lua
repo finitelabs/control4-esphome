@@ -16,6 +16,23 @@ local CoverEntity = {
 }
 CoverEntity.__index = CoverEntity
 
+--- Send the last known contact state to a consumer that just bound, so it does
+--- not sit unknown until the cover next moves. Bypasses the session memo (the
+--- state may already have been notified to an earlier consumer) and refreshes
+--- it, since every consumer on the binding receives this send.
+--- @param bindingId integer The binding to send on.
+--- @param memoKey string The `lastNotified` key backing this contact.
+--- @param valueName string The value holding the cached contact state.
+--- @return void
+local function sendCachedContactState(bindingId, memoKey, valueName)
+  local cached = values:getValue(valueName)
+  if cached == nil or cached.value == nil then
+    return
+  end
+  lastNotified[memoKey] = cached.value
+  SendToProxy(bindingId, cached.value, {}, "NOTIFY")
+end
+
 --- Create a new instance of the cover entity.
 --- @param client ESPHomeClient The ESPHome client instance.
 --- @return CoverEntity entity A new instance of the CoverEntity entity.
@@ -34,7 +51,7 @@ function CoverEntity:discovered(entity)
   local supportsPosition = toboolean(entity.supports_position)
 
   -- Contacts
-  assert(
+  local coverClosedBindingId = assert(
     bindings:getOrAddDynamicBinding(
       self.TYPE,
       "cover_closed_" .. entity.key,
@@ -43,8 +60,8 @@ function CoverEntity:discovered(entity)
       entity.name .. " Closed",
       "CONTACT_SENSOR"
     )
-  )
-  assert(
+  ).bindingId
+  local coverOpenBindingId = assert(
     bindings:getOrAddDynamicBinding(
       self.TYPE,
       "cover_open_" .. entity.key,
@@ -53,7 +70,20 @@ function CoverEntity:discovered(entity)
       entity.name .. " Open",
       "CONTACT_SENSOR"
     )
-  )
+  ).bindingId
+
+  OBC[coverClosedBindingId] = function(idBinding, _strClass, bIsBound, _otherDeviceId, _otherBindingId)
+    log:trace("OBC[%s](%s, %s)", coverClosedBindingId, idBinding, bIsBound)
+    if bIsBound then
+      sendCachedContactState(idBinding, "closed_" .. entity.key, entity.name .. " Closed")
+    end
+  end
+  OBC[coverOpenBindingId] = function(idBinding, _strClass, bIsBound, _otherDeviceId, _otherBindingId)
+    log:trace("OBC[%s](%s, %s)", coverOpenBindingId, idBinding, bIsBound)
+    if bIsBound then
+      sendCachedContactState(idBinding, "open_" .. entity.key, entity.name .. " Open")
+    end
+  end
 
   -- Relays
   local openCoverBindingId = assert(
