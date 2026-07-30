@@ -61,13 +61,12 @@ function SirenEntity:discovered(entity)
         state = state,
       })
       :next(function()
-        log:debug("Command %s sent to %s.%s", state and "on" or "off", entity.entity_type, entity.object_id)
+        log:debug("Command %s sent to %s", state and "on" or "off", ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error(
-          "An error occurred sending command %s to %s.%s; %s",
+          "An error occurred sending command %s to %s; %s",
           state and "on" or "off",
-          entity.entity_type,
-          entity.object_id,
+          ESPHomeClient.describeEntity(entity),
           error
         )
       end)
@@ -93,12 +92,11 @@ function SirenEntity:updated(entity, state)
         state = boolValue,
       })
       :next(function()
-        log:info("Commanded %s.%s to %s", entity.entity_type, entity.object_id, boolValue and "on" or "off")
+        log:info("Commanded %s to %s", ESPHomeClient.describeEntity(entity), boolValue and "on" or "off")
       end, function(error)
         log:error(
-          "Failed to command %s.%s to %s: %s",
-          entity.entity_type,
-          entity.object_id,
+          "Failed to command %s to %s: %s",
+          ESPHomeClient.describeEntity(entity),
           boolValue and "on" or "off",
           error
         )
@@ -118,9 +116,9 @@ function SirenEntity:updated(entity, state)
           volume = numValue,
         })
         :next(function()
-          log:info("Siren volume set to %.0f%% for %s.%s", numValue * 100, entity.entity_type, entity.object_id)
+          log:info("Siren volume set to %.0f%% for %s", numValue * 100, ESPHomeClient.describeEntity(entity))
         end, function(error)
-          log:error("Failed to set siren volume for %s.%s: %s", entity.entity_type, entity.object_id, error)
+          log:error("Failed to set siren volume for %s: %s", ESPHomeClient.describeEntity(entity), error)
         end)
     end)
   end
@@ -136,9 +134,9 @@ function SirenEntity:updated(entity, state)
           duration = numValue,
         })
         :next(function()
-          log:info("Siren duration set to %ds for %s.%s", numValue, entity.entity_type, entity.object_id)
+          log:info("Siren duration set to %ds for %s", numValue, ESPHomeClient.describeEntity(entity))
         end, function(error)
-          log:error("Failed to set siren duration for %s.%s: %s", entity.entity_type, entity.object_id, error)
+          log:error("Failed to set siren duration for %s: %s", ESPHomeClient.describeEntity(entity), error)
         end)
     end)
   end
