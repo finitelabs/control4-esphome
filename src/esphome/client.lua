@@ -42,7 +42,7 @@ local Indicator = {
 --- @class CallbackEntry
 --- @field callback CallbackFunction The callback function to invoke
 --- @field timer C4LuaTimer|nil Optional timeout timer for auto-unregistration
---- @field onAbort fun(err?: string)|nil Optional handler that settles the waiting deferred when the wait is aborted (timeout, disconnect, or supersession)
+--- @field onAbort fun(err?: string|Superseded)|nil Optional handler that settles the waiting deferred when the wait is aborted (timeout, disconnect, or supersession)
 
 --- A registration receipt returned by _registerCallback. Callback keys are derived from the
 --- message schema (plus address/handle), so overlapping requests share a key; the entry
@@ -76,6 +76,42 @@ local Indicator = {
 --- @field userServices table<string, number> Map of user-defined service names to their numeric keys, populated during listEntities().
 local ESPHomeClient = {}
 ESPHomeClient.__index = ESPHomeClient
+
+--- Abort reason used when a newer request displaces a pending one in the callback
+--- registry. Exported so consumers can recognise a supersession by identity
+--- (`err == ESPHomeClient.SUPERSEDED`) rather than by matching the message text.
+---
+--- It is a table rather than a string so it can never collide with a real error, but it
+--- carries `__tostring` and `__concat` so the existing handlers that log or concatenate a
+--- rejection reason keep producing the same text they would for any other error. The
+--- `reason` field also keeps `IsEmpty` false, since that treats an empty table as empty.
+--- @class Superseded
+ESPHomeClient.SUPERSEDED = setmetatable({ reason = "Superseded by a newer request" }, {
+  __tostring = function(self)
+    return self.reason
+  end,
+  __concat = function(a, b)
+    local function str(v)
+      return type(v) == "table" and v.reason or tostring(v)
+    end
+    return str(a) .. str(b)
+  end,
+})
+
+--- Normalise a rejection reason for logging and propagation, without laundering the
+--- SUPERSEDED sentinel: downstream handlers compare it by identity, so collapsing it to a
+--- plain string here would silently turn a benign supersession into a generic failure.
+--- @param err any The rejection reason
+--- @return string|Superseded normalized The reason, or "unknown error" if unusable
+local function normalizeError(err)
+  if err == ESPHomeClient.SUPERSEDED then
+    return err
+  end
+  if IsEmpty(err) or type(err) ~= "string" then
+    return "unknown error"
+  end
+  return err
+end
 
 --- @enum EntityType
 ESPHomeClient.EntityType = {
@@ -354,7 +390,14 @@ function ESPHomeClient:connect()
               log:trace("Skipping ping - received data %ds ago", secondsSinceData)
               return
             end
-            self:sendPing():next(nil, function()
+            self:sendPing():next(nil, function(err)
+              if err == ESPHomeClient.SUPERSEDED then
+                -- A newer ping displaced this one's response waiter. The newer ping is
+                -- still outstanding and owns the liveness decision, so treating this as
+                -- a dead connection would close the socket out from under it.
+                log:debug("Ignoring ping failure - superseded by a newer ping")
+                return
+              end
               -- Only disconnect if we haven't received data recently
               local secondsSinceData = os.time() - (self._lastDataReceived or 0)
               if secondsSinceData < 10 then
@@ -367,6 +410,13 @@ function ESPHomeClient:connect()
 
           d:resolve(true)
         end, function(err)
+          if err == ESPHomeClient.SUPERSEDED then
+            -- A newer connect() displaced a handshake waiter under the same key. The
+            -- newer attempt owns self._client now, so tearing down here would close the
+            -- winner's socket. Still reject, so this attempt's caller is not stranded.
+            log:debug("Connection attempt superseded by a newer one; leaving it to the winner")
+            return d:reject(err)
+          end
           log:error("Failed to establish connection: %s", err)
           self:disconnect()
           d:reject(err)
@@ -568,9 +618,7 @@ function ESPHomeClient:listEntities()
   self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.list_entities, {}):next(function(_)
     log:debug("List entities message sent successfully")
   end, function(err)
-    if IsEmpty(err) or type(err) ~= "string" then
-      err = "unknown error"
-    end
+    err = normalizeError(err)
     log:error("Failed to send list entities message: %s", err)
     d:reject(err)
   end)
@@ -616,9 +664,7 @@ function ESPHomeClient:subscribeStates(callback)
     log:debug("Subscribe states message sent successfully")
     d:resolve(nil)
   end, function(err)
-    if IsEmpty(err) or type(err) ~= "string" then
-      err = "unknown error"
-    end
+    err = normalizeError(err)
     log:error("Failed to send subscribe states message: %s", err)
     d:reject(err)
   end)
@@ -670,9 +716,7 @@ function ESPHomeClient:subscribeLogs(callback, level, dumpConfig)
       log:debug("Subscribe logs message sent successfully")
       d:resolve(nil)
     end, function(err)
-      if IsEmpty(err) or type(err) ~= "string" then
-        err = "unknown error"
-      end
+      err = normalizeError(err)
       log:error("Failed to send subscribe logs message: %s", err)
       d:reject(err)
     end)
@@ -1741,9 +1785,7 @@ function ESPHomeClient:sendPing()
   return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.ping, {}):next(function()
     log:info("Ping successful")
   end, function(err)
-    if IsEmpty(err) or type(err) ~= "string" then
-      err = "unknown error"
-    end
+    err = normalizeError(err)
     log:error("Ping failed: %s", err)
     return reject(err)
   end)
@@ -1916,7 +1958,7 @@ end
 --- @param key CallbackKey The callback key
 --- @param callback CallbackFunction The callback function
 --- @param timeout? number Optional timeout in milliseconds for auto-unregistration
---- @param onTimeout? fun(err?: string): void Optional callback invoked when the wait is aborted (timeout, or disconnect/supersession with a reason), before unregistration
+--- @param onTimeout? fun(err?: string|Superseded): void Optional callback invoked when the wait is aborted (timeout, or disconnect/supersession with a reason), before unregistration
 --- @return CallbackHandle handle The registration receipt (for later unregistration)
 --- @private
 function ESPHomeClient:_registerCallback(key, callback, timeout, onTimeout)
@@ -1945,7 +1987,7 @@ function ESPHomeClient:_registerCallback(key, callback, timeout, onTimeout)
       -- Kept from #81: same-key concurrency is worth seeing in production logs even
       -- though the displaced waiter is now settled rather than stranded.
       log:warn("Superseding a pending request callback for key: %s", key)
-      local success, err = pcall(existing.onAbort, "Superseded by a newer request")
+      local success, err = pcall(existing.onAbort, ESPHomeClient.SUPERSEDED)
       if not success then
         log:error("Abort handler for callback %s failed: %s", key, err or "unknown error")
       end

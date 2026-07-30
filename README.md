@@ -933,6 +933,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   "Superseded by a newer request" error instead of stalling, and the newer
   request is no longer left without its callbacks (which could make entity
   discovery or Bluetooth GATT service discovery return an empty result)
+- Fixed a superseded status refresh being reported as "Refresh failed" and
+  dropping the device connection out from under the refresh that replaced it
 
 ## v20260728 - 2026-07-28
 
