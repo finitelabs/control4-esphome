@@ -4,11 +4,41 @@ local values = require("lib.values")
 local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 
+--- Last contact state notified per binding this session. In-memory on
+--- purpose: a driver restart clears it, so bound consumers are re-notified
+--- even when the state matches the persisted variable.
+--- @type table<string, string>
+local lastNotified = {}
+
 --- @class ValveEntity:Entity
 local ValveEntity = {
   TYPE = ESPHomeClient.EntityType.VALVE,
 }
 ValveEntity.__index = ValveEntity
+
+--- Clear the in-memory notify memo so the next state dump re-notifies bound
+--- consumers (driver reset).
+function ValveEntity.clearNotifiedState()
+  lastNotified = {}
+end
+
+--- Register a bind-time seeder that sends the last known contact state to a
+--- newly bound consumer. The send bypasses the notify memo, matching the
+--- sensor value seed.
+--- @param bindingId number The contact binding ID.
+--- @param valueName string The values key holding the contact state.
+local function registerContactSeeder(bindingId, valueName)
+  OBC[bindingId] = function(idBinding, _strClass, bIsBound, _otherDeviceId, _otherBindingId)
+    log:trace("OBC[%s](%s, %s)", bindingId, idBinding, bIsBound)
+    if not bIsBound then
+      return
+    end
+    local state = Select(values:getValue(valueName), "value")
+    if not IsEmpty(state) then
+      SendToProxy(bindingId, state, {}, "NOTIFY")
+    end
+  end
+end
 
 --- Create a new instance of the valve entity.
 --- @param client ESPHomeClient The ESPHome client instance.
@@ -28,7 +58,7 @@ function ValveEntity:discovered(entity)
   local supportsPosition = toboolean(entity.supports_position)
 
   -- Contacts
-  assert(
+  local valveClosedContactId = assert(
     bindings:getOrAddDynamicBinding(
       self.TYPE,
       "valve_closed_" .. entity.key,
@@ -37,8 +67,8 @@ function ValveEntity:discovered(entity)
       entity.name .. " Closed",
       "CONTACT_SENSOR"
     )
-  )
-  assert(
+  ).bindingId
+  local valveOpenContactId = assert(
     bindings:getOrAddDynamicBinding(
       self.TYPE,
       "valve_open_" .. entity.key,
@@ -47,7 +77,9 @@ function ValveEntity:discovered(entity)
       entity.name .. " Open",
       "CONTACT_SENSOR"
     )
-  )
+  ).bindingId
+  registerContactSeeder(valveClosedContactId, entity.name .. " Closed")
+  registerContactSeeder(valveOpenContactId, entity.name .. " Open")
 
   -- Relays
   local openValveBindingId = assert(
@@ -190,14 +222,18 @@ function ValveEntity:updated(entity, state)
   local valveOpenBinding = bindings:getDynamicBinding(self.TYPE, "valve_open_" .. entity.key)
   if valveOpenBinding ~= nil then
     local valveOpenState = valveOpen and "CLOSED" or "OPENED"
-    if values:update(entity.name .. " Open", valveOpenState) then
+    values:update(entity.name .. " Open", valveOpenState)
+    if lastNotified["open_" .. entity.key] ~= valveOpenState then
+      lastNotified["open_" .. entity.key] = valveOpenState
       SendToProxy(valveOpenBinding.bindingId, valveOpenState, {}, "NOTIFY")
     end
   end
   local valveClosedBinding = bindings:getDynamicBinding(self.TYPE, "valve_closed_" .. entity.key)
   if valveClosedBinding ~= nil then
     local valveClosedState = valveClosed and "CLOSED" or "OPENED"
-    if values:update(entity.name .. " Closed", valveClosedState) then
+    values:update(entity.name .. " Closed", valveClosedState)
+    if lastNotified["closed_" .. entity.key] ~= valveClosedState then
+      lastNotified["closed_" .. entity.key] = valveClosedState
       SendToProxy(valveClosedBinding.bindingId, valveClosedState, {}, "NOTIFY")
     end
   end
