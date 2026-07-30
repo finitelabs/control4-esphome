@@ -500,6 +500,11 @@ function Connect()
         end
         RefreshStatus()
       end, function(reason)
+        if reason == ESPHomeClient.SUPERSEDED then
+          -- A newer connection attempt replaced this one; it publishes its own status.
+          log:debug("Connection attempt superseded by a newer one; leaving the status to it")
+          return
+        end
         updateStatus("Connection failed: " .. reason)
       end)
     else
@@ -638,6 +643,15 @@ function RefreshStatus()
         log:info("Successfully refreshed device status")
       end, function(error)
         refreshInFlight = false
+        if error == ESPHomeClient.SUPERSEDED then
+          -- A newer refresh displaced this one's response callbacks. The winner is still
+          -- running, so treating this as a failure would tear down its connection; the
+          -- loser just steps aside. Compared by identity so a device-supplied error can
+          -- never impersonate it. Refreshes are serialized, so this should be
+          -- unreachable today; it keeps displacement safe if that ever regresses.
+          log:debug("Status refresh superseded by a newer refresh; leaving it to the winner")
+          return
+        end
         if type(error) ~= "string" then
           error = "unknown error"
         end

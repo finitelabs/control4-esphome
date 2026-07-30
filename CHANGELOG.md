@@ -33,8 +33,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed latch-style ESPHome locks (`supports_open`) reading as "unknown" in
   Control4 while reporting the open or opening state; both now map to unlocked
 - Fixed overlapping status refreshes silently racing each other for the same
-  response callbacks; refreshes are now serialized and a displaced request
-  callback logs a warning
+  response callbacks; refreshes are now serialized
 - Fixed cover contacts and Yale DoorSense sending nothing to a newly bound
   consumer (or after a DoorSense drop and re-detect) until the state changed;
   consumers are now seeded with the last known state on bind
@@ -46,6 +45,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed SwitchBot channel relays and contact sensors (motion, contact, leak,
   tamper) leaving bound consumers stale after a driver restart until the next
   state change
+- Fixed a pending request hanging forever when a second request for the same
+  response type started before it finished; the older request now fails with a
+  "Superseded by a newer request" error instead of stalling, and the newer
+  request is no longer left without its callbacks (which could make entity
+  discovery or Bluetooth GATT service discovery return an empty result)
+- Fixed a superseded status refresh being reported as "Refresh failed" and
+  dropping the device connection out from under the refresh that replaced it
 
 ## v20260728 - 2026-07-28
 
