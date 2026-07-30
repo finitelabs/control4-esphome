@@ -44,6 +44,7 @@ allowing them to be controlled through the Control4 lock proxy.
     - [Driver Settings](#driver-settings)
     - [Device Settings](#device-settings)
   - [Connections](#connections)
+  - [Driver Actions](#driver-actions)
   <!-- #ifdef DRIVERCENTRAL -->
 - [Developer Information](#developer-information)
 
@@ -66,6 +67,8 @@ allowing them to be controlled through the Control4 lock proxy.
 
 - Control4 Lock Proxy integration for native Control4 lock control
 - Lock, unlock, and toggle commands with optional lock code support
+- Open Latch action and programming command for latch-style locks that support
+  the open action
 - Real-time state synchronization with ESPHome device
 
 <div style="page-break-after: always"></div>
@@ -136,6 +139,17 @@ and provides the lock functionality to Control4.
 ### ESPHome Lock (consumer)
 
 Bind this connection to the lock entity exposed by the main ESPHome driver.
+
+## Driver Actions
+
+### Open Latch
+
+Opens the latch on locks that support the open action (`supports_open`). Also
+available as a device-specific command in Composer programming, so the latch can
+be opened from automation (for example, on a doorbell press). Uses the
+configured **Lock Code** when one is set. Logs a warning and does nothing if the
+connected lock does not support open, or if the lock entity has not been
+discovered yet.
 
 <div style="page-break-after: always"></div>
 

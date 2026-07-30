@@ -95,8 +95,18 @@
         <default/>
       </property>
     </properties>
-    <commands/>
-    <actions/>
+    <commands>
+      <command>
+        <name>Open Latch</name>
+        <description>Open the latch on NAME</description>
+      </command>
+    </commands>
+    <actions>
+      <action>
+        <name>Open Latch</name>
+        <command>Open_Latch</command>
+      </action>
+    </actions>
   </config>
   <capabilities>
     <is_management_only>False</is_management_only>

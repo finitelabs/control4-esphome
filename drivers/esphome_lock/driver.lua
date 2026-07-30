@@ -128,6 +128,33 @@ local function lock()
   })
 end
 
+--- Open the latch on locks that support the open action.
+local function open()
+  log:trace("open()")
+  local code = not IsEmpty(Properties["Lock Code"]) and Properties["Lock Code"] or nil
+  SendToProxy(ESPHOME_BINDING, "ENTITY_COMMAND", {
+    body = SerializeSafe({
+      command = ESPHomeProtoSchema.Enum.LockCommand.LOCK_OPEN,
+      has_code = code ~= nil,
+      code = code,
+    }),
+  })
+end
+
+function EC.Open_Latch()
+  log:trace("EC.Open_Latch()")
+  local supportsOpen = Select(ENTITY, "supports_open")
+  if supportsOpen == nil then
+    log:warn("Lock entity has not been discovered yet; cannot verify open support")
+    return
+  end
+  if not toboolean(supportsOpen) then
+    log:warn("The lock does not support the open action")
+    return
+  end
+  open()
+end
+
 local function toggle()
   log:trace("toggle()")
   local state = tointeger(Select(STATE, "state")) or 0
