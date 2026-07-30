@@ -991,6 +991,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
+- Added Siren entity support: audible/visual alarm entities exposed as relay
+  bindings with on/off control
 - Added Event entity support: stateless triggers (button presses, gestures,
   doorbell rings) now create Control4 events for programming and track the last
   event type in a variable

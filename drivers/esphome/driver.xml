@@ -287,6 +287,20 @@
           </param>
         </params>
       </command>
+      <command>
+        <name>Set Siren Tone</name>
+        <description>Set NAME siren PARAM1 tone to PARAM2</description>
+        <params>
+          <param>
+            <name>Siren</name>
+            <type>DYNAMIC_LIST</type>
+          </param>
+          <param>
+            <name>Tone</name>
+            <type>DYNAMIC_LIST</type>
+          </param>
+        </params>
+      </command>
     </commands>
   </config>
 </devicedata>
