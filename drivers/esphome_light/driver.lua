@@ -11,10 +11,26 @@ require("drivers-common-public.global.timer")
 JSON = require("JSON")
 
 local log = require("lib.logging")
+local values = require("lib.values")
 local persist = require("lib.persist")
 local constants = require("constants")
 
 local ESPHomeProtoSchema = require("esphome.proto_schema")
+
+--- Update the Driver Status property and the Connected variable so
+--- Programming can react to connect/disconnect.
+--- @param status string The human-readable connection status.
+--- @param connected boolean Whether this status represents a live connection;
+--- callers pass it explicitly so rewording a status can never silently flip
+--- the Connected variable.
+local function updateStatus(status, connected)
+  log:trace("updateStatus(%s, %s)", status, connected)
+  if type(connected) ~= "boolean" then
+    error(string.format("updateStatus(%s): connected must be an explicit boolean", tostring(status)), 2)
+  end
+  UpdateProperty("Driver Status", status)
+  values:update("Connected", connected, "BOOL")
+end
 
 ---------------------------------------------------------------------------
 -- Bindings
@@ -180,6 +196,9 @@ function OnDriverInit()
   log:setLogLevel(Properties["Log Level"])
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
+
+  -- Restore persisted state
+  values:restoreValues()
 end
 
 function OnDriverLateInit()
@@ -198,7 +217,7 @@ function OnDriverLateInit()
   end
 
   gInitialized = true
-  UpdateProperty("Driver Status", "Disconnected")
+  updateStatus("Disconnected", false)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
 end
@@ -2308,7 +2327,7 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   mergedColorUntil = 0
   currentBrightnessPresetId = nil
   currentColorPresetId = nil
-  UpdateProperty("Driver Status", "Disconnected")
+  updateStatus("Disconnected", false)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   notifyBrightnessChanged(0)
 end
@@ -2337,7 +2356,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
 
   -- Connection state must be sent BEFORE dynamic capabilities
   if not wasConnected then
-    UpdateProperty("Driver Status", "Connected")
+    updateStatus("Connected", true)
     SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
   end
 

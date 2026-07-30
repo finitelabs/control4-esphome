@@ -22,6 +22,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
+- Added a `Connected` (BOOL) variable to the main driver and every sub-driver
+  with a Driver Status so Programming can react to connect/disconnect
 - Added an "Open Latch" action to the ESPHome Lock driver for locks that support
   the open command (`supports_open`)
 

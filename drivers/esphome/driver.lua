@@ -400,9 +400,20 @@ function OPC.Minimum_Room_RSSI_Override_dBm(propertyValue)
   bluetoothProxyCapability:onMinRssiOverrideChanged()
 end
 
-local function updateStatus(status)
-  log:trace("updateStatus(%s)", status)
-  UpdateProperty("Driver Status", not IsEmpty(status) and status or "Unknown")
+--- Update the Driver Status property and the Connected variable so
+--- Programming can react to connect/disconnect.
+--- @param status string The human-readable connection status.
+--- @param connected boolean Whether this status represents a live connection;
+--- callers pass it explicitly so rewording a status can never silently flip
+--- the Connected variable.
+local function updateStatus(status, connected)
+  log:trace("updateStatus(%s, %s)", status, connected)
+  status = not IsEmpty(status) and status or "Unknown"
+  if type(connected) ~= "boolean" then
+    error(string.format("updateStatus(%s): connected must be an explicit boolean", tostring(status)), 2)
+  end
+  UpdateProperty("Driver Status", status)
+  values:update("Connected", connected, "BOOL")
 end
 
 --- Backoff period in seconds after a fatal connection error before retrying.
@@ -411,7 +422,7 @@ local FATAL_ERROR_BACKOFF = 120
 function Connect()
   log:trace("Connect()")
   if not gInitialized then
-    updateStatus("Initializing...")
+    updateStatus("Initializing...", false)
     return
   end
 
@@ -441,13 +452,13 @@ function Connect()
   local heartbeat = function()
     --#ifdef DRIVERCENTRAL
     if DC_X == 0 then
-      updateStatus("No active license")
+      updateStatus("No active license", false)
       esphome:disconnect()
       return
     end
     --#endif
     if not esphome:isConfigured() then
-      updateStatus("Not configured")
+      updateStatus("Not configured", false)
       esphome:disconnect()
       CancelTimer("heartbeat")
       return
@@ -480,23 +491,23 @@ function Connect()
         local secondsSinceFailure = now - lastFatalErrorTime
         if secondsSinceFailure < FATAL_ERROR_BACKOFF then
           local remaining = FATAL_ERROR_BACKOFF - secondsSinceFailure
-          updateStatus(fatalError .. " (retry in " .. remaining .. "s)")
+          updateStatus(fatalError .. " (retry in " .. remaining .. "s)", false)
           return
         end
         -- Backoff period elapsed, reset and try again
         lastFatalErrorTime = 0
       end
 
-      updateStatus("Connecting")
+      updateStatus("Connecting", false)
       esphome:connect():next(function()
         lastFatalErrorTime = 0 -- Clear on successful connection
         wasConnected = true
         -- If using password authentication, show "waiting for authentication" status
         -- until first successful operation confirms auth succeeded
         if Properties["Authentication Mode"] == "Password" and not IsEmpty(Properties["Password"]) then
-          updateStatus("Connection established, waiting for authentication")
+          updateStatus("Connection established, waiting for authentication", false)
         else
-          updateStatus("Connected")
+          updateStatus("Connected", true)
         end
         RefreshStatus()
       end, function(reason)
@@ -505,10 +516,10 @@ function Connect()
           log:debug("Connection attempt superseded by a newer one; leaving the status to it")
           return
         end
-        updateStatus("Connection failed: " .. reason)
+        updateStatus("Connection failed: " .. reason, false)
       end)
     else
-      updateStatus("Connected")
+      updateStatus("Connected", true)
     end
   end
   -- Perform the initial refresh then schedule it on a repeating timer
@@ -542,7 +553,7 @@ function RefreshStatus()
       refreshInFlight = false
       local startError = tostring(result or "unknown error")
       log:error("An error occurred refreshing device status; %s", startError)
-      updateStatus("Refresh failed: " .. startError)
+      updateStatus("Refresh failed: " .. startError, false)
       esphome:disconnect()
       return
     end
@@ -550,7 +561,7 @@ function RefreshStatus()
       :next(function(deviceInfo)
         log:debug("Device Info: %s", deviceInfo)
         -- First successful operation confirms authentication succeeded
-        updateStatus("Connected")
+        updateStatus("Connected", true)
         values:update("Name", esphome:getDeviceName() or "N/A", "STRING")
         values:update("Model", Select(deviceInfo, "model") or "N/A", "STRING")
         values:update("Manufacturer", Select(deviceInfo, "manufacturer") or "N/A", "STRING")
@@ -656,7 +667,7 @@ function RefreshStatus()
           error = "unknown error"
         end
         log:error("An error occurred refreshing device status; %s", error)
-        updateStatus("Refresh failed: " .. error)
+        updateStatus("Refresh failed: " .. error, false)
         esphome:disconnect()
       end)
   end)

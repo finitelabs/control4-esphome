@@ -29,6 +29,21 @@ local presenceTracker = require("esphome.ble.coordinator.presence_tracker")
 local bleScanner = require("esphome.ble.scanner")
 local bleScannerProperties = require("esphome.ble.scanner_properties")
 
+--- Update the Driver Status property and the Connected variable so
+--- Programming can react to connect/disconnect.
+--- @param status string The human-readable connection status.
+--- @param connected boolean Whether this status represents a live connection;
+--- callers pass it explicitly so rewording a status can never silently flip
+--- the Connected variable.
+local function updateStatus(status, connected)
+  log:trace("updateStatus(%s, %s)", status, connected)
+  if type(connected) ~= "boolean" then
+    error(string.format("updateStatus(%s): connected must be an explicit boolean", tostring(status)), 2)
+  end
+  UpdateProperty("Driver Status", status)
+  values:update("Connected", connected, "BOOL")
+end
+
 --------------------------------------------------------------------------------
 -- Constants
 --------------------------------------------------------------------------------
@@ -363,6 +378,9 @@ function EC.Reset_Driver(tParams)
   -- Delete all dynamic bindings
   bindings:deleteAllBindings(BINDINGS_NAMESPACE)
 
+  -- Remove the connection state variables alongside the rest of the state
+  values:reset()
+
   updateStatusProperties()
 end
 
@@ -631,13 +649,13 @@ function OnDriverLateInit()
 
   --#ifdef DRIVERCENTRAL
   if DC_X == 0 then
-    C4:UpdateProperty("Driver Status", "No active license")
+    updateStatus("No active license", false)
     return
   end
   --#endif
 
   log:info("Initializing Bluetooth Coordinator")
-  C4:UpdateProperty("Driver Status", "Initializing...")
+  updateStatus("Initializing...", false)
 
   -- Restore persisted events (C4:AddEvent is unavailable before OnDriverLateInit)
   events:restoreEvents()
@@ -656,7 +674,7 @@ function OnDriverLateInit()
 
   -- Update status
   updateStatusProperties()
-  C4:UpdateProperty("Driver Status", "Running")
+  updateStatus("Running", true)
 
   -- Fire OnPropertyChanged for all properties to initialize OPC handlers
   -- This runs while initialized=false, so handlers that check initialized will skip
