@@ -20,6 +20,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added Update entity support: firmware update tracking with current/latest
+  version variables, an update available flag, an in-progress indicator, an
+  "Update Device" programming command, and an optional "Automatic Device
+  Updates" property that installs firmware updates as soon as they are detected
+
 ### Fixed
 
 - Fixed the HVAC state freezing on the previous value during a heat pump's

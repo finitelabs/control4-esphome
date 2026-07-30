@@ -43,6 +43,15 @@
         </items>
         <default>On</default>
       </property>
+      <property>
+        <name>Automatic Device Updates</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <default>Off</default>
+      </property>
       <!-- #ifndef DRIVERCENTRAL -->
       <property>
         <name>Update Channel</name>
@@ -248,6 +257,10 @@
       </action>
       <!-- #endif -->
       <action>
+        <name>Update Device</name>
+        <command>Update_Device</command>
+      </action>
+      <action>
         <name>Reset Driver</name>
         <command>Reset_Driver</command>
         <params>
@@ -283,6 +296,16 @@
           </param>
           <param>
             <name>Option</name>
+            <type>DYNAMIC_LIST</type>
+          </param>
+        </params>
+      </command>
+      <command>
+        <name>Update Device</name>
+        <description>Update device firmware on NAME PARAM1</description>
+        <params>
+          <param>
+            <name>Update</name>
             <type>DYNAMIC_LIST</type>
           </param>
         </params>

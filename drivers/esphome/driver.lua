@@ -57,6 +57,7 @@ local SelectEntity = require("esphome.entities.select")
 local TextEntity = require("esphome.entities.text")
 local TextSensorEntity = require("esphome.entities.text_sensor")
 local TimeEntity = require("esphome.entities.time")
+local UpdateEntity = require("esphome.entities.update")
 local WaterHeaterEntity = require("esphome.entities.water_heater")
 
 local constants = require("constants")
@@ -87,6 +88,7 @@ local Entities = {
   [TextEntity.TYPE] = TextEntity:new(esphome),
   [TextSensorEntity.TYPE] = TextSensorEntity:new(esphome),
   [TimeEntity.TYPE] = TimeEntity:new(esphome),
+  [UpdateEntity.TYPE] = UpdateEntity:new(esphome),
   [WaterHeaterEntity.TYPE] = WaterHeaterEntity:new(esphome),
 }
 
@@ -147,6 +149,9 @@ function OnDriverLateInit()
   -- Hide Bluetooth Proxy properties until we detect support
   bluetoothProxyCapability:setPropertiesAttribs(constants.HIDE_PROPERTY)
 
+  -- Hide Automatic Device Updates until we detect an UpdateEntity
+  C4:SetPropertyAttribs("Automatic Device Updates", constants.HIDE_PROPERTY)
+
   C4:FileSetDir("c29tZXNwZWNpYWxrZXk=++11")
 
   -- Fire OnPropertyChanged to set the initial Headers and other Property
@@ -169,6 +174,14 @@ function OPC.Automatic_Updates(propertyValue)
   end
   syncPropertyToOtherInstances("Automatic Updates", propertyValue)
   --#endif
+end
+
+function OPC.Automatic_Device_Updates(propertyValue)
+  log:trace("OPC.Automatic_Device_Updates('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  -- Device updates are device-specific, do NOT sync to other instances
 end
 
 --#ifndef DRIVERCENTRAL
@@ -424,6 +437,7 @@ function Connect()
   )
 
   local lastUpdateTime = os.time() -- Don't check for updates on the first cycle
+  local lastDeviceUpdateCheckTime = os.time() -- Don't check for device updates on the first cycle
   local lastFatalErrorTime = 0 -- Track when the last fatal error occurred
   local wasConnected = false -- Track connection state transitions
 
@@ -503,6 +517,13 @@ function Connect()
         updateStatus("Connection failed: " .. reason)
       end)
     else
+      -- Check for device updates on the same interval as driver updates (when connected)
+      local secondsSinceDeviceCheck = now - lastDeviceUpdateCheckTime
+      if Entities[UpdateEntity.TYPE]:hasEntities() and secondsSinceDeviceCheck > (30 * 60) then
+        lastDeviceUpdateCheckTime = now
+        log:info("Checking for device updates")
+        Entities[UpdateEntity.TYPE]:checkAll()
+      end
       updateStatus("Connected")
     end
   end

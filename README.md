@@ -124,7 +124,7 @@ See the individual sub-driver documentation for device-specific details.
 | Text                | ✅                            |
 | Text Sensor         | ✅                            |
 | Time                | ✅                            |
-| Update              | ❌                            |
+| Update              | ✅                            |
 | Valve               | ❌                            |
 | Voice Assistant     | ❌[\*](#voice-assistant-note) |
 | Water Heater        | ✅                            |
@@ -448,26 +448,30 @@ matching read-only Device Info properties.
 
 ### Variables by Entity Type
 
-| Entity Type   | Variable Name       | Type   | Notes                                      |
-| ------------- | ------------------- | ------ | ------------------------------------------ |
-| Binary Sensor | `{name} State`      | BOOL   | "1" = triggered, "0" = clear               |
-| Button        | (none)              | -      | Use "Press Button" command (see below)     |
-| Climate       | (none)              | -      | State via Thermostat proxy                 |
-| Cover         | `{name} State`      | STRING | "open", "closed", "opening", "closing"     |
-| Date          | `{name}`            | STRING | Writable, formatted as YYYY-MM-DD          |
-| Datetime      | `{name}`            | STRING | Writable, formatted as YYYY-MM-DD HH:MM:SS |
-| Event         | `{name} Last Event` | STRING | Last event type (e.g., "single_press")     |
-| Fan           | (none)              | -      | State via Fan proxy                        |
-| Light         | (none)              | -      | State via Light proxy                      |
-| Lock          | (none)              | -      | State via Lock proxy                       |
-| Number        | `{name}`            | NUMBER | Writable, 1 decimal precision              |
-| Select        | `{name}`            | STRING | Writable, current option                   |
-| Sensor        | `{name}`            | NUMBER | Read-only, 1 decimal precision             |
-| Switch        | `{name} State`      | BOOL   | "1" = on, "0" = off (writable)             |
-| Text          | `{name}`            | STRING | Writable                                   |
-| Text Sensor   | `{name}`            | STRING | Read-only                                  |
-| Time          | `{name}`            | STRING | Writable, formatted as HH:MM:SS            |
-| Water Heater  | (none)              | -      | State via Thermostat proxy                 |
+| Entity Type   | Variable Name               | Type   | Notes                                      |
+| ------------- | --------------------------- | ------ | ------------------------------------------ |
+| Binary Sensor | `{name} State`              | BOOL   | "1" = triggered, "0" = clear               |
+| Button        | (none)                      | -      | Use "Press Button" command (see below)     |
+| Climate       | (none)                      | -      | State via Thermostat proxy                 |
+| Cover         | `{name} State`              | STRING | "open", "closed", "opening", "closing"     |
+| Date          | `{name}`                    | STRING | Writable, formatted as YYYY-MM-DD          |
+| Datetime      | `{name}`                    | STRING | Writable, formatted as YYYY-MM-DD HH:MM:SS |
+| Event         | `{name} Last Event`         | STRING | Last event type (e.g., "single_press")     |
+| Fan           | (none)                      | -      | State via Fan proxy                        |
+| Light         | (none)                      | -      | State via Light proxy                      |
+| Lock          | (none)                      | -      | State via Lock proxy                       |
+| Number        | `{name}`                    | NUMBER | Writable, 1 decimal precision              |
+| Select        | `{name}`                    | STRING | Writable, current option                   |
+| Sensor        | `{name}`                    | NUMBER | Read-only, 1 decimal precision             |
+| Switch        | `{name} State`              | BOOL   | "1" = on, "0" = off (writable)             |
+| Text          | `{name}`                    | STRING | Writable                                   |
+| Text Sensor   | `{name}`                    | STRING | Read-only                                  |
+| Time          | `{name}`                    | STRING | Writable, formatted as HH:MM:SS            |
+| Update        | `{name} Current Version`    | STRING | Current firmware version                   |
+| Update        | `{name} Latest Version`     | STRING | Latest available firmware version          |
+| Update        | `{name} Update Available`   | BOOL   | True when an update is available           |
+| Update        | `{name} Update In Progress` | BOOL   | True while an update is being installed    |
+| Water Heater  | (none)                      | -      | State via Thermostat proxy                 |
 
 > **Note:** `{name}` is replaced with the entity's display name from ESPHome
 > (e.g., a sensor named "Temperature" creates a variable called "Temperature").
@@ -535,10 +539,11 @@ bindings are created separately from the entity bindings above:
 
 ### Commands
 
-| Command      | Parameters     | Description                                  |
-| ------------ | -------------- | -------------------------------------------- |
-| Press Button | Button         | Triggers an ESPHome button entity by name    |
-| Set Select   | Select, Option | Sets a select entity to the specified option |
+| Command       | Parameters     | Description                                       |
+| ------------- | -------------- | ------------------------------------------------- |
+| Press Button  | Button         | Triggers an ESPHome button entity by name         |
+| Set Select    | Select, Option | Sets a select entity to the specified option      |
+| Update Device | Update         | Installs a firmware update on the selected entity |
 
 > **Note:** The Button parameter is a dynamic list populated with discovered
 > ESPHome button entities. The Select and Option parameters are dynamic lists
@@ -907,6 +912,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 -->
 
 ## Unreleased
+
+### Added
+
+- Added Update entity support: firmware update tracking with current/latest
+  version variables, an update available flag, an in-progress indicator, an
+  "Update Device" programming command, and an optional "Automatic Device
+  Updates" property that installs firmware updates as soon as they are detected
 
 ### Fixed
 
