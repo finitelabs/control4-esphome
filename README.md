@@ -908,6 +908,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added an "Open Latch" action to the ESPHome Lock driver for locks that support
+  the open command (`supports_open`)
+
 ### Fixed
 
 - Fixed the HVAC state freezing on the previous value during a heat pump's
