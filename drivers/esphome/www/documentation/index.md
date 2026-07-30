@@ -117,7 +117,7 @@ See the individual sub-driver documentation for device-specific details.
 
 | Entity Type         | Supported                     |
 | ------------------- | ----------------------------- |
-| Alarm Control Panel | ❌                            |
+| Alarm Control Panel | ✅                            |
 | API Noise           | ✅                            |
 | Binary Sensor       | ✅                            |
 | Bluetooth Proxy     | ✅                            |

@@ -10,6 +10,7 @@ DRIVER_FILENAMES = {
   "esphome_govee.c4z",
   "esphome_bthome.c4z",
   -- #variant-filenames esphome_fan
+  "esphome_alarm.c4z",
   "esphome_climate.c4z",
   "esphome_light.c4z",
   "esphome_lock.c4z",
@@ -40,6 +41,7 @@ local bleScannerProperties = require("esphome.ble.scanner_properties")
 
 local BluetoothProxyCapability = require("esphome.capabilities.bluetooth_proxy")
 
+local AlarmControlPanelEntity = require("esphome.entities.alarm_control_panel")
 local BinarySensorEntity = require("esphome.entities.binary_sensor")
 local ButtonEntity = require("esphome.entities.button")
 local ClimateEntity = require("esphome.entities.climate")
@@ -70,6 +72,7 @@ local bluetoothProxyCapability = BluetoothProxyCapability:new(esphome)
 
 --- @type table<EntityType, Entity>
 local Entities = {
+  [AlarmControlPanelEntity.TYPE] = AlarmControlPanelEntity:new(esphome),
   [BinarySensorEntity.TYPE] = BinarySensorEntity:new(esphome),
   [ButtonEntity.TYPE] = ButtonEntity:new(esphome),
   [ClimateEntity.TYPE] = ClimateEntity:new(esphome),

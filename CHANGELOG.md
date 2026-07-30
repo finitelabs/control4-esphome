@@ -20,6 +20,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added Alarm Control Panel entity support: ESPHome alarm control panel entities
+  are now exposed through a dedicated security panel/partition sub-driver with
+  arm/disarm commands (Stay, Away, Night, Vacation, Custom Bypass), user code
+  support, and real-time partition state synchronization
+
 ### Fixed
 
 - Fixed the HVAC state freezing on the previous value during a heat pump's
