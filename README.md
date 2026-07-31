@@ -917,6 +917,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed a slow TCP connect that the driver had already given up on hijacking the
+  connection attempt that replaced it, letting a dead socket drive the handshake
+  and, when it closed, tear down the healthy connection; the socket callbacks
+  now ignore a superseded socket and fail its own attempt instead
 - Fixed the HVAC state freezing on the previous value during a heat pump's
   defrost cycle; defrosting now reports as Heating, and unmapped climate
   modes/actions log a warning instead of being silently dropped
