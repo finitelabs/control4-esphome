@@ -19,6 +19,21 @@ local constants = require("constants")
 local BTHome = require("bthome")
 local UUID = require("esphome.ble.uuid")
 
+--- Update the Driver Status property and the Connected variable so
+--- Programming can react to connect/disconnect.
+--- @param status string The human-readable connection status.
+--- @param connected boolean Whether this status represents a live connection;
+--- callers pass it explicitly so rewording a status can never silently flip
+--- the Connected variable.
+local function updateStatus(status, connected)
+  log:trace("updateStatus(%s, %s)", status, connected)
+  if type(connected) ~= "boolean" then
+    error(string.format("updateStatus(%s): connected must be an explicit boolean", tostring(status)), 2)
+  end
+  UpdateProperty("Driver Status", status)
+  values:update("Connected", connected, "BOOL")
+end
+
 --------------------------------------------------------------------------------
 -- Constants
 --------------------------------------------------------------------------------
@@ -800,7 +815,7 @@ function OnDriverLateInit()
   end
 
   gInitialized = true
-  UpdateProperty("Driver Status", "Waiting for data")
+  updateStatus("Waiting for data", false)
 
   -- Request refresh from parent driver
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
@@ -889,7 +904,7 @@ function OPC.Bind_Key(propertyValue)
   cachedBindKey = table.concat(bytes)
   log:info("Bind key configured (%d bytes)", #cachedBindKey)
 
-  UpdateProperty("Driver Status", "Waiting for data")
+  updateStatus("Waiting for data", false)
 end
 
 --------------------------------------------------------------------------------
@@ -928,7 +943,7 @@ function RFP.CONNECTED_PASSIVE(idBinding, strCommand, tParams, args)
     end
   end
 
-  UpdateProperty("Driver Status", "Listening")
+  updateStatus("Listening", true)
 end
 
 --- Handle incoming BLE advertisement from parent driver
@@ -964,7 +979,7 @@ function RFP.BLE_ADVERTISEMENT(idBinding, strCommand, tParams, args)
   -- Parse BTHome data (pass cached bind key and MAC for encrypted devices)
   local result, err = BTHome.parse(uuid, serviceData, cachedBindKey, cachedMacBytes)
   if not result then
-    UpdateProperty("Driver Status", "Error: " .. (err or "unknown"))
+    updateStatus("Error: " .. (err or "unknown"), false)
     return
   end
 
@@ -980,7 +995,7 @@ function RFP.BLE_ADVERTISEMENT(idBinding, strCommand, tParams, args)
   end
 
   -- Update status
-  UpdateProperty("Driver Status", "Listening")
+  updateStatus("Listening", true)
 
   -- Process the data
   processBTHomeReadings(result.readings, advertisement.rssi)
@@ -995,7 +1010,7 @@ function RFP.DISCONNECTED(idBinding, strCommand, tParams, args)
 
   local reason = Select(tParams, "reason") or "unknown"
   log:info("BTHome device disconnected: %s", reason)
-  UpdateProperty("Driver Status", "Waiting for data")
+  updateStatus("Waiting for data", false)
 end
 
 --------------------------------------------------------------------------------
@@ -1009,9 +1024,9 @@ OBC[ESPHOME_BINDING] = function(idBinding, strClass, bIsBound, otherDeviceId)
   knownObjects = {}
 
   if bIsBound then
-    UpdateProperty("Driver Status", "Waiting for data")
+    updateStatus("Waiting for data", false)
   else
-    UpdateProperty("Driver Status", "Disconnected")
+    updateStatus("Disconnected", false)
   end
 end
 

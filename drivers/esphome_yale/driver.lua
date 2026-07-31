@@ -23,6 +23,21 @@ local UUID = require("esphome.ble.uuid")
 local yale_protocol = require("esphome.ble.yale_protocol")
 local http = require("lib.http")
 
+--- Update the Driver Status property and the Connected variable so
+--- Programming can react to connect/disconnect.
+--- @param status string The human-readable connection status.
+--- @param connected boolean Whether this status represents a live connection;
+--- callers pass it explicitly so rewording a status can never silently flip
+--- the Connected variable.
+local function updateStatus(status, connected)
+  log:trace("updateStatus(%s, %s)", status, connected)
+  if type(connected) ~= "boolean" then
+    error(string.format("updateStatus(%s): connected must be an explicit boolean", tostring(status)), 2)
+  end
+  UpdateProperty("Driver Status", status)
+  values:update("Connected", connected, "BOOL")
+end
+
 --------------------------------------------------------------------------------
 -- Constants
 --------------------------------------------------------------------------------
@@ -138,6 +153,14 @@ local BASE_RECONNECT_MS = 5000
 --- Whether initial status query has been triggered (for Poll mode first-advertisement)
 --- @type boolean
 local initialStatusTriggered = false
+
+--- Whether the next DISCONNECTED from the coordinator is one we asked for.
+--- Armed only at the healthy end of a Poll-mode cycle (status chain complete),
+--- never on the error paths that also route through the polite disconnect, so
+--- a failed handshake can never report Connected; cleared when a new handshake
+--- starts, on mode change, and on driver reset.
+--- @type boolean
+local expectedDisconnect = false
 
 --- August cloud session token (for key fetching)
 --- @type string|nil
@@ -315,7 +338,7 @@ end
 --- and detect state changes from unsolicited notifications.
 local function startKeepalive()
   log:info("Persistent connection established - starting keepalive")
-  UpdateProperty("Driver Status", "Connected")
+  updateStatus("Connected", true)
   CancelTimer("DisconnectDelay")
   SetTimer("Keepalive", KEEPALIVE_INTERVAL_MS, function()
     if handshakeState == HANDSHAKE_STATE.COMPLETE and session and session:isReady() then
@@ -330,10 +353,12 @@ end
 
 --- Schedule next poll cycle (Poll mode only).
 --- Sets a one-shot timer that connects, queries status, then disconnects.
-local function schedulePoll()
+--- @param connected boolean? Whether the cycle that just ended was healthy;
+--- drives the Connected variable across the wait (defaults to false).
+local function schedulePoll(connected)
   local interval = tointeger(Properties["Polling Interval"]) or 60
   log:info("Scheduling next poll in %d seconds", interval)
-  UpdateProperty("Driver Status", string.format("Listening (next poll in %ds)", interval))
+  updateStatus(string.format("Listening (next poll in %ds)", interval), connected == true)
   CancelTimer("PollCycle")
   SetTimer("PollCycle", interval * 1000, function()
     log:info("Poll timer fired - querying status")
@@ -348,7 +373,9 @@ local function onStatusChainComplete()
   if connectionMode == CONNECTION_MODE.PERSISTENT then
     startKeepalive()
   else
-    -- Poll mode: disconnect immediately after query
+    -- Poll mode: disconnect immediately after query. This is the only healthy
+    -- terminus, so it alone marks the coming disconnect as expected.
+    expectedDisconnect = true
     sendCleanDisconnect()
   end
 end
@@ -373,6 +400,7 @@ local function setConnectionMode(newMode)
   -- Reset state
   reconnectAttempts = 0
   initialStatusTriggered = false
+  expectedDisconnect = false
 
   -- Set new mode
   connectionMode = newMode
@@ -384,7 +412,7 @@ local function setConnectionMode(newMode)
     C4:SetPropertyAttribs("Polling Interval", constants.HIDE_PROPERTY)
   end
 
-  UpdateProperty("Driver Status", "Listening")
+  updateStatus("Listening", false)
 end
 
 --- Subscribe to GATT notifications on a handle
@@ -450,28 +478,31 @@ end
 local function scheduleRecovery(status, savedCommand)
   if connectionMode == CONNECTION_MODE.PERSISTENT then
     if not isAuthConfigured() then
-      UpdateProperty("Driver Status", "Listening")
+      updateStatus("Listening", false)
       return
     end
     reconnectAttempts = reconnectAttempts + 1
     if reconnectAttempts > MAX_RECONNECT_ATTEMPTS then
       log:warn("Max reconnect attempts (%d) reached: %s", MAX_RECONNECT_ATTEMPTS, status)
-      UpdateProperty("Driver Status", "Listening (reconnect failed)")
+      updateStatus("Listening (reconnect failed)", false)
       reconnectAttempts = 0
       return
     end
     local delay = BASE_RECONNECT_MS * (2 ^ (reconnectAttempts - 1))
     log:info("Retrying in %ds (attempt %d/%d): %s", delay / 1000, reconnectAttempts, MAX_RECONNECT_ATTEMPTS, status)
-    UpdateProperty("Driver Status", string.format("Reconnecting (%d/%d)", reconnectAttempts, MAX_RECONNECT_ATTEMPTS))
+    updateStatus(string.format("Reconnecting (%d/%d)", reconnectAttempts, MAX_RECONNECT_ATTEMPTS), false)
     local retryCommand = savedCommand or "status"
     SetTimer("Reconnect", delay, function()
       initiateCommand(retryCommand)
     end)
   elseif connectionMode == CONNECTION_MODE.POLL then
-    UpdateProperty("Driver Status", status)
+    -- Only failures land here; healthy cycles bypass this path via
+    -- expectedDisconnect in RFP.DISCONNECTED. The failure text is superseded
+    -- by the schedule text in the same tick — Connected = false carries the
+    -- signal.
     schedulePoll()
   else
-    UpdateProperty("Driver Status", status)
+    updateStatus(status, false)
   end
 end
 
@@ -585,11 +616,12 @@ end
 --- Start the Yale BLE handshake
 local function startHandshake()
   log:info("Starting Yale BLE handshake")
+  expectedDisconnect = false
 
   local offlineKey = getOfflineKey()
   if not offlineKey then
     log:error("Cannot start handshake: offline key not configured")
-    UpdateProperty("Driver Status", "Error: Offline key required")
+    updateStatus("Error: Offline key required", false)
     requestDisconnect()
     return
   end
@@ -754,7 +786,7 @@ local function handleInitResponse(data)
   CancelTimer("HandshakeTimeout")
   handshakeState = HANDSHAKE_STATE.COMPLETE
   reconnectAttempts = 0
-  UpdateProperty("Driver Status", "Connected")
+  updateStatus("Connected", true)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
 
   -- Per yalexs-ble: subscribe regular read AFTER handshake completes
@@ -1250,7 +1282,7 @@ function OnDriverLateInit()
     end
   end
   gInitialized = true
-  UpdateProperty("Driver Status", "Disconnected")
+  updateStatus("Disconnected", false)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
 
   -- Restore lock status from persisted property
@@ -1345,9 +1377,10 @@ function OPC.Polling_Interval(propertyValue)
   if not gInitialized then
     return
   end
-  -- Reschedule poll timer if currently in Poll mode and idle
+  -- Reschedule poll timer if currently in Poll mode and idle, carrying the
+  -- current Connected value so an interval edit cannot flap a healthy lock
   if connectionMode == CONNECTION_MODE.POLL and handshakeState == HANDSHAKE_STATE.IDLE then
-    schedulePoll()
+    schedulePoll(Select(values:getValue("Connected"), "value") == true)
   end
 end
 
@@ -1457,12 +1490,12 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
         regularReadSubscribed = false
         subscribeNotifications(cSR)
       else
-        UpdateProperty("Driver Status", "Error: Missing characteristics")
+        updateStatus("Error: Missing characteristics", false)
       end
     end
   else
     log:error("No services provided in CONNECTED message")
-    UpdateProperty("Driver Status", "Error: Missing services")
+    updateStatus("Error: Missing services", false)
   end
 end
 
@@ -1479,7 +1512,7 @@ function RFP.BLE_ADVERTISEMENT(idBinding, strCommand, tParams, args)
   -- Go online on first advertisement if still disconnected
   local driverStatus = Properties["Driver Status"]
   if driverStatus == "Disconnected" then
-    UpdateProperty("Driver Status", "Listening")
+    updateStatus("Listening", false)
     SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
     if currentLockStatus then
       SendToProxy(PROXY_BINDING, "LOCK_STATUS_CHANGED", { LOCK_STATUS = currentLockStatus }, "NOTIFY")
@@ -1563,6 +1596,16 @@ function RFP.DISCONNECTED(idBinding, strCommand, tParams, args)
     savedCommand = nil
   end
 
+  -- A clean disconnect we asked for is the healthy end of a poll cycle;
+  -- route it to the next poll rather than the failure path.
+  if expectedDisconnect and connectionMode == CONNECTION_MODE.POLL then
+    expectedDisconnect = false
+    resetConnectionState()
+    schedulePoll(true)
+    return
+  end
+  expectedDisconnect = false
+
   resetConnectionState()
   scheduleRecovery("Disconnected: " .. reason, savedCommand)
 end
@@ -1633,7 +1676,7 @@ function RFP.GATT_NOTIFY_SUBSCRIBED(idBinding, strCommand, tParams, args)
       startHandshake()
     else
       log:warn("Authentication not configured")
-      UpdateProperty("Driver Status", "Error: Offline key required")
+      updateStatus("Error: Offline key required", false)
       requestDisconnect()
     end
   elseif handle == readHandle then
@@ -1703,9 +1746,9 @@ OBC[ESPHOME_BINDING] = function(idBinding, strClass, bIsBound, otherDeviceId)
   resetConnectionState(true)
 
   if bIsBound then
-    UpdateProperty("Driver Status", "Waiting for data")
+    updateStatus("Waiting for data", false)
   else
-    UpdateProperty("Driver Status", "Disconnected")
+    updateStatus("Disconnected", false)
   end
 end
 
@@ -1765,9 +1808,9 @@ function EC.Reset_Driver(params)
   log:print("Resetting driver to initial state")
 
   bindings:reset()
-  values:reset()
   resetConnectionState(true)
   initialStatusTriggered = false
+  expectedDisconnect = false
   doorSenseConfigured = nil
   -- Clear the in-memory notify memo so a recreated contact binding receives
   -- the next door status
@@ -1781,7 +1824,10 @@ function EC.Reset_Driver(params)
     C4:SetPropertyAttribs("Polling Interval", constants.SHOW_PROPERTY)
   end
 
-  UpdateProperty("Driver Status", "Disconnected")
+  updateStatus("Disconnected", false)
+  -- Delete the variables after the final status write so Reset Driver does not
+  -- immediately recreate the Connected variable it just removed
+  values:reset()
   UpdateProperty("Lock Status", "Unknown")
   UpdateProperty("Door Status", "")
   C4:SetPropertyAttribs("Door Status", constants.HIDE_PROPERTY)
