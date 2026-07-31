@@ -334,15 +334,8 @@ function ESPHomeClient:connect()
   -- Create a new TCP client
   self._client = C4:CreateTCPClient()
     :OnConnect(function(client)
-      -- Ignore a socket a newer connect() has already replaced. Without this the
-      -- loser marks the client connected, re-registers the handshake callbacks
-      -- under the same keys (displacing the winner's waiters) and writes its
-      -- hello/handshake frames out on the winner's socket, since sendHello and
-      -- friends all write to self._client rather than to `client`.
-      --
-      -- Reject rather than returning bare: this attempt's caller is awaiting `d`
-      -- and nothing else settles it. SUPERSEDED is the same sentinel the callback
-      -- registry uses, and consumers already treat it as benign.
+      -- Ignore a socket a newer connect() has replaced; the handshake would run on
+      -- the winner's socket. Reject so this attempt's caller isn't left waiting.
       if client ~= self._client then
         log:debug("Ignoring connect on a superseded socket; a newer attempt owns the connection")
         return d:reject(ESPHomeClient.SUPERSEDED)
@@ -441,14 +434,9 @@ function ESPHomeClient:connect()
       client:ReadUpTo(4096)
     end)
     :OnDisconnect(function(client)
-      -- A superseded socket closing is not a reason to tear down the connection a
-      -- newer attempt owns. disconnect() closes the whole client - socket, ping
-      -- timer and callback registry - so running it here would take the winner
-      -- down with the loser.
+      -- A superseded socket closing must not disconnect the client the winner owns
       if client ~= self._client then
         log:debug("Ignoring disconnect from a superseded socket")
-        -- Settle this attempt in case its socket closed without ever connecting,
-        -- so no caller is left waiting. A no-op once `d` is already settled.
         return d:reject(ESPHomeClient.SUPERSEDED)
       end
 
@@ -456,9 +444,7 @@ function ESPHomeClient:connect()
       self:disconnect()
     end)
     :OnError(function(client, errCode, errMsg)
-      -- Same as above: a superseded socket's error is that attempt's problem, not
-      -- the current connection's. Still settle this attempt's own deferred so its
-      -- caller is not left waiting forever.
+      -- A superseded socket's error is that attempt's problem, not this connection's
       if client ~= self._client then
         log:debug("Ignoring error from a superseded socket: %s (%s)", errMsg, errCode)
         return d:reject(ESPHomeClient.SUPERSEDED)
