@@ -334,6 +334,13 @@ function ESPHomeClient:connect()
   -- Create a new TCP client
   self._client = C4:CreateTCPClient()
     :OnConnect(function(client)
+      -- Ignore a socket a newer connect() has replaced; the handshake would run on
+      -- the winner's socket. Reject so this attempt's caller isn't left waiting.
+      if client ~= self._client then
+        log:debug("Ignoring connect on a superseded socket; a newer attempt owns the connection")
+        return d:reject(ESPHomeClient.SUPERSEDED)
+      end
+
       log:debug("Connected to ESPHome device at %s:%s", self._ipAddress, self._port)
       self._connected = true
 
@@ -426,11 +433,23 @@ function ESPHomeClient:connect()
       log:debug("Starting to read data from ESPHome device")
       client:ReadUpTo(4096)
     end)
-    :OnDisconnect(function()
+    :OnDisconnect(function(client)
+      -- A superseded socket closing must not disconnect the client the winner owns
+      if client ~= self._client then
+        log:debug("Ignoring disconnect from a superseded socket")
+        return d:reject(ESPHomeClient.SUPERSEDED)
+      end
+
       log:debug("Disconnected from ESPHome device")
       self:disconnect()
     end)
-    :OnError(function(_, errCode, errMsg)
+    :OnError(function(client, errCode, errMsg)
+      -- A superseded socket's error is that attempt's problem, not this connection's
+      if client ~= self._client then
+        log:debug("Ignoring error from a superseded socket: %s (%s)", errMsg, errCode)
+        return d:reject(ESPHomeClient.SUPERSEDED)
+      end
+
       log:error("ESPHome connection error: %s (%s)", errMsg, errCode)
       self:disconnect()
       d:reject(errMsg)
