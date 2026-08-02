@@ -67,8 +67,6 @@ Control4.
 
 </div>
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">System Requirements</span>
 
 - Control4 OS 3.3+
@@ -124,8 +122,6 @@ Control4.
 | H5185 | 1      | Probe 1      | ✅           |
 | H5191 | 1      | Probe 1      | ✅           |
 | H5198 | 2      | Probe 1, 2   | ✅           |
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Installer Setup</span>
 
@@ -287,8 +283,6 @@ Resets the driver state and clears cached sensor values.
 
 - **Are You Sure?** \[ **_No_** | Yes \] - Confirmation to reset the driver.
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">Programming</span>
 
 ## Events
@@ -389,8 +383,6 @@ received:
 These bindings can be connected to other Control4 devices that consume
 temperature or humidity values (e.g., climate displays, thermostats).
 
-<div style="page-break-after: always"></div>
-
 <!-- #ifdef DRIVERCENTRAL -->
 
 # <span style="color:#17BCF2">Developer Information</span>
@@ -431,7 +423,5 @@ https://github.com/finitelabs/control4-esphome/issues/new
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 <!-- #endif -->
-
-<div style="page-break-after: always"></div>
 
 <!-- #embed-changelog -->

@@ -44,7 +44,7 @@ monitoring and control of ESPHome devices directly from your Control4 system.
 
 - [Configuration Guides](#configuration-guides)
 
-  - [ratgdo Configuration Guide](#ratgdo-configuration-guide)
+  - [Garage Door Configuration Guide](#garage-door-configuration-guide)
   - [Bluetooth Proxy Configuration Guide](#bluetooth-proxy-configuration-guide)
 
 - [Support](#support)
@@ -52,8 +52,6 @@ monitoring and control of ESPHome devices directly from your Control4 system.
 - [Changelog](#changelog)
 
 </div>
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">System Requirements</span>
 
@@ -75,7 +73,11 @@ This driver will generically work with any ESPHome device, but we have tested
 extensively with the following devices:
 
 - [ratgdo](https://ratcloud.llc) -
-  [Configuration Guide](#ratgdo-configuration-guide)
+  [Garage Door Configuration Guide](#garage-door-configuration-guide)
+- konnected Smart Garage Door Opener -
+  [blaQ](https://konnected.io/products/smart-garage-door-opener-blaq-myq-alternative)
+  / [White](https://konnected.io/products/smart-garage-door-opener) -
+  [Garage Door Configuration Guide](#garage-door-configuration-guide)
 
 If you try this driver on a product listed above, and it works, let us know!
 
@@ -92,8 +94,6 @@ types through sub-drivers:
 | Yale/August | ESPHome Yale      | Yale and August smart locks                          |
 
 See the individual sub-driver documentation for device-specific details.
-
-<div style="page-break-after: always"></div>
 
 ## Supported ESPHome Entities
 
@@ -136,8 +136,6 @@ See the individual sub-driver documentation for device-specific details.
 > \* Voice Assistant requires a speech-to-text and intent processing pipeline
 > (e.g. Home Assistant Assist). Control4 does not natively provide voice intent
 > handling, so this entity type is not supported.
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Installer Setup</span>
 
@@ -544,14 +542,14 @@ bindings are created separately from the entity bindings above:
 > ESPHome button entities. The Select and Option parameters are dynamic lists
 > populated with discovered ESPHome select entities and their available options.
 
-<div style="page-break-after: always"></div>
-
 # <span style="display:none">Configuration Guides</span>
 
-# <span style="color:#17BCF2">ratgdo Configuration Guide</span>
+# <span style="color:#17BCF2">Garage Door Configuration Guide</span>
 
 This guide provides instructions for configuring the ESPHome driver to work with
 ratgdo devices for garage door control via relays in Control4 Composer Pro.
+Other relay-based garage door controllers, such as konnected's Smart Garage Door
+Opener, should be configured similarly.
 
 ## Add Relay Controller Driver
 
@@ -656,8 +654,6 @@ Please refer to ratgdo's documentation for more information on specific
 entities:
 
 https://ratgdo.github.io/esphome-ratgdo/webui_documentation.html
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Bluetooth Proxy Configuration Guide</span>
 
@@ -825,8 +821,6 @@ For optimal BLE reception:
 | Through 1-2 walls    | 5-10 meters (15-30 ft)  |
 | Concrete/brick walls | 3-5 meters (10-15 ft)   |
 
-<div style="page-break-after: always"></div>
-
 ## Bluetooth Coordinator Setup
 
 For advanced setups with **multiple ESPHome Bluetooth proxies**, use the
@@ -873,8 +867,6 @@ When an ESPHome driver is connected to the coordinator:
 See the **ESPHome Bluetooth Coordinator** driver documentation for full details
 on presence tracking settings and events.
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">Support</span>
 
 If you have any questions or issues integrating this driver with Control4, you
@@ -883,8 +875,6 @@ can file an issue on GitHub:
 https://github.com/finitelabs/control4-esphome/issues/new
 
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Changelog</span>
 

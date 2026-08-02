@@ -76,8 +76,6 @@ is only used during initial setup to retrieve the offline key.
 
 </div>
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">System Requirements</span>
 
 - Control4 OS 3.3+
@@ -122,8 +120,6 @@ Bluetooth.
 > **Note:** Other Yale/August locks using the same BLE protocol may also work.
 > Yale Conexis (L1/L2) and Yale Smart Cabinet Lock have limited protocol support
 > (lock/unlock only, no status updates).
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">How It Works</span>
 
@@ -176,8 +172,6 @@ After a lock or unlock command, the driver re-queries lock status to confirm the
 operation succeeded. If the lock reports a jam, the status is updated to `fault`
 on the Control4 lock proxy.
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">Installer Setup</span>
 
 <!-- #ifdef DRIVERCENTRAL -->
@@ -225,8 +219,6 @@ advertisement.
 > **Note:** If the Yale cloud API reports that the key is "provisioned but not
 > yet loaded," you need to operate the lock once from the Yale app to load the
 > key onto the lock hardware, then retry key fetching.
-
-<div style="page-break-after: always"></div>
 
 ## Driver Properties
 
@@ -466,8 +458,6 @@ expose open/closed state to Control4 programming, room occupancy, and
 notifications. The binding is not created on locks that do not report a
 DoorSense configuration.
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">Troubleshooting</span>
 
 **"Error: Offline key required"** The offline key has not been configured. Use
@@ -504,8 +494,6 @@ Yale Access app first.
 **Key stops working after using the Yale app** The Yale/August cloud may rotate
 the offline key when the lock is operated from a mobile device. If this happens,
 re-run the **Verify and Fetch Keys** action to retrieve the updated key.
-
-<div style="page-break-after: always"></div>
 
 <!-- #ifdef DRIVERCENTRAL -->
 
@@ -547,7 +535,5 @@ https://github.com/finitelabs/control4-esphome/issues/new
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 <!-- #endif -->
-
-<div style="page-break-after: always"></div>
 
 <!-- #embed-changelog -->

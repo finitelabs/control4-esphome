@@ -78,8 +78,6 @@ Sensors, Contact Sensors, and Water Leak Detectors.
 
 </div>
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">System Requirements</span>
 
 - Control4 OS 3.3+
@@ -119,8 +117,6 @@ Sensors, Contact Sensors, and Water Leak Detectors.
 | Contact Sensor       | Passive | CONTACT_SENSOR + BUTTON_LINK + Events | No         |
 | Water Leak Detector  | Passive | CONTACT_SENSOR + Events               | No         |
 | Remote               | Passive | (advertisement parsing only)          | No         |
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Installer Setup</span>
 
@@ -321,8 +317,6 @@ Resets the driver state to defaults.
 
 - **Are You Sure?** \[ **_No_** | Yes \] - Confirmation to reset the driver.
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">Device Types</span>
 
 ## Bot
@@ -436,8 +430,6 @@ Water leak detection sensor with tamper detection.
 - Low Battery - Battery is low
 - Battery OK - Battery restored to normal
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">Programming</span>
 
 ## Events
@@ -519,8 +511,6 @@ The driver dynamically creates bindings based on the detected device type:
 | TEMPERATURE_VALUE | Meters                          | Temperature in Celsius   |
 | HUMIDITY_VALUE    | Meters                          | Humidity percentage      |
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">Troubleshooting</span>
 
 ## Device Not Responding
@@ -559,8 +549,6 @@ If the driver detects the wrong device type:
 1. Use "Reset Driver" action to clear state
 1. Unbind and rebind the device connection
 1. Ensure you're binding to the correct device
-
-<div style="page-break-after: always"></div>
 
 <!-- #ifdef DRIVERCENTRAL -->
 
@@ -602,7 +590,5 @@ https://github.com/finitelabs/control4-esphome/issues/new
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 <!-- #endif -->
-
-<div style="page-break-after: always"></div>
 
 <!-- #embed-changelog -->

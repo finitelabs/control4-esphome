@@ -69,8 +69,6 @@ monitoring and control of ESPHome devices directly from your Control4 system.
 
 </div>
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">System Requirements</span>
 
 - Control4 OS 3.3+
@@ -113,8 +111,6 @@ types through sub-drivers:
 
 See the individual sub-driver documentation for device-specific details.
 
-<div style="page-break-after: always"></div>
-
 ## Supported ESPHome Entities
 
 <div style="font-size: small">
@@ -156,8 +152,6 @@ See the individual sub-driver documentation for device-specific details.
 > \* Voice Assistant requires a speech-to-text and intent processing pipeline
 > (e.g. Home Assistant Assist). Control4 does not natively provide voice intent
 > handling, so this entity type is not supported.
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Installer Setup</span>
 
@@ -648,8 +642,6 @@ bindings are created separately from the entity bindings above:
 > ESPHome button entities. The Select and Option parameters are dynamic lists
 > populated with discovered ESPHome select entities and their available options.
 
-<div style="page-break-after: always"></div>
-
 # <span style="display:none">Configuration Guides</span>
 
 # <span style="color:#17BCF2">Garage Door Configuration Guide</span>
@@ -762,8 +754,6 @@ Please refer to ratgdo's documentation for more information on specific
 entities:
 
 https://ratgdo.github.io/esphome-ratgdo/webui_documentation.html
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Bluetooth Proxy Configuration Guide</span>
 
@@ -931,8 +921,6 @@ For optimal BLE reception:
 | Through 1-2 walls    | 5-10 meters (15-30 ft)  |
 | Concrete/brick walls | 3-5 meters (10-15 ft)   |
 
-<div style="page-break-after: always"></div>
-
 ## Bluetooth Coordinator Setup
 
 For advanced setups with **multiple ESPHome Bluetooth proxies**, use the
@@ -979,8 +967,6 @@ When an ESPHome driver is connected to the coordinator:
 See the **ESPHome Bluetooth Coordinator** driver documentation for full details
 on presence tracking settings and events.
 
-<div style="page-break-after: always"></div>
-
 <!-- #ifdef DRIVERCENTRAL -->
 
 # <span style="color:#17BCF2">Developer Information</span>
@@ -1021,7 +1007,5 @@ https://github.com/finitelabs/control4-esphome/issues/new
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 <!-- #endif -->
-
-<div style="page-break-after: always"></div>
 
 <!-- #embed-changelog -->
