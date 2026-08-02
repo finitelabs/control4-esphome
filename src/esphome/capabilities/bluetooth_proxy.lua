@@ -1324,8 +1324,10 @@ function BluetoothProxyCapability:onCoordinatorBindingChanged(bIsBound)
       self:removeDevice(mac)
     end
 
-    -- Clear persisted device selection
-    bleScannerProperties:clearSelection(self.PROPERTY_NAME)
+    -- Clear persisted device selection, if the property has been registered (DRV-66)
+    if bleScannerProperties:isRegistered(self.PROPERTY_NAME) then
+      bleScannerProperties:clearSelection(self.PROPERTY_NAME)
+    end
 
     -- Start forwarding all advertisements to coordinator
     self:_startCoordinatorForwarding()

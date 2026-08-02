@@ -110,6 +110,13 @@ function BLEScannerProperties:setLimit(propertyName, limit)
   end
 end
 
+--- Check whether a property has been registered.
+--- @param propertyName string The property name
+--- @return boolean
+function BLEScannerProperties:isRegistered(propertyName)
+  return self._properties[propertyName] ~= nil
+end
+
 --- Get the current limit for a property.
 --- @param propertyName string The property name
 --- @return number|nil limit The current limit (nil = unlimited)
