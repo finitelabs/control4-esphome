@@ -92,6 +92,9 @@ extensively with the following devices:
 
 - [ratgdo](https://ratcloud.llc) -
   [Configuration Guide](#ratgdo-configuration-guide)
+- konnected Smart Garage Door Opener -
+  [blaQ](https://konnected.io/products/smart-garage-door-opener-blaq-myq-alternative)
+  / [White](https://konnected.io/products/smart-garage-door-opener)
 
 If you try this driver on a product listed above, and it works, let us know!
 
