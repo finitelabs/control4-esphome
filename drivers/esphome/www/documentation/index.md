@@ -57,7 +57,7 @@ monitoring and control of ESPHome devices directly from your Control4 system.
     - [Driver Actions](#driver-actions)
   - [Programming Reference](#programming-reference)
 - [Configuration Guides](#configuration-guides)
-  - [ratgdo Configuration Guide](#ratgdo-configuration-guide)
+  - [Garage Door Configuration Guide](#garage-door-configuration-guide)
   - [Bluetooth Proxy Configuration Guide](#bluetooth-proxy-configuration-guide)
   <!-- #ifdef DRIVERCENTRAL -->
 - [Developer Information](#developer-information)
@@ -91,10 +91,11 @@ This driver will generically work with any ESPHome device, but we have tested
 extensively with the following devices:
 
 - [ratgdo](https://ratcloud.llc) -
-  [Configuration Guide](#ratgdo-configuration-guide)
+  [Garage Door Configuration Guide](#garage-door-configuration-guide)
 - konnected Smart Garage Door Opener -
   [blaQ](https://konnected.io/products/smart-garage-door-opener-blaq-myq-alternative)
-  / [White](https://konnected.io/products/smart-garage-door-opener)
+  / [White](https://konnected.io/products/smart-garage-door-opener) -
+  [Garage Door Configuration Guide](#garage-door-configuration-guide)
 
 If you try this driver on a product listed above, and it works, let us know!
 
@@ -651,10 +652,12 @@ bindings are created separately from the entity bindings above:
 
 # <span style="display:none">Configuration Guides</span>
 
-# <span style="color:#17BCF2">ratgdo Configuration Guide</span>
+# <span style="color:#17BCF2">Garage Door Configuration Guide</span>
 
 This guide provides instructions for configuring the ESPHome driver to work with
 ratgdo devices for garage door control via relays in Control4 Composer Pro.
+Other relay-based garage door controllers, such as konnected's Smart Garage Door
+Opener, should be configured similarly.
 
 ## Add Relay Controller Driver
 
