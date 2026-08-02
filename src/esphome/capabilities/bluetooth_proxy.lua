@@ -1324,7 +1324,7 @@ function BluetoothProxyCapability:onCoordinatorBindingChanged(bIsBound)
       self:removeDevice(mac)
     end
 
-    -- Clear persisted device selection, if the property has been registered (DRV-66)
+    -- A bound coordinator can replay before discovered() has registered the property
     if bleScannerProperties:isRegistered(self.PROPERTY_NAME) then
       bleScannerProperties:clearSelection(self.PROPERTY_NAME)
     end
