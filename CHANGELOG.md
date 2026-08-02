@@ -133,9 +133,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Added "Set Select" programming command with dynamic Select and Option
   dropdowns
 
-## v20260326 - 2026-03-26
-
 <!-- #ifndef DRIVERCENTRAL -->
+
+## v20260326 - 2026-03-26
 
 ### Fixed
 
