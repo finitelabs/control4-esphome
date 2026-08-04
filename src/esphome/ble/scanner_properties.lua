@@ -134,48 +134,6 @@ function BLEScannerProperties:setLimit(propertyName, limit)
   end
 end
 
---- Get the current limit for a property.
---- @param propertyName string The property name
---- @return number|nil limit The current limit (nil = unlimited)
-function BLEScannerProperties:getLimit(propertyName)
-  log:trace("BLEScannerProperties:getLimit(%s)", propertyName)
-
-  local registration = self._properties[propertyName]
-  if not registration then
-    log:warn("Property '%s' not registered", propertyName)
-    return nil
-  end
-  return registration.limit
-end
-
---- Get selected devices for a property.
---- @param propertyName string The property name
---- @return table<string, BLEDiscoveredDevice?> selectedDevices Map of MAC to device info
-function BLEScannerProperties:getSelectedDevices(propertyName)
-  log:trace("BLEScannerProperties:getSelectedDevices(%s)", propertyName)
-
-  local registration = self._properties[propertyName]
-  if not registration then
-    log:warn("Property '%s' not registered", propertyName)
-    return {}
-  end
-  return registration.selectedDevices or {}
-end
-
---- Get all selected MACs across all properties (for cache management).
---- @return table<string, boolean?> allSelectedMacs Map of MAC to true
-function BLEScannerProperties:getAllSelectedMacs()
-  log:trace("BLEScannerProperties:getAllSelectedMacs()")
-
-  local allMacs = {}
-  for _, registration in pairs(self._properties) do
-    for mac, _ in pairs(registration.selectedDevices or {}) do
-      allMacs[mac] = true
-    end
-  end
-  return allMacs
-end
-
 --- Count selected devices that require active connections (non-passive).
 --- @param propertyName string The property name
 --- @return number count Number of selected devices requiring active connections
@@ -371,36 +329,6 @@ function BLEScannerProperties:handleSelection(propertyName, propertyValue)
   end
 
   return true
-end
-
---- Clear the selection for a specific property.
---- @param propertyName string The property name
-function BLEScannerProperties:clearSelection(propertyName)
-  log:trace("BLEScannerProperties:clearSelection(%s)", propertyName)
-  local registration = self._properties[propertyName]
-  if not registration then
-    log:warn("Property '%s' not registered", propertyName)
-    return
-  end
-
-  -- Clear the persisted selection
-  persist:delete(registration.persistKey)
-
-  -- Clear the in-memory selection
-  registration.selectedDevices = {}
-
-  -- Update the property UI
-  self:updateProperty(propertyName, false)
-
-  -- Fire onChanged callback with empty selection
-  if registration.onChanged then
-    local success, err = pcall(registration.onChanged, {})
-    if not success then
-      log:error("Property '%s' onChanged callback failed: %s", propertyName, err or "unknown error")
-    end
-  end
-
-  log:info("Cleared selection for property '%s'", propertyName)
 end
 
 --- Resets all registered properties, clearing selections and persisted data.
