@@ -44,7 +44,7 @@ monitoring and control of ESPHome devices directly from your Control4 system.
 
 - [Configuration Guides](#configuration-guides)
 
-  - [ratgdo Configuration Guide](#ratgdo-configuration-guide)
+  - [Garage Door Configuration Guide](#garage-door-configuration-guide)
   - [Bluetooth Proxy Configuration Guide](#bluetooth-proxy-configuration-guide)
 
 - [Support](#support)
@@ -52,8 +52,6 @@ monitoring and control of ESPHome devices directly from your Control4 system.
 - [Changelog](#changelog)
 
 </div>
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">System Requirements</span>
 
@@ -74,8 +72,13 @@ monitoring and control of ESPHome devices directly from your Control4 system.
 This driver will generically work with any ESPHome device, but we have tested
 extensively with the following devices:
 
-- [ratgdo](https://ratcloud.llc) -
-  [Configuration Guide](#ratgdo-configuration-guide)
+- [ratgdo](https://ratcloud.llc)
+- konnected Smart Garage Door Opener -
+  [blaQ](https://konnected.io/products/smart-garage-door-opener-blaq-myq-alternative)
+  / [White](https://konnected.io/products/smart-garage-door-opener)
+
+Both are relay-based garage door controllers - see the
+[Garage Door Configuration Guide](#garage-door-configuration-guide).
 
 If you try this driver on a product listed above, and it works, let us know!
 
@@ -92,8 +95,6 @@ types through sub-drivers:
 | Yale/August | ESPHome Yale      | Yale and August smart locks                          |
 
 See the individual sub-driver documentation for device-specific details.
-
-<div style="page-break-after: always"></div>
 
 ## Supported ESPHome Entities
 
@@ -136,8 +137,6 @@ See the individual sub-driver documentation for device-specific details.
 > \* Voice Assistant requires a speech-to-text and intent processing pipeline
 > (e.g. Home Assistant Assist). Control4 does not natively provide voice intent
 > handling, so this entity type is not supported.
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Installer Setup</span>
 
@@ -544,14 +543,19 @@ bindings are created separately from the entity bindings above:
 > ESPHome button entities. The Select and Option parameters are dynamic lists
 > populated with discovered ESPHome select entities and their available options.
 
-<div style="page-break-after: always"></div>
-
 # <span style="display:none">Configuration Guides</span>
 
-# <span style="color:#17BCF2">ratgdo Configuration Guide</span>
+# <span style="color:#17BCF2">Garage Door Configuration Guide</span>
 
-This guide provides instructions for configuring the ESPHome driver to work with
-ratgdo devices for garage door control via relays in Control4 Composer Pro.
+This guide provides instructions for configuring the ESPHome driver for garage
+door control via relays in Control4 Composer Pro. It applies to any ESPHome
+device that exposes a cover entity, including ratgdo and konnected's Smart
+Garage Door Opener.
+
+The driver names the relay and contact bindings after the cover entity, so the
+labels in Composer Pro depend on the device. ratgdo names its cover "Door", so
+you will see "Open Door" and "Door Closed". konnected defaults to "Garage Door".
+Substitute your device's cover name throughout this guide.
 
 ## Add Relay Controller Driver
 
@@ -562,27 +566,24 @@ Pro.
 
 ## Relay Controller Properties
 
-The ratgdo device exposes a "Cover" entity in ESPHome, which maps to the relay
+The device exposes a "Cover" entity in ESPHome, which maps to the relay
 controller functionality in Control4.
 
 ### Number of Relays
 
-The ratgdo device uses a multi-relay configuration to control the garage door.
-In Composer Pro, you should configure the relay settings as follows:
+The driver creates separate relays for opening and closing the garage door. In
+Composer Pro, you should configure the relay settings as follows:
 
 - Set to **2 Relays** (Open/Close) or **3 Relays** (Open/Close/Stop)
-  - The ratgdo device uses separate commands for opening and closing the garage
-    door
-  - If your ratgdo firmware supports the "stop" command, configure for 3 relays
-    to enable the stop functionality. If you are not sure, you can look at the
-    ratgdo connections in Composer Pro to see if the "Stop Door" relay is
-    available.
+  - The stop relay is only created when the device reports support for it. If
+    you are not sure, look at the connections in Composer Pro to see if the
+    "Stop" relay is available, and configure for 3 relays if it is.
 
 ### Relay Configuration
 
 - Set to **Pulse**
-  - ratgdo uses momentary pulses to trigger the garage door opener, similar to a
-    wall button press
+  - These devices use momentary pulses to trigger the garage door opener,
+    similar to a wall button press
 
 ### Pulse Time
 
@@ -613,14 +614,17 @@ Pro:
 
 ### Relays
 
-- **Open**: Connect to the ratgdo's "Open Door" relay
-- **Close**: Connect to the ratgdo's "Close Door" relay
-- **Stop**: Connect to the ratgdo's "Stop Door" relay, if available
+Where `{cover}` is the name of the device's cover entity ("Door" on ratgdo,
+"Garage Door" on konnected):
+
+- **Open**: Connect to the "Open {cover}" relay
+- **Close**: Connect to the "Close {cover}" relay
+- **Stop**: Connect to the "Stop {cover}" relay, if available
 
 ### Contact Sensors
 
-- **Closed Contact**: Connect to the ratgdo's "Door Closed" contact
-- **Opened Contact**: Connect to the ratgdo's "Door Open" contact
+- **Closed Contact**: Connect to the "{cover} Closed" contact
+- **Opened Contact**: Connect to the "{cover} Open" contact
 
 ### Example Connections
 
@@ -648,16 +652,16 @@ Using the "Still Open Time" property from the relay controller driver:
 
 ## Additional Entities
 
-Depending on your ratgdo device, firmware, and its capabilities, there may be
+Depending on your device, firmware, and its capabilities, there may be
 additional entities exposed by the ESPHome driver. These can come as additional
 connections or driver variables.
 
-Please refer to ratgdo's documentation for more information on specific
+Please refer to your device's documentation for more information on specific
 entities:
 
-https://ratgdo.github.io/esphome-ratgdo/webui_documentation.html
-
-<div style="page-break-after: always"></div>
+- ratgdo: https://ratgdo.github.io/esphome-ratgdo/webui_documentation.html
+- konnected:
+  https://support.konnected.io/esphome-on-the-konnected-garage-door-opener
 
 # <span style="color:#17BCF2">Bluetooth Proxy Configuration Guide</span>
 
@@ -825,8 +829,6 @@ For optimal BLE reception:
 | Through 1-2 walls    | 5-10 meters (15-30 ft)  |
 | Concrete/brick walls | 3-5 meters (10-15 ft)   |
 
-<div style="page-break-after: always"></div>
-
 ## Bluetooth Coordinator Setup
 
 For advanced setups with **multiple ESPHome Bluetooth proxies**, use the
@@ -873,8 +875,6 @@ When an ESPHome driver is connected to the coordinator:
 See the **ESPHome Bluetooth Coordinator** driver documentation for full details
 on presence tracking settings and events.
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">Support</span>
 
 If you have any questions or issues integrating this driver with Control4, you
@@ -883,8 +883,6 @@ can file an issue on GitHub:
 https://github.com/finitelabs/control4-esphome/issues/new
 
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Changelog</span>
 

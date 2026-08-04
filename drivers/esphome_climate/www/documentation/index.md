@@ -61,8 +61,6 @@ thermostat proxy.
 
 </div>
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">System Requirements</span>
 
 - Control4 OS 3.3+
@@ -205,8 +203,6 @@ values.
 Outputs the climate device's current humidity reading to other Control4 drivers
 via a `HUMIDITY_VALUE` connection.
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">Remote Temperature Sensor</span>
 
 The remote temperature sensor feature allows a Control4 temperature sensor
@@ -282,8 +278,6 @@ Remote Temperature Sensor** in the thermostat UI (Navigator or the C4 app) to
 begin forwarding readings. Disabling the toggle calls the **Internal Temperature
 Service** (if configured) so the device reverts to its built-in sensor.
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">Water Heater Support</span>
 
 ESPHome water heater entities are supported as single-setpoint thermostat
@@ -300,8 +294,6 @@ the thermostat proxy accordingly:
 
 When switching the thermostat from Off to Heat, the driver restores the last
 selected water heater operating mode.
-
-<div style="page-break-after: always"></div>
 
 <!-- #ifdef DRIVERCENTRAL -->
 
@@ -343,7 +335,5 @@ https://github.com/finitelabs/control4-esphome/issues/new
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 <!-- #endif -->
-
-<div style="page-break-after: always"></div>
 
 <!-- #embed-changelog -->

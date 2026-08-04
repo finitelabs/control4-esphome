@@ -57,8 +57,6 @@ allowing them to be controlled through the Control4 fan proxy with
 
 </div>
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">System Requirements</span>
 
 - Control4 OS 3.3+
@@ -105,8 +103,6 @@ fan's `speed_count` in its ESPHome configuration:
 The main ESPHome driver automatically creates a binding based on the fan's
 reported speed count and direction support, ensuring only the matching variant
 can be bound.
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Installer Setup</span>
 
@@ -204,8 +200,6 @@ The driver provides button link connections for programming integration:
 
 <!-- #endif -->
 
-<div style="page-break-after: always"></div>
-
 <!-- #ifdef DRIVERCENTRAL -->
 
 # <span style="color:#17BCF2">Developer Information</span>
@@ -246,7 +240,5 @@ https://github.com/finitelabs/control4-esphome/issues/new
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 <!-- #endif -->
-
-<div style="page-break-after: always"></div>
 
 <!-- #embed-changelog -->

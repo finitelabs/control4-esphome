@@ -121,8 +121,6 @@ with BLE devices.
 
 </div>
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">System Requirements</span>
 
 - Control4 OS 3.3+
@@ -258,8 +256,6 @@ If you want room-level presence tracking:
 1. In the **Select Presence Devices** dropdown, select devices to track
 1. Adjust presence settings as needed (see
    [Presence Settings](#presence-settings))
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Driver Properties</span>
 
@@ -400,8 +396,6 @@ specific room.
 > regardless of strength. Individual proxies can override this value (see
 > ESPHome driver "Minimum Room RSSI Override" property).
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">Connections</span>
 
 ## Bluetooth Proxies (provider)
@@ -424,8 +418,6 @@ The coordinator dynamically creates CONTACT_SENSOR bindings for presence
 tracking integration. See [Contact Sensor Bindings](#contact-sensor-bindings)
 for details.
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">Driver Actions</span>
 
 ## Reset Driver
@@ -439,8 +431,6 @@ or are experiencing issues.
 **Parameters:**
 
 - **Are You Sure?** \[ **_No_** | Yes \] - Confirmation to reset the driver.
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Presence Tracking</span>
 
@@ -574,8 +564,6 @@ address for devices, room ID for rooms) to avoid conflicts.
 ### Device Presence Bindings
 
 - **[Device] [MAC] Present** - CLOSED when device is home, OPENED when away
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Best Practices</span>
 
@@ -711,8 +699,6 @@ Each proxy forwards BLE advertisements to the coordinator. In busy environments:
 **Mitigation:** The coordinator filters advertisements to only process devices
 you've explicitly selected. Unselected devices are ignored.
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">Troubleshooting</span>
 
 ## Presence Flapping Between Rooms
@@ -831,7 +817,5 @@ https://github.com/finitelabs/control4-esphome/issues/new
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 <!-- #endif -->
-
-<div style="page-break-after: always"></div>
 
 <!-- #embed-changelog -->

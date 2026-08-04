@@ -55,8 +55,6 @@ entities, allowing them to be controlled through the Control4 light proxy.
 
 </div>
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">System Requirements</span>
 
 - Control4 OS 3.3+
@@ -100,8 +98,6 @@ color-temperature, and full-color lights are all supported.
 | [RGBWW](https://esphome.io/components/light/rgbww)                         | ✅        |
 
 </div>
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Installer Setup</span>
 
@@ -171,8 +167,6 @@ The driver provides three button link connections for programming integration:
 | Toggle Button Link | Toggles the light when triggered   |
 | Off Button Link    | Turns the light off when triggered |
 
-<div style="page-break-after: always"></div>
-
 <!-- #ifdef DRIVERCENTRAL -->
 
 # <span style="color:#17BCF2">Developer Information</span>
@@ -213,7 +207,5 @@ https://github.com/finitelabs/control4-esphome/issues/new
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 <!-- #endif -->
-
-<div style="page-break-after: always"></div>
 
 <!-- #embed-changelog -->
