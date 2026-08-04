@@ -11,6 +11,9 @@ local bleScanner = require("esphome.ble.scanner")
 --- @field onChanged? fun(selectedDevices: table<string, BLEDiscoveredDevice?>) Called on initial load and when selection changes
 --- @field limit? number Maximum devices that can be selected (nil = unlimited)
 --- @field filter? fun(device: BLEDiscoveredDevice): boolean Filter function; return true to include device
+--- @field deferInitialCallback? boolean Skip the initial onChanged fire so the property can be
+---   registered before the driver is ready to act on the selection. The caller is then
+---   responsible for calling applySelection() once it is.
 
 --- @class PropertyRegistration : PropertyRegistrationOptions
 --- @field selectedDevices table<string, BLEDiscoveredDevice?> Currently selected devices keyed by MAC
@@ -60,15 +63,36 @@ function BLEScannerProperties:registerProperty(propertyName, options)
   )
 
   -- Fire initial callback with current selection
-  if options.onChanged and TableLength(selectedDevices) > 0 then
-    local success, err = pcall(options.onChanged, selectedDevices)
-    if not success then
-      log:error("Property '%s' onChanged callback failed: %s", propertyName, err or "unknown error")
-    end
+  if not options.deferInitialCallback then
+    self:applySelection(propertyName)
   end
 
   -- Initialize the property list with default options
   self:updateProperty(propertyName, false)
+end
+
+--- Fire a property's onChanged callback with its current selection.
+--- Only needed after a registration that deferred the initial callback, to apply
+--- the stored selection once the driver is ready to act on it.
+--- @param propertyName string The property name
+function BLEScannerProperties:applySelection(propertyName)
+  log:trace("BLEScannerProperties:applySelection(%s)", propertyName)
+
+  local registration = self._properties[propertyName]
+  if not registration then
+    log:warn("Property '%s' not registered", propertyName)
+    return
+  end
+
+  local selectedDevices = registration.selectedDevices or {}
+  if not registration.onChanged or TableLength(selectedDevices) == 0 then
+    return
+  end
+
+  local success, err = pcall(registration.onChanged, selectedDevices)
+  if not success then
+    log:error("Property '%s' onChanged callback failed: %s", propertyName, err or "unknown error")
+  end
 end
 
 --- Update the limit for a property.
@@ -108,48 +132,6 @@ function BLEScannerProperties:setLimit(propertyName, limit)
       )
     end
   end
-end
-
---- Get the current limit for a property.
---- @param propertyName string The property name
---- @return number|nil limit The current limit (nil = unlimited)
-function BLEScannerProperties:getLimit(propertyName)
-  log:trace("BLEScannerProperties:getLimit(%s)", propertyName)
-
-  local registration = self._properties[propertyName]
-  if not registration then
-    log:warn("Property '%s' not registered", propertyName)
-    return nil
-  end
-  return registration.limit
-end
-
---- Get selected devices for a property.
---- @param propertyName string The property name
---- @return table<string, BLEDiscoveredDevice?> selectedDevices Map of MAC to device info
-function BLEScannerProperties:getSelectedDevices(propertyName)
-  log:trace("BLEScannerProperties:getSelectedDevices(%s)", propertyName)
-
-  local registration = self._properties[propertyName]
-  if not registration then
-    log:warn("Property '%s' not registered", propertyName)
-    return {}
-  end
-  return registration.selectedDevices or {}
-end
-
---- Get all selected MACs across all properties (for cache management).
---- @return table<string, boolean?> allSelectedMacs Map of MAC to true
-function BLEScannerProperties:getAllSelectedMacs()
-  log:trace("BLEScannerProperties:getAllSelectedMacs()")
-
-  local allMacs = {}
-  for _, registration in pairs(self._properties) do
-    for mac, _ in pairs(registration.selectedDevices or {}) do
-      allMacs[mac] = true
-    end
-  end
-  return allMacs
 end
 
 --- Count selected devices that require active connections (non-passive).
@@ -347,36 +329,6 @@ function BLEScannerProperties:handleSelection(propertyName, propertyValue)
   end
 
   return true
-end
-
---- Clear the selection for a specific property.
---- @param propertyName string The property name
-function BLEScannerProperties:clearSelection(propertyName)
-  log:trace("BLEScannerProperties:clearSelection(%s)", propertyName)
-  local registration = self._properties[propertyName]
-  if not registration then
-    log:warn("Property '%s' not registered", propertyName)
-    return
-  end
-
-  -- Clear the persisted selection
-  persist:delete(registration.persistKey)
-
-  -- Clear the in-memory selection
-  registration.selectedDevices = {}
-
-  -- Update the property UI
-  self:updateProperty(propertyName, false)
-
-  -- Fire onChanged callback with empty selection
-  if registration.onChanged then
-    local success, err = pcall(registration.onChanged, {})
-    if not success then
-      log:error("Property '%s' onChanged callback failed: %s", propertyName, err or "unknown error")
-    end
-  end
-
-  log:info("Cleared selection for property '%s'", propertyName)
 end
 
 --- Resets all registered properties, clearing selections and persisted data.
