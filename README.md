@@ -553,10 +553,9 @@ device that exposes a cover entity, including ratgdo and konnected's Smart
 Garage Door Opener.
 
 The driver names the relay and contact bindings after the cover entity, so the
-labels shown in Composer Pro depend on the device. ratgdo names its cover
-"Door", giving "Open Door" and "Door Closed". konnected defaults to "Garage
-Door", giving "Open Garage Door" and "Garage Door Closed". Substitute your
-device's cover name throughout this guide.
+labels in Composer Pro depend on the device. ratgdo names its cover "Door", so
+you will see "Open Door" and "Door Closed". konnected defaults to "Garage Door".
+Substitute your device's cover name throughout this guide.
 
 ## Add Relay Controller Driver
 
@@ -576,7 +575,6 @@ The driver creates separate relays for opening and closing the garage door. In
 Composer Pro, you should configure the relay settings as follows:
 
 - Set to **2 Relays** (Open/Close) or **3 Relays** (Open/Close/Stop)
-  - The driver creates separate relays for opening and closing the garage door
   - The stop relay is only created when the device reports support for it. If
     you are not sure, look at the connections in Composer Pro to see if the
     "Stop" relay is available, and configure for 3 relays if it is.
