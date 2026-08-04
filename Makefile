@@ -9,6 +9,7 @@ README_BUILD  := oss
 VENV       := .venv
 VENV_PY    := $(VENV)/bin/python3
 VENV_BLACK := $(VENV)/bin/black
+VENV_STAMP := $(VENV)/.requirements-installed
 PACKAGER   := dist/driverpackager/dp3/driverpackager.py
 
 # OpenSSL detection (cross-platform)
@@ -44,19 +45,36 @@ help: ## Show this help
 
 # ─── Init ─────────────────────────────────────────────────────────────────────
 
-.PHONY: init
-init: $(VENV) $(PACKAGER) ## One-time setup: install all dependencies
+.PHONY: init check-deps
+init: $(VENV_STAMP) $(PACKAGER) ## One-time setup: install all dependencies
 
-# M2Crypto + lxml are required by the driverpackager (dist/driverpackager).
-# Everything else is our own tooling: docs (weasyprint + markdown-it-py +
-# mdit-py-plugins + pygments) and formatters (black for Python, mdformat for
-# Markdown). Lua formatting uses the stylua binary (see fmt-lua).
-$(VENV):
-	python3 -m venv $(VENV)
-	$(VENV_PY) -m pip install --upgrade pip setuptools wheel \
-		M2Crypto lxml \
-		weasyprint markdown-it-py[linkify] mdit-py-plugins pygments \
-		black mdformat mdformat-gfm
+# The stamp, not $(VENV), is what everything depends on. A bare `$(VENV):` rule
+# is satisfied the moment the directory exists, so packages added by a later
+# template release were never installed in an existing checkout -- `make init`
+# just said "Nothing to be done" and the build failed later with a bare
+# ImportError. Keying the stamp on requirements.txt means a changed dependency
+# list re-runs the install. The stamp lives inside $(VENV) so clean-all takes it.
+#
+# The requirements install is deliberately not --upgrade: it adds what is
+# missing and leaves working packages alone, so `make init` cannot drag in a
+# breaking upstream release. Version needs belong in requirements.txt as
+# constraints, which pip honors either way. Bootstrap tooling (pip, setuptools,
+# wheel) is upgraded only when the venv is first created, for the same reason --
+# setuptools is M2Crypto's build dependency, and a dependency-list change is no
+# reason to bump it underneath a working build.
+$(VENV_STAMP): requirements.txt
+	@test -x $(VENV_PY) || { \
+		python3 -m venv $(VENV) && \
+		$(VENV_PY) -m pip install --upgrade pip setuptools wheel; \
+	}
+	$(VENV_PY) -m pip install -r requirements.txt
+	@touch $@
+
+# Safety net for drift the stamp cannot see (hand-removed package, interrupted
+# install). Cheap: no network, stdlib only. Installs first if the stamp is
+# stale, so this is "make the venv correct and prove it", not a pure read.
+check-deps: $(VENV_STAMP) ## Install if needed, then verify the venv satisfies requirements.txt
+	@$(VENV_PY) tools/deps.py check requirements.txt $(VENV_STAMP)
 
 $(PACKAGER):
 	rm -rf dist/driverpackager
@@ -77,10 +95,10 @@ fmt-lua:
 		--indent-width 2 --quote-style AutoPreferDouble \
 		-g '*.lua' -v $$dirs
 
-fmt-py: $(VENV)
+fmt-py: $(VENV_STAMP)
 	$(VENV_BLACK) tools/*.py
 
-fmt-md: $(VENV)
+fmt-md: $(VENV_STAMP)
 	@files=""; for g in ./drivers/*/www/documentation/*.md documentation/*.md *.md; do \
 		[ -e "$$g" ] && files="$$files $$g"; \
 	done; \
@@ -109,7 +127,7 @@ gen-squishy: ## Auto-generate squishy files from .c4zproj
 .PHONY: update-xml update-xml-version update-xml-modified
 update-xml: update-xml-version update-xml-modified ## Stamp version + modified in driver.xml
 
-update-xml-version:
+update-xml-version: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
 			$(VENV_PY) tools/package.py xml-set \
@@ -117,7 +135,7 @@ update-xml-version:
 		done; \
 	done
 
-update-xml-modified:
+update-xml-modified: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
 			$(VENV_PY) tools/package.py xml-set \
@@ -131,14 +149,14 @@ update-xml-modified:
 docs: docs-readme docs-html docs-pdf ## Generate all documentation
 
 
-docs-readme: preprocess $(VENV)
+docs-readme: preprocess $(VENV_STAMP)
 	rm -rf ./images
 	@if [ -d drivers/$(README_DRIVER)/www/documentation/images ]; then cp -r drivers/$(README_DRIVER)/www/documentation/images .; fi
 	$(VENV_PY) tools/docs.py readme \
 		build/$(README_BUILD)/drivers/$(README_DRIVER)/www/documentation/index.md README.md
 
 
-docs-html: $(VENV)
+docs-html: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
 			$(VENV_PY) tools/docs.py md2html \
@@ -147,7 +165,7 @@ docs-html: $(VENV)
 		done; \
 	done
 
-docs-pdf: $(VENV)
+docs-pdf: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
 		mkdir -p "dist/$$build"; \
 		for driver_dir in build/$$build/drivers/*/; do \
@@ -167,7 +185,7 @@ docs-pdf: $(VENV)
 # ─── Package ──────────────────────────────────────────────────────────────────
 
 .PHONY: package
-package: $(PACKAGER) ## Create .c4z driver packages
+package: $(VENV_STAMP) $(PACKAGER) ## Create .c4z driver packages
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
 			dir=$$(basename "$$driver_dir"); \
@@ -179,7 +197,7 @@ package: $(PACKAGER) ## Create .c4z driver packages
 	done
 
 .PHONY: zip
-zip: $(VENV) ## Zip .c4z and .pdf files per distribution
+zip: $(VENV_STAMP) ## Zip .c4z and .pdf files per distribution
 	@repo="$$(basename "$$(pwd)")"; \
 	for build in $(DISTRIBUTIONS); do \
 		(cd "dist/$$build" && \
@@ -190,9 +208,9 @@ zip: $(VENV) ## Zip .c4z and .pdf files per distribution
 # ─── Build ────────────────────────────────────────────────────────────────────
 
 .PHONY: build build-nodocs
-build: clean-build fmt preprocess gen-squishy update-xml docs package zip ## Full build
+build: check-deps clean-build fmt preprocess gen-squishy update-xml docs package zip ## Full build
 
-build-nodocs: clean-build fmt preprocess gen-squishy update-xml package ## Build without docs
+build-nodocs: check-deps clean-build fmt preprocess gen-squishy update-xml package ## Build without docs
 
 # ─── Clean ────────────────────────────────────────────────────────────────────
 

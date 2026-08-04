@@ -77,14 +77,14 @@ end
 --- The `callbackOrWritable` argument (arg 4) controls callback wiring and
 --- writability. It is dispatched by type:
 ---
----   * `nil`      — no change; any previously registered callback/writable
+---   * `nil`      - no change; any previously registered callback/writable
 ---                  state is left alone. This is what 3-arg callers get.
----   * `false`    — clears the callback (equivalent to
+---   * `false`    - clears the callback (equivalent to
 ---                  `setCallback(name, nil)`), marking the variable read-only.
----   * `true`     — registers a no-op placeholder callback so the variable is
+---   * `true`     - registers a no-op placeholder callback so the variable is
 ---                  writable from C4 programming. No change-notification path;
 ---                  the driver observes updates by reading `Variables[name]`.
----   * function   — registers the callback (equivalent to
+---   * function   - registers the callback (equivalent to
 ---                  `setCallback(name, fn)`) and marks the variable writable.
 ---
 --- When a function (or `true`) is passed, `setCallback` runs before the C4

@@ -13,8 +13,8 @@ Pipeline:
     (shipped in the driver and shown by Control4's documentation viewer).
   - HTML -> PDF via WeasyPrint, a CSS Paged Media engine. Page size/margins come
     from the @page rule; pagination is automatic and content-aware (headings
-    kept with their content, tables/code never split, orphan/widow control) —
-    no hand-placed page-break markers required.
+    kept with their content, tables/code never split, orphan/widow control), so
+    no hand-placed page-break markers are required.
   - README is the driver docs markdown with <style> blocks stripped, then
     normalized with mdformat.
 """
@@ -43,7 +43,7 @@ LAYOUT_CSS = """
 @media (max-width: 767px) { .markdown-body { padding: 15px; } }
 /* github-markdown-css ends its font stack with color-emoji fonts. On Linux
    (CI) fontconfig matches digit codepoints to the emoji font (it carries keycap
-   digits), and WeasyPrint can't render color-emoji as text — so digits vanish.
+   digits), and WeasyPrint can't render color-emoji as text, so digits vanish.
    Override with a text-only stack that resolves on Linux (DejaVu/Noto) and mac.
    Symbola (monochrome) sits last so symbol chars the docs use in tables/callouts
    (check/cross/warning) render as glyphs instead of blank color-emoji boxes. */
@@ -55,7 +55,7 @@ LAYOUT_CSS = """
 }
 /* The docs index is authored in a small-font <div>. Preprocessor #ifdef blocks
    can leave a blank line in the list for some distributions, which makes markdown
-   render it "loose" — each <li> wrapped in a <p> whose paragraph margins add
+   render it "loose": each <li> wrapped in a <p> whose paragraph margins add
    large vertical gaps. Keep the index compact regardless. */
 .markdown-body div[style*="font-size"] li > p { margin: 0; }
 /* The browser default 3rd-level (and deeper) list marker is a heavy full-size
@@ -67,7 +67,7 @@ LAYOUT_CSS = """
   .markdown-body { max-width: none; padding: 0 45px; margin: 0; }
   h1, h2, h3, h4, h5, h6 { break-after: avoid; }
   /* Keep code, images and individual rows intact, but let long tables split
-     across pages (WeasyPrint repeats <thead>) — pinning the whole table with
+     across pages (WeasyPrint repeats <thead>). Pinning the whole table with
      break-inside:avoid strands big blank gaps and orphans the heading above it. */
   pre, figure, tr { break-inside: avoid; }
   p, li { orphans: 3; widows: 3; }
@@ -104,7 +104,7 @@ def _img_dims_to_style(html: str) -> str:
 
     WeasyPrint ignores the HTML width/height *attributes* on images (it uses the
     intrinsic pixel size), so authored sizes like width="300" are lost in the
-    PDF — the image renders full-bleed and only max-width:100% reins it in.
+    PDF: the image renders full-bleed and only max-width:100% reins it in.
     WeasyPrint does honor inline CSS, so rewrite `width="N"` -> `width: Npx`.
     Browsers honor both forms, so the on-screen docs are unaffected.
     """
@@ -137,7 +137,7 @@ def _align_to_style(html: str) -> str:
     Like width/height, WeasyPrint ignores the `align` attribute, so authored
     `<p align="center">` blocks (centered headers, logos, captions) render
     left-aligned in the PDF. Rewrite to `text-align`, which WeasyPrint honors.
-    `<img align>` (float) is left alone — the docs don't use it.
+    `<img align>` (float) is left alone, since the docs don't use it.
     """
 
     def repl(m: "re.Match[str]") -> str:
@@ -168,7 +168,7 @@ def _status_symbols(html: str) -> str:
     """Render status emoji as text glyphs so the PDF shows them legibly.
 
     ✅/❌ carry default *emoji presentation* and ⚠️ an explicit emoji selector
-    (U+FE0F), so the shaper forces a color-emoji font — which WeasyPrint can't
+    (U+FE0F), so the shaper forces a color-emoji font, which WeasyPrint can't
     rasterize, collapsing them to illegible specks. Map to text-presentation
     glyphs (✓ ✗ ⚠, present in DejaVu/Symbola) with GitHub-style semantic colors;
     browsers render these the same, so the Control4 viewer stays consistent.
@@ -187,7 +187,7 @@ def _drop_manual_page_breaks(html: str) -> str:
     Docs authored `<div style="page-break-after: always"></div>` to force breaks
     at fixed spots. Pagination is now automatic and content-aware (headings kept
     with their content, rows/images/code never split, tables split with a
-    repeated header), so these hard breaks only fight the layout — drop them.
+    repeated header), so these hard breaks only fight the layout. Drop them.
     """
     return _PAGE_BREAK_RE.sub("", html)
 

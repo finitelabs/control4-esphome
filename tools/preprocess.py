@@ -63,7 +63,7 @@ def process_file(
     generic_else_pattern = re.compile(r"^\s*#else\s*$")
     generic_endif_pattern = re.compile(r"^\s*#endif\s*$")
 
-    # Embed changelog pattern — resolved in a pre-pass so that directives
+    # Embed changelog pattern, resolved in a pre-pass so that directives
     # inside the changelog are handled by the main processing loop.
     changelog_pattern = re.compile(r"^\s*<!--\s*#embed-changelog\s*-->\s*$")
 

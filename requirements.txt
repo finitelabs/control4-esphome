@@ -1,0 +1,20 @@
+# Build-time Python dependencies. `make init` installs these into .venv and
+# re-runs whenever this file changes (see the $(VENV_STAMP) rule in Makefile).
+#
+# Keep this list unpinned: the toolchain is developer/CI tooling, not shipped
+# code, and the drivers themselves are Lua.
+
+# Required by the driverpackager (dist/driverpackager).
+M2Crypto
+lxml
+
+# Docs pipeline (tools/docs.py): markdown -> HTML -> PDF.
+weasyprint
+markdown-it-py[linkify]
+mdit-py-plugins
+pygments
+
+# Formatters (make fmt). Lua formatting uses the stylua binary, see fmt-lua.
+black
+mdformat
+mdformat-gfm
