@@ -906,6 +906,18 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed Bluetooth proxies logging a spurious "Property 'Select Bluetooth
+  Devices' not registered" warning at every driver startup
+- Fixed the Bluetooth device selection being permanently erased when a proxy was
+  bound to a Bluetooth Coordinator; it is now kept and restored if the proxy is
+  later unbound
+- Fixed Bluetooth proxies in Coordinator Mode reporting their connection slots
+  as "(Oversubscribed)"
+
 ## v20260802 - 2026-08-02
 
 ### Added

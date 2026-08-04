@@ -302,9 +302,13 @@ function BluetoothProxyCapability:_updateStatusProperty()
 
   -- Build connection slots text with optional oversubscription warning
   local slotsText = string.format("%d/%d Active", connState.limit - connState.free, connState.limit)
-  local selectedActiveCount = bleScannerProperties:getSelectedActiveCount(self.PROPERTY_NAME)
-  if selectedActiveCount > connState.limit then
-    slotsText = slotsText .. " (Oversubscribed)"
+  -- The selection only drives local connections in standalone mode; under a
+  -- coordinator it is retained but dormant, so it cannot oversubscribe anything.
+  if not self._coordinatorConnected then
+    local selectedActiveCount = bleScannerProperties:getSelectedActiveCount(self.PROPERTY_NAME)
+    if selectedActiveCount > connState.limit then
+      slotsText = slotsText .. " (Oversubscribed)"
+    end
   end
   table.insert(parts, slotsText)
 
@@ -1034,8 +1038,34 @@ function BluetoothProxyCapability:isConnected(mac)
   return self._client:isBluetoothDeviceAllocated(mac)
 end
 
+--- Register the device selection property with BLEScannerProperties.
+--- Call this from driver init, before connecting.
+---
+--- The registration itself is pure driver configuration: the selection and the
+--- device list both come from persistent storage, so nothing here needs the
+--- ESPHome device. Registering at init keeps the property's backing state
+--- available for the whole life of the driver instead of only after the first
+--- successful connect, which is what left startup callers warning about an
+--- unregistered property.
+---
+--- Acting on the selection is deferred to discovered(), because whether the
+--- devices should be managed locally depends on the coordinator binding.
+function BluetoothProxyCapability:registerDeviceSelectionProperty()
+  log:trace("BluetoothProxyCapability:registerDeviceSelectionProperty()")
+
+  bleScannerProperties:registerProperty(self.PROPERTY_NAME, {
+    persistKey = SELECTED_BLUETOOTH_DEVICES_PERSIST_KEY,
+    deferInitialCallback = true,
+    filter = function(device)
+      return device.bindingClass ~= nil
+    end,
+    onChanged = function(selectedDevices)
+      self:setDevices(selectedDevices)
+    end,
+  })
+end
+
 --- Handle the discovery of bluetooth proxy capability.
---- Registers the device selection property with BLEScannerProperties.
 --- @param deviceInfo ProtoDeviceInfoResponse|nil Device info containing feature flags
 function BluetoothProxyCapability:discovered(deviceInfo)
   log:trace("BluetoothProxyCapability:discovered(%s)", deviceInfo)
@@ -1055,19 +1085,12 @@ function BluetoothProxyCapability:discovered(deviceInfo)
   -- Show Bluetooth Proxy properties
   self:setPropertiesAttribs(constants.SHOW_PROPERTY)
 
-  -- Create dynamic binding for coordinator communication
+  -- Create dynamic binding for coordinator communication. This settles whether a
+  -- coordinator owns device management before the selection below is applied.
   self:_createCoordinatorBinding()
 
-  -- Register property with BLEScannerProperties
-  bleScannerProperties:registerProperty(self.PROPERTY_NAME, {
-    persistKey = SELECTED_BLUETOOTH_DEVICES_PERSIST_KEY,
-    filter = function(device)
-      return device.bindingClass ~= nil
-    end,
-    onChanged = function(selectedDevices)
-      self:setDevices(selectedDevices)
-    end,
-  })
+  -- Apply the stored device selection (a no-op while a coordinator is bound)
+  bleScannerProperties:applySelection(self.PROPERTY_NAME)
 
   -- Register callback for ongoing connection slot updates
   self._client:addBluetoothConnectionsCallback("bluetooth_proxy_entity", function(state)
@@ -1294,6 +1317,52 @@ function BluetoothProxyCapability:onRoomChanged()
   }, "NOTIFY")
 end
 
+--- Enter coordinator mode and announce this proxy to the coordinator.
+--- The coordinator owns device management from here, so the locally added devices
+--- and their bindings are dropped. The selection that produced them is kept: it is
+--- inert while a coordinator is bound (setDevices and addDevice both no-op, and the
+--- property is hidden), and applySelection() restores the devices from it if the
+--- coordinator is later unbound.
+--- @private
+function BluetoothProxyCapability:_enterCoordinatorMode()
+  self._coordinatorConnected = true
+
+  -- Switch to coordinator mode properties: show room, hide device selection
+  self:setPropertiesAttribs(constants.SHOW_PROPERTY)
+
+  -- Hand device management over to the coordinator
+  -- Collect MACs first to avoid modifying table while iterating
+  local macsToRemove = {}
+  for mac in pairs(self._addedDevices) do
+    table.insert(macsToRemove, mac)
+  end
+
+  -- Remove all devices (stops monitoring, disconnects GATT, removes bindings)
+  for _, mac in ipairs(macsToRemove) do
+    self:removeDevice(mac)
+  end
+
+  -- Start forwarding all advertisements to coordinator
+  self:_startCoordinatorForwarding()
+
+  -- Send initial connection info to coordinator
+  local roomInfo = self:getRoomInfo()
+  local connState = self._client:getBluetoothConnectionState()
+
+  SendToProxy(self._coordinatorBindingId, "PROXY_CONNECTED", {
+    proxyId = tostring(C4:GetDeviceID()),
+    roomId = roomInfo and tostring(roomInfo.roomId) or "",
+    roomName = roomInfo and roomInfo.roomName or "",
+    connectionSlots = connState.initialized and tostring(connState.limit) or "0",
+    freeSlots = connState.initialized and tostring(connState.free) or "0",
+    featureFlags = tostring(self._featureFlags),
+    minRssiOverride = roomInfo and tostring(roomInfo.minRssiOverride) or "-100",
+  }, "NOTIFY")
+
+  -- Update status to indicate coordinator mode
+  self:_updateStatusProperty()
+end
+
 --- Handle coordinator binding state change.
 --- When coordinator connects, start forwarding all advertisements to it and disable local device management.
 --- When coordinator disconnects, stop forwarding and re-enable local device management.
@@ -1307,51 +1376,17 @@ function BluetoothProxyCapability:onCoordinatorBindingChanged(bIsBound)
   end
 
   if bIsBound then
-    self._coordinatorConnected = true
-
-    -- Switch to coordinator mode properties: show room, hide device selection
-    self:setPropertiesAttribs(constants.SHOW_PROPERTY)
-
-    -- Clean up all existing standalone mode state
-    -- Collect MACs first to avoid modifying table while iterating
-    local macsToRemove = {}
-    for mac in pairs(self._addedDevices) do
-      table.insert(macsToRemove, mac)
-    end
-
-    -- Remove all devices (stops monitoring, disconnects GATT, removes bindings)
-    for _, mac in ipairs(macsToRemove) do
-      self:removeDevice(mac)
-    end
-
-    -- Clear persisted device selection
-    bleScannerProperties:clearSelection(self.PROPERTY_NAME)
-
-    -- Start forwarding all advertisements to coordinator
-    self:_startCoordinatorForwarding()
-
-    -- Send initial connection info to coordinator
-    local roomInfo = self:getRoomInfo()
-    local connState = self._client:getBluetoothConnectionState()
-
-    SendToProxy(self._coordinatorBindingId, "PROXY_CONNECTED", {
-      proxyId = tostring(C4:GetDeviceID()),
-      roomId = roomInfo and tostring(roomInfo.roomId) or "",
-      roomName = roomInfo and roomInfo.roomName or "",
-      connectionSlots = connState.initialized and tostring(connState.limit) or "0",
-      freeSlots = connState.initialized and tostring(connState.free) or "0",
-      featureFlags = tostring(self._featureFlags),
-      minRssiOverride = roomInfo and tostring(roomInfo.minRssiOverride) or "-100",
-    }, "NOTIFY")
-
-    -- Update status to indicate coordinator mode
-    self:_updateStatusProperty()
+    self:_enterCoordinatorMode()
   else
     self._coordinatorConnected = false
     self:_stopCoordinatorForwarding()
 
     -- Switch back to standalone mode properties: hide room, show device selection
     self:setPropertiesAttribs(constants.SHOW_PROPERTY)
+
+    -- Take device management back by re-adding the devices that entering
+    -- coordinator mode dropped, from the selection it left intact.
+    bleScannerProperties:applySelection(self.PROPERTY_NAME)
 
     -- Re-enable local advertisement monitoring for bound devices
     for mac, device in pairs(self._addedDevices) do
@@ -1649,7 +1684,7 @@ function BluetoothProxyCapability:_createCoordinatorBinding()
   local boundProvider = C4:GetBoundProviderDevice(deviceId, binding.bindingId)
   if boundProvider and boundProvider > 0 then
     log:info("Coordinator already bound on startup (provider device %d), enabling forwarding", boundProvider)
-    self:onCoordinatorBindingChanged(true)
+    self:_enterCoordinatorMode()
   end
 end
 

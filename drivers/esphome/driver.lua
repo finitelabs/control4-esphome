@@ -147,6 +147,11 @@ function OnDriverLateInit()
   -- Hide Bluetooth Proxy properties until we detect support
   bluetoothProxyCapability:setPropertiesAttribs(constants.HIDE_PROPERTY)
 
+  -- Back the device selection property before anything can reach it. The
+  -- selection is persisted configuration, so it must not wait on the connect
+  -- that detects proxy support.
+  bluetoothProxyCapability:registerDeviceSelectionProperty()
+
   C4:FileSetDir("c29tZXNwZWNpYWxrZXk=++11")
 
   -- Fire OnPropertyChanged to set the initial Headers and other Property

@@ -11,6 +11,9 @@ local bleScanner = require("esphome.ble.scanner")
 --- @field onChanged? fun(selectedDevices: table<string, BLEDiscoveredDevice?>) Called on initial load and when selection changes
 --- @field limit? number Maximum devices that can be selected (nil = unlimited)
 --- @field filter? fun(device: BLEDiscoveredDevice): boolean Filter function; return true to include device
+--- @field deferInitialCallback? boolean Skip the initial onChanged fire so the property can be
+---   registered before the driver is ready to act on the selection. The caller is then
+---   responsible for calling applySelection() once it is.
 
 --- @class PropertyRegistration : PropertyRegistrationOptions
 --- @field selectedDevices table<string, BLEDiscoveredDevice?> Currently selected devices keyed by MAC
@@ -60,15 +63,36 @@ function BLEScannerProperties:registerProperty(propertyName, options)
   )
 
   -- Fire initial callback with current selection
-  if options.onChanged and TableLength(selectedDevices) > 0 then
-    local success, err = pcall(options.onChanged, selectedDevices)
-    if not success then
-      log:error("Property '%s' onChanged callback failed: %s", propertyName, err or "unknown error")
-    end
+  if not options.deferInitialCallback then
+    self:applySelection(propertyName)
   end
 
   -- Initialize the property list with default options
   self:updateProperty(propertyName, false)
+end
+
+--- Fire a property's onChanged callback with its current selection.
+--- Only needed after a registration that deferred the initial callback, to apply
+--- the stored selection once the driver is ready to act on it.
+--- @param propertyName string The property name
+function BLEScannerProperties:applySelection(propertyName)
+  log:trace("BLEScannerProperties:applySelection(%s)", propertyName)
+
+  local registration = self._properties[propertyName]
+  if not registration then
+    log:warn("Property '%s' not registered", propertyName)
+    return
+  end
+
+  local selectedDevices = registration.selectedDevices or {}
+  if not registration.onChanged or TableLength(selectedDevices) == 0 then
+    return
+  end
+
+  local success, err = pcall(registration.onChanged, selectedDevices)
+  if not success then
+    log:error("Property '%s' onChanged callback failed: %s", propertyName, err or "unknown error")
+  end
 end
 
 --- Update the limit for a property.
