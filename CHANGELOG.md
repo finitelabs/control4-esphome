@@ -18,6 +18,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed Bluetooth proxy instances bound to a coordinator logging a spurious
+  "Property 'Select Bluetooth Devices' not registered" warning once at every
+  driver startup
+
 ## v20260802 - 2026-08-02
 
 ### Added

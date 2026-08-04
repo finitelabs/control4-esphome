@@ -1324,7 +1324,8 @@ function BluetoothProxyCapability:onCoordinatorBindingChanged(bIsBound)
       self:removeDevice(mac)
     end
 
-    -- A bound coordinator can replay before discovered() has registered the property
+    -- discovered() creates the coordinator binding before registering the property,
+    -- so an already-bound coordinator fires this synchronously from there
     if bleScannerProperties:isRegistered(self.PROPERTY_NAME) then
       bleScannerProperties:clearSelection(self.PROPERTY_NAME)
     end
