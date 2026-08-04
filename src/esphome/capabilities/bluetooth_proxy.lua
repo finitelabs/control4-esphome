@@ -1375,9 +1375,20 @@ function BluetoothProxyCapability:onCoordinatorBindingChanged(bIsBound)
     return
   end
 
+  -- Startup enters coordinator mode before OBC fires for the same binding
   if bIsBound then
+    if self._coordinatorConnected then
+      log:debug("Coordinator already bound, skipping transition")
+      return
+    end
+
     self:_enterCoordinatorMode()
   else
+    if not self._coordinatorConnected then
+      log:debug("Coordinator already unbound, skipping transition")
+      return
+    end
+
     self._coordinatorConnected = false
     self:_stopCoordinatorForwarding()
 
