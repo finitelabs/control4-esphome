@@ -161,17 +161,25 @@ for setting it up.
 
 1. Download the latest `control4-esphome.zip` from
    [DriverCentral](https://drivercentral.io/platforms/control4-drivers/utility/esphome).
+
 1. Extract and install the `esphome_bluetooth_coordinator.c4z` driver.
+
 1. Use the "Search" tab to find "ESPHome Bluetooth Coordinator" and add it to
    your project.
+
+   ![Search Drivers](images/search-drivers.png)
 
 <!-- #else -->
 
 1. Download the latest `control4-esphome.zip` from
    [Github](https://github.com/finitelabs/control4-esphome/releases/latest).
+
 1. Extract and install the `esphome_bluetooth_coordinator.c4z` driver.
+
 1. Use the "Search" tab to find "ESPHome Bluetooth Coordinator" and add it to
    your project.
+
+   ![Search Drivers](images/search-drivers.png)
 
 <!-- #endif -->
 
