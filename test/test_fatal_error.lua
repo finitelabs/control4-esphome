@@ -6,10 +6,12 @@ require("drivers-common-public.global.timer")
 local ESPHomeClient = require("esphome.client")
 
 -- Configuration from environment variables
+-- This drives a real device rather than a shim, so it is opt-in: `make test`
+-- globs test/test_*.lua and exiting non-zero here would fail the whole suite.
 local ip = os.getenv("ESPHOME_TEST_IP")
 if not ip or ip == "" then
-  print("Error: --ip is required")
-  os.exit(1)
+  print("SKIP: test_fatal_error requires ESPHOME_TEST_IP (manual integration test)")
+  return
 end
 
 local client = ESPHomeClient:new()

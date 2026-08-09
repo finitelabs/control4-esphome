@@ -37,10 +37,18 @@ do
     -- Implementation 1: Native operators (Lua 5.3+)
     --------------------------------------------------------------------------------
 
+    -- Parsing `a & b` does not mean the result has 64-bit integer semantics. LuaJIT
+    -- rolling releases from 2026 accept the syntax and return a signed 32-bit number,
+    -- as from its `bit` library, while this branch assumes 5.3+ integers and skips the
+    -- to_unsigned() normalisation such a host needs.
+    --
+    -- So test the value, not the runtime: 5.3+ answers 0xFFFFFFFF and anything with
+    -- 32-bit semantics answers -1. Asking the question this way needs no list of which
+    -- runtimes exist, so it stays correct for whatever grows the syntax next.
     local ok, result = pcall(load, "return function(a,b) return a & b end")
     if ok and result then
       local fn = result()
-      if fn then
+      if fn and fn(0xFFFFFFFF, 0xFFFFFFFF) == 0xFFFFFFFF then
         -- Native operators available - define all functions using them
         local native_band = fn
         local native_bor = assert(load("return function(a,b) return a | b end"))()
@@ -139,10 +147,12 @@ do
     local bit_lib
     local is_luajit = false
 
-    -- Try LuaJIT's bit library first
-    ok, result = pcall(require, "bit")
-    if ok and result then
-      bit_lib = result
+    -- Try LuaJIT's bit library first. Fresh locals rather than the pcall results
+    -- from the native-operator probe above: that `result` is a compiled chunk, this
+    -- one is a library table.
+    local bit_ok, bit_module = pcall(require, "bit")
+    if bit_ok and bit_module then
+      bit_lib = bit_module
       is_luajit = true
     else
       -- Try Lua 5.2's bit32 library (use rawget to avoid recursion with our module name)
@@ -2650,20 +2660,23 @@ do
       for _, test in ipairs(test_vectors) do
         total = total + 1
         local result = test.fn(unpack_fn(test.inputs))
+        -- Held in a local so the type narrowing below applies to it; a table field
+        -- is not narrowed by a `type()` check.
+        local expected = test.expected
 
-        if type(test.expected) == "table" then
+        if type(expected) == "table" then
           -- 64-bit comparison
-          if eq64(result, test.expected) then
+          if eq64(result, expected) then
             print("  PASS: " .. test.name)
             passed = passed + 1
           else
             print("  FAIL: " .. test.name)
-            print("    Expected: " .. fmt64(test.expected))
+            print("    Expected: " .. fmt64(expected))
             print("    Got:      " .. fmt64(result))
           end
-        elseif type(test.expected) == "string" then
+        elseif type(expected) == "string" then
           -- Byte string comparison
-          if result == test.expected then
+          if result == expected then
             print("  PASS: " .. test.name)
             passed = passed + 1
           else
@@ -2673,8 +2686,8 @@ do
               print("    Got:      " .. type(result))
             else
               local exp_hex, got_hex = "", ""
-              for i = 1, #test.expected do
-                exp_hex = exp_hex .. string.format("%02X", string.byte(test.expected, i))
+              for i = 1, #expected do
+                exp_hex = exp_hex .. string.format("%02X", string.byte(expected, i))
               end
               for i = 1, #result do
                 got_hex = got_hex .. string.format("%02X", string.byte(result, i))
@@ -2684,12 +2697,12 @@ do
             end
           end
         else
-          if result == test.expected then
+          if result == expected then
             print("  PASS: " .. test.name)
             passed = passed + 1
           else
             print("  FAIL: " .. test.name)
-            print("    Expected: " .. tostring(test.expected))
+            print("    Expected: " .. tostring(expected))
             print("    Got:      " .. tostring(result))
           end
         end
@@ -3284,7 +3297,7 @@ local bitn = {
 }
 
 --- Library version (injected at build time for releases).
-local VERSION = "v0.6.0"
+local VERSION = "v0.6.1"
 
 --- Get the library version string.
 --- @return string version Version string (e.g., "v1.0.0" or "dev")

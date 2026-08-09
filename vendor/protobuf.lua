@@ -62,7 +62,7 @@ local function is_list(t)
 end
 
 -- Version
-local VERSION = "v0.6.4"
+local VERSION = "v0.6.5"
 
 --- Returns the library version.
 --- @return string version The version string.
@@ -458,11 +458,13 @@ function pb.encode(protoSchema, messageSchema, message)
         end
         values = { values } -- Wrap single value in a list for uniform processing
       end
+      -- Held in a local because `@cast` applies to locals, not table fields.
+      local wire_type = field.wireType
+      --- @cast wire_type integer
       for _, value in ipairs(values) do
         -- Compute the key (field number and wire type)
         -- Use to_unsigned since large field numbers produce high-bit-set results
-        --- @cast field.wireType integer
-        local key = bit32_to_unsigned(bit32_raw_lshift(field_number, 3)) + field.wireType
+        local key = bit32_to_unsigned(bit32_raw_lshift(field_number, 3)) + wire_type
         buffer = buffer .. pb.encode_varint(key)
 
         local fieldType = field.type

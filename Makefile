@@ -205,6 +205,24 @@ zip: $(VENV_STAMP) ## Zip .c4z and .pdf files per distribution
 				"$$repo.zip" *.c4z *.pdf); \
 	done
 
+# ─── Test ─────────────────────────────────────────────────────────────────────
+
+.PHONY: test
+# test/ is on LUA_PATH and c4_shim is preloaded, matching the environment
+# test/run_test.sh sets up. Existing suites are written against that shim and
+# fail on a bare `luajit <file>` with "attempt to index global 'C4'". A test that
+# defines its own C4 still wins, since it assigns after the preload has run.
+test: ## Run the Lua test suite (test/test_*.lua)
+	@found=0; \
+	for f in test/test_*.lua; do \
+		[ -e "$$f" ] || continue; \
+		found=1; \
+		echo "==> $$f"; \
+		LUA_PATH="$(CURDIR)/test/?.lua;$(CURDIR)/src/?.lua;$(CURDIR)/src/?/init.lua;$(CURDIR)/vendor/?.lua;$(CURDIR)/vendor/?/init.lua;;" \
+			luajit -e "require('c4_shim')" "$$f" || exit 1; \
+	done; \
+	if [ "$$found" = "0" ]; then echo "No test/test_*.lua files found; nothing to run."; fi
+
 # ─── Build ────────────────────────────────────────────────────────────────────
 
 .PHONY: build build-nodocs

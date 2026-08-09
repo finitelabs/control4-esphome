@@ -11,11 +11,13 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Wait for build and download oss artifacts
         run: |
           echo "Waiting for Build workflow to complete for $GITHUB_SHA..."
+          deadline=$(( $(date +%s) + WAIT_MINUTES * 60 ))
           while true; do
             run_id=$(gh run list \
               --repo "$GITHUB_REPOSITORY" \
@@ -27,6 +29,10 @@ jobs:
             if [ -n "$run_id" ]; then
               echo "Build run $run_id completed"
               break
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::No completed Build run for $GITHUB_SHA after $WAIT_MINUTES minutes. Check that Build was triggered for this tag and is not queued behind another run."
+              exit 1
             fi
             echo "Build not finished yet, waiting 30s..."
             sleep 30
@@ -46,6 +52,7 @@ jobs:
             --dir dist/oss
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WAIT_MINUTES: 20
 
       - name: Create release
         uses: softprops/action-gh-release@v2

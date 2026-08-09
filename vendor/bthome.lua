@@ -1214,7 +1214,7 @@ do
     --- Initialize a 4-element AES word with zeros
     --- @return AESWord word Initialized word
     local function create_aes_word()
-      --- @type AESState
+      --- @type AESWord
       return { 0, 0, 0, 0 }
     end
 
@@ -3423,7 +3423,7 @@ bthome.UUID_V1_ENCRYPTED = bthome.parser.UUID_V1_ENCRYPTED
 bthome.UUID_V2 = bthome.parser.UUID_V2
 
 --- Library version (injected at build time for releases).
-local VERSION = "v0.1.2"
+local VERSION = "v0.1.3"
 
 --- Get the library version string.
 --- @return string version Version string (e.g., "v1.0.0" or "dev")

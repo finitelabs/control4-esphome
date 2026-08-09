@@ -400,6 +400,10 @@ end
 
 --- Parses a comma-separated list of device IDs and processes them.
 --- Each device ID in the list is retrieved, checked for validity, and optionally passed to a callback function for processing.
+--- The `index` given to the callback is the entry's 1-based position among the non-empty entries of `deviceIdListStr`,
+--- counted whether or not the entry resolves: an unresolvable ID leaves a gap rather than shifting the entries behind
+--- it. The position is stable only while the list is unchanged, since removing or inserting an entry renumbers every
+--- entry after it.
 --- @param deviceIdListStr string The string of comma-separated device IDs.
 --- @param c4iNames? string[] Optional list of C4i names to filter devices.
 --- @param callback? fun(deviceId: DeviceId, device: table, index: integer): any Optional callback to process each device.
@@ -407,13 +411,14 @@ end
 function ParseDeviceIdList(deviceIdListStr, c4iNames, callback)
   log:trace("ParseDeviceIdList(%s, %s, <callback>)", deviceIdListStr, c4iNames)
   local devices = {}
-  local i = 1
+  local i = 0
   for deviceIdStr in string.gmatch(deviceIdListStr or "", "([^,]+)") do
+    -- Count every entry, resolvable or not; skipping would renumber the entries behind it.
+    i = i + 1
     local device = GetDevice(deviceIdStr, c4iNames)
     if device ~= nil then
       if type(callback) == "function" then
         local success, result = pcall(callback, device.deviceId, device, i)
-        i = i + 1
         if success then
           devices[device.deviceId] = result
         else
