@@ -1,4 +1,23 @@
 -- Copyright 2025 Snap One, LLC. All rights reserved.
+--
+-- LOCAL FORK of Snap One's drivers-common-public websocket module, upstream v14.
+-- Re-vendoring from upstream silently drops everything listed here, across every
+-- repo carrying drivers-common-public in vendor_modules. Keep this list current.
+--
+-- Deltas against upstream v14:
+--   1. setupC4Connection reuses one network binding per protocol://host:port
+--      rather than allocating a fresh one on every WebSocket:new(), which leaked
+--      a slot from the 6100-6199 pool on each reconnect until the pool ran out.
+--   2. Send() takes an optional frame opcode (default 0x81, unchanged for every
+--      existing caller) so binary-framed protocols such as MQTT-over-WebSocket
+--      can be sent at all.
+--   3. MakeHeaders omits the default port from the Host header. SigV4 hosts
+--      (AWS IoT) sign the host without it and drop the upgrade otherwise.
+--   4. The 64-bit extended-length field is built with %016X rather than %16X.
+--      %16X is space padded, not zero padded, so tohex left the spaces in and
+--      emitted a malformed 14-byte field for payloads over 65535 bytes.
+--
+-- test/test_websocket.lua covers all four.
 
 COMMON_WEBSOCKET_VER = 14
 
@@ -202,16 +221,21 @@ end
 
 --- Sends data through the WebSocket.
 --- @param s string The data to send.
-function WebSocket:Send(s)
+--- @param opcode? number Frame opcode. Default 0x81 (FIN + text). Pass 0x82 for FIN + binary (e.g. MQTT over WebSocket).
+function WebSocket:Send(s, opcode)
+  opcode = opcode or 0x81
   if self.connected then
     local len = string.len(s)
     local lenstr
     if len <= 125 then
-      lenstr = string.char(0x81, bit.bor(len, 0x80))
+      lenstr = string.char(opcode, bit.bor(len, 0x80))
     elseif len <= 65535 then
-      lenstr = string.char(0x81, bit.bor(126, 0x80)) .. tohex(string.format("%04X", len))
+      lenstr = string.char(opcode, bit.bor(126, 0x80)) .. tohex(string.format("%04X", len))
     else
-      lenstr = string.char(0x81, bit.bor(127, 0x80)) .. tohex(string.format("%16X", len))
+      -- %016X, not %16X: the latter is space padded to width 16 rather than zero
+      -- padded to 16 digits, and tohex only substitutes hex pairs, so the spaces
+      -- survived into a malformed 14-byte field. This one must be exactly 8 bytes.
+      lenstr = string.char(opcode, bit.bor(127, 0x80)) .. tohex(string.format("%016X", len))
     end
 
     local mask = {
@@ -311,23 +335,67 @@ end
 
 -- Functions below this line should not be called directly by users of this library
 
+-- Reuse one network binding per endpoint across reconnects. Control4 has no API
+-- to destroy a CreateNetworkConnection, and SetBindingAddress("") does not
+-- durably release the binding (C4 keeps re-resolving the host and re-populating
+-- the binding address), so allocating a fresh binding on every WebSocket:new()
+-- permanently burns a slot in the 6100-6199 pool until the controller reboots.
+-- A driver that reconnects (e.g. cloud MQTT-over-WS) eventually exhausts the
+-- pool and the assert below fires.
+--
+-- The cache key is protocol://host:port, not host alone: the binding carries the
+-- port (NetPortOptions) and owns the OCS/RFN callbacks, so two sockets to
+-- different ports on the same host must not share one.
+--
+-- Each endpoint keeps a LIST of bindings, and a new socket takes the first one
+-- no live socket still owns. One binding per endpoint cannot cover both cases:
+-- overwriting it re-points a long-lived socket at a transient second socket's
+-- binding and orphans the original, while pinning it to the first claimant means
+-- every overlapping transient allocates a binding that is never recorded and so
+-- can never be reclaimed, leaking a slot per overlap without bound. The list
+-- reclaims any binding for the endpoint whose owner is gone, so it grows only to
+-- that endpoint's peak concurrency. Drivers that fully delete the old socket
+-- before opening its replacement (the documented reconnect pattern) stay at one.
 local _netBindingHighWaterMark = 6099
+local _netBindingByEndpoint = {}
 
 function WebSocket:setupC4Connection()
-  local i = _netBindingHighWaterMark + 1
-  while not self.netBinding and i ~= _netBindingHighWaterMark do
-    local checkAddress = C4:GetBindingAddress(i)
-    if checkAddress == nil or checkAddress == "" then
-      self.netBinding = i
-      break
-    end
-    i = i + 1
-    if i == 6200 then
-      i = 6100
-      _netBindingHighWaterMark = _netBindingHighWaterMark + 1
+  local endpointKey = self.host
+    and string.format("%s://%s:%s", tostring(self.protocol), tostring(self.host), tostring(self.port))
+
+  local bindings = endpointKey and _netBindingByEndpoint[endpointKey] or nil
+  if bindings then
+    for _, binding in ipairs(bindings) do
+      if not (self.Sockets and self.Sockets[binding] and self.Sockets[binding] ~= self) then
+        self.netBinding = binding
+        break
+      end
     end
   end
-  _netBindingHighWaterMark = assert(self.netBinding)
+
+  if not self.netBinding then
+    local i = _netBindingHighWaterMark + 1
+    while not self.netBinding and i ~= _netBindingHighWaterMark do
+      local checkAddress = C4:GetBindingAddress(i)
+      if checkAddress == nil or checkAddress == "" then
+        self.netBinding = i
+        break
+      end
+      i = i + 1
+      if i == 6200 then
+        i = 6100
+        _netBindingHighWaterMark = _netBindingHighWaterMark + 1
+      end
+    end
+    _netBindingHighWaterMark = assert(self.netBinding)
+    -- Record every binding allocated for this endpoint, so a later socket can
+    -- reclaim whichever one is free rather than allocating another.
+    if endpointKey then
+      bindings = bindings or {}
+      _netBindingByEndpoint[endpointKey] = bindings
+      bindings[#bindings + 1] = self.netBinding
+    end
+  end
 
   if self.netBinding and self.protocol then
     self.Sockets = self.Sockets or {}
@@ -360,9 +428,18 @@ function WebSocket:MakeHeaders()
   end
   self.key = C4:Base64Encode(self.key)
 
+  -- Omit the default port from the Host header. SigV4 hosts (AWS IoT) sign the host
+  -- WITHOUT the default port, so including :443 (or :80) breaks signature validation and
+  -- the server silently drops the upgrade. RFC 7230 says the default port SHOULD be
+  -- omitted, so non-default ports are unaffected and still carry ":port".
+  local hostHeader = self.host
+  if not ((self.protocol == "wss" and self.port == 443) or (self.protocol == "ws" and self.port == 80)) then
+    hostHeader = self.host .. ":" .. self.port
+  end
+
   local headers = {
     "GET " .. self.resource .. " HTTP/1.1",
-    "Host: " .. self.host .. ":" .. self.port,
+    "Host: " .. hostHeader,
     "Cache-Control: no-cache",
     "Pragma: no-cache",
     "Connection: Upgrade",

@@ -772,7 +772,7 @@ local utils = require("noiseprotocol.utils")
 local openssl_wrapper = require("crypto.openssl_wrapper")
 
 --- Module version
-local VERSION = "v0.6.0"
+local VERSION = "v0.6.2"
 
 --- Enable or disable OpenSSL acceleration
 --- @function use_openssl
@@ -1292,9 +1292,11 @@ function CipherState:encrypt_with_ad(ad, plaintext)
   if not self:has_key() then
     return plaintext -- Return plaintext if no key
   end
-  --- @cast self.k -nil
+  -- Held in a local because `@cast` applies to locals, not table fields.
+  local k = self.k
+  --- @cast k -nil
 
-  local ciphertext = self.cipher.encrypt(self.k, self.n, plaintext, ad)
+  local ciphertext = self.cipher.encrypt(k, self.n, plaintext, ad)
   self.n = self.n + 1
 
   return ciphertext
@@ -1308,9 +1310,10 @@ function CipherState:decrypt_with_ad(ad, ciphertext)
   if not self:has_key() then
     return ciphertext -- Return ciphertext if no key
   end
-  --- @cast self.k -nil
+  local k = self.k
+  --- @cast k -nil
 
-  local plaintext = self.cipher.decrypt(self.k, self.n, ciphertext, ad)
+  local plaintext = self.cipher.decrypt(k, self.n, ciphertext, ad)
 
   -- Only increment nonce if decryption was successful
   if plaintext then
@@ -1323,8 +1326,9 @@ end
 --- Rekey the cipher state (for forward secrecy)
 function CipherState:rekey()
   if self:has_key() then
-    --- @cast self.k -nil
-    self.k = self.cipher.rekey(self.k)
+    local k = self.k
+    --- @cast k -nil
+    self.k = self.cipher.rekey(k)
   end
 end
 
@@ -2666,12 +2670,17 @@ function noiseprotocol.selftest()
       local original_msg = alice:send_message("Original message")
       assert(#original_msg > 16, "Transport message should include auth tag")
 
-      -- Test various tampering scenarios
-      local tampered_msg1 = string.char(255) .. original_msg:sub(2) -- Flip first byte
+      -- Derived from the byte it displaces: a fixed 0xFF matched the ciphertext's
+      -- own byte 1 time in 256, leaving the "tampered" copy identical.
+      local first_byte = original_msg:byte(1)
+      local last_byte = original_msg:byte(#original_msg)
+      assert(first_byte and last_byte, "Transport message should have bytes to tamper with")
+
+      local tampered_msg1 = string.char((first_byte + 1) % 256) .. original_msg:sub(2)
       local tamper_result1 = bob:receive_message(tampered_msg1)
       assert(tamper_result1 == nil, "First byte tampered message should be rejected")
 
-      local tampered_msg2 = original_msg:sub(1, -2) .. string.char(255) -- Flip last byte
+      local tampered_msg2 = original_msg:sub(1, -2) .. string.char((last_byte + 1) % 256)
       local tamper_result2 = bob:receive_message(tampered_msg2)
       assert(tamper_result2 == nil, "Last byte tampered message should be rejected")
 

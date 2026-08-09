@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     branches: [main, master]
+    tags: ['v*']
   pull_request:
     branches: [main, master]
 
@@ -51,6 +52,9 @@ jobs:
 
       - name: Initialize project
         run: make init
+
+      - name: Test
+        run: make test
 
       - name: Build
         run: make build

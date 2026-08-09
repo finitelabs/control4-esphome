@@ -17,6 +17,13 @@ log:setOutputPrintEnabled(true)
 log:setLogLevel(6) -- 6 = ULTRA (show raw protocol data)
 log:setLogName("ESPHomeTest")
 
+-- This drives a real device rather than a shim, so it is opt-in: `make test`
+-- globs test/test_*.lua and would otherwise fail here with no device configured.
+if not os.getenv("ESPHOME_TEST_IP") then
+  print("SKIP: test_esphome_connection requires ESPHOME_TEST_IP (manual integration test)")
+  return
+end
+
 -- Configuration from environment variables or defaults
 local CONFIG = {
   ip_address = os.getenv("ESPHOME_TEST_IP"),
