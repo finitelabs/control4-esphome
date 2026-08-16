@@ -5,6 +5,9 @@
 local log = require("lib.logging")
 local persist = require("lib.persist")
 
+require("drivers-common-public.global.lib")
+require("lib.utils")
+
 --- Create a binding between two devices if it doesn't already exist.
 --- @param idDeviceProvider integer Provider device ID
 --- @param idBindingProvider integer Provider binding ID

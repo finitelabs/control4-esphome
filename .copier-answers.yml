@@ -1,13 +1,11 @@
 # Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
-_commit: v0.9.14
+_commit: v0.9.15
 _src_path: git@github.com:finitelabs/control4-driver-template.git
 distributions: drivercentral oss
 github_org: finitelabs
-lib_modules: bindings conditionals events http lru persist values
 primary_color: '#17BCF2'
 project_description: Integrate ESPHome-based devices into Control4
 project_name: control4-esphome
 readme_build: oss
 readme_driver_slug: esphome
-vendor_modules: json deferred drivers-common-public xml bitn crypto bthome noiseprotocol
-    protobuf protobuf
+vendor_modules: bitn crypto bthome noiseprotocol protobuf

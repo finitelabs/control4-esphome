@@ -5,7 +5,7 @@
 --   4. 64-bit extended-length field uses %016X
 --
 -- Run from the template root:
---   LUA_PATH="$PWD/vendor/?.lua;$PWD/vendor/?/init.lua;;" luajit test/test_websocket.lua
+--   LUA_PATH="$PWD/test/?.lua;$PWD/vendor/?.lua;$PWD/vendor/?/init.lua;;" luajit test/test_websocket.lua
 
 local pass, fail = 0, 0
 local function check(name, ok, detail)
@@ -19,82 +19,23 @@ local function check(name, ok, detail)
 end
 
 --------------------------------------------------------------------------------
--- C4 shim
+-- C4 surface
+--
+-- Every call this file needs is DriverWorks, so it comes from the shim instead
+-- of being redeclared here. Redeclaring is how the two copies of C4:KillTimer
+-- drifted: one gained an error level and the other kept the old one.
 --------------------------------------------------------------------------------
-local bindingAddress = {} -- [binding] = host   (never cleared: mirrors the real leak)
-local bindingPort = {}
-local sentFrames = {}
+require("c4_shim")
 
--- Real C4 timers, so tests can drive the actual Close()/delete() path rather
--- than reimplementing its bookkeeping. drivers-common-public.global.timer wraps
--- these, so the module's own SetTimer/CancelTimer work unmodified.
-local pendingTimers = {}
-local nextTimerHandle = 0
+local bindingAddress, bindingPort = ShimNetworkBindings()
+local sentFrames = ShimSentFrames()
 
-C4 = {}
-function C4:GetBindingAddress(i)
-  return bindingAddress[i] or ""
-end
-function C4:CreateNetworkConnection(binding, host, _type)
-  bindingAddress[binding] = host
-end
-function C4:NetPortOptions(binding, port, _t, _o)
-  bindingPort[binding] = port
-end
-function C4:NetConnect() end
-function C4:NetDisconnect() end
-function C4:SendToNetwork(binding, port, data)
-  sentFrames[#sentFrames + 1] = { binding = binding, port = port, data = data }
-end
--- Deliberately a no-op: this is the real behaviour the binding cache exists for.
--- C4 re-resolves the host and re-populates the address, so the slot is not freed.
-function C4:SetBindingAddress() end
-function C4:Base64Encode(s)
-  return "b64:" .. tostring(s):sub(1, 8)
-end
-function C4:ErrorLog() end
+-- websocket.lua logs on every frame, which would bury the results.
 function C4:DebugLog() end
-function C4:GetDeviceID()
-  return 1
-end
--- A real C4 timer handle is userdata carrying a :Cancel() method, and
--- global/timer.lua calls timer:Cancel() on it, so the shim returns a table with
--- the same shape rather than a bare id.
-function C4:SetTimer(_delay, fn, _repeating)
-  nextTimerHandle = nextTimerHandle + 1
-  local id = nextTimerHandle
-  local handle
-  handle = {
-    Cancel = function()
-      pendingTimers[id] = nil
-      return nil
-    end,
-  }
-  pendingTimers[id] = { fn = fn, handle = handle }
-  return handle
-end
-function C4:KillTimer(handle)
-  for id, entry in pairs(pendingTimers) do
-    if entry.handle == handle then
-      pendingTimers[id] = nil
-    end
-  end
-  return 0
-end
 
 --- Fire every pending timer, which is what makes the 3-second close timer run.
-local function fireTimers()
-  local snapshot = {}
-  for id, entry in pairs(pendingTimers) do
-    snapshot[id] = entry
-  end
-  for id, entry in pairs(snapshot) do
-    if pendingTimers[id] then
-      pendingTimers[id] = nil
-      entry.fn(entry.handle, 0)
-    end
-  end
-end
+--- ShimFireTimers ignores the clock, so this works with or without luasocket.
+local fireTimers = ShimFireTimers
 
 -- C4 global: hex string -> packed bytes
 function tohex(s)
@@ -128,7 +69,7 @@ local function bindingsInUse()
 end
 
 local function resetBindings()
-  bindingAddress, bindingPort = {}, {}
+  ShimResetBindings()
 end
 
 --------------------------------------------------------------------------------
@@ -137,17 +78,17 @@ print("\n[1] Send() default opcode unchanged (0x81 text frame)")
 do
   local ws = WebSocket:new("wss://text.example.com/ws")
   ws.connected = true
-  sentFrames = {}
+  ShimResetSentFrames()
   ws:Send("hello")
   local first = sentFrames[1] and sentFrames[1].data:byte(1)
   check("legacy Send(s) still emits 0x81", first == 0x81, string.format("got 0x%02X", first or 0))
 
-  sentFrames = {}
+  ShimResetSentFrames()
   ws:Send("hello", 0x82)
   first = sentFrames[1] and sentFrames[1].data:byte(1)
   check("Send(s, 0x82) emits binary frame", first == 0x82, string.format("got 0x%02X", first or 0))
 
-  sentFrames = {}
+  ShimResetSentFrames()
   ws:Send(string.rep("x", 300)) -- 126 extended-length branch
   first = sentFrames[1] and sentFrames[1].data:byte(1)
   check("126-branch keeps 0x81 default", first == 0x81, string.format("got 0x%02X", first or 0))
@@ -162,7 +103,7 @@ do
   ws.connected = true
 
   local payload = string.rep("y", 70000) -- > 65535, so the 127 branch
-  sentFrames = {}
+  ShimResetSentFrames()
   ws:Send(payload)
   local data = sentFrames[1] and sentFrames[1].data or ""
 

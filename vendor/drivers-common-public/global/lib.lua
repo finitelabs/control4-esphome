@@ -1385,6 +1385,13 @@ function GetTruthy(value, emptyValueIsTrue)
   return ret
 end
 
+-- C4:GetDeviceDisplayName returns no value for an id Director does not list as a
+-- project item, such as the synthetic delay (100000) and variables (100001)
+-- agents, so concatenating its result directly throws.
+function GetDeviceDisplayNameOrId(deviceId)
+  return C4:GetDeviceDisplayName(deviceId) or ("device " .. tostring(deviceId))
+end
+
 function RenameDevice(deviceId, newName)
   deviceId = tonumber(deviceId)
   if type(deviceId) ~= "number" then

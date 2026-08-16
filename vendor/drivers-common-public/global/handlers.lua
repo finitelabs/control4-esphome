@@ -456,7 +456,7 @@ function OnDeviceEvent(firingDeviceId, eventId)
 
   if not suppressDebug then
     local init = {
-      "OnDeviceEvent: " .. C4:GetDeviceDisplayName(firingDeviceId) .. " [" .. firingDeviceId .. "]",
+      "OnDeviceEvent: " .. GetDeviceDisplayNameOrId(firingDeviceId) .. " [" .. firingDeviceId .. "]",
       eventId,
     }
     HandlerDebug(init)
@@ -757,7 +757,7 @@ function OnWatchedVariableChanged(idDevice, idVariable, strValue)
 
   if not suppressDebug then
     local init = {
-      "OnWatchedVariableChanged: " .. C4:GetDeviceDisplayName(idDevice) .. " [" .. idDevice .. "]",
+      "OnWatchedVariableChanged: " .. GetDeviceDisplayNameOrId(idDevice) .. " [" .. idDevice .. "]",
     }
     local varName = Select(C4:GetDeviceVariables(idDevice), tostring(idVariable), "name") or ""
     varName = varName .. " [" .. idVariable .. "]"

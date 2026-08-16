@@ -104,6 +104,30 @@ fmt-md: $(VENV_STAMP)
 	done; \
 	[ -z "$$files" ] || $(VENV_PY) -m mdformat --wrap 80 $$files
 
+# ─── Check ──────────────────────────────────────────────────────────────────
+# Assert-only mirror of fmt (--check, no rewrite); this is what CI runs.
+
+.PHONY: check check-lua check-py check-md
+check: check-lua check-py check-md ## Assert all code is formatted (no rewrite)
+
+check-lua:
+	@dirs=""; for d in ./drivers ./src ./test ./tools ./vendor; do \
+		[ -d "$$d" ] && dirs="$$dirs $$d"; \
+	done; \
+	[ -z "$$dirs" ] || stylua --check \
+		--indent-type Spaces --column-width 120 --line-endings Unix \
+		--indent-width 2 --quote-style AutoPreferDouble \
+		-g '*.lua' $$dirs
+
+check-py: $(VENV_STAMP)
+	$(VENV_BLACK) --check tools/*.py
+
+check-md: $(VENV_STAMP)
+	@files=""; for g in ./drivers/*/www/documentation/*.md documentation/*.md *.md; do \
+		[ -e "$$g" ] && files="$$files $$g"; \
+	done; \
+	[ -z "$$files" ] || $(VENV_PY) -m mdformat --check --wrap 80 $$files
+
 # ─── Preprocess ───────────────────────────────────────────────────────────────
 
 .PHONY: preprocess
@@ -167,14 +191,14 @@ docs-html: $(VENV_STAMP)
 
 docs-pdf: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
-		mkdir -p "dist/$$build"; \
+		mkdir -p "dist/$$build/docs"; \
 		for driver_dir in build/$$build/drivers/*/; do \
 			if [ -f "$${driver_dir}.variant_pdf" ]; then \
 				driver_display_name=$$(cat "$${driver_dir}.variant_pdf"); \
 			else \
 				driver_display_name=$$($(VENV_PY) tools/package.py xml-get-name "$${driver_dir}driver.xml"); \
 			fi; \
-			pdf_output="dist/$$build/$$driver_display_name Documentation.pdf"; \
+			pdf_output="dist/$$build/docs/$$driver_display_name Documentation.pdf"; \
 			if [ -f "$$pdf_output" ]; then continue; fi; \
 			$(WEASYPRINT_ENV) $(VENV_PY) tools/docs.py html2pdf \
 				"$$(pwd)/$${driver_dir}www/documentation/index.html" \
@@ -185,24 +209,28 @@ docs-pdf: $(VENV_STAMP)
 # ─── Package ──────────────────────────────────────────────────────────────────
 
 .PHONY: package
+# The packager writes the .c4z into the output dir passed here (c4z/); the
+# squished .lua goes to source/ via the squishy Output path (see gen-squishy.lua),
+# so both subfolders are created up front.
 package: $(VENV_STAMP) $(PACKAGER) ## Create .c4z driver packages
 	@for build in $(DISTRIBUTIONS); do \
+		mkdir -p "dist/$$build/c4z" "dist/$$build/source"; \
 		for driver_dir in build/$$build/drivers/*/; do \
 			dir=$$(basename "$$driver_dir"); \
 			pwd_saved="$$(pwd)"; \
 			cd "build/$$build/drivers/$$dir" && \
-			"$$pwd_saved/$(VENV_PY)" "$$pwd_saved/$(PACKAGER)" . "$$pwd_saved/dist/$$build" driver.c4zproj && \
+			"$$pwd_saved/$(VENV_PY)" "$$pwd_saved/$(PACKAGER)" . "$$pwd_saved/dist/$$build/c4z" driver.c4zproj && \
 			cd "$$pwd_saved"; \
 		done; \
 	done
 
 .PHONY: zip
-zip: $(VENV_STAMP) ## Zip .c4z and .pdf files per distribution
+zip: $(VENV_STAMP) ## Zip the c4z/, docs/, and source/ subfolders per distribution
 	@repo="$$(basename "$$(pwd)")"; \
 	for build in $(DISTRIBUTIONS); do \
 		(cd "dist/$$build" && \
 			"$(CURDIR)/$(VENV_PY)" "$(CURDIR)/tools/package.py" zip \
-				"$$repo.zip" *.c4z *.pdf); \
+				"$$repo.zip" c4z docs source); \
 	done
 
 # ─── Test ─────────────────────────────────────────────────────────────────────

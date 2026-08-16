@@ -40,47 +40,9 @@ local PROJECT = {
   [400] = { deviceName = "Desk Lamp", driverFileName = "light_v2.c4i", roomId = "1", roomName = "Office" },
 }
 
---- @type table<integer, boolean>
-local hidden = {}
-
-C4 = C4 or {}
-
-function C4:GetDevices(filter)
-  local deviceId = tonumber(filter and filter.DeviceIds)
-  local device = deviceId ~= nil and not hidden[deviceId] and PROJECT[deviceId] or nil
-  if device == nil then
-    return {}
-  end
-  if filter.C4iNames ~= nil then
-    local matched = false
-    for c4iName in string.gmatch(filter.C4iNames, "([^,]+)") do
-      if c4iName == device.driverFileName then
-        matched = true
-        break
-      end
-    end
-    if not matched then
-      return {}
-    end
-  end
-  return { [deviceId] = device }
-end
-
-function C4:GetDeviceDisplayName(deviceId)
-  deviceId = tonumber(deviceId)
-  local device = deviceId ~= nil and not hidden[deviceId] and PROJECT[deviceId] or nil
-  return device and device.deviceName or ""
-end
-
---- `src/constants.lua` is driver-specific, so it does not exist in the template
---- itself and `make test` cannot load utils.lua in a bare render. utils.lua
---- reads only HIDE_PROPERTY / SHOW_PROPERTY from it, in CheckMinimumVersion,
---- which this suite never calls -- so stub it unconditionally rather than
---- branching on whether a real one is present. Branching would let the same
---- source report two different truths depending on where it is checked out.
-package.preload["constants"] = function()
-  return { SHOW_PROPERTY = 0, HIDE_PROPERTY = 1 }
-end
+-- The shim owns C4:GetDevices / GetDeviceDisplayName, reading this project.
+require("c4_shim")
+ShimSetDevices(PROJECT)
 
 require("lib.utils")
 
@@ -138,9 +100,9 @@ end
 print("\n[4] A device's identifier survives another device failing to resolve")
 do
   local before = indexOf("100,200,300,400")
-  hidden[200] = true
+  ShimSetDeviceHidden(200, true)
   local after = indexOf("100,200,300,400")
-  hidden[200] = nil
+  ShimSetDeviceHidden(200, false)
 
   check("200 resolved before it was hidden", before[200] == 2, describe(before))
   check("200 is gone while hidden", after[200] == nil, describe(after))

@@ -38,10 +38,10 @@ then pull the change in with `copier update`.
 
 - `JSON.lua`: JSON encoder/decoder
 - `deferred.lua`: promises/deferred implementation
-- `cloud-client-byte.lua`: DriverCentral cloud licensing
-- `version.lua`: semver comparison (used by github-updater)
 - `drivers-common-public/`: Control4's official shared libraries
 - `xml/`: XML parser (xml2lua)
+- `cloud-client-byte.lua`: DriverCentral cloud licensing
+- `version.lua`: semver comparison (used by github-updater)
 - `bitn.lua`: bit manipulation library
 - `crypto.lua`: cryptographic primitives (core build; requires `bitn`)
 - `bthome.lua`: BTHome protocol support
@@ -157,7 +157,11 @@ on a clean tree until something has populated `build/`.
 1. **Update driver.xml**: stamp version date and modified timestamp
 1. **Generate docs**: Markdown -> HTML -> PDF, plus README
 1. **Package**: run driverpackager to create .c4z files
-1. **Zip**: bundle .c4z and .pdf files per distribution
+1. **Zip**: bundle the c4z, docs and source folders per distribution
+
+Each distribution's outputs are grouped by type under `dist/<distribution>/`:
+`c4z/` (packaged drivers), `docs/` (generated PDFs) and `source/` (the squished
+per-driver Lua). `<repo>.zip` sits alongside them and contains all three.
 
 Step 1 rewrites tracked files in place. Formatting covers `tools/*.py`, all Lua
 under `drivers/`, `src/`, `test/`, `tools/` and `vendor/`, and every Markdown

@@ -25,6 +25,9 @@
 
 local log = require("lib.logging")
 
+require("drivers-common-public.global.lib")
+require("lib.utils")
+
 --- A utility class for storing and retrieving values from the controller's persistence store.
 --- @class Persist
 --- @field _persist table<string, any> A table to store the cached values.

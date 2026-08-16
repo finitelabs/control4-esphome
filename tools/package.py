@@ -9,8 +9,9 @@ Subcommands:
       Set /devicedata/<version|modified> text in place, preserving the rest of
       the file byte-for-byte. (replaces: xmlstarlet edit --inplace)
 
-  package.py zip <output.zip> <file>...
-      Create a zip of the given files (stored flat, basenames).
+  package.py zip <output.zip> <path>...
+      Create a zip of the given paths. Files are stored flat by basename;
+      directories are added recursively, preserving their relative paths.
       (replaces: the `zip` CLI)
 """
 
@@ -43,10 +44,18 @@ def xml_set(xml_path: Path, tag: str, value: str) -> None:
     xml_path.write_text(new_text, encoding="utf-8")
 
 
-def make_zip(output_path: Path, files: list[Path]) -> None:
+def make_zip(output_path: Path, inputs: list[str]) -> None:
     with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in files:
-            zf.write(f, arcname=f.name)
+        for item in inputs:
+            p = Path(item)
+            if p.is_dir():
+                for f in sorted(p.rglob("*")):
+                    if f.is_file():
+                        zf.write(f, arcname=f.as_posix())
+            elif p.is_file():
+                zf.write(p, arcname=p.name)
+            else:
+                raise FileNotFoundError(f"zip: no such file or directory: {item}")
 
 
 def main() -> int:
@@ -57,7 +66,7 @@ def main() -> int:
     elif cmd == "xml-set" and len(rest) == 3:
         xml_set(Path(rest[0]).resolve(), rest[1], rest[2])
     elif cmd == "zip" and len(rest) >= 2:
-        make_zip(Path(rest[0]).resolve(), [Path(p).resolve() for p in rest[1:]])
+        make_zip(Path(rest[0]).resolve(), rest[1:])
     else:
         print(__doc__, file=sys.stderr)
         return 1
