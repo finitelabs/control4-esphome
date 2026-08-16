@@ -7,6 +7,10 @@ local lru = require("lib.lru")
 
 local constants = require("constants")
 
+require("drivers-common-public.global.lib")
+require("drivers-common-public.global.handlers")
+require("drivers-common-public.global.timer")
+
 --- @alias DeviceId integer|string
 
 do
@@ -78,12 +82,35 @@ function CheckMinimumVersion(statusProperty)
   return true
 end
 
+--- Undocumented hook: C4:FileSetDir rejects the C4Z_ROOT alias until this key is passed.
+--- Not every controller OS accepts the key, so it is pcall'd; a rejection then fails on the
+--- alias itself, as it did before this unlock, instead of erroring out of the caller.
+local C4Z_ROOT_UNLOCK_KEY = "c29tZXNwZWNpYWxrZXk=++11"
+
+--- Unlocks the C4Z_ROOT alias. Required before C4:FileSetDir can address any driver
+--- directory other than the running driver's own.
+function UnlockC4ZRoot()
+  pcall(function()
+    C4:FileSetDir(C4Z_ROOT_UNLOCK_KEY)
+  end)
+end
+
 --- Gets the version of a driver from its driver.xml file.
 --- @param filename string The filename of the driver.
 --- @return string|nil version The version of the driver, or nil if not found.
 function GetDriverVersion(filename)
   local basename, _ = filename:match("(.*)%.(.*)")
-  C4:FileSetDir("C4Z_ROOT", basename)
+  --- C4:GetDriverFileName is absent on some controller OS versions; without it every
+  --- filename takes the C4Z_ROOT path, which is what this function did previously.
+  local runningFilename = C4.GetDriverFileName and C4:GetDriverFileName()
+  local runningBasename = runningFilename and (runningFilename:match("(.*)%.(.*)") or runningFilename)
+  if basename ~= nil and basename == runningBasename then
+    --- The C4Z alias resolves to the running driver's own directory and needs no unlock.
+    C4:FileSetDir("C4Z")
+  else
+    UnlockC4ZRoot()
+    C4:FileSetDir("C4Z_ROOT", basename)
+  end
   return Select(ParseXml(FileRead("driver.xml")) or {}, "devicedata", "version") or nil
 end
 

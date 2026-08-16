@@ -59,6 +59,6 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            dist/oss/*.c4z
-            dist/oss/*.pdf
+            dist/oss/c4z/*.c4z
+            dist/oss/docs/*.pdf
             dist/oss/*.zip

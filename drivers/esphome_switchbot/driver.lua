@@ -8,7 +8,6 @@ require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
-require("drivers-common-public.global.url")
 
 JSON = require("JSON")
 

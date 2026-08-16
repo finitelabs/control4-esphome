@@ -12520,7 +12520,7 @@ local crypto = {
 local openssl_wrapper = crypto.openssl_wrapper
 
 --- Library version (injected at build time for releases).
-local VERSION = "v0.2.0"
+local VERSION = "v0.2.1"
 
 --- Enable or disable OpenSSL acceleration for the primitives that support it
 --- (hashing and AEAD). Opt-in and safe: when the lua-openssl binding is

@@ -113,7 +113,7 @@ for _, mod in ipairs(modules) do
 end
 
 table.insert(lines, "")
-table.insert(lines, string.format('Output "../../../../dist/%s/%s.lua"', condition, driver_name))
+table.insert(lines, string.format('Output "../../../../dist/%s/source/%s.lua"', condition, driver_name))
 table.insert(lines, 'Option "minify" "true"')
 table.insert(lines, 'Option "minify_level" "none"')
 table.insert(lines, 'Option "minify_comments" "true"')

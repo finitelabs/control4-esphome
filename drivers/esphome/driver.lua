@@ -22,7 +22,6 @@ require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
-require("drivers-common-public.global.url")
 
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
@@ -151,8 +150,6 @@ function OnDriverLateInit()
   -- selection is persisted configuration, so it must not wait on the connect
   -- that detects proxy support.
   bluetoothProxyCapability:registerDeviceSelectionProperty()
-
-  C4:FileSetDir("c29tZXNwZWNpYWxrZXk=++11")
 
   -- Fire OnPropertyChanged to set the initial Headers and other Property
   -- global sets, they'll change if Property is changed.

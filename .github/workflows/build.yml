@@ -53,6 +53,9 @@ jobs:
       - name: Initialize project
         run: make init
 
+      - name: Check formatting
+        run: make check
+
       - name: Test
         run: make test
 
@@ -62,13 +65,13 @@ jobs:
       - name: Verify PDFs were generated
         run: |
           for build in drivercentral oss; do
-            pdf_count=$(find "dist/$build" -name '*.pdf' 2>/dev/null | wc -l)
+            pdf_count=$(find "dist/$build/docs" -name '*.pdf' 2>/dev/null | wc -l)
             if [ "$pdf_count" -eq 0 ]; then
-              echo "::error::No PDF files found in dist/$build"
-              ls -la "dist/$build/" || true
+              echo "::error::No PDF files found in dist/$build/docs"
+              ls -la "dist/$build/docs/" || true
               exit 1
             fi
-            echo "Found $pdf_count PDF(s) in dist/$build"
+            echo "Found $pdf_count PDF(s) in dist/$build/docs"
           done
 
       - name: Check for dirty tree

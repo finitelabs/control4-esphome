@@ -6,6 +6,9 @@ local log = require("lib.logging")
 local deferred = require("deferred")
 local version = require("version")
 
+require("lib.utils")
+require("drivers-common-public.global.lib")
+
 --- Utility class for updating drivers from GitHub releases.
 --- @class GitHubUpdater
 local GitHubUpdater = {}
@@ -138,6 +141,9 @@ function GitHubUpdater:downloadOutdatedDrivers(dir, repo, driverFilenames, inclu
         if downloadSize < 1 then
           return reject(string.format("asset %s download is empty", asset.name))
         end
+        -- GetDriverVersion only unlocks C4Z_ROOT for companion drivers, so a project running
+        -- one driver from this repo reaches the write with the alias still locked.
+        UnlockC4ZRoot()
         C4:FileSetDir(dir)
         local currentContents = C4:FileExists(asset.name) and FileRead(asset.name) or nil
         if FileWrite(asset.name, response.body, true) == -1 then
