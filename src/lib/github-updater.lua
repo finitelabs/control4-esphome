@@ -191,9 +191,26 @@ function GitHubUpdater:updateAll(repo, driverFilenames, includePrereleases, forc
         return d:resolve(downloadedDriverFilenames)
       end
 
+      -- Update the running driver's own c4z LAST: reloading it tears down this
+      -- loop (and its socket) before the remaining companions are sent, which
+      -- strands them a version behind.
+      local ownFilename = C4.GetDriverFileName and C4:GetDriverFileName()
+      local updateOrder = {}
+      local ownFilenameToUpdate
+      for _, driverFilename in pairs(downloadedDriverFilenames) do
+        if driverFilename == ownFilename then
+          ownFilenameToUpdate = driverFilename
+        else
+          table.insert(updateOrder, driverFilename)
+        end
+      end
+      if ownFilenameToUpdate ~= nil then
+        table.insert(updateOrder, ownFilenameToUpdate)
+      end
+
       C4:CreateTCPClient()
         :OnConnect(function(client)
-          for _, driverFilename in pairs(downloadedDriverFilenames) do
+          for _, driverFilename in ipairs(updateOrder) do
             local c4soap = XMLTag(
               "c4soap",
               XMLTag("param", driverFilename, nil, nil, {
