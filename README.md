@@ -906,6 +906,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added the konnected Smart Garage Door Opener to the verified devices, and
+  generalized the ratgdo setup into a shared Garage Door Configuration guide
+  that covers both.
+
 ### Fixed
 
 - Fixed Bluetooth proxies logging a spurious "Property 'Select Bluetooth
