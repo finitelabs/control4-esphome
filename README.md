@@ -87,12 +87,13 @@ If you try this driver on a product listed above, and it works, let us know!
 When used as a Bluetooth proxy, this driver supports the following BLE device
 types through sub-drivers:
 
-| Protocol    | Sub-Driver        | Example Devices                                      |
-| ----------- | ----------------- | ---------------------------------------------------- |
-| SwitchBot   | ESPHome SwitchBot | Bot, Plug Mini, Relay Switch, Meter, Motion, Contact |
-| BTHome      | ESPHome BTHome    | Shelly BLU Button/Door/Motion/H&T, DIY sensors       |
-| Govee       | ESPHome Govee     | Temperature/humidity monitors, meat thermometers     |
-| Yale/August | ESPHome Yale      | Yale and August smart locks                          |
+| Protocol    | Sub-Driver          | Example Devices                                      |
+| ----------- | ------------------- | ---------------------------------------------------- |
+| SwitchBot   | ESPHome SwitchBot   | Bot, Plug Mini, Relay Switch, Meter, Motion, Contact |
+| BTHome      | ESPHome BTHome      | Shelly BLU Button/Door/Motion/H&T, DIY sensors       |
+| Govee       | ESPHome Govee       | Temperature/humidity monitors, meat thermometers     |
+| Yale/August | ESPHome Yale        | Yale and August smart locks                          |
+| SereneScent | ESPHome SereneScent | Homedics SereneScent Diffuser                        |
 
 See the individual sub-driver documentation for device-specific details.
 
@@ -905,6 +906,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 -->
 
 ## Unreleased
+
+### Added
+
+- Added ESPHome SereneScent sub-driver for Homedics SereneScent BLE diffusers
+  with power, intensity, color control, and automatic status polling
 
 ### Fixed
 

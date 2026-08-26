@@ -11,6 +11,7 @@ local BTHome = require("bthome")
 local Govee = require("esphome.ble.parsers.govee")
 local SwitchBot = require("esphome.ble.parsers.switchbot")
 local Yale = require("esphome.ble.parsers.yale")
+local SereneScent = require("esphome.ble.parsers.serenescent")
 local UUID = require("esphome.ble.uuid")
 
 --- Persistence key for discovered devices
@@ -117,6 +118,8 @@ local BINDING_CLASSES = {
   [Govee.DEVICE_NAMES[Govee.DeviceModel.H5198]] = "ESPHOME_GOVEE",
   -- Yale/August locks
   [Yale.DEVICE_NAMES.LOCK] = "ESPHOME_YALE",
+  -- Homedics SereneScent diffuser
+  [SereneScent.DEVICE_NAMES.DIFFUSER] = "ESPHOME_SERENESCENT",
 }
 
 --- Device types that require active GATT connections (use a connection slot).
@@ -130,6 +133,7 @@ local ACTIVE_DEVICES = {
   [SwitchBot.DEVICE_NAMES[SwitchBot.DeviceTypeCode.RELAY_2PM]] = true,
   -- Yale/August locks (require GATT connection for control)
   [Yale.DEVICE_NAMES.LOCK] = true,
+  [SereneScent.DEVICE_NAMES.DIFFUSER] = true,
 }
 
 --- Filter functions that determine which BLE advertisements to include in discovery.
@@ -309,6 +313,12 @@ local DEVICE_DERIVERS = {
     name = "Yale",
     derive = function(message)
       return Select(Yale.parse(message.serviceData, message.manufacturerData), "deviceType")
+    end,
+  },
+  {
+    name = "SereneScent",
+    derive = function(message)
+      return Select(SereneScent.parse(message.serviceUuids, message.name), "deviceType")
     end,
   },
 }
