@@ -913,25 +913,55 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added presets to the climate driver. A preset stores a setpoint, HVAC mode,
+  fan mode and vane position, and can be applied from the app or from
+  programming.
+- Added preset scheduling. Presets can be scheduled by weekday and time, and the
+  schedule survives a controller restart.
+- Added holds. Changing the thermostat by hand holds the new setting until the
+  next scheduled event, which then releases it.
+- Added vane control for climate devices that report swing modes, in the Extras
+  tab.
+
+### Changed
+
+- Climate devices that report a single setpoint now show one setpoint instead of
+  a heat and cool pair. Most heat pumps and mini splits work this way: they hold
+  one target and decide internally whether to heat or cool toward it, so the
+  pair could never be honored. Auto is unaffected. Any preset saved before this
+  release that carried separate heat and cool setpoints needs its setpoint
+  entering again.
+
 ### Fixed
+
+- Fixed the climate driver's temperature and humidity outputs appearing as audio
+  connections in Composer instead of control connections.
 
 - Fixed an automatic update sometimes leaving companion drivers on the previous
   version until the next update, which could make them stop responding in the
   meantime.
+
 - Fixed thermostats and water heaters always showing Fahrenheit. They now follow
   the project's temperature scale, and the Celsius/Fahrenheit setting in
   Composer can be used to override it for an individual thermostat.
+
 - Fixed thermostats and water heaters keeping their own copy of the
   Celsius/Fahrenheit choice, which could disagree with the one Control4 holds.
   The scale is now read back from Control4 whenever it is needed, so a change
   made in Navigator is picked up straight away.
+
 - Fixed thermostats and water heaters staying shown as connected after the
   ESPHome device went offline.
+
 - Fixed an "Error setting default color rate from driver" message in Composer
   when opening the properties of an ESPHome light.
+
 - Fixed Composer's test panel greying out the dimming controls for ESPHome
   lights that do support brightness. Dimming from the Control4 app was never
   affected.
+
 - Fixed lights, thermostats, water heaters, fans and locks still showing as
   connected after the ESPHome driver's IP address, port or credentials were
   changed or cleared. They now go offline with the device until it reconnects.

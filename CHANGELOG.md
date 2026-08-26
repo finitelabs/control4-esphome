@@ -18,11 +18,35 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
-<!-- #ifndef DRIVERCENTRAL -->
-
 ## Unreleased
 
+### Added
+
+- Added presets to the climate driver. A preset stores a setpoint, HVAC mode,
+  fan mode and vane position, and can be applied from the app or from
+  programming.
+- Added preset scheduling. Presets can be scheduled by weekday and time, and the
+  schedule survives a controller restart.
+- Added holds. Changing the thermostat by hand holds the new setting until the
+  next scheduled event, which then releases it.
+- Added vane control for climate devices that report swing modes, in the Extras
+  tab.
+
+### Changed
+
+- Climate devices that report a single setpoint now show one setpoint instead of
+  a heat and cool pair. Most heat pumps and mini splits work this way: they hold
+  one target and decide internally whether to heat or cool toward it, so the
+  pair could never be honored. Auto is unaffected. Any preset saved before this
+  release that carried separate heat and cool setpoints needs its setpoint
+  entering again.
+
 ### Fixed
+
+- Fixed the climate driver's temperature and humidity outputs appearing as audio
+  connections in Composer instead of control connections.
+
+<!-- #ifndef DRIVERCENTRAL -->
 
 - Fixed an automatic update sometimes leaving companion drivers on the previous
   version until the next update, which could make them stop responding in the
