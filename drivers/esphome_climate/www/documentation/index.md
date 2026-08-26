@@ -46,6 +46,11 @@ thermostat proxy.
     - [Driver Settings](#driver-settings)
     - [Remote Sensor Properties](#remote-sensor-properties)
   - [Connections](#connections)
+- [Setpoints](#setpoints)
+- [Presets and Scheduling](#presets-and-scheduling)
+  - [Scheduling](#scheduling)
+  - [Holds](#holds)
+- [Vane Control](#vane-control)
 - [Remote Temperature Sensor](#remote-temperature-sensor)
   - [ESPHome Configuration](#esphome-configuration)
 - [Water Heater Support](#water-heater-support)
@@ -71,7 +76,11 @@ thermostat proxy.
 
 - Control4 ThermostatV2 proxy integration for native thermostat control
 - HVAC mode control (Off, Heat, Cool, Auto, Fan Only, Dry)
-- Dual setpoint (heat/cool) and single setpoint mode support
+- Setpoint model matched to the device: one setpoint for devices that hold a
+  single target, separate heat and cool setpoints for devices that hold two
+- Presets storing setpoint, HVAC mode, fan mode and vane position
+- Preset scheduling by weekday and time, with holds
+- Vane control through the thermostat Extras section
 - Fan mode control (standard and custom ESPHome fan modes)
 - Humidity monitoring and setpoint control
 - Water heater entity support with operating mode selection via extras
@@ -90,6 +99,9 @@ This driver works with any ESPHome device that exposes a `climate` or
 - **ESPHome `bang_bang` platform** - Simple on/off climate control
 - **ESPHome `water_heater` platform** - Water heater control with operating
   modes (Eco Mode, Electric, Performance, Heat Pump, High Demand, Gas)
+- **ESPHome `mitsubishi_cn105` platform** - Mitsubishi mini-splits over the
+  CN105 connector, with a single target temperature, vane control, and the
+  Middle and Quiet fan speeds
 
 Compatible third-party ESPHome components:
 
@@ -202,6 +214,74 @@ values.
 
 Outputs the climate device's current humidity reading to other Control4 drivers
 via a `HUMIDITY_VALUE` connection.
+
+# <span style="color:#17BCF2">Setpoints</span>
+
+The number of setpoints the thermostat shows is taken from the climate entity
+itself, not from the modes the device offers.
+
+- **Single setpoint**: the device holds one target temperature and decides
+  internally whether to heat or cool toward it. Most mini-splits, heat pumps and
+  infrared controlled units work this way. The thermostat shows one setpoint in
+  every mode, including Auto.
+- **Heat and cool setpoints**: the device holds two independent targets. The
+  ESPHome `thermostat` platform is the usual example. The thermostat shows a
+  heat setpoint and a cool setpoint, with a deadband enforced between them.
+
+A device that lists both Heat and Cool among its modes does not necessarily hold
+two setpoints, so the mode list is not used to decide this.
+
+> **Note:** On a single setpoint device, presets saved by an earlier version of
+> this driver stored a separate heat and cool value. Those values are no longer
+> shown in the preset editor. Open each saved preset after updating and set its
+> setpoint again.
+
+# <span style="color:#17BCF2">Presets and Scheduling</span>
+
+A preset stores a complete comfort setting and applies it in one step. Presets
+are created and edited from the thermostat in the Control4 app or Navigator.
+
+Each preset can carry:
+
+- **Setpoint**: one target temperature, or a heat and cool pair, matching what
+  the device holds (see [Setpoints](#setpoints))
+- **HVAC mode**: Off, Heat, Cool, Auto, Fan Only or Dry, limited to the modes
+  the device reports
+- **Fan mode**: any speed the device reports, including device specific speeds
+  such as Middle and Quiet
+- **Vane position**: the swing setting, on devices that report one
+
+A preset applies only the fields it defines. Leaving a field unset leaves that
+aspect of the device untouched.
+
+## Scheduling
+
+Presets can be scheduled by weekday and time. The driver keeps the schedule
+itself and applies the scheduled preset at the minute it falls due, so a
+schedule keeps running after a controller restart.
+
+Saving a schedule does not apply its preset straight away. The preset is applied
+when its scheduled time arrives.
+
+## Holds
+
+Changing the thermostat by hand while a scheduled preset is in force raises a
+hold. The thermostat shows **Until Next**, and the change stays in place until
+the next scheduled event, which releases the hold and applies its own preset.
+
+Returning the thermostat to the values of the preset that is in force clears the
+hold on its own, without waiting for the next event.
+
+# <span style="color:#17BCF2">Vane Control</span>
+
+Climate devices that report swing modes expose a vane selector in the
+thermostat's **Extras** section in the Control4 UI. The positions offered come
+from the device, and are typically Off, Vertical, Horizontal and Both.
+
+The vane position can also be stored in a preset, so a scheduled preset can set
+the vane along with the setpoint, mode and fan speed.
+
+Devices that report no swing modes show no vane selector.
 
 # <span style="color:#17BCF2">Remote Temperature Sensor</span>
 
