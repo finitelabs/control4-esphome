@@ -280,13 +280,11 @@ test("Two-point devices get low/high, never target_temperature", function()
   end
 end)
 
-test("GUARD: a heat+cool device stays DUAL even though it has one target", function()
-  -- Tempting "fix": single = not supports_two_point_target_temperature.
-  -- It is wrong. Single-setpoint mode forces can_heat/can_cool/can_auto false
-  -- ("should be set to false if this option is used"), and with CAN_AUTO false
-  -- the proxy stops honouring Auto - selecting Auto in the app turned the head
-  -- OFF on real hardware. C4's single-setpoint model is for devices with no
-  -- mode distinctions. This test exists to stop that change being made again.
+test("The setpoint model follows what the entity declares", function()
+  -- supports_two_point_target_temperature is the device's own declaration, not a
+  -- guess. A mini-split offers HEAT and COOL as modes while holding ONE target,
+  -- so mode support must not be used to infer setpoint count. Auto survives via
+  -- hvac_modes, which is published independently of these capabilities.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -299,8 +297,10 @@ test("GUARD: a heat+cool device stays DUAL even though it has one target", funct
   end
   check(caps ~= nil, "setpoint capabilities published")
   if caps then
-    check(caps.HAS_SINGLE_SETPOINT == false, "heat+cool device reports DUAL, preserving Auto")
-    check(caps.CAN_AUTO == true, "CAN_AUTO stays true or the proxy drops Auto to Off")
+    check(caps.HAS_SINGLE_SETPOINT == true, "one-target device reports SINGLE even with heat+cool modes")
+    check(caps.CAN_HEAT == false, "C4 requires can_heat false alongside has_single_setpoint")
+    check(caps.CAN_COOL == false, "C4 requires can_cool false alongside has_single_setpoint")
+    check(caps.CAN_AUTO == false, "C4 requires can_do_auto false alongside has_single_setpoint")
   end
 
   -- A genuine two-point device must keep its pair.
@@ -314,6 +314,9 @@ test("GUARD: a heat+cool device stays DUAL even though it has one target", funct
     end
   end
   check(dual ~= nil and dual.HAS_SINGLE_SETPOINT == false, "supports_two_point device stays DUAL")
+  -- A real two-point device keeps whatever deadband the proxy wants; we must
+  -- not flatten a device that genuinely holds two independent setpoints.
+  check(dual ~= nil and dual.CAN_AUTO == true, "a real two-point device keeps heat/cool/auto")
 end)
 
 test("Preset field template is pushed and matches the setpoint mode", function()
@@ -325,12 +328,13 @@ test("Preset field template is pushed and matches the setpoint mode", function()
   check(tpl ~= nil, "PRESET_FIELDS_CHANGED emitted")
   if tpl then
     local xml = tpl.params.XML
-    -- The proxy runs dual for this device (see the GUARD test), so the template
-    -- must carry heat/cool. Offering single_setpoint here would render nothing
-    -- AND orphan the values in every already-saved preset.
-    check(xml:find('id="heat_setpoint_c"', 1, true) ~= nil, "heat_setpoint_c offered")
-    check(xml:find('id="cool_setpoint_c"', 1, true) ~= nil, "cool_setpoint_c offered")
-    check(xml:find("single_setpoint", 1, true) == nil, "single_setpoint NOT offered in dual mode")
+    -- This device declares one target, so the proxy runs single and the template
+    -- must carry single_setpoint. Offering heat/cool here would render fields the
+    -- device cannot honour and silently discard one of the two on apply.
+    check(xml:find('id="single_setpoint_c"', 1, true) ~= nil, "single_setpoint_c offered")
+    check(xml:find('id="single_setpoint_f"', 1, true) ~= nil, "single_setpoint_f offered")
+    check(xml:find("heat_setpoint", 1, true) == nil, "heat_setpoint NOT offered in single mode")
+    check(xml:find("cool_setpoint", 1, true) == nil, "cool_setpoint NOT offered in single mode")
     check(xml:find('id="hvac_mode"', 1, true) ~= nil, "hvac_mode offered")
     check(xml:find('id="fan_mode"', 1, true) ~= nil, "fan_mode offered")
     check(xml:find('id="swing"', 1, true) ~= nil, "swing offered")

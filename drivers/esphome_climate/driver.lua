@@ -321,19 +321,18 @@ local function detectSetpointCaps(entity)
       can_auto = true
     end
   end
-  -- DO NOT "correct" this to `not entity.supports_two_point_target_temperature`.
-  -- It looks like this conflates mode support with setpoint count, and
-  -- technically it does - a mini-split offers HEAT and COOL as modes yet holds
-  -- one target. But single-setpoint mode is not free: the proxy requires
-  -- "can_heat, can_cool and can_auto should be set to false if this option is
-  -- used", and with CAN_AUTO false the proxy stops honouring Auto - selecting it
-  -- in the app puts the device OFF (verified on hardware 2026-08-08).
-  -- C4's single-setpoint model targets devices with ONE setpoint and NO mode
-  -- distinctions, e.g. a radiator valve. A device that needs Heat/Cool/Auto AND
-  -- has one target is not representable, so we keep the dual-setpoint shape and
-  -- collapse both setpoints onto the single target (see applyPresetSetpoints and
-  -- SET_SETPOINT_HEAT/COOL). The visible cost is a zero-width deadband in Auto.
-  local single = not entity.supports_two_point_target_temperature and not (can_heat and can_cool)
+  -- The entity declares its own setpoint count. supports_two_point_target_temperature
+  -- is a field of ListEntitiesClimateResponse, set from the component's traits, and
+  -- when it is false the device has exactly one target_temperature - the low/high
+  -- fields are meaningless for it in every mode. Honour that declaration rather than
+  -- inferring setpoint count from mode support: a mini-split offers HEAT and COOL as
+  -- modes yet holds one target (CN105 carries a single temperature byte in its
+  -- write-settings packet, with AUTO being just another value of the mode byte).
+  -- The SDK requires can_heat, can_cool and can_do_auto to be false when
+  -- has_single_setpoint is set. Auto stays available regardless: it is carried by
+  -- hvac_modes, which sendCapabilities publishes independently of these capabilities.
+  -- Verified on a single-target head - Auto is selectable and holds.
+  local single = not entity.supports_two_point_target_temperature
   if single then
     can_heat = false
     can_cool = false
