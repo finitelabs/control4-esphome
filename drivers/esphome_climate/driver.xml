@@ -219,7 +219,7 @@
       <id>5010</id>
       <facing>6</facing>
       <connectionname>Temperature</connectionname>
-      <type>6</type>
+      <type>1</type>
       <consumer>False</consumer>
       <audiosource>False</audiosource>
       <videosource>False</videosource>
@@ -235,7 +235,7 @@
       <id>5012</id>
       <facing>6</facing>
       <connectionname>Humidity</connectionname>
-      <type>6</type>
+      <type>1</type>
       <consumer>False</consumer>
       <audiosource>False</audiosource>
       <videosource>False</videosource>
