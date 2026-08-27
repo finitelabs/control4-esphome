@@ -704,6 +704,28 @@ test("Preset setpoint fields follow the modes the device reports", function()
   check(caps ~= nil and caps.CAN_PRESET == true, "presets enabled at runtime once an entity attaches")
 end)
 
+test("Applying a preset announces it once, not twice", function()
+  -- applyPreset announces the preset it just sent; the device's state report
+  -- arrives a moment later and matches it. Without recording what was announced
+  -- the match counts as a transition and the app is told twice.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({ { name = "Cool 18", fields = { hvac_mode = "Cool", single_setpoint_c = "18" } } })
+
+  resetSent()
+  RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Cool 18" })
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 18 })
+
+  local announced = 0
+  for _, entry in ipairs(sent) do
+    if entry.command == "PRESET_CHANGED" and entry.params.NAME == "Cool 18" then
+      announced = announced + 1
+    end
+  end
+  checkEqual(announced, 1, "PRESET_CHANGED sent once across apply and confirmation")
+end)
+
 test("PRESET_CHANGED is sent on transitions only, including leaving a preset", function()
   -- Repeating the active preset on every state report is noise, and sending
   -- nothing once state moves off it leaves the app highlighting a preset the
