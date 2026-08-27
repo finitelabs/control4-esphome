@@ -240,7 +240,6 @@ function C4:Base64Decode(data, ...)
   end
 end
 
-
 --- Minimal XML parser mirroring what C4:ParseXml returns: a node carrying
 --- Attributes (name -> value) and ChildNodes (ordered array of child nodes).
 --- Covers the attribute-bearing XML that proxies exchange - preset lists,
@@ -255,18 +254,20 @@ end
 local XML_ENTITIES = { lt = "<", gt = ">", amp = "&", quot = '"', apos = "'" }
 
 local function xml_unescape(text)
-  return (text:gsub("&(#?%w+);", function(entity)
-    if entity:sub(1, 1) == "#" then
-      local code = tonumber(entity:sub(2))
-      return code and string.char(code) or ("&" .. entity .. ";")
-    end
-    return XML_ENTITIES[entity] or ("&" .. entity .. ";")
-  end))
+  return (
+    text:gsub("&(#?%w+);", function(entity)
+      if entity:sub(1, 1) == "#" then
+        local code = tonumber(entity:sub(2))
+        return code and string.char(code) or ("&" .. entity .. ";")
+      end
+      return XML_ENTITIES[entity] or ("&" .. entity .. ";")
+    end)
+  )
 end
 
 local function xml_attributes(raw)
   local attrs = {}
-  for name, value in raw:gmatch("([%w_:%-%.]+)%s*=%s*\"([^\"]*)\"") do
+  for name, value in raw:gmatch('([%w_:%-%.]+)%s*=%s*"([^"]*)"') do
     attrs[name] = xml_unescape(value)
   end
   for name, value in raw:gmatch("([%w_:%-%.]+)%s*=%s*'([^']*)'") do

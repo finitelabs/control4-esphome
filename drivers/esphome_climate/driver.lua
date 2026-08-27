@@ -51,6 +51,14 @@ local USER_SERVICES_DISCOVERED = false
 local IS_SINGLE_SETPOINT = false
 local LAST_WATER_HEATER_MODE = nil -- restored from persist in OnDriverLateInit
 
+--- Preset schedule, as delivered by SET_EVENTS.
+--- @type table[] Array of { preset = string, weekday = 0-6, hour = 0-23, minute = 0-59 }
+local SCHEDULE = {}
+local SCHEDULE_TIMER = nil
+--- Assigned with the preset handlers further down, but called from
+--- OnDriverLateInit, so it has to be in scope before that function is defined.
+local armScheduleTimer
+
 --- ESPHome ClimateMode -> C4 HVAC mode string
 local CLIMATE_MODE_TO_C4 = {
   [ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_OFF] = "Off",
@@ -368,6 +376,21 @@ end
 --- @param entity table The entity data.
 --- @param singleSetpoint boolean Whether the proxy is in single-setpoint mode.
 --- @return string xml
+--- Escape a value for use inside an XML attribute. Custom fan mode names come
+--- from the device's own YAML, so an ampersand or a quote in one would
+--- otherwise produce markup the proxy cannot parse.
+--- @param value any
+--- @return string
+local function xmlAttr(value)
+  local escaped = tostring(value)
+  escaped = escaped:gsub("&", "&amp;")
+  escaped = escaped:gsub("<", "&lt;")
+  escaped = escaped:gsub(">", "&gt;")
+  escaped = escaped:gsub('"', "&quot;")
+  escaped = escaped:gsub("'", "&apos;")
+  return escaped
+end
+
 local function buildPresetFieldsXml(entity, singleSetpoint)
   local minC = round(entity.visual_min_temperature or entity.min_temperature or 4)
   local maxC = round(entity.visual_max_temperature or entity.max_temperature or 32)
@@ -391,10 +414,31 @@ local function buildPresetFieldsXml(entity, singleSetpoint)
     numberField("single_setpoint_f", "Setpoint", minF, maxF, 1)
     numberField("single_setpoint_c", "Setpoint", minC, maxC, 0.5)
   else
-    numberField("heat_setpoint_f", "Heat Setpoint", minF, maxF, 1)
-    numberField("heat_setpoint_c", "Heat Setpoint", minC, maxC, 0.5)
-    numberField("cool_setpoint_f", "Cool Setpoint", minF, maxF, 1)
-    numberField("cool_setpoint_c", "Cool Setpoint", minC, maxC, 0.5)
+    -- Only offer a setpoint the device can actually act on. A two-point entity
+    -- that reports no HEAT mode has nothing to do with a heat setpoint, and
+    -- showing the field invites a preset that silently does nothing.
+    local offersHeat, offersCool = false, false
+    for _, mode in ipairs(entity.supported_modes or {}) do
+      if mode == ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_HEAT then
+        offersHeat = true
+      elseif mode == ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_COOL then
+        offersCool = true
+      elseif
+        mode == ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_HEAT_COOL
+        or mode == ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_AUTO
+      then
+        offersHeat = true
+        offersCool = true
+      end
+    end
+    if offersHeat then
+      numberField("heat_setpoint_f", "Heat Setpoint", minF, maxF, 1)
+      numberField("heat_setpoint_c", "Heat Setpoint", minC, maxC, 0.5)
+    end
+    if offersCool then
+      numberField("cool_setpoint_f", "Cool Setpoint", minF, maxF, 1)
+      numberField("cool_setpoint_c", "Cool Setpoint", minC, maxC, 0.5)
+    end
   end
 
   local function listField(id, label, values)
@@ -403,7 +447,7 @@ local function buildPresetFieldsXml(entity, singleSetpoint)
     end
     parts[#parts + 1] = string.format('<field id="%s" type="list" label="%s"><list>', id, label)
     for _, value in ipairs(values) do
-      parts[#parts + 1] = string.format('<item text="%s" value="%s"/>', value, value)
+      parts[#parts + 1] = string.format('<item text="%s" value="%s"/>', xmlAttr(value), xmlAttr(value))
     end
     parts[#parts + 1] = "</list></field>"
   end
@@ -487,6 +531,11 @@ local function sendCapabilities(entity)
   local setpointCaps = detectSetpointCaps(entity)
   IS_SINGLE_SETPOINT = setpointCaps.HAS_SINGLE_SETPOINT
   log:info("Single setpoint mode: %s", tostring(IS_SINGLE_SETPOINT))
+  -- can_preset defaults to false in driver.xml and is turned on here, once an
+  -- entity is actually attached. can_preset_schedule stays static: the SDK
+  -- documents can_preset as changeable through DYNAMIC_CAPABILITIES_CHANGED and
+  -- says nothing of the kind for can_preset_schedule.
+  setpointCaps.CAN_PRESET = true
   SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", setpointCaps, "NOTIFY")
 
   -- The preset template has to agree with the setpoint mode just published. A
@@ -579,7 +628,8 @@ local function sendCapabilities(entity)
       -- An absent swing_mode means the zero value (OFF), not "unknown" - falling
       -- back to the first advertised option would display the wrong state, since
       -- devices do not necessarily list OFF first.
-      local currentSwing = tointeger(Select(STATE, "swing_mode")) or ESPHomeProtoSchema.Enum.ClimateSwingMode.CLIMATE_SWING_OFF
+      local currentSwing = tointeger(Select(STATE, "swing_mode"))
+        or ESPHomeProtoSchema.Enum.ClimateSwingMode.CLIMATE_SWING_OFF
       local current = CLIMATE_SWING_MODE_TO_C4[currentSwing] or swingNames[1]
       local parts = {
         '<extras_setup><extra><section label="Swing">',
@@ -1006,6 +1056,8 @@ local SCHEDULED_PRESET = nil
 local HOLD_PRESET = nil
 --- Hold mode last reported, so only real transitions are sent.
 local HOLD_MODE = "Off"
+--- Preset last reported as active, so only real transitions are sent.
+local ACTIVE_PRESET = nil
 
 --- The proxy's own name for "hold until the next scheduled event". Control4's
 --- Residential Thermostat V2 handles "Next Event" while other shipping drivers
@@ -1014,17 +1066,6 @@ local HOLD_MODE = "Off"
 --- back; the declared hold_modes value is only the starting guess.
 local HOLD_UNTIL_NEXT = "Until Next"
 
---- Preset schedule, as delivered by SET_EVENTS.
---- @type table[] Array of { preset = string, weekday = 0-6, hour = 0-23, minute = 0-59 }
-local SCHEDULE = {}
-local SCHEDULE_TIMER = nil
---- Forward declaration: defined with the preset handlers below, but called from
---- OnDriverLateInit above them.
-local armScheduleTimer
-
-local SECONDS_PER_DAY = 86400
-local SECONDS_PER_WEEK = SECONDS_PER_DAY * 7
-
 --- Seconds from now until an event's next occurrence.
 --- Weekday is 0-6 with Sunday 0 (PRESET_EVENT_ADD); Lua's wday is 1-7 with
 --- Sunday 1, hence the -1.
@@ -1032,12 +1073,30 @@ local SECONDS_PER_WEEK = SECONDS_PER_DAY * 7
 --- @param now number Unix time to measure from.
 --- @return number seconds Always >= 1, so an event due right now fires once.
 local function secondsUntilEvent(event, now)
+  now = now or os.time()
   local t = os.date("*t", now)
-  local nowOffset = (t.wday - 1) * SECONDS_PER_DAY + t.hour * 3600 + t.min * 60 + t.sec
-  local eventOffset = event.weekday * SECONDS_PER_DAY + event.hour * 3600 + event.minute * 60
-  local delta = eventOffset - nowOffset
+
+  -- Resolve the occurrence as a real timestamp rather than a wall-clock offset.
+  -- os.time applies the DST rules in force on the target date, so an event on
+  -- the far side of a boundary still fires at the local time it was scheduled
+  -- for. Subtracting wall-clock offsets would arm the timer an hour out until
+  -- the next re-arm. os.time normalises an out-of-range day, so no month or
+  -- year arithmetic is needed here.
+  local function occurrenceAt(daysAhead)
+    return os.time({
+      year = t.year,
+      month = t.month,
+      day = t.day + daysAhead,
+      hour = event.hour,
+      min = event.minute,
+      sec = 0,
+    })
+  end
+
+  local daysAhead = (event.weekday - (t.wday - 1)) % 7
+  local delta = occurrenceAt(daysAhead) - now
   if delta < 1 then
-    delta = delta + SECONDS_PER_WEEK
+    delta = occurrenceAt(daysAhead + 7) - now
   end
   return delta
 end
@@ -1153,11 +1212,10 @@ local function applyPresetSetpoints(preset, body)
     return
   end
 
-  -- Single target_temperature on the device. The PROXY may still be in
-  -- heat/cool mode: detectSetpointCaps only reports HAS_SINGLE_SETPOINT when the
-  -- device is not two-point AND does not offer both heat and cool. A Mitsubishi
-  -- head offers both, so the preset carries heat/cool fields while the device
-  -- has one setpoint - the same collapse SET_SETPOINT_HEAT/COOL already perform.
+  -- Single target_temperature on the device, but the preset may still carry a
+  -- heat/cool pair: presets saved before this driver reported the device as
+  -- single-setpoint keep the field ids they were saved with. Collapse them onto
+  -- the one target, the same way SET_SETPOINT_HEAT/COOL already do.
   local chosen = chooseSingleSetpoint(preset)
   if chosen ~= nil then
     body.has_target_temperature = true
@@ -1279,9 +1337,7 @@ local function matchPreset(name)
   end
 
   if preset.swing ~= nil then
-    if
-      CLIMATE_SWING_MODE_TO_C4[stateEnum("swing_mode", ENTITY and ENTITY.supported_swing_modes)] ~= preset.swing
-    then
+    if CLIMATE_SWING_MODE_TO_C4[stateEnum("swing_mode", ENTITY and ENTITY.supported_swing_modes)] ~= preset.swing then
       return false
     end
   end
@@ -1299,14 +1355,25 @@ local function setHoldMode(mode)
 end
 
 --- Highlight whichever preset current state matches, so a preset the user
---- reached by hand still shows as active.
+--- reached by hand still shows as active. Reported only on a transition, the
+--- same shape as setHoldMode: repeating the current preset on every state report
+--- is noise, and leaving the last match standing once state moves off it leaves
+--- the app highlighting a preset the device has already left.
 local function matchAnyPreset()
+  local matched = nil
   for name in pairs(PRESETS) do
     if matchPreset(name) then
-      SendToProxy(PROXY_BINDING, "PRESET_CHANGED", { NAME = name }, "NOTIFY")
-      return
+      matched = name
+      break
     end
   end
+  if matched == ACTIVE_PRESET then
+    return
+  end
+  ACTIVE_PRESET = matched
+  -- "None" rather than an empty name: that is what Control4's own thermostat
+  -- sends when no preset is in force.
+  SendToProxy(PROXY_BINDING, "PRESET_CHANGED", { NAME = matched or "None" }, "NOTIFY")
 end
 
 --- Drop into "Until Next" when the user diverges from the scheduled preset, and
