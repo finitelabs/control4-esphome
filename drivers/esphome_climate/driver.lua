@@ -142,9 +142,28 @@ local C4_TO_CLIMATE_SWING_MODE = TableReverse(CLIMATE_SWING_MODE_TO_C4)
 --- Extras object id for the swing selector.
 local SWING_EXTRA_ID = "swingMode"
 
--- ESPHome climate presets (Home, Away, Eco, etc.) are not yet mapped to
--- the C4 preset system. The C4 preset UI requires preset_fields definitions
--- and PRESET_ADD to display correctly. See DRV-36 for implementation.
+-- The device's own ESPHome presets (Home, Away, Eco and the rest) are
+-- deliberately NOT mapped into the proxy's preset list, and this is a decision
+-- rather than a gap.
+--
+-- The API publishes which presets exist (supported_presets,
+-- supported_custom_presets) and which one is active, and nothing else. What a
+-- preset DOES is never published. On the thermostat platform its mode, both
+-- setpoints, fan and swing live in the device's YAML; on midea and haier a
+-- preset is only an enum the firmware interprets. Neither is readable from
+-- here, and there is no field in the entity contract that could carry it.
+--
+-- A proxy preset is a set of VALUES, so a preset standing in for a device
+-- preset can only carry the device preset itself. That preset then matches
+-- permanently: the device keeps reporting the preset after the user overrides
+-- the setpoint or the mode (measured on hardware, both cases), so matchPreset
+-- can never see divergence and a hold on such a preset would never engage. The
+-- driver would be claiming a preset is in force while the user has moved the
+-- temperature out from under it.
+--
+-- Presets and their schedule therefore live where their values are known: the
+-- ones the user configures in the app, which this driver applies field by
+-- field. That keeps a single source of truth for what a preset means.
 
 --- Temperature values are always sent in Celsius - ESPHome uses Celsius natively
 --- and the proxy converts to the user's display scale based on the SCALE param.
@@ -1272,6 +1291,9 @@ local function applyPreset(name)
 
   log:info("Applying preset '%s'", name)
   sendClimateCommand(body)
+  -- Record what was announced so the device's own state report, which arrives a
+  -- moment later and matches this preset, does not announce it a second time.
+  ACTIVE_PRESET = name
   SendToProxy(PROXY_BINDING, "PRESET_CHANGED", { NAME = name }, "NOTIFY")
   return true
 end
