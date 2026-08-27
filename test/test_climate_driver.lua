@@ -14,7 +14,11 @@
 --- execute and require("cloud-client-byte") would fail. The RFP handlers under
 --- test do not need it.
 
-local DRIVER = "../drivers/esphome_climate/driver.lua"
+-- Resolved against this file rather than the working directory: run_test.sh
+-- cds into test/, make test runs from the repo root, and dofile takes a path
+-- rather than going through LUA_PATH.
+local HERE = debug.getinfo(1, "S").source:match("^@(.*)/") or "."
+local DRIVER = HERE .. "/../drivers/esphome_climate/driver.lua"
 
 ---------------------------------------------------------------------------
 -- Tiny assertion harness
@@ -57,6 +61,18 @@ end
 Properties["Driver Status"] = ""
 Properties["Driver Version"] = ""
 
+-- OnDriverLateInit gates on CheckMinimumVersion, which reads driver config the
+-- shim answers with nil. Return what driver.xml declares so the restore path is
+-- reachable from a test.
+function C4:GetDriverConfigInfo(key)
+  local info = {
+    minimum_os_version = "3.3.0",
+    model = "ESPHome Climate",
+    version = "test",
+  }
+  return info[key]
+end
+
 dofile(DRIVER)
 
 local sent = {}
@@ -95,7 +111,6 @@ end
 local function resetSent()
   sent = {}
 end
-
 
 --- Most recent emission of a command, or nil.
 local function lastSent(command)
@@ -243,7 +258,10 @@ test("Applying a preset sends every field in one command", function()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.OFF })
   setPresets({
-    { name = "Movie Night", fields = { hvac_mode = "Cool", single_setpoint_c = "22", fan_mode = "Quiet", swing = "Vertical" } },
+    {
+      name = "Movie Night",
+      fields = { hvac_mode = "Cool", single_setpoint_c = "22", fan_mode = "Quiet", swing = "Vertical" },
+    },
   })
   resetSent()
 
@@ -263,7 +281,10 @@ end)
 
 test("Two-point devices get low/high, never target_temperature", function()
   resetSent()
-  updateState(dualSetpointEntity(), { mode = Mode.HEAT_COOL, target_temperature_low = 20, target_temperature_high = 24 })
+  updateState(
+    dualSetpointEntity(),
+    { mode = Mode.HEAT_COOL, target_temperature_low = 20, target_temperature_high = 24 }
+  )
   setPresets({
     { name = "Comfort", fields = { hvac_mode = "Auto", heat_setpoint_c = "20", cool_setpoint_c = "24" } },
   })
@@ -306,7 +327,10 @@ test("The setpoint model follows what the entity declares", function()
   -- A genuine two-point device must keep its pair.
   disconnect()
   resetSent()
-  updateState(dualSetpointEntity(), { mode = Mode.HEAT_COOL, target_temperature_low = 20, target_temperature_high = 24 })
+  updateState(
+    dualSetpointEntity(),
+    { mode = Mode.HEAT_COOL, target_temperature_low = 20, target_temperature_high = 24 }
+  )
   local dual = nil
   for _, entry in ipairs(sent) do
     if entry.command == "DYNAMIC_CAPABILITIES_CHANGED" and entry.params.HAS_SINGLE_SETPOINT ~= nil then
@@ -348,7 +372,10 @@ test("Preset field template is pushed and matches the setpoint mode", function()
   -- A real two-point device gets the opposite template.
   disconnect()
   resetSent()
-  updateState(dualSetpointEntity(), { mode = Mode.HEAT_COOL, target_temperature_low = 20, target_temperature_high = 24 })
+  updateState(
+    dualSetpointEntity(),
+    { mode = Mode.HEAT_COOL, target_temperature_low = 20, target_temperature_high = 24 }
+  )
   local dualTpl = lastSent("PRESET_FIELDS_CHANGED")
   check(dualTpl ~= nil, "template pushed for the two-point device too")
   if dualTpl then
@@ -647,6 +674,106 @@ test("An unknown preset name is refused, not silently applied", function()
 
   RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Nonexistent" })
   check(lastCommandBody() == nil, "no device command sent for an unknown preset")
+end)
+
+test("Preset setpoint fields follow the modes the device reports", function()
+  -- Offering a heat setpoint to a cool-only device invites a preset that
+  -- silently does nothing, so each setpoint field is gated on the mode that
+  -- would use it. can_preset is off in driver.xml and turned on here once an
+  -- entity is attached.
+  disconnect()
+  resetSent()
+  local coolOnly = dualSetpointEntity()
+  coolOnly.supported_modes = { Mode.OFF, Mode.COOL }
+  updateState(coolOnly, { mode = Mode.COOL, target_temperature_high = 24 })
+
+  local tpl = lastSent("PRESET_FIELDS_CHANGED")
+  check(tpl ~= nil, "PRESET_FIELDS_CHANGED emitted")
+  if tpl then
+    local xml = tpl.params.XML
+    check(xml:find("cool_setpoint_c", 1, true) ~= nil, "cool-capable device is offered a cool setpoint")
+    check(xml:find("heat_setpoint", 1, true) == nil, "cool-only device is NOT offered a heat setpoint")
+  end
+
+  local caps = nil
+  for _, entry in ipairs(sent) do
+    if entry.command == "DYNAMIC_CAPABILITIES_CHANGED" and entry.params.CAN_PRESET ~= nil then
+      caps = entry.params
+    end
+  end
+  check(caps ~= nil and caps.CAN_PRESET == true, "presets enabled at runtime once an entity attaches")
+end)
+
+test("PRESET_CHANGED is sent on transitions only, including leaving a preset", function()
+  -- Repeating the active preset on every state report is noise, and sending
+  -- nothing once state moves off it leaves the app highlighting a preset the
+  -- device has already left.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({ { name = "Cool 22", fields = { hvac_mode = "Cool", single_setpoint_c = "22" } } })
+
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  local first = lastSent("PRESET_CHANGED")
+  check(first ~= nil and first.params.NAME == "Cool 22", "entering a preset reports it")
+
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  check(lastSent("PRESET_CHANGED") == nil, "staying in the preset sends nothing further")
+
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 25 })
+  local left = lastSent("PRESET_CHANGED")
+  check(left ~= nil and left.params.NAME == "None", "leaving the preset clears it")
+end)
+
+test("Device supplied fan mode names are escaped before reaching the preset XML", function()
+  -- supported_custom_fan_modes comes straight from the device's YAML. An
+  -- ampersand or a quote in one would close the attribute early and hand the
+  -- proxy markup it cannot parse, taking the whole preset editor down with it.
+  disconnect()
+  resetSent()
+  local entity = singleSetpointEntity()
+  entity.supported_custom_fan_modes = { 'Turbo & "Boost"', "Eco<mode>" }
+  updateState(entity, { mode = Mode.COOL, target_temperature = 22 })
+
+  local tpl = lastSent("PRESET_FIELDS_CHANGED")
+  check(tpl ~= nil, "PRESET_FIELDS_CHANGED emitted")
+  if tpl then
+    local xml = tpl.params.XML
+    check(xml:find("Turbo &amp; &quot;Boost&quot;", 1, true) ~= nil, "ampersand and quotes escaped")
+    check(xml:find("Eco&lt;mode&gt;", 1, true) ~= nil, "angle brackets escaped")
+    check(xml:find('value="Turbo & "', 1, true) == nil, "no raw ampersand left in an attribute")
+    -- The escaped template has to survive a round trip through the parser the
+    -- driver uses on the way back in.
+    local parsed = C4:ParseXml(xml)
+    check(parsed ~= nil, "escaped template still parses")
+  end
+end)
+
+test("REGRESSION: a persisted schedule is restored without OnDriverLateInit throwing", function()
+  -- SCHEDULE, SCHEDULE_TIMER and armScheduleTimer were declared below
+  -- OnDriverLateInit, so the restore path resolved both to globals: the
+  -- assignment wrote a global nothing reads, and the call hit a nil. The driver
+  -- only reached it when a schedule had actually been persisted, and the
+  -- CONNECTION notify resent SET_EVENTS afterwards, so the schedule still ran
+  -- and the crash stayed invisible.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.OFF })
+  setPresets({ { name = "Night", fields = { hvac_mode = "Heat", single_setpoint_c = "18" } } })
+
+  -- Persist a schedule the way RFP.SET_EVENTS does, then reload.
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", {
+    XML = '<events><event preset="Night" weekday="1" hour="6" minute="30"/></events>',
+  })
+  check(C4:PersistGetValue("Schedule") ~= nil, "schedule was persisted")
+
+  TIMERS_ARMED = 0
+  local ok, err = pcall(OnDriverLateInit)
+  check(ok, "OnDriverLateInit does not throw with a persisted schedule" .. (ok and "" or ": " .. tostring(err)))
+  check(TIMERS_ARMED > 0, "the restored schedule arms a timer")
 end)
 
 ---------------------------------------------------------------------------
