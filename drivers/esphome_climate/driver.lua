@@ -146,10 +146,8 @@ local SWING_EXTRA_ID = "swingMode"
 -- preset list. Two facts drive that and neither is recoverable by reading this
 -- file: the API publishes which presets exist and which is active but never what
 -- a preset DOES, and a device goes on reporting its preset after the user
--- overrides the setpoint or the mode (measured on hardware, both cases). So a
--- proxy preset standing in for one could carry only its name, and would then
--- match permanently, leaving matchPreset unable to see divergence. Full
--- reasoning in the commit "Do not map the device's own ESPHome presets, and say
+-- overrides the setpoint or the mode (measured on hardware, both cases).
+-- Reasoning in the commit "Do not map the device's own ESPHome presets, and say
 -- why".
 
 --- Temperature values are always sent in Celsius - ESPHome uses Celsius natively
