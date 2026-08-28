@@ -275,8 +275,15 @@ test("Applying a preset sends every field in one command", function()
     checkEqual(body.fan_mode, Fan.QUIET, "fan QUIET")
     checkEqual(body.swing_mode, Swing.VERTICAL, "swing VERTICAL")
   end
+  -- The device's own report is what announces a preset, not the command going
+  -- out, so nothing is claimed until the device confirms.
+  check(lastSent("PRESET_CHANGED") == nil, "nothing announced before the device confirms")
+  updateState(
+    singleSetpointEntity(),
+    { mode = Mode.COOL, target_temperature = 22, fan_mode = Fan.QUIET, swing_mode = Swing.VERTICAL }
+  )
   local changed = lastSent("PRESET_CHANGED")
-  check(changed ~= nil and changed.params.NAME == "Movie Night", "PRESET_CHANGED names the preset")
+  check(changed ~= nil and changed.params.NAME == "Movie Night", "the confirming report names the preset")
 end)
 
 test("Two-point devices get low/high, never target_temperature", function()
@@ -702,6 +709,44 @@ test("Preset setpoint fields follow the modes the device reports", function()
     end
   end
   check(caps ~= nil and caps.CAN_PRESET == true, "presets enabled at runtime once an entity attaches")
+end)
+
+local function TableContainsValue(t, v)
+  for _, x in ipairs(t) do
+    if x == v then
+      return true
+    end
+  end
+  return false
+end
+
+test("An unrelated state report between apply and confirm does not clear the preset", function()
+  -- matchAnyPreset runs on EVERY climate state report, not only the one that
+  -- confirms the command. A thermostat pushes ambient temperature on its own
+  -- schedule through that same message, so a report can land after the command
+  -- and before the device has moved.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({ { name = "Cool 18", fields = { hvac_mode = "Cool", single_setpoint_c = "18" } } })
+
+  resetSent()
+  RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Cool 18" })
+  -- Ambient temperature report: the setpoint has NOT moved yet.
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22, current_temperature = 24 })
+  -- Now the device confirms.
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 18 })
+
+  local announced = {}
+  for _, entry in ipairs(sent) do
+    if entry.command == "PRESET_CHANGED" then
+      announced[#announced + 1] = entry.params.NAME
+    end
+  end
+  check(
+    not TableContainsValue(announced, "None"),
+    "the app is never told 'no preset' while the requested one is landing: " .. table.concat(announced, ", ")
+  )
 end)
 
 test("Applying a preset announces it once, not twice", function()
