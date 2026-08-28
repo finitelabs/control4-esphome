@@ -148,8 +148,9 @@ local SWING_EXTRA_ID = "swingMode"
 -- a preset DOES, and a device goes on reporting its preset after the user
 -- overrides the setpoint or the mode (measured on hardware, both cases). So a
 -- proxy preset standing in for one could carry only its name, and would then
--- match permanently, leaving matchPreset unable to see divergence. See the
--- commit that removed it for the full reasoning.
+-- match permanently, leaving matchPreset unable to see divergence. Full
+-- reasoning in the commit "Do not map the device's own ESPHome presets, and say
+-- why".
 
 --- Temperature values are always sent in Celsius - ESPHome uses Celsius natively
 --- and the proxy converts to the user's display scale based on the SCALE param.
@@ -1286,13 +1287,11 @@ local function applyPreset(name)
 
   log:info("Applying preset '%s'", name)
   sendClimateCommand(body)
-  -- No announcement here. The device's own state report is what tells the app a
-  -- preset is in force, through matchAnyPreset, and it is the only thing that
-  -- knows whether the preset actually took. Announcing on the way out sent it
-  -- twice, and pre-recording it to suppress the second announced "no preset" for
-  -- a round trip whenever an unrelated state report - a thermostat pushing
-  -- ambient temperature on its own schedule - landed before the device moved.
-  -- The cost is one round trip of highlight latency.
+  -- No announcement here: matchAnyPreset is the only emitter, so what the device
+  -- reports is what the app is told. Announcing on the way out cannot be made
+  -- safe, because a device pushes ambient temperature through the same climate
+  -- state message and such a report can land between the command and the device
+  -- moving.
   return true
 end
 
