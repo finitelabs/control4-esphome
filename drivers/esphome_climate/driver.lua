@@ -142,28 +142,14 @@ local C4_TO_CLIMATE_SWING_MODE = TableReverse(CLIMATE_SWING_MODE_TO_C4)
 --- Extras object id for the swing selector.
 local SWING_EXTRA_ID = "swingMode"
 
--- The device's own ESPHome presets (Home, Away, Eco and the rest) are
--- deliberately NOT mapped into the proxy's preset list, and this is a decision
--- rather than a gap.
---
--- The API publishes which presets exist (supported_presets,
--- supported_custom_presets) and which one is active, and nothing else. What a
--- preset DOES is never published. On the thermostat platform its mode, both
--- setpoints, fan and swing live in the device's YAML; on midea and haier a
--- preset is only an enum the firmware interprets. Neither is readable from
--- here, and there is no field in the entity contract that could carry it.
---
--- A proxy preset is a set of VALUES, so a preset standing in for a device
--- preset can only carry the device preset itself. That preset then matches
--- permanently: the device keeps reporting the preset after the user overrides
--- the setpoint or the mode (measured on hardware, both cases), so matchPreset
--- can never see divergence and a hold on such a preset would never engage. The
--- driver would be claiming a preset is in force while the user has moved the
--- temperature out from under it.
---
--- Presets and their schedule therefore live where their values are known: the
--- ones the user configures in the app, which this driver applies field by
--- field. That keeps a single source of truth for what a preset means.
+-- The device's own ESPHome presets are deliberately not mapped into the proxy's
+-- preset list. Two facts drive that and neither is recoverable by reading this
+-- file: the API publishes which presets exist and which is active but never what
+-- a preset DOES, and a device goes on reporting its preset after the user
+-- overrides the setpoint or the mode (measured on hardware, both cases). So a
+-- proxy preset standing in for one could carry only its name, and would then
+-- match permanently, leaving matchPreset unable to see divergence. See the
+-- commit that removed it for the full reasoning.
 
 --- Temperature values are always sent in Celsius - ESPHome uses Celsius natively
 --- and the proxy converts to the user's display scale based on the SCALE param.
@@ -671,6 +657,15 @@ local function sendCapabilities(entity)
     local whModeNames = buildWaterHeaterPresetNames(entity)
     if #whModeNames > 0 then
       SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", { HAS_EXTRAS = true }, "NOTIFY")
+      -- custom_preset is BORROWED here. A water heater entity publishes no
+      -- presets at all, only supported_modes of WaterHeaterMode; the bridge
+      -- collapses that to Off/Heat and puts the operating mode in custom_preset
+      -- so a climate-shaped driver can carry it (water_heater.lua). The mode is
+      -- orthogonal to the setpoint, which is why it is safe as an Extras
+      -- selector. The is_water_heater gate around every custom_preset read is
+      -- therefore load-bearing: a climate entity may legitimately advertise a
+      -- custom preset named "Eco" too, and without the gate the two are
+      -- indistinguishable at the point of use.
       local currentMode = Select(STATE, "custom_preset") or whModeNames[1]
       local extrasXml = '<extras_setup><extra><section label="Operating Mode">'
         .. '<object type="list" id="waterHeaterMode" label="Mode" command="SET_MODE_WATER_HEATER" value="'
@@ -1291,10 +1286,13 @@ local function applyPreset(name)
 
   log:info("Applying preset '%s'", name)
   sendClimateCommand(body)
-  -- Record what was announced so the device's own state report, which arrives a
-  -- moment later and matches this preset, does not announce it a second time.
-  ACTIVE_PRESET = name
-  SendToProxy(PROXY_BINDING, "PRESET_CHANGED", { NAME = name }, "NOTIFY")
+  -- No announcement here. The device's own state report is what tells the app a
+  -- preset is in force, through matchAnyPreset, and it is the only thing that
+  -- knows whether the preset actually took. Announcing on the way out sent it
+  -- twice, and pre-recording it to suppress the second announced "no preset" for
+  -- a round trip whenever an unrelated state report - a thermostat pushing
+  -- ambient temperature on its own schedule - landed before the device moved.
+  -- The cost is one round trip of highlight latency.
   return true
 end
 
@@ -1904,7 +1902,10 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     }, "NOTIFY")
   end
 
-  -- Water heater modes via extras
+  -- Water heater modes via extras. custom_preset carries the water heater's
+  -- operating mode, synthesized by the bridge, NOT a device preset. Keep every
+  -- read of it behind is_water_heater: a climate entity can advertise a custom
+  -- preset of the same name, and only the gate tells the two apart.
   local customPreset = Select(state, "custom_preset")
   if entity.is_water_heater and customPreset ~= nil and customPreset ~= "" then
     SendToProxy(PROXY_BINDING, "EXTRAS_STATE_CHANGED", {
