@@ -749,10 +749,12 @@ test("An unrelated state report between apply and confirm does not clear the pre
   )
 end)
 
-test("Applying a preset announces it once, not twice", function()
-  -- applyPreset announces the preset it just sent; the device's state report
-  -- arrives a moment later and matches it. Without recording what was announced
-  -- the match counts as a transition and the app is told twice.
+test("A preset is announced once, by the device's report", function()
+  -- One emitter: matchAnyPreset, driven by the state report. applyPreset sends
+  -- the command and says nothing, so the confirmation is the only announcement.
+  -- This catches an outbound announce being re-added without the suppression
+  -- that used to accompany it; the interleaving case at "An unrelated state
+  -- report between apply and confirm" is what pins the single-emitter design.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
