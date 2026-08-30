@@ -121,6 +121,16 @@ local function lastSent(command)
   end
 end
 
+--- Newest record for one binding, so a test can prove WHERE a value was
+--- published rather than only that it was published at all.
+local function lastSentOn(binding, command)
+  for i = #sent, 1, -1 do
+    if sent[i].binding == binding and sent[i].command == command then
+      return sent[i]
+    end
+  end
+end
+
 --- Decoded body of the most recent ENTITY_COMMAND (what went to the device).
 local function lastCommandBody()
   local entry = lastSent("ENTITY_COMMAND")
@@ -391,6 +401,46 @@ test("Preset field template is pushed and matches the setpoint mode", function()
     check(xml:find('id="cool_setpoint_c"', 1, true) ~= nil, "cool_setpoint_c offered when genuinely dual")
     check(xml:find("single_setpoint", 1, true) == nil, "single_setpoint NOT offered when dual")
   end
+end)
+
+test("A lone Off swing mode is withheld from the preset template", function()
+  disconnect()
+  resetSent()
+  local entity = singleSetpointEntity()
+  -- Some heads advertise CLIMATE_SWING_OFF and nothing else. The Extras selector
+  -- already withholds itself in that case; the preset template has to agree, or
+  -- the editor renders a Swing dropdown whose only entry is "Off".
+  entity.supported_swing_modes = { Swing.OFF }
+  updateState(entity, { mode = Mode.COOL, target_temperature = 22 })
+
+  local tpl = lastSent("PRESET_FIELDS_CHANGED")
+  check(tpl ~= nil, "PRESET_FIELDS_CHANGED emitted")
+  if tpl then
+    local xml = tpl.params.XML
+    check(xml:find('id="swing"', 1, true) == nil, "swing withheld when only Off is offered")
+    check(xml:find('id="fan_mode"', 1, true) ~= nil, "fan_mode still offered")
+    check(xml:find('id="hvac_mode"', 1, true) ~= nil, "hvac_mode still offered")
+  end
+end)
+
+test("Humidity publishes on a binding outside the library's managed range", function()
+  disconnect()
+  resetSent()
+  local entity = singleSetpointEntity()
+  entity.supports_current_humidity = true
+  updateState(entity, { mode = Mode.COOL, target_temperature = 22, current_temperature = 21, current_humidity = 57 })
+
+  -- 5012 is PROXY_BINDING_START in src/lib/bindings.lua, so a static connection
+  -- there sits on the first id of a range restoreBindings() is entitled to
+  -- delete. 5011 is above CONTROL_BINDING_END and below that start, so it is in
+  -- no managed range at all, the way Temperature 5010 already is.
+  local humidity = lastSentOn(5011, "VALUE_CHANGED")
+  check(humidity ~= nil, "humidity published on 5011")
+  if humidity then
+    checkEqual(humidity.params.VALUE, "57", "carries the current humidity")
+  end
+  check(lastSentOn(5012, "VALUE_CHANGED") == nil, "nothing published on the managed-range id")
+  check(lastSentOn(5010, "VALUE_CHANGED") ~= nil, "temperature still publishes on 5010")
 end)
 
 test("Heat/cool preset fields collapse to the device's single setpoint", function()
