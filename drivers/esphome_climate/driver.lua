@@ -35,7 +35,7 @@ end
 local PROXY_BINDING = 5001
 local ESPHOME_BINDING = 5002
 local TEMPERATURE_OUTPUT_BINDING = 5010
-local HUMIDITY_OUTPUT_BINDING = 5012
+local HUMIDITY_OUTPUT_BINDING = 5011
 
 local SELECT_OPTION = constants.SELECT_OPTION
 local NONE_OPTION = "None"
@@ -477,7 +477,12 @@ local function buildPresetFieldsXml(entity, singleSetpoint)
   end
   listField("fan_mode", "Fan Mode", fanModes)
 
-  listField("swing", "Swing", mapped(entity.supported_swing_modes, CLIMATE_SWING_MODE_TO_C4))
+  -- A lone "Off" is not a choice; match the Extras selector, which only
+  -- appears when the device offers somewhere to swing to.
+  local swingNames = mapped(entity.supported_swing_modes, CLIMATE_SWING_MODE_TO_C4)
+  if #swingNames > 1 then
+    listField("swing", "Swing", swingNames)
+  end
 
   parts[#parts + 1] = "</preset_fields>"
   return table.concat(parts)

@@ -232,7 +232,7 @@
       <hidden>False</hidden>
     </connection>
     <connection>
-      <id>5012</id>
+      <id>5011</id>
       <facing>6</facing>
       <connectionname>Humidity</connectionname>
       <type>1</type>
