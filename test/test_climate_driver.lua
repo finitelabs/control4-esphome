@@ -898,6 +898,449 @@ test("REGRESSION: a persisted schedule is restored without OnDriverLateInit thro
   check(TIMERS_ARMED > 0, "the restored schedule arms a timer")
 end)
 
+test("A preset that constrains nothing is not stored", function()
+  -- parsePresetFields drops empty-valued fields, so an all-empty preset parses to
+  -- {}. matchPreset guards every field with "if preset.X ~= nil" and ends in
+  -- "return true", so an empty table matches EVERY state. Stored, it would be
+  -- announced as active against any state at all.
+  --
+  -- Deliberately the ONLY preset in the list: asserting which of several presets
+  -- wins would depend on Lua's pairs order, which is not deterministic, and such
+  -- a test passes or fails by luck rather than by behaviour.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({
+    { name = "Empty", fields = { hvac_mode = "", single_setpoint_c = "" } },
+  })
+
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.HEAT, target_temperature = 30 })
+  local announced = lastSent("PRESET_CHANGED")
+  local name = announced and announced.params.NAME or nil
+  check(name ~= "Empty", "a preset constraining nothing is never announced as active")
+end)
+
+test("A hold the user raised survives the next state report", function()
+  -- reconcileHold runs on every climate state report. Raising a hold from the UI
+  -- without changing anything leaves state matching the scheduled preset, so an
+  -- unconditional release cancelled the user's hold on the next ambient push -
+  -- which arrives within seconds.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({
+    { name = "Cool 22", fields = { hvac_mode = "Cool", single_setpoint_c = "22" } },
+  })
+  RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Cool 22" })
+  clearHold()
+
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Until Next" })
+  resetSent()
+  -- An ambient temperature push: state still matches the scheduled preset.
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22, current_temperature = 24 })
+  local released = lastSent("HOLD_MODE_CHANGED")
+  check(released == nil, "the user's hold is not cancelled by a matching report")
+end)
+
+test("Water heaters are not offered presets", function()
+  -- The preset field template is climate shaped and is deliberately not published
+  -- for water heaters. Declaring CAN_PRESET anyway serves the static driver.xml
+  -- template instead, and applying one is a wire level no-op because the body
+  -- serialises against WaterHeaterCommandRequest with nothing set.
+  local wh = singleSetpointEntity()
+  wh.is_water_heater = true
+  disconnect()
+  resetSent()
+  updateState(wh, { mode = Mode.HEAT, target_temperature = 50 })
+
+  local sawPresetCap = nil
+  for _, entry in ipairs(sent) do
+    if entry.command == "DYNAMIC_CAPABILITIES_CHANGED" and entry.params.CAN_PRESET ~= nil then
+      sawPresetCap = entry.params.CAN_PRESET
+    end
+  end
+  checkEqual(sawPresetCap, false, "CAN_PRESET is withheld from a water heater")
+  check(lastSent("PRESET_FIELDS_CHANGED") == nil, "no preset template is published either")
+end)
+
+test("Two events at the same weekday and time both fire", function()
+  -- A strict "first wins" tie-break starved the later event permanently: after
+  -- the winner fires both resolve to the same instant seven days out, and the
+  -- same one wins again every week.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({
+    { name = "First", fields = { hvac_mode = "Cool", single_setpoint_c = "20" } },
+    { name = "Second", fields = { hvac_mode = "Cool", single_setpoint_c = "26" } },
+  })
+
+  local t = os.date("*t", os.time() + 120)
+  local xml = string.format(
+    '<events><event preset="First" weekday="%d" hour="%d" minute="%d"/>'
+      .. '<event preset="Second" weekday="%d" hour="%d" minute="%d"/></events>',
+    t.wday - 1,
+    t.hour,
+    t.min,
+    t.wday - 1,
+    t.hour,
+    t.min
+  )
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = xml })
+  resetSent()
+  fireTimer()
+
+  -- Both are applied in schedule order, so the last one settles the device.
+  local body = lastCommandBody()
+  check(body ~= nil, "the tied events commanded the device")
+  if body then
+    checkEqual(body.target_temperature, 26, "the second event was not starved")
+  end
+end)
+
+test("Releasing a hold with no schedule clears the held preset", function()
+  -- HOLD_PRESET was cleared only inside "if SCHEDULED_PRESET ~= nil", so after a
+  -- release with no schedule a later edit to that preset was still pushed to the
+  -- device through the activeAfter path.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({
+    { name = "Manual", fields = { hvac_mode = "Cool", single_setpoint_c = "20" } },
+  })
+  RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Manual" })
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Off" })
+
+  resetSent()
+  -- Edit that preset's values. With HOLD_PRESET still set this re-applied it.
+  setPresets({
+    { name = "Manual", fields = { hvac_mode = "Cool", single_setpoint_c = "28" } },
+  })
+  check(lastCommandBody() == nil, "an edit after release does not command the device")
+end)
+
+test("Preset setpoints are snapped to the entity's own step", function()
+  -- The template authors at 0.5 C. A device quantising to 1 C echoes 22 back for
+  -- a 21.5 preset, and matchPreset allows only 0.25 C, so the preset never
+  -- matches again: the hold sticks on and the preset stops highlighting.
+  local entity = singleSetpointEntity()
+  entity.visual_target_temperature_step = 1
+  disconnect()
+  resetSent()
+  updateState(entity, { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({
+    { name = "Half", fields = { hvac_mode = "Cool", single_setpoint_c = "21.5" } },
+  })
+  resetSent()
+  RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Half" })
+
+  local body = lastCommandBody()
+  check(body ~= nil, "the preset commanded the device")
+  if body then
+    checkEqual(body.target_temperature, 22, "21.5 snapped onto the device's 1 degree step")
+  end
+end)
+
+--- Schedule XML for one or more events. The weekday/time never matter here:
+--- fireTimer() invokes the armed callback directly rather than waiting.
+local function eventsXml(entries)
+  local parts = { "<events>" }
+  for _, e in ipairs(entries) do
+    parts[#parts + 1] =
+      string.format('<event preset="%s" weekday="1" hour="%d" minute="%d"/>', e.preset, e.hour or 6, e.minute or 0)
+  end
+  parts[#parts + 1] = "</events>"
+  return table.concat(parts)
+end
+
+test("A boundary naming an unknown preset is deferred, then runs when it arrives", function()
+  -- SCHEDULE is persisted but PRESETS is not, and the proxy only resends
+  -- SET_PRESETS after the device connects. Without a deferral the boundary is
+  -- lost until the same weekday next week, because the re-arm resolves the just
+  -- missed occurrence seven days out and nothing retries when presets land.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({ { name = "Other", fields = { hvac_mode = "Cool", single_setpoint_c = "22" } } })
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Later" } }) })
+
+  resetSent()
+  fireTimer()
+  check(lastCommandBody() == nil, "an unknown preset commands nothing at the boundary")
+
+  resetSent()
+  setPresets({
+    { name = "Other", fields = { hvac_mode = "Cool", single_setpoint_c = "22" } },
+    { name = "Later", fields = { hvac_mode = "Cool", single_setpoint_c = "26" } },
+  })
+  local body = lastCommandBody()
+  check(body ~= nil, "the deferred boundary ran once its preset was known")
+  if body then
+    checkEqual(body.target_temperature, 26, "and it applied the deferred preset value")
+  end
+end)
+
+test("A boundary crossed while the device is down is deferred, not dropped", function()
+  -- The sibling of the unknown-preset case, and the more common one: an outage
+  -- WITHOUT a driver reload leaves PRESETS populated, so the boundary takes the
+  -- apply branch, hands ENTITY_COMMAND to a bridge that rejects it while
+  -- disconnected, and only logs. Nothing recovers on reconnect either: the
+  -- SET_PRESETS re-apply path needs a signature CHANGE, which a plain resend is
+  -- not. The boundary would be lost for a week and AWAITING_SCHEDULED would
+  -- raise a phantom hold on top.
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({ { name = "Known", fields = { hvac_mode = "Cool", single_setpoint_c = "26" } } })
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Known" } }) })
+
+  -- Device drops. The preset stays in memory; only the entity goes away.
+  disconnect()
+  resetSent()
+  fireTimer()
+  check(lastCommandBody() == nil, "the boundary commands nothing at a device that is down")
+
+  -- Reconnect alone must run it. Deliberately no SET_PRESETS here: the presets
+  -- never left memory, so nothing would make the proxy resend them, and a
+  -- deferral that only drained through SET_PRESETS would sit here forever.
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  local body = lastCommandBody()
+  check(body ~= nil, "the boundary is applied once the device is back")
+  if body then
+    checkEqual(body.target_temperature, 26, "and it applies the scheduled preset value")
+  end
+end)
+
+test("A deferred boundary is NOT consumed while the device is still down", function()
+  -- SET_PRESETS is proxy traffic: it arrives whenever the preset list changes at
+  -- all, including a user editing some unrelated preset in the app while the
+  -- device is still offline. Consuming the deferral there clears the pending name
+  -- from memory AND from persist, then hands the command to a bridge that rejects
+  -- it while disconnected and only logs - there is no queue and no retry. The
+  -- boundary would be silently lost until the same weekday next week, which is
+  -- the exact failure the deferral exists to prevent.
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({ { name = "Other", fields = { hvac_mode = "Cool", single_setpoint_c = "22" } } })
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Late" } }) })
+  fireTimer()
+
+  disconnect()
+  resetSent()
+  setPresets({
+    { name = "Other", fields = { hvac_mode = "Cool", single_setpoint_c = "21" } },
+    { name = "Late", fields = { hvac_mode = "Cool", single_setpoint_c = "26" } },
+  })
+  check(lastCommandBody() == nil, "nothing is commanded at a device that is down")
+
+  -- The claim is not merely that it stayed quiet: it is that the boundary is
+  -- still owed once the device comes back. The preset list already landed during
+  -- the outage, so the device is the half arriving last and the reconnect is
+  -- what drains the deferral.
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  local body = lastCommandBody()
+  check(body ~= nil, "the deferral survived the outage and runs on reconnect")
+  if body then
+    checkEqual(body.target_temperature, 26, "and it applies the deferred preset value")
+  end
+end)
+
+test("Renaming a preset carries a deferred boundary with it", function()
+  -- The rename block already carries SCHEDULED_PRESET and HOLD_PRESET across
+  -- previous_name. A deferred name has to travel too: a rename resends the list
+  -- and is followed by SET_EVENTS carrying the new name, whose drop-block deletes
+  -- any pending event no longer named in the schedule. Leaving it behind loses
+  -- the boundary for a week.
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({ { name = "Other", fields = { hvac_mode = "Cool", single_setpoint_c = "22" } } })
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Before" } }) })
+  fireTimer()
+
+  -- Renamed in the C4 UI while the boundary is still deferred. The proxy resends
+  -- the list carrying previous_name, then resends the schedule under the new name.
+  resetSent()
+  setPresets({
+    { name = "Other", fields = { hvac_mode = "Cool", single_setpoint_c = "22" } },
+    { name = "After", previous = "Before", fields = { hvac_mode = "Cool", single_setpoint_c = "27" } },
+  })
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "After" } }) })
+
+  local body = lastCommandBody()
+  check(body ~= nil, "the renamed preset still runs its deferred boundary")
+  if body then
+    checkEqual(body.target_temperature, 27, "and it applies the renamed preset value")
+  end
+end)
+
+test("A preset still matches after the device echoes a CLAMPED setpoint", function()
+  -- Same failure as the SNAPPED case above, on the other transform.
+  -- applyPresetSetpoints sends clampTemperature(snapToStep(v)), so a preset
+  -- above the device's range reaches the wire at the clamp boundary and the
+  -- device echoes that number back. A comparison that snaps but does not clamp
+  -- never matches it: the preset stops highlighting and the hold sticks on.
+  local entity = singleSetpointEntity()
+  entity.visual_max_temperature = 30
+  disconnect()
+  resetSent()
+  updateState(entity, { mode = Mode.COOL, target_temperature = 22 })
+  -- 35 is above the device maximum; it can only ever come back as 30.
+  setPresets({ { name = "TooHot", fields = { hvac_mode = "Cool", single_setpoint_c = "35" } } })
+
+  resetSent()
+  updateState(entity, { mode = Mode.COOL, target_temperature = 30 })
+  local announced = lastSent("PRESET_CHANGED")
+  check(announced ~= nil and announced.params.NAME == "TooHot", "the preset matches its own clamped value")
+end)
+
+test("Setpoints snap on a device that reports only target_temperature_step", function()
+  -- getEntityTempStep and the resolution publisher both fall back from
+  -- visual_target_temperature_step to target_temperature_step. snapToStep must
+  -- use the same fallback or a device that reports only the plain field goes
+  -- unsnapped, keeping the quantisation bug alive for exactly that device.
+  resetSent()
+  local entity = singleSetpointEntity()
+  entity.visual_target_temperature_step = nil
+  entity.target_temperature_step = 1
+  updateState(entity, { mode = Mode.COOL, target_temperature = 22 })
+
+  setPresets({ { name = "Half", fields = { hvac_mode = "Cool", single_setpoint_c = "21.5" } } })
+  RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Half" })
+  local body = lastCommandBody()
+  check(body ~= nil, "the preset is commanded")
+  if body then
+    checkEqual(body.target_temperature, 22, "snapped to the step the device does report")
+  end
+end)
+
+test("A deferred boundary is dropped when its schedule is deleted", function()
+  -- Nothing else clears it: with the schedule gone no future boundary can
+  -- overwrite the pending name, so it would stay armed and fire against any
+  -- later preset list that happens to contain that name.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({ { name = "Other", fields = { hvac_mode = "Cool", single_setpoint_c = "22" } } })
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Ghost" } }) })
+  fireTimer()
+
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = "<events></events>" })
+
+  resetSent()
+  setPresets({
+    { name = "Other", fields = { hvac_mode = "Cool", single_setpoint_c = "22" } },
+    { name = "Ghost", fields = { hvac_mode = "Cool", single_setpoint_c = "18" } },
+  })
+  check(lastCommandBody() == nil, "the orphaned pending event does not command the device")
+end)
+
+test("A deferred boundary survives a reload and still applies", function()
+  -- Globals do not survive a driver reload, so state that has to outlive one
+  -- belongs in persist. The first version of this test asserted only that the
+  -- value could be read back out of persist, and passed while the restore inside
+  -- OnDriverLateInit was compiling as a write to a GLOBAL of the same name,
+  -- because the local was declared further down the file. Every consumer read
+  -- the nil local, so the persistence was dead code and the suite was green.
+  --
+  -- Storage is necessary but is NOT the claim. The claim is that a deferred
+  -- boundary still applies after a reload, so that is what this asserts: restore
+  -- from persist, then deliver the preset, then require the device command.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({ { name = "Other", fields = { hvac_mode = "Cool", single_setpoint_c = "22" } } })
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Persisted" } }) })
+  fireTimer()
+
+  local stored = Deserialize(C4:PersistGetValue("PendingEvent"))
+  check(type(stored) == "table", "the deferred event persists in a form that deserialises")
+  checkEqual(stored and stored.preset, "Persisted", "and it round-trips to the deferred name")
+
+  -- Simulate the reload PROPERLY. Calling OnDriverLateInit alone is not a
+  -- reload: the in-memory local is still populated from fireTimer above, so the
+  -- restore is a no-op and a dead restore goes unnoticed. Re-loading the chunk
+  -- gives the driver fresh locals, which is what a real reload does, and is the
+  -- only way this test can observe whether the restore actually lands.
+  dofile(DRIVER)
+  local ok, err = pcall(OnDriverLateInit)
+  check(ok, "OnDriverLateInit survives the restore" .. (ok and "" or ": " .. tostring(err)))
+
+  -- The behavioural assertion. This is the one that catches a dead restore.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({
+    { name = "Other", fields = { hvac_mode = "Cool", single_setpoint_c = "22" } },
+    { name = "Persisted", fields = { hvac_mode = "Cool", single_setpoint_c = "24" } },
+  })
+  local body = lastCommandBody()
+  check(body ~= nil, "the deferred boundary applies after the reload")
+  if body then
+    checkEqual(body.target_temperature, 24, "and it applies the deferred value")
+  end
+end)
+
+test("A preset still matches after the device echoes the SNAPPED setpoint", function()
+  -- This is the whole point of snapping. The template authors at 0.5 while the
+  -- device quantises to 1, so a 21.5 preset goes out as 22 and comes back as 22.
+  -- Comparing the raw 21.5 fails by 0.5 against a 0.25 tolerance and the preset
+  -- never matches again: the hold sticks on and the preset stops highlighting.
+  -- Snapping only the outgoing command does NOT fix that; the symptom lives on
+  -- the comparison side.
+  local entity = singleSetpointEntity()
+  entity.visual_target_temperature_step = 1
+  disconnect()
+  resetSent()
+  updateState(entity, { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({ { name = "Half", fields = { hvac_mode = "Cool", single_setpoint_c = "21.5" } } })
+
+  resetSent()
+  updateState(entity, { mode = Mode.COOL, target_temperature = 22 })
+  local announced = lastSent("PRESET_CHANGED")
+  check(announced ~= nil and announced.params.NAME == "Half", "the preset matches its own snapped value")
+end)
+
+test("One stale report after a scheduled boundary does not flap the hold", function()
+  -- A report landing between the command and the confirmation still describes
+  -- the OLD state. Reconciling against it raises a hold that the confirmation
+  -- drops a moment later: two spurious programmable events per boundary.
+  -- Exactly one report is suppressed, because more than that could wedge.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({ { name = "Evening", fields = { hvac_mode = "Cool", single_setpoint_c = "26" } } })
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Evening" } }) })
+  clearHold()
+  fireTimer()
+
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  check(lastSent("HOLD_MODE_CHANGED") == nil, "the stale report does not raise a hold")
+
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  check(lastSent("HOLD_MODE_CHANGED") ~= nil, "a genuine divergence still raises one on the next report")
+end)
+
+test("A lone Off swing mode produces no Extras state echo", function()
+  -- The selector is only published when more than one mode is offered, so
+  -- echoing state for a lone Off fired EXTRAS_STATE_CHANGED on every push for an
+  -- object that was never declared, with no transition guard.
+  local entity = singleSetpointEntity()
+  entity.supported_swing_modes = { Swing.OFF }
+  disconnect()
+  resetSent()
+  updateState(entity, { mode = Mode.COOL, target_temperature = 22, swing_mode = Swing.OFF })
+  check(lastSent("EXTRAS_STATE_CHANGED") == nil, "no swing echo for a device with nowhere to swing")
+
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22, swing_mode = Swing.VERTICAL })
+  check(lastSent("EXTRAS_STATE_CHANGED") ~= nil, "a multi-mode device still echoes its vane state")
+end)
+
 ---------------------------------------------------------------------------
 
 SendToProxy = originalSendToProxy
