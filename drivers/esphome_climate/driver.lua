@@ -59,6 +59,20 @@ local SCHEDULE_TIMER = nil
 --- OnDriverLateInit, so it has to be in scope before that function is defined.
 local armScheduleTimer
 
+--- A scheduled event that came due naming a preset the driver does not have yet.
+--- SCHEDULE is persisted; PRESETS is not, and the proxy only resends SET_PRESETS
+--- after the device connects. Without this, a boundary crossed during that window
+--- is lost until the same weekday next week, because the re-arm resolves the just
+--- missed occurrence seven days out and nothing retries when presets land.
+---
+--- Declared HERE, beside SCHEDULE, because OnDriverLateInit restores it from
+--- persist. Declared any lower and that restore compiles as a write to a GLOBAL
+--- of the same name while every consumer reads this nil local, making the whole
+--- persistence dead code. Same trap armScheduleTimer above is forward-declared
+--- for.
+local PENDING_EVENT_PRESET = nil
+local runDeferredEvent
+
 --- ESPHome ClimateMode -> C4 HVAC mode string
 local CLIMATE_MODE_TO_C4 = {
   [ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_OFF] = "Off",
@@ -386,13 +400,10 @@ end
 --- @param value any
 --- @return string
 local function xmlAttr(value)
-  local escaped = tostring(value)
-  escaped = escaped:gsub("&", "&amp;")
-  escaped = escaped:gsub("<", "&lt;")
-  escaped = escaped:gsub(">", "&gt;")
-  escaped = escaped:gsub('"', "&quot;")
-  escaped = escaped:gsub("'", "&apos;")
-  return escaped
+  -- XMLEncode from drivers-common-public escapes the same five entities in the
+  -- same order, and is already required at the top of this file. It returns
+  -- non-strings untouched, so coerce before handing it over.
+  return XMLEncode(tostring(value))
 end
 
 local function buildPresetFieldsXml(entity, singleSetpoint)
@@ -544,7 +555,14 @@ local function sendCapabilities(entity)
   -- entity is actually attached. can_preset_schedule stays static: the SDK
   -- documents can_preset as changeable through DYNAMIC_CAPABILITIES_CHANGED and
   -- says nothing of the kind for can_preset_schedule.
-  setpointCaps.CAN_PRESET = true
+  -- Water heaters are excluded. The preset field template below is climate
+  -- shaped and is not published for them, so declaring CAN_PRESET would serve the
+  -- static driver.xml template instead: heat/cool setpoints, HVAC modes and swing
+  -- on a device that has none of them. Applying one is a wire level no-op, since
+  -- the parent defaults a command-less body to water_heater_command and the
+  -- climate shaped body serialises with no fields set. Matching is already gated
+  -- off for water heaters, so it would never be announced either.
+  setpointCaps.CAN_PRESET = not entity.is_water_heater
   SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", setpointCaps, "NOTIFY")
 
   -- The preset template has to agree with the setpoint mode just published. A
@@ -729,6 +747,12 @@ function OnDriverLateInit()
   -- the driver with no timer and the schedule would silently stop running until
   -- the proxy next resent it.
   SCHEDULE = persist:get("Schedule") or {}
+  -- Stored as a TABLE, never a bare string: Serialize only JSON-encodes tables
+  -- and returns anything else untouched, so Deserialize base64-decodes that raw
+  -- string into garbage and yields nil. A bare string can be written and never
+  -- read back, which silently defeats the whole deferral.
+  local pending = persist:get("PendingEvent")
+  PENDING_EVENT_PRESET = type(pending) == "table" and pending.preset or nil
   if #SCHEDULE > 0 then
     log:info("Restored %d scheduled event(s)", #SCHEDULE)
     armScheduleTimer()
@@ -1076,6 +1100,25 @@ local HOLD_PRESET = nil
 local HOLD_MODE = "Off"
 --- Preset last reported as active, so only real transitions are sent.
 local ACTIVE_PRESET = nil
+--- A hold the USER asked for through SET_MODE_HOLD, as opposed to one this
+--- driver raised because state diverged from the schedule. The two look
+--- identical to the proxy but must not be released the same way: a divergence
+--- hold ends when state returns to the scheduled preset, while a user hold ends
+--- only when the user releases it or the next scheduled event arrives. Without
+--- this, raising a hold from the UI without changing anything is cancelled by
+--- the very next state report, since state still matches the scheduled preset.
+local USER_HOLD = false
+--- Signature of the schedule as last written to persistent storage. Every device
+--- reconnect makes the proxy resend SET_EVENTS, and persist:set does not dedupe,
+--- so without this a flaky device causes one flash write per reconnect for
+--- content that never changed.
+local SCHEDULE_SIGNATURE = nil
+--- Set while a scheduled preset has been commanded but the device has not yet
+--- confirmed it. A report landing in that window still describes the OLD state,
+--- so reconciling against it raises a hold and then immediately drops it: two
+--- spurious programmable events per boundary. Same race the preset announcement
+--- already avoids by only reporting what the device confirms.
+local AWAITING_SCHEDULED = false
 
 --- The proxy's own name for "hold until the next scheduled event". Control4's
 --- Residential Thermostat V2 handles "Next Event" while other shipping drivers
@@ -1120,13 +1163,24 @@ local function secondsUntilEvent(event, now)
 end
 
 --- The soonest upcoming event, or nil when the schedule is empty.
+--- Returns EVERY event due at the soonest moment, not just one. Two events on
+--- the same weekday and time are legal, and a strict "first wins" tie-break
+--- starved the later one permanently: after the winner fires, both resolve to
+--- the same instant seven days out and the same one wins again, every week.
+--- Firing them in schedule order lets the last one settle the device while
+--- neither is silently dropped.
 local function nextScheduledEvent(now)
-  local best, bestIn = nil, nil
+  local best, bestIn = {}, nil
   for _, event in ipairs(SCHEDULE) do
     local seconds = secondsUntilEvent(event, now)
     if bestIn == nil or seconds < bestIn then
-      best, bestIn = event, seconds
+      best, bestIn = { event }, seconds
+    elseif seconds == bestIn then
+      best[#best + 1] = event
     end
+  end
+  if bestIn == nil then
+    return nil, nil
   end
   return best, bestIn
 end
@@ -1212,6 +1266,24 @@ end
 --- Write a preset's setpoints into a climate command body.
 --- Two-point devices always use low/high regardless of mode, matching
 --- SET_SETPOINT_HEAT/COOL; single-setpoint devices use target_temperature.
+--- Round a preset setpoint onto the entity's own step before sending it.
+--- The preset template authors at 0.5 C while a device may quantise to 1 C, so
+--- 21.5 goes out and 22 comes back. matchPreset allows only 0.25 C, so the
+--- preset never matches again: the hold sticks on permanently and the preset
+--- stops highlighting. Snapping to the step the device declared makes the echo
+--- match what was asked for.
+local function snapToStep(value)
+  -- Same fallback the resolution publisher and the setpoint step reader use.
+  -- Reading only the visual field would leave a device that reports just
+  -- target_temperature_step unsnapped, keeping the quantisation bug alive for it.
+  local step = ENTITY ~= nil and tonumber(ENTITY.visual_target_temperature_step or ENTITY.target_temperature_step)
+    or nil
+  if value == nil or step == nil or step <= 0 then
+    return value
+  end
+  return math.floor(value / step + 0.5) * step
+end
+
 local function applyPresetSetpoints(preset, body)
   if ENTITY ~= nil and ENTITY.supports_two_point_target_temperature then
     -- Field ids are the proxy's, per the DriverWorks thermostat_v2 preset_fields
@@ -1221,11 +1293,11 @@ local function applyPresetSetpoints(preset, body)
     local cool = presetSetpoint(preset, "cool_setpoint_c", "cool_setpoint_f")
     if heat ~= nil then
       body.has_target_temperature_low = true
-      body.target_temperature_low = clampTemperature(heat)
+      body.target_temperature_low = clampTemperature(snapToStep(heat))
     end
     if cool ~= nil then
       body.has_target_temperature_high = true
-      body.target_temperature_high = clampTemperature(cool)
+      body.target_temperature_high = clampTemperature(snapToStep(cool))
     end
     return
   end
@@ -1237,7 +1309,7 @@ local function applyPresetSetpoints(preset, body)
   local chosen = chooseSingleSetpoint(preset)
   if chosen ~= nil then
     body.has_target_temperature = true
-    body.target_temperature = clampTemperature(chosen)
+    body.target_temperature = clampTemperature(snapToStep(chosen))
   end
 end
 
@@ -1288,6 +1360,15 @@ local function applyPreset(name)
     return false
   end
 
+  -- Belt and braces against the water heater path. CAN_PRESET is withheld from
+  -- water heaters so the proxy should never ask, but a climate shaped body sent
+  -- to one serialises against WaterHeaterCommandRequest with nothing set: a
+  -- silent no-op that looks like a working preset. Refuse it out loud instead.
+  if ENTITY ~= nil and ENTITY.is_water_heater then
+    log:warn("Preset '%s' not applied: presets are not offered for water heaters", name)
+    return false
+  end
+
   log:info("Applying preset '%s'", name)
   sendClimateCommand(body)
   -- No announcement here: matchAnyPreset is the only emitter, so what the device
@@ -1335,7 +1416,19 @@ local function matchPreset(name)
       return true
     end
     local actual = tonumber(Select(STATE, stateKey))
-    return actual ~= nil and math.abs(actual - expected) <= 0.25
+    -- Compare against the SNAPPED value, because that is what was sent. The
+    -- preset editor authors at the template's 0.5 resolution while a device may
+    -- quantise to 1, so a stored 21.5 goes out as 22 and comes back as 22.
+    -- Comparing the raw 21.5 fails by 0.5 against a 0.25 tolerance and the
+    -- preset never matches again: the hold sticks on and the preset stops
+    -- highlighting. Snapping only the outgoing command does not fix that,
+    -- because the symptom lives entirely on this side.
+    -- Both transforms applyPresetSetpoints uses outbound, in the same order.
+    -- Snapping alone is not enough: a preset outside the device's range is
+    -- commanded at the clamp boundary and echoes that value back, so comparing
+    -- the unclamped number wedges the hold on exactly the way the unsnapped one
+    -- did.
+    return actual ~= nil and math.abs(actual - clampTemperature(snapToStep(expected))) <= 0.25
   end
 
   if ENTITY ~= nil and ENTITY.supports_two_point_target_temperature then
@@ -1404,8 +1497,29 @@ local function reconcileHold()
   if SCHEDULED_PRESET == nil then
     return
   end
-  if matchPreset(SCHEDULED_PRESET) then
-    setHoldMode("Off")
+  local onSchedule = matchPreset(SCHEDULED_PRESET)
+
+  -- Suppress exactly ONE report after a scheduled preset is commanded. That
+  -- report is the stale one, describing the state before the device moved;
+  -- reconciling against it raises a hold the confirmation drops a moment later,
+  -- which is two spurious programmable events per boundary.
+  --
+  -- The bound matters more than the suppression. Waiting for a report that
+  -- MATCHES the scheduled preset looks tighter but wedges: a device that never
+  -- lands exactly on the preset (setpoint quantisation is enough) would leave
+  -- this set forever and holds would never work again. One report cannot wedge.
+  if AWAITING_SCHEDULED then
+    AWAITING_SCHEDULED = false
+    return
+  end
+
+  if onSchedule then
+    -- A hold the user asked for outlives a match. They may have raised it
+    -- without changing anything, in which case state matches the schedule from
+    -- the first report; only the user or the next scheduled event ends it.
+    if not USER_HOLD then
+      setHoldMode("Off")
+    end
   else
     setHoldMode(HOLD_UNTIL_NEXT)
   end
@@ -1436,7 +1550,18 @@ function RFP.SET_PRESETS(idBinding, strCommand, tParams)
     local attrs = preset.Attributes
     local name = attrs and attrs["name"]
     if not IsEmpty(name) then
-      PRESETS[name] = parsePresetFields(attrs["preset_fields"])
+      -- A preset whose fields are all empty, or whose preset_fields will not
+      -- parse, constrains nothing. matchPreset skips every nil field and ends in
+      -- "return true", so storing one would make it match EVERY state: it would
+      -- win PRESET_CHANGED on pairs order, and a schedule holding it could never
+      -- see divergence, which silently kills the hold for that schedule.
+      -- applyPreset already refuses this shape; refuse to store it as well.
+      local fields = parsePresetFields(attrs["preset_fields"])
+      if next(fields) == nil then
+        log:warn("Preset '%s' defines no usable fields; not stored", name)
+      else
+        PRESETS[name] = fields
+      end
 
       -- A rename must carry the tracked names across, or the running schedule
       -- silently detaches from the preset it is holding.
@@ -1448,6 +1573,14 @@ function RFP.SET_PRESETS(idBinding, strCommand, tParams)
         if HOLD_PRESET == previous then
           HOLD_PRESET = name
         end
+        -- The deferred name has to travel with a rename for the same reason the
+        -- two above do. Without this, renaming a preset while its boundary is
+        -- deferred detaches the deferral: the lookup below no longer matches, and
+        -- the SET_EVENTS that follows a rename drops it as no longer scheduled.
+        if PENDING_EVENT_PRESET == previous then
+          PENDING_EVENT_PRESET = name
+          persist:set("PendingEvent", { preset = name })
+        end
       end
     end
   end
@@ -1456,11 +1589,21 @@ function RFP.SET_PRESETS(idBinding, strCommand, tParams)
   -- actually changed. Anything else - a new preset, a schedule event, a rename,
   -- an unrelated edit - leaves the device alone; SET_EVENT runs the schedule and
   -- SET_PRESET runs a preset on demand.
+  -- A boundary that came due before the presets arrived is run now rather than
+  -- waiting a week for the next occurrence. This is the only retry: the re-apply
+  -- path below needs signatureBefore, which cannot exist after a reload.
+  if runDeferredEvent() then
+    return
+  end
+
   local activeAfter = HOLD_PRESET or SCHEDULED_PRESET
   if activeAfter ~= nil and PRESETS[activeAfter] ~= nil and signatureBefore ~= nil then
     local signatureAfter = presetSignature(PRESETS[activeAfter])
     if signatureAfter ~= signatureBefore then
       log:info("Active preset '%s' was edited; re-applying", activeAfter)
+      if activeAfter == SCHEDULED_PRESET then
+        AWAITING_SCHEDULED = true
+      end
       applyPreset(activeAfter)
     end
   end
@@ -1473,30 +1616,98 @@ function RFP.SET_PRESET(idBinding, strCommand, tParams)
     return
   end
   local name = Select(tParams, "NAME")
+  -- Both branches below report the hold Off on the user's behalf, so both must
+  -- also drop USER_HOLD. Leaving it set makes the NEXT hold this driver raises
+  -- from divergence behave like a user hold: reconcileHold refuses to release it
+  -- when state returns to the scheduled preset, and it survives until the next
+  -- local boundary or a manual release.
   if IsEmpty(name) then
     -- An empty name clears a held preset rather than naming one.
     HOLD_PRESET = nil
+    USER_HOLD = false
     setHoldMode("Off")
     return
   end
   if applyPreset(name) then
     HOLD_PRESET = name
     SCHEDULED_PRESET = nil
+    USER_HOLD = false
     setHoldMode("Off")
   end
 end
 
 --- Run the event that has just come due: adopt it as the scheduled preset,
 --- release any hold (that is what "until next event" means), then re-arm.
-local function fireScheduledEvent(event)
-  log:info("Scheduled event due: '%s'", event.preset)
-  if PRESETS[event.preset] == nil then
-    log:warn("Scheduled event names an unknown preset '%s'; nothing applied", event.preset)
-  else
-    SCHEDULED_PRESET = event.preset
-    HOLD_PRESET = nil
-    applyPreset(event.preset)
-    setHoldMode("Off")
+--- Runs every event due at this instant, in schedule order, then re-arms once.
+--- More than one event can share a weekday and time; applying only the first
+--- left the rest permanently starved.
+--- Run a boundary that was deferred, if it can run now.
+--- A deferral needs BOTH halves before it can fire: the preset has to be known
+--- and the device has to be attached. Either half can arrive last, so this is
+--- called from both doors - SET_PRESETS when the list lands, and UPDATE_STATE
+--- when the device comes back. Consuming it in only one place would make the
+--- boundary depend on the proxy happening to resend presets after a reconnect,
+--- which is not something this driver controls.
+--- @return boolean true if a deferred boundary was applied.
+runDeferredEvent = function()
+  if PENDING_EVENT_PRESET == nil or ENTITY == nil then
+    return false
+  end
+  if PRESETS[PENDING_EVENT_PRESET] == nil then
+    return false
+  end
+  local pending = PENDING_EVENT_PRESET
+  PENDING_EVENT_PRESET = nil
+  persist:set("PendingEvent", nil)
+  log:info("Deferred scheduled event '%s' can run now; applying", pending)
+  SCHEDULED_PRESET = pending
+  HOLD_PRESET = nil
+  USER_HOLD = false
+  AWAITING_SCHEDULED = true
+  applyPreset(pending)
+  setHoldMode("Off")
+  return true
+end
+
+local function fireScheduledEvent(events)
+  for _, event in ipairs(events) do
+    log:info("Scheduled event due: '%s'", event.preset)
+    -- Two ways a boundary cannot run yet, both deferred the same way.
+    -- Preset unknown: SCHEDULE is persisted but PRESETS is not, and the proxy
+    -- only resends SET_PRESETS after the device connects, so a boundary crossed
+    -- before that arrives has nothing to apply.
+    -- Device down: the presets are still in memory, so this branch would happily
+    -- call applyPreset - but ENTITY_COMMAND is rejected while disconnected and
+    -- the rejection is only logged. There is no queue and no retry, so the
+    -- boundary would be dropped on the floor.
+    -- Either way the re-arm resolves the just-missed occurrence seven days out,
+    -- so without deferring, the boundary is lost for a week. Both cases clear
+    -- through the same door: reconnecting re-runs sendCapabilities, the proxy
+    -- resends SET_PRESETS, and the deferred boundary applies there.
+    if PRESETS[event.preset] == nil or ENTITY == nil then
+      log:warn(
+        "Scheduled event '%s' cannot run yet (%s); deferring",
+        event.preset,
+        PRESETS[event.preset] == nil and "preset not yet known" or "device disconnected"
+      )
+      PENDING_EVENT_PRESET = event.preset
+      -- Load-bearing: without this a second reload inside the same outage loses
+      -- the deferral and the boundary is lost for a week after all, which is the
+      -- defect this deferral exists to prevent.
+      persist:set("PendingEvent", { preset = event.preset })
+    else
+      PENDING_EVENT_PRESET = nil
+      persist:set("PendingEvent", nil)
+      SCHEDULED_PRESET = event.preset
+      HOLD_PRESET = nil
+      USER_HOLD = false
+      -- The device has been commanded but has not confirmed. Suppress hold
+      -- reconciliation until it does, or a report from the old state raises a hold
+      -- that the confirmation drops a moment later.
+      AWAITING_SCHEDULED = true
+      applyPreset(event.preset)
+      setHoldMode("Off")
+    end
   end
   armScheduleTimer()
 end
@@ -1511,14 +1722,18 @@ armScheduleTimer = function()
   if #SCHEDULE == 0 then
     return
   end
-  local event, seconds = nextScheduledEvent(os.time())
-  if event == nil then
+  local events, seconds = nextScheduledEvent(os.time())
+  if events == nil then
     return
   end
-  log:info("Next scheduled event '%s' in %d seconds", event.preset, seconds)
+  if #events > 1 then
+    log:info("Next scheduled moment in %d seconds: %d events due together", seconds, #events)
+  else
+    log:info("Next scheduled event '%s' in %d seconds", events[1].preset, seconds)
+  end
   SCHEDULE_TIMER = C4:SetTimer(seconds * 1000, function()
     SCHEDULE_TIMER = nil
-    fireScheduledEvent(event)
+    fireScheduledEvent(events)
   end, false)
 end
 
@@ -1549,7 +1764,39 @@ function RFP.SET_EVENTS(idBinding, strCommand, tParams)
     end
   end
   log:info("Schedule updated: %d event(s)", #SCHEDULE)
-  persist:set("Schedule", SCHEDULE)
+
+  -- A deferred boundary only makes sense while the schedule still names it.
+  -- Without this, deleting the schedule leaves the pending name armed forever:
+  -- no future boundary can overwrite or clear it, and the next SET_PRESETS that
+  -- happens to contain a preset of that name commands the device out of nowhere
+  -- and destroys any active user hold.
+  if PENDING_EVENT_PRESET ~= nil then
+    local stillScheduled = false
+    for _, e in ipairs(SCHEDULE) do
+      if e.preset == PENDING_EVENT_PRESET then
+        stillScheduled = true
+        break
+      end
+    end
+    if not stillScheduled then
+      log:info("Deferred event '%s' is no longer scheduled; dropping it", PENDING_EVENT_PRESET)
+      PENDING_EVENT_PRESET = nil
+      persist:set("PendingEvent", nil)
+    end
+  end
+  -- Every device reconnect re-runs sendCapabilities, which makes the proxy
+  -- resend SET_EVENTS, which lands here. Persist:set does not dedupe, so an
+  -- unconditional write is one flash write per reconnect on a flaky device for
+  -- content that has not changed. Compare first.
+  local parts = {}
+  for _, e in ipairs(SCHEDULE) do
+    parts[#parts + 1] = string.format("%s|%s|%s|%s", e.weekday, e.hour, e.minute, e.preset)
+  end
+  local signature = table.concat(parts, ";")
+  if signature ~= SCHEDULE_SIGNATURE then
+    SCHEDULE_SIGNATURE = signature
+    persist:set("Schedule", SCHEDULE)
+  end
   armScheduleTimer()
 end
 
@@ -1585,12 +1832,27 @@ function RFP.SET_MODE_HOLD(idBinding, strCommand, tParams)
     return
   end
   if mode == "Off" then
+    USER_HOLD = false
+    -- Clear the held preset whether or not a schedule exists. Leaving it set
+    -- means a later edit to that preset is still pushed to the device through
+    -- the activeAfter path in SET_PRESETS, despite the hold having been
+    -- released. The empty-NAME path in SET_PRESET already clears it
+    -- unconditionally; this branch was the asymmetric one.
+    HOLD_PRESET = nil
     -- Releasing a hold returns to whatever the schedule last asked for.
+    --
+    -- Deliberately NOT one-report-suppressed the way a scheduled boundary is. A
+    -- stale push here can flap the hold once, but suppressing a report on this
+    -- path also swallows a genuine divergence made immediately after a release,
+    -- which is the behaviour three tests assert and which users actually rely
+    -- on. The flap self-corrects on the next report; a missed hold does not.
     if SCHEDULED_PRESET ~= nil then
-      HOLD_PRESET = nil
       applyPreset(SCHEDULED_PRESET)
     end
   else
+    -- Remember that this hold came from the user. reconcileHold must not release
+    -- it just because state happens to match the scheduled preset.
+    USER_HOLD = true
     -- Learn the proxy's own wording for a hold so anything this driver raises
     -- later uses the identical string.
     if mode ~= HOLD_UNTIL_NEXT then
@@ -1751,6 +2013,11 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     sendCapabilities(entity)
   end
 
+  -- The device was the missing half of a deferred boundary. Run it here rather
+  -- than waiting for a SET_PRESETS that may never come: a reconnect is not
+  -- guaranteed to make the proxy resend the preset list.
+  runDeferredEvent()
+
   -- Current temperature
   local currentTemp = tonumber(Select(state, "current_temperature"))
   if currentTemp ~= nil then
@@ -1862,12 +2129,30 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     reconcileHold()
   end
 
-  -- Swing mode (climate only) - reflected back into the Extras selector
-  if not entity.is_water_heater then
+  -- Swing mode (climate only) - reflected back into the Extras selector.
+  -- Gated on MORE THAN ONE mode, matching the condition that publishes the
+  -- selector in the first place. A device advertising only CLIMATE_SWING_OFF
+  -- gets no selector, so echoing state for it emitted EXTRAS_STATE_CHANGED on
+  -- every state push, for an object that was never declared and with no
+  -- transition guard.
+  -- Counted after mapping, because that is what publishes the selector: the map
+  -- drops values it does not know and collapses duplicates, so a raw count can
+  -- be greater than one while the selector was never declared. Inlined rather
+  -- than calling buildPresetFieldsXml's local "mapped", which is not in scope
+  -- here and would resolve to a nil global.
+  local swingChoices, seenSwing = {}, {}
+  for _, raw in ipairs(entity.supported_swing_modes or {}) do
+    local mappedName = CLIMATE_SWING_MODE_TO_C4[raw]
+    if mappedName ~= nil and not seenSwing[mappedName] then
+      seenSwing[mappedName] = true
+      swingChoices[#swingChoices + 1] = mappedName
+    end
+  end
+  if not entity.is_water_heater and #swingChoices > 1 then
     -- Absent means OFF (protobuf drops zero values), so without this default the
     -- selector would never be told the vane had stopped.
     local swingMode = tointeger(Select(state, "swing_mode"))
-    if swingMode == nil and entity.supported_swing_modes ~= nil and #entity.supported_swing_modes > 0 then
+    if swingMode == nil then
       swingMode = ESPHomeProtoSchema.Enum.ClimateSwingMode.CLIMATE_SWING_OFF
     end
     if swingMode ~= nil then
