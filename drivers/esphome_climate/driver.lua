@@ -160,12 +160,23 @@ local function sendConnectionState(connected)
   SendToProxy(PROXY_BINDING, "CONNECTION", { CONNECTED = connected and "true" or "false" }, "NOTIFY")
 end
 
---- Tell the proxy which scale to display in. The proxy defaults to Fahrenheit
---- and never consults the project setting on its own, so without this a
---- Celsius project still shows Fahrenheit thermostats.
+--- Last scale reported to the proxy, so a change in the project's scale is
+--- picked up without waiting for the ESPHome device to reconnect.
+--- @type string|nil
+local REPORTED_SCALE = nil
+
+--- Tell the proxy which scale to display in, if it has changed. The proxy
+--- defaults to Fahrenheit and never consults the project setting on its own, so
+--- without this a Celsius project still shows Fahrenheit thermostats. Called on
+--- every state update, which is what lets an installer flip the project scale in
+--- Composer and see it take effect on an already-connected thermostat.
 --- @return void
 local function sendDisplayScale()
   local scale = getDisplayScale()
+  if scale == REPORTED_SCALE then
+    return
+  end
+  REPORTED_SCALE = scale
   log:debug("Setting thermostat display scale to %s", scale)
   SendToProxy(PROXY_BINDING, "SCALE_CHANGED", { SCALE = scale }, "NOTIFY")
 end
@@ -920,6 +931,7 @@ function RFP.SET_SCALE(idBinding, strCommand, tParams)
     return
   end
   persist:set(P_DISPLAY_SCALE, scale)
+  REPORTED_SCALE = nil
   sendDisplayScale()
 end
 
@@ -975,6 +987,7 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   IS_SINGLE_SETPOINT = false
   USER_SERVICES_DISCOVERED = false
   updateStatus("Disconnected", false)
+  REPORTED_SCALE = nil
   sendConnectionState(false)
 end
 
@@ -1011,6 +1024,9 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   -- Send capabilities on first state update
   if not CAPABILITIES_SENT then
     sendCapabilities(entity)
+  else
+    -- Cheap no-op unless the project scale changed under us.
+    sendDisplayScale()
   end
 
   -- Current temperature

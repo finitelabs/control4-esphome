@@ -168,13 +168,15 @@
     <brightness_rate_min>0</brightness_rate_min>
     <brightness_rate_max>65535</brightness_rate_max>
     <!--
-      The proxy seeds a built-in 750 ms rate default at bind time, before any
-      dynamic capabilities arrive. It ignores these two entries - there is no
-      such capability in light_v2, and a fresh install still seeds 750 - but
-      Composer reads the static capability list directly and may use them to
-      seed its own rate control, which is where the
-      "defaultColorRate ... value 0.750 not between 0.000 and 0.000" throw
-      happens. Kept at 0 as cheap insurance on the Composer side.
+      brightness_rate_default and color_rate_default are not light_v2
+      capabilities at all: neither key appears in the proxy, and a fresh install
+      declaring them still seeds the proxy's built-in 750 ms rate. They are kept
+      only because Composer reads this static list directly and Chowmain's
+      ESPHome light ships the same two entries, so they are cheap parity rather
+      than a mechanism. What actually prevents the
+      "defaultColorRate ... value 0.750 not between 0.000 and 0.000" throw is
+      color_rate_min / color_rate_max riding every DYNAMIC_CAPABILITIES_CHANGED
+      in driver.lua, so the bounds are never relayed as 0/0.
     -->
     <brightness_rate_default>0</brightness_rate_default>
     <click_rate_min>0</click_rate_min>

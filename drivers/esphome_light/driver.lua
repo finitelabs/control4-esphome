@@ -316,13 +316,6 @@ local function kelvinToMireds(k)
   return 1e6 / k
 end
 
--- A transition rate in milliseconds, held inside the light_v2 rate bounds
--- [0, 65535] so a stored default never falls outside the control's range.
-local function clampRate(ms)
-  ms = tonumber(ms) or 0
-  return math.max(0, math.min(65535, math.floor(ms + 0.5)))
-end
-
 local function updateDynamicCapabilities(entity)
   if dynamicCapsSent then
     return
@@ -358,17 +351,16 @@ local function updateDynamicCapabilities(entity)
   )
 
   -- Report the bound light's ACTUAL capabilities. The proxy merges this over the
-  -- static driver.xml values, so a light that reports brightness ends up dimmable
-  -- even though the XML declares dimmer=False.
+  -- static driver.xml values and this wins, in both directions: the dimming tier
+  -- is declared True statically for Composer's test panel, so the case that
+  -- matters here is a light without brightness being corrected back down.
   --
-  -- Every rate control's bounds and default ride EVERY send, unconditionally, even
-  -- when the light has no color at all. What gates a control's visibility is the
-  -- supports_* flags, not the presence of bounds, so sending them always costs
-  -- nothing and leaves no window in which a consumer can see a color rate control
-  -- with no range - which is the shape of the "defaultColorRate ... value 0.750
-  -- not between 0.000 and 0.000" exception Composer throws at bind.
-  local brightnessRateDefault = clampRate(persist:get(P_RATE_DEFAULT, DEFAULT_RATE))
-  local colorRateDefault = clampRate(persist:get(P_COLOR_RATE_DEFAULT, brightnessRateDefault))
+  -- The color rate bounds ride EVERY send, unconditionally, even when the light
+  -- has no color at all. What gates a control's visibility is the supports_*
+  -- flags, not the presence of bounds, so sending them always costs nothing and
+  -- leaves no window in which a consumer sees a color rate control with no range,
+  -- which is the shape of the "defaultColorRate ... value 0.750 not between 0.000
+  -- and 0.000" exception Composer throws at bind.
   local caps = {
     -- Brightness/dimmer
     dimmer = supportsDimming,
@@ -380,15 +372,13 @@ local function updateDynamicCapabilities(entity)
     fixed_ramp_rate = 0,
     brightness_rate_min = 0,
     brightness_rate_max = 65535,
-    brightness_rate_default = brightnessRateDefault,
-    -- Color: bounds and default are always present (see above); only the flags gate.
+    -- Color: the bounds are always present (see above); only the flags gate.
     supports_color = supportsColor,
     supports_color_correlated_temperature = supportsCCT,
     supports_color_stop = supportsColor or supportsCCT,
     color_rate_behavior = 1, -- ESPHome's transition_length applies to all aspects equally
     color_rate_min = 0,
     color_rate_max = 65535,
-    color_rate_default = colorRateDefault,
     -- Misc
     has_extras = false,
     cold_start = false,

@@ -30,6 +30,11 @@ function C4:GetDeviceData(deviceId, key)
   end
   return nil
 end
+-- The controller returns the project's temperature scale as a full word, not a
+-- single letter, so callers have to normalize it.
+function C4:GetTemperatureScale()
+  return "FAHRENHEIT"
+end
 function C4:AllowExecute() end
 function C4:UpdateProperty() end
 function C4:SetPropertyAttribs() end
