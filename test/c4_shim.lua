@@ -30,6 +30,13 @@ function C4:GetDeviceData(deviceId, key)
   end
   return nil
 end
+-- The controller returns a full word, not a letter. Celsius by default because a
+-- caller that fails to normalize falls back to Fahrenheit, so only Celsius tells
+-- a working normalizer from a broken one. Mutable so a test can flip it mid-run.
+C4.TemperatureScale = "CELSIUS"
+function C4:GetTemperatureScale()
+  return C4.TemperatureScale
+end
 function C4:AllowExecute() end
 function C4:UpdateProperty() end
 function C4:SetPropertyAttribs() end

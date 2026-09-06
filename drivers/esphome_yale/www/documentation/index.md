@@ -430,11 +430,12 @@ The driver exposes the following variables to Control4 programming. These mirror
 the matching read-only Device Info properties and can be used in programming
 conditions and event handlers.
 
-| Variable    | Type   | Description                        |
-| ----------- | ------ | ---------------------------------- |
-| Battery     | NUMBER | Lock battery level (0 - 100)       |
-| Name        | STRING | Friendly name reported by the lock |
-| MAC Address | STRING | Lock BLE MAC address               |
+| Variable    | Type   | Description                                  |
+| ----------- | ------ | -------------------------------------------- |
+| Connected   | BOOL   | True while the driver is talking to the lock |
+| Battery     | NUMBER | Lock battery level (0 - 100)                 |
+| Name        | STRING | Friendly name reported by the lock           |
+| MAC Address | STRING | Lock BLE MAC address                         |
 
 ## Connections
 

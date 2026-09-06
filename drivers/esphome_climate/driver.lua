@@ -126,6 +126,53 @@ local C4_TO_CLIMATE_FAN_MODE = TableReverse(CLIMATE_FAN_MODE_TO_C4)
 --- and the proxy converts to the user's display scale based on the SCALE param.
 local SCALE = "C"
 
+--- Persist key for an installer's per-thermostat display-scale override.
+local P_DISPLAY_SCALE = "DisplayScale"
+
+--- The proxy and C4:GetTemperatureScale() disagree on spelling ("C" vs "Celsius"
+--- vs "CELSIUS"), so both are reduced to a letter.
+--- @param scale string|nil
+--- @return string|nil scale "C", "F", or nil if unrecognized.
+local function normalizeScale(scale)
+  local first = tostring(scale or ""):sub(1, 1):upper()
+  if first == "C" or first == "F" then
+    return first
+  end
+  return nil
+end
+
+--- An installer override wins over the project scale. ESPHome is always Celsius
+--- internally, so this only affects what Control4 displays.
+--- @return string scale "C" or "F".
+local function getDisplayScale()
+  return normalizeScale(persist:get(P_DISPLAY_SCALE)) or normalizeScale(C4:GetTemperatureScale()) or "F"
+end
+
+--- thermostatV2 has no ONLINE_CHANGED. It tracks reachability through
+--- CONNECTION/CONNECTED, which drives its IS_CONNECTED variable.
+--- @param connected boolean
+--- @return void
+local function sendConnectionState(connected)
+  SendToProxy(PROXY_BINDING, "CONNECTION", { CONNECTED = connected and "true" or "false" }, "NOTIFY")
+end
+
+--- @type string|nil
+local REPORTED_SCALE = nil
+
+--- The proxy defaults to Fahrenheit and never consults the project setting, so a
+--- Celsius project shows Fahrenheit thermostats without this. Called on every
+--- state update so a project scale change lands without a reconnect.
+--- @return void
+local function sendDisplayScale()
+  local scale = getDisplayScale()
+  if scale == REPORTED_SCALE then
+    return
+  end
+  REPORTED_SCALE = scale
+  log:debug("Setting thermostat display scale to %s", scale)
+  SendToProxy(PROXY_BINDING, "SCALE_CHANGED", { SCALE = scale }, "NOTIFY")
+end
+
 --- Extract a Celsius temperature from proxy command params.
 --- The proxy sends CELSIUS, FAHRENHEIT, KELVIN, and SETPOINT simultaneously.
 --- @param tParams table Proxy command parameters.
@@ -337,6 +384,8 @@ end
 local function sendCapabilities(entity)
   log:trace("sendCapabilities(%s)", entity)
 
+  sendDisplayScale()
+
   -- HVAC modes: water heaters only support Off/Heat in C4; climate entities map from ESPHome modes
   if entity.is_water_heater then
     SendToProxy(PROXY_BINDING, "ALLOWED_HVAC_MODES_CHANGED", { MODES = "Off,Heat" }, "NOTIFY")
@@ -516,7 +565,7 @@ function OnDriverLateInit()
 
   gInitialized = true
   updateStatus("Disconnected", false)
-  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
+  sendConnectionState(false)
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
 end
 
@@ -860,6 +909,22 @@ function RFP.SET_MODE_HVAC(idBinding, strCommand, tParams)
   })
 end
 
+--- ESPHome has no device-side scale to push this to, so record it and report back.
+function RFP.SET_SCALE(idBinding, strCommand, tParams)
+  log:trace("RFP.SET_SCALE(%s, %s, %s)", idBinding, strCommand, tParams)
+  if idBinding ~= PROXY_BINDING then
+    return
+  end
+  local scale = normalizeScale(Select(tParams, "SCALE"))
+  if scale == nil then
+    log:warn("Ignoring SET_SCALE with unrecognized scale: %s", Select(tParams, "SCALE"))
+    return
+  end
+  persist:set(P_DISPLAY_SCALE, scale)
+  REPORTED_SCALE = nil
+  sendDisplayScale()
+end
+
 function RFP.SET_SETPOINT_SINGLE(idBinding, strCommand, tParams)
   log:trace("RFP.SET_SETPOINT_SINGLE(%s, %s, %s)", idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
@@ -912,7 +977,8 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   IS_SINGLE_SETPOINT = false
   USER_SERVICES_DISCOVERED = false
   updateStatus("Disconnected", false)
-  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
+  REPORTED_SCALE = nil
+  sendConnectionState(false)
 end
 
 --- Last unmapped mode/action warned about. State pushes repeat every few
@@ -943,11 +1009,13 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
 
   -- Always update connection status
   updateStatus("Connected", true)
-  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
+  sendConnectionState(true)
 
   -- Send capabilities on first state update
   if not CAPABILITIES_SENT then
     sendCapabilities(entity)
+  else
+    sendDisplayScale()
   end
 
   -- Current temperature

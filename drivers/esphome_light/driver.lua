@@ -350,26 +350,26 @@ local function updateDynamicCapabilities(entity)
     maxMireds
   )
 
-  -- Emit the FULL set of dynamic capabilities (everything spec'd as
-  -- "Dynamic Capability: Yes" in the LIGHT_V2 cap docs, plus dynamic-only
-  -- caps from DYNAMIC_CAPABILITIES_CHANGED). Composer reads these at
-  -- runtime to gate UI elements; the static driver.xml values are only
-  -- the design-time defaults. Emitting the full set ensures Navigators
-  -- and Composer test panels reflect the actual bulb's capabilities.
+  -- The color rate bounds ride every send even on a light with no color: the
+  -- supports_* flags gate a control's visibility, and bounds relayed as 0/0 are
+  -- what makes Composer throw at bind.
   local caps = {
     -- Brightness/dimmer
     dimmer = supportsDimming,
     set_level = supportsDimming,
     supports_target = supportsDimming,
     supports_brightness_stop = supportsDimming,
-    ramp_level = supportsDimming, -- legacy 3.2-era cap; still gates test panel Ramp button
+    ramp_level = supportsDimming,
     has_fixed_ramp_rate = false,
     fixed_ramp_rate = 0,
     brightness_rate_min = 0,
     brightness_rate_max = 65535,
-    -- Color
     supports_color = supportsColor,
     supports_color_correlated_temperature = supportsCCT,
+    supports_color_stop = supportsColor or supportsCCT,
+    color_rate_behavior = 1, -- ESPHome's transition_length applies to all aspects equally
+    color_rate_min = 0,
+    color_rate_max = 65535,
     -- Misc
     has_extras = false,
     cold_start = false,
@@ -379,14 +379,6 @@ local function updateDynamicCapabilities(entity)
     -- CIE mireds invert vs Kelvin, so swap min/max during conversion.
     caps.color_correlated_temperature_min = miredsToKelvin(maxMireds)
     caps.color_correlated_temperature_max = miredsToKelvin(minMireds)
-  end
-  if supportsColor or supportsCCT then
-    caps.color_rate_behavior = 1 -- ESPHome's transition_length applies to all aspects equally
-    caps.color_rate_min = 0
-    caps.color_rate_max = 65535
-    caps.supports_color_stop = true
-  else
-    caps.supports_color_stop = false
   end
   SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
 

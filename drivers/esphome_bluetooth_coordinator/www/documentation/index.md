@@ -529,6 +529,12 @@ ID for rooms) to avoid conflicts.
 Variable names for per-device and per-room variables include a unique suffix
 (MAC address for devices, room ID for rooms) to avoid conflicts.
 
+### Driver Variables
+
+| Variable  | Type | Description                                                     |
+| --------- | ---- | --------------------------------------------------------------- |
+| Connected | BOOL | True while the coordinator is running (Driver Status "Running") |
+
 ### Per-Device Variables
 
 | Variable                         | Type   | Description                                                          |

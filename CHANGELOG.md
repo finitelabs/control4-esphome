@@ -27,6 +27,21 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed an automatic update sometimes leaving companion drivers on the previous
   version until the next update, which could make them stop responding in the
   meantime.
+- Fixed thermostats and water heaters always showing Fahrenheit. They now follow
+  the project's temperature scale, and the Celsius/Fahrenheit setting in
+  Composer can be used to override it for an individual thermostat.
+- Fixed thermostats and water heaters staying shown as connected after the
+  ESPHome device went offline.
+- Fixed an "Error setting default color rate from driver" message in Composer
+  when opening the properties of an ESPHome light.
+- Fixed Composer's test panel greying out the dimming controls for ESPHome
+  lights that do support brightness. Dimming from the Control4 app was never
+  affected.
+
+### Changed
+
+- Documented the `Connected` variable that every driver publishes, so it can be
+  used in Programming to show whether a device is online.
 
 <!-- #endif -->
 

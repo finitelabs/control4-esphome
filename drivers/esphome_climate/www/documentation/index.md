@@ -77,8 +77,11 @@ thermostat proxy.
 - Water heater entity support with operating mode selection via extras
 - Remote temperature sensor support via ESPHome user-defined services
 - Dynamic capability reporting based on ESPHome device features
-- Temperature values communicated in Celsius - the C4 proxy handles display
-  conversion to the project's configured scale
+- Temperature values communicated in Celsius, displayed in the project's
+  temperature scale, with a per-thermostat Celsius/Fahrenheit override available
+  in Composer
+- Connection status reported to the thermostat proxy, so Navigator shows the
+  thermostat as unavailable while the ESPHome device is offline
 
 # <span style="color:#17BCF2">Compatibility</span>
 
@@ -173,6 +176,17 @@ remote sensor is disabled via the thermostat UI.
 Leave as `None` if your ESPHome device automatically reverts to its internal
 sensor when remote temperature updates stop (most devices have a configurable
 timeout for this).
+
+## Programming Variables
+
+| Variable  | Type | Description                                            |
+| --------- | ---- | ------------------------------------------------------ |
+| Connected | BOOL | True while the driver is talking to the ESPHome device |
+
+Use `Connected` in Programming to react to the device going offline, for example
+to drive a custom Navigator element or send a notification. The driver also
+reports its connection state to the Thermostat proxy, so Navigator marks the
+device unavailable on its own.
 
 ## Connections
 

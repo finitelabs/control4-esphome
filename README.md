@@ -435,15 +435,22 @@ supported ESPHome entity. Use this reference for Control4 programming.
 ### Driver Variables
 
 In addition to per-entity variables, the driver publishes the following
-device-level variables sourced from the ESPHome device info. They mirror the
-matching read-only Device Info properties.
+device-level variables. `Connected` tracks the live connection; the rest mirror
+the matching read-only Device Info properties.
 
-| Variable     | Type   | Description                                  |
-| ------------ | ------ | -------------------------------------------- |
-| Name         | STRING | Friendly name reported by the ESPHome device |
-| Model        | STRING | Device model string reported by ESPHome      |
-| Manufacturer | STRING | Manufacturer string reported by ESPHome      |
-| MAC Address  | STRING | ESPHome device MAC address                   |
+| Variable     | Type   | Description                                    |
+| ------------ | ------ | ---------------------------------------------- |
+| Connected    | BOOL   | True while the driver is talking to the device |
+| Name         | STRING | Friendly name reported by the ESPHome device   |
+| Model        | STRING | Device model string reported by ESPHome        |
+| Manufacturer | STRING | Manufacturer string reported by ESPHome        |
+| MAC Address  | STRING | ESPHome device MAC address                     |
+
+> **Tip:** Every sub-driver publishes its own `Connected` variable too, tracking
+> the entity it is bound to. Use it in Programming to drive a custom Navigator
+> element, send a notification, or trigger anything else when a device drops
+> off. Thermostats, lights and fans additionally report their connection state
+> to their proxy, so Navigator greys them out on its own.
 
 ### Variables by Entity Type
 
@@ -911,6 +918,21 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed an automatic update sometimes leaving companion drivers on the previous
   version until the next update, which could make them stop responding in the
   meantime.
+- Fixed thermostats and water heaters always showing Fahrenheit. They now follow
+  the project's temperature scale, and the Celsius/Fahrenheit setting in
+  Composer can be used to override it for an individual thermostat.
+- Fixed thermostats and water heaters staying shown as connected after the
+  ESPHome device went offline.
+- Fixed an "Error setting default color rate from driver" message in Composer
+  when opening the properties of an ESPHome light.
+- Fixed Composer's test panel greying out the dimming controls for ESPHome
+  lights that do support brightness. Dimming from the Control4 app was never
+  affected.
+
+### Changed
+
+- Documented the `Connected` variable that every driver publishes, so it can be
+  used in Programming to show whether a device is online.
 
 ## v20260816 - 2026-08-16
 

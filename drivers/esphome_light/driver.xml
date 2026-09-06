@@ -87,29 +87,27 @@
     <commands/>
     <actions/>
   </config>
+  <!--
+    A dynamic capability overrides these in both directions, so discovery
+    corrects a light that lacks one back down. The dimming tier is True anyway
+    because Composer's test panel needs static AND dynamic; the color tier does
+    not, so it stays off. Cost of the dimming tier: consumers that read this list
+    with an `or` fallback cannot tell a declared False from an undeclared one and
+    see every light as dimmable (DRV-113).
+  -->
   <capabilities>
-    <dimmer>False</dimmer>
-    <set_level>False</set_level>
-    <supports_target>False</supports_target>
-    <supports_brightness_stop>False</supports_brightness_stop>
+    <dimmer>True</dimmer>
+    <set_level>True</set_level>
+    <supports_target>True</supports_target>
+    <supports_brightness_stop>True</supports_brightness_stop>
     <!--
-      on_off, ramp_level, and supports_default_on are documented as
-      "deprecated in 3.3.2" but Composer's test panel still gates UI
-      elements on them: on_off enables the On/Off level buttons;
-      ramp_level enables the Ramp button; supports_default_on enables
-      the Default On preset editor including its Inactive Color picker.
+      Deprecated in 3.3.2, but Composer's test panel still gates on them: the
+      On/Off buttons, the Ramp button, and the Default On preset editor.
     -->
     <on_off>True</on_off>
-    <ramp_level>False</ramp_level>
+    <ramp_level>True</ramp_level>
     <supports_default_on>True</supports_default_on>
-    <!--
-      has_fixed_ramp_rate=true means the bulb has a fixed ramp rate that
-      cannot be changed; we want the user to set rates so this is false.
-      fixed_ramp_rate=0 is the placeholder when has_fixed_ramp_rate=false.
-      Default is false but we declare explicitly because Composer's test
-      panel UI gating sometimes treats undeclared caps differently than
-      declared-as-default.
-    -->
+    <!-- True would mean the bulb's ramp rate cannot be changed. -->
     <has_fixed_ramp_rate>False</has_fixed_ramp_rate>
     <fixed_ramp_rate>0</fixed_ramp_rate>
     <hide_proxy_properties>False</hide_proxy_properties>
@@ -134,6 +132,13 @@
     <disable_flash>False</disable_flash>
     <brightness_rate_min>0</brightness_rate_min>
     <brightness_rate_max>65535</brightness_rate_max>
+    <!--
+      Not light_v2 capabilities; the proxy ignores both and still seeds its own
+      750 ms rate. Declared because Composer reads this list directly and may
+      seed its own rate control from it. The color rate bounds sent from
+      driver.lua are what prevent the bind-time throw.
+    -->
+    <brightness_rate_default>0</brightness_rate_default>
     <click_rate_min>0</click_rate_min>
     <click_rate_max>65535</click_rate_max>
     <hold_rate_min>1000</hold_rate_min>
@@ -146,6 +151,7 @@
     <color_rate_behavior>1</color_rate_behavior>
     <color_rate_min>0</color_rate_min>
     <color_rate_max>65535</color_rate_max>
+    <color_rate_default>0</color_rate_default>
   </capabilities>
   <proxies>
     <proxy proxybindingid="5001" primary="True" name="ESPHome Light">light_v2</proxy>

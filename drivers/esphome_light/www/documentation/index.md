@@ -146,6 +146,17 @@ Sets the logging level. Default is `3 - Info`.
 
 Sets the logging mode. Default is `Off`.
 
+## Programming Variables
+
+| Variable  | Type | Description                                           |
+| --------- | ---- | ----------------------------------------------------- |
+| Connected | BOOL | True while the driver is talking to the ESPHome light |
+
+Use `Connected` in Programming to react to the device going offline, for example
+to drive a custom Navigator element or send a notification. The driver also
+reports its connection state to the Light proxy, so Navigator marks the device
+unavailable on its own.
+
 ## Connections
 
 ### Light (provider)
