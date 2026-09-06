@@ -247,6 +247,98 @@ function C4:Base64Decode(data, ...)
   end
 end
 
+--- Minimal XML parser mirroring what C4:ParseXml returns: a node carrying
+--- Attributes (name -> value) and ChildNodes (ordered array of child nodes).
+--- Covers the attribute-bearing XML that proxies exchange - preset lists,
+--- extras setup and extras state.
+---
+--- Attribute values are entity-unescaped, which is load-bearing rather than
+--- cosmetic: nested XML (preset_fields) arrives escaped inside an attribute and
+--- has to be re-parsable after extraction. Because markup inside attribute
+--- values is always escaped, a non-greedy scan to the first '>' is safe here.
+---
+--- Not a general-purpose parser: no mixed content, no CDATA, no namespaces.
+local XML_ENTITIES = { lt = "<", gt = ">", amp = "&", quot = '"', apos = "'" }
+
+local function xml_unescape(text)
+  return (
+    text:gsub("&(#?%w+);", function(entity)
+      if entity:sub(1, 1) == "#" then
+        local code = tonumber(entity:sub(2))
+        return code and string.char(code) or ("&" .. entity .. ";")
+      end
+      return XML_ENTITIES[entity] or ("&" .. entity .. ";")
+    end)
+  )
+end
+
+local function xml_attributes(raw)
+  local attrs = {}
+  for name, value in raw:gmatch('([%w_:%-%.]+)%s*=%s*"([^"]*)"') do
+    attrs[name] = xml_unescape(value)
+  end
+  for name, value in raw:gmatch("([%w_:%-%.]+)%s*=%s*'([^']*)'") do
+    if attrs[name] == nil then
+      attrs[name] = xml_unescape(value)
+    end
+  end
+  return attrs
+end
+
+local function xml_parse_children(body)
+  local nodes = {}
+  local pos = 1
+  while true do
+    local openStart, openEnd, name, rest = body:find("<([%w_:%-%.]+)(.-)>", pos)
+    if not openStart then
+      break
+    end
+
+    if rest:sub(-1) == "/" then
+      nodes[#nodes + 1] = { Name = name, Attributes = xml_attributes(rest:sub(1, -2)), ChildNodes = {} }
+      pos = openEnd + 1
+    else
+      -- Walk to the matching close tag, counting same-name nesting.
+      local depth, searchPos, closeStart, closeEnd = 1, openEnd + 1, nil, nil
+      while true do
+        local tagStart, tagEnd, closing, tagName, tagRest = body:find("<(/?)([%w_:%-%.]+)(.-)>", searchPos)
+        if not tagStart then
+          break
+        end
+        if tagName == name then
+          if closing == "/" then
+            depth = depth - 1
+            if depth == 0 then
+              closeStart, closeEnd = tagStart, tagEnd
+              break
+            end
+          elseif tagRest:sub(-1) ~= "/" then
+            depth = depth + 1
+          end
+        end
+        searchPos = tagEnd + 1
+      end
+
+      local inner = closeStart and body:sub(openEnd + 1, closeStart - 1) or ""
+      nodes[#nodes + 1] = { Name = name, Attributes = xml_attributes(rest), ChildNodes = xml_parse_children(inner) }
+      pos = closeEnd and (closeEnd + 1) or (openEnd + 1)
+    end
+  end
+  return nodes
+end
+
+-- Handle both C4:ParseXml() and C4.ParseXml(C4, ...) calling styles
+function C4:ParseXml(xml, ...)
+  if type(xml) == "table" and xml == C4 then
+    xml = select(1, ...)
+  end
+  if type(xml) ~= "string" or xml == "" then
+    return nil
+  end
+  local body = xml:gsub("<%?.-%?>", ""):gsub("<!%-%-.-%-%->", "")
+  return xml_parse_children(body)[1]
+end
+
 --- Generate a UUID (simplified version)
 local uuid_counter = 0
 function C4:UUID(prefix)

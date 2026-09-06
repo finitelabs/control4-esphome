@@ -100,13 +100,53 @@
     <actions/>
   </config>
   <capabilities>
-    <can_heat>True</can_heat>
-    <can_cool>True</can_cool>
-    <can_auto>True</can_auto>
+    <can_heat>False</can_heat>
+    <can_cool>False</can_cool>
+    <can_auto>False</can_auto>
     <has_humidity>False</has_humidity>
     <has_single_setpoint>False</has_single_setpoint>
     <can_preset>False</can_preset>
-    <can_preset_schedule>False</can_preset_schedule>
+    <can_preset_schedule>True</can_preset_schedule>
+    <preset_fields>
+        <field id="heat_setpoint_f" type="number" label="Heat Setpoint" min="40" max="90" res="1"/>
+        <field id="heat_setpoint_c" type="number" label="Heat Setpoint" min="4" max="32" res=".5"/>
+        <field id="cool_setpoint_f" type="number" label="Cool Setpoint" min="50" max="99" res="1"/>
+        <field id="cool_setpoint_c" type="number" label="Cool Setpoint" min="10" max="37" res=".5"/>
+        <field id="single_setpoint_f" type="number" label="Setpoint" min="40" max="90" res="1"/>
+        <field id="single_setpoint_c" type="number" label="Setpoint" min="4" max="32" res=".5"/>
+        <field id="hvac_mode" type="list" label="HVAC Mode">
+            <list>
+                <item text="Off" value="Off"/>
+                <item text="Heat" value="Heat"/>
+                <item text="Cool" value="Cool"/>
+                <item text="Auto" value="Auto"/>
+                <item text="Fan Only" value="Fan Only"/>
+                <item text="Dry" value="Dry"/>
+            </list>
+        </field>
+        <field id="fan_mode" type="list" label="Fan Mode">
+            <list>
+                <item text="Auto" value="Auto"/>
+                <item text="On" value="On"/>
+                <item text="Off" value="Off"/>
+                <item text="Low" value="Low"/>
+                <item text="Medium" value="Medium"/>
+                <item text="Middle" value="Middle"/>
+                <item text="High" value="High"/>
+                <item text="Focus" value="Focus"/>
+                <item text="Diffuse" value="Diffuse"/>
+                <item text="Quiet" value="Quiet"/>
+            </list>
+        </field>
+        <field id="swing" type="list" label="Swing">
+            <list>
+                <item text="Off" value="Off"/>
+                <item text="Vertical" value="Vertical"/>
+                <item text="Horizontal" value="Horizontal"/>
+                <item text="Both" value="Both"/>
+            </list>
+        </field>
+    </preset_fields>
     <has_temperature>True</has_temperature>
     <has_connection_status>True</has_connection_status>
     <current_temperature_min_c>-50</current_temperature_min_c>
@@ -139,7 +179,7 @@
     <has_remote_sensor>True</has_remote_sensor>
     <fan_modes/>
     <hvac_modes>Off,Heat,Cool,Auto</hvac_modes>
-    <hold_modes/>
+    <hold_modes>Off,Until Next</hold_modes>
   </capabilities>
   <proxies>
     <proxy proxybindingid="5001" primary="True" name="ESPHome Climate">thermostatV2</proxy>
@@ -181,7 +221,7 @@
       <id>5010</id>
       <facing>6</facing>
       <connectionname>Temperature</connectionname>
-      <type>6</type>
+      <type>1</type>
       <consumer>False</consumer>
       <audiosource>False</audiosource>
       <videosource>False</videosource>
@@ -194,10 +234,10 @@
       <hidden>False</hidden>
     </connection>
     <connection>
-      <id>5012</id>
+      <id>5011</id>
       <facing>6</facing>
       <connectionname>Humidity</connectionname>
-      <type>6</type>
+      <type>1</type>
       <consumer>False</consumer>
       <audiosource>False</audiosource>
       <videosource>False</videosource>
