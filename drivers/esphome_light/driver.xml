@@ -90,20 +90,41 @@
   <!--
     Static floor, used until the bound ESPHome light is discovered. Everything
     the driver reports dynamically is declared at its "off" value here and
-    raised from discovery, so an undiscovered or offline light never advertises
-    a capability it may not have.
+    raised from discovery, except the capabilities Composer's test panel gates
+    on, which are noted below.
 
-    dimmer, set_level and ramp_level are genuinely dynamic: with False here and
-    a dynamic dimmer=true, the proxy's own GET_SETUP reports dimmer=True,
-    ramp_level=True and supports_target=True (verified on a CORE 1). They stay
-    False so consumers that read the static list - C4:GetDeviceData(id,
-    "capabilities") - do not see every ESPHome light as dimmable.
+    All of these are dynamic and a dynamic value overrides them in both
+    directions, but consumers read the static/dynamic pair differently.
+    Measured on a CORE 1 across all four static/dynamic combinations:
+
+      Composer properties tab   follows the dynamic value alone
+      Navigator / the app       follows the dynamic value alone
+      Composer test panel       needs static AND dynamic true, but only for
+                                the dimming tier - the color picker and color
+                                temperature controls came up usable with
+                                supports_color / _correlated_temperature False
+
+    So the dimming tier is True here and the color tier is False. True costs
+    nothing on a light that is not dimmable: it reports a dynamic dimmer=false
+    and is correctly greyed out in Composer and slider-less in the app whatever
+    this says. Two comparable hub-backed light_v2 drivers land the same way -
+    Matter Light declares dimmer/set_level/supports_target True with the color
+    capabilities False, and Chowmain's ESPHome Light declares
+    set_level/ramp_level/supports_target true and omits the color ones.
+
+    The one consumer this misleads is code that reads the static list via
+    C4:GetDeviceData(id, "capabilities") and falls back to it with `or`, which
+    cannot tell "declared false" from "not declared". That is a consumer-side
+    bug, tracked in DRV-113. It reads dimmer, set_level and ramp_level, which is
+    the cost of this; it also reads supports_color and
+    supports_color_correlated_temperature, which is a further reason to leave
+    the color tier alone.
   -->
   <capabilities>
-    <dimmer>False</dimmer>
-    <set_level>False</set_level>
-    <supports_target>False</supports_target>
-    <supports_brightness_stop>False</supports_brightness_stop>
+    <dimmer>True</dimmer>
+    <set_level>True</set_level>
+    <supports_target>True</supports_target>
+    <supports_brightness_stop>True</supports_brightness_stop>
     <!--
       on_off, ramp_level, and supports_default_on are documented as
       "deprecated in 3.3.2" but Composer's test panel still gates UI
@@ -112,7 +133,7 @@
       the Default On preset editor including its Inactive Color picker.
     -->
     <on_off>True</on_off>
-    <ramp_level>False</ramp_level>
+    <ramp_level>True</ramp_level>
     <supports_default_on>True</supports_default_on>
     <!--
       has_fixed_ramp_rate=true means the bulb has a fixed ramp rate that
