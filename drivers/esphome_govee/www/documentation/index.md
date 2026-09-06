@@ -321,11 +321,12 @@ All sensor values are exposed as variables for programming:
 
 ### Common Variables
 
-| Variable    | Type   | Description                 |
-| ----------- | ------ | --------------------------- |
-| Name        | STRING | Device name                 |
-| Device Type | STRING | Detected Govee device model |
-| MAC Address | STRING | Device MAC address          |
+| Variable    | Type   | Description                        |
+| ----------- | ------ | ---------------------------------- |
+| Connected   | BOOL   | True while the device is reporting |
+| Name        | STRING | Device name                        |
+| Device Type | STRING | Detected Govee device model        |
+| MAC Address | STRING | Device MAC address                 |
 
 > **Note:** `Last Seen` and `RSSI` are read-only driver properties (see
 > [Device Info](#device-info)) and do not appear as programming variables.

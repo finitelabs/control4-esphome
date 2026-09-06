@@ -316,6 +316,13 @@ local function kelvinToMireds(k)
   return 1e6 / k
 end
 
+-- A transition rate in milliseconds, held inside the light_v2 rate bounds
+-- [0, 65535] so a stored default never falls outside the control's range.
+local function clampRate(ms)
+  ms = tonumber(ms) or 0
+  return math.max(0, math.min(65535, math.floor(ms + 0.5)))
+end
+
 local function updateDynamicCapabilities(entity)
   if dynamicCapsSent then
     return
@@ -350,12 +357,16 @@ local function updateDynamicCapabilities(entity)
     maxMireds
   )
 
-  -- Emit the FULL set of dynamic capabilities (everything spec'd as
-  -- "Dynamic Capability: Yes" in the LIGHT_V2 cap docs, plus dynamic-only
-  -- caps from DYNAMIC_CAPABILITIES_CHANGED). Composer reads these at
-  -- runtime to gate UI elements; the static driver.xml values are only
-  -- the design-time defaults. Emitting the full set ensures Navigators
-  -- and Composer test panels reflect the actual bulb's capabilities.
+  -- Report the bound light's ACTUAL capabilities. DYNAMIC_CAPABILITIES_CHANGED is
+  -- the authoritative full set the proxy relays onward, and a numeric cap left out
+  -- of it is relayed as 0 rather than falling back to the static driver.xml. So
+  -- every rate control's bounds and default ride EVERY send, unconditionally, even
+  -- when the light has no color at all; the supports_* flags, not missing bounds,
+  -- are what gate a control's visibility. A color-rate control left at 0/0 bounds
+  -- plus the proxy's built-in 750 ms seed is exactly the "defaultColorRate ...
+  -- value 0.750 not between 0.000 and 0.000" crash Composer throws at bind.
+  local brightnessRateDefault = clampRate(persist:get(P_RATE_DEFAULT, DEFAULT_RATE))
+  local colorRateDefault = clampRate(persist:get(P_COLOR_RATE_DEFAULT, brightnessRateDefault))
   local caps = {
     -- Brightness/dimmer
     dimmer = supportsDimming,
@@ -367,9 +378,15 @@ local function updateDynamicCapabilities(entity)
     fixed_ramp_rate = 0,
     brightness_rate_min = 0,
     brightness_rate_max = 65535,
-    -- Color
+    brightness_rate_default = brightnessRateDefault,
+    -- Color: bounds and default are always present (see above); only the flags gate.
     supports_color = supportsColor,
     supports_color_correlated_temperature = supportsCCT,
+    supports_color_stop = supportsColor or supportsCCT,
+    color_rate_behavior = 1, -- ESPHome's transition_length applies to all aspects equally
+    color_rate_min = 0,
+    color_rate_max = 65535,
+    color_rate_default = colorRateDefault,
     -- Misc
     has_extras = false,
     cold_start = false,
@@ -379,14 +396,6 @@ local function updateDynamicCapabilities(entity)
     -- CIE mireds invert vs Kelvin, so swap min/max during conversion.
     caps.color_correlated_temperature_min = miredsToKelvin(maxMireds)
     caps.color_correlated_temperature_max = miredsToKelvin(minMireds)
-  end
-  if supportsColor or supportsCCT then
-    caps.color_rate_behavior = 1 -- ESPHome's transition_length applies to all aspects equally
-    caps.color_rate_min = 0
-    caps.color_rate_max = 65535
-    caps.supports_color_stop = true
-  else
-    caps.supports_color_stop = false
   end
   SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
 

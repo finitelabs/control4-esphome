@@ -535,15 +535,22 @@ supported ESPHome entity. Use this reference for Control4 programming.
 ### Driver Variables
 
 In addition to per-entity variables, the driver publishes the following
-device-level variables sourced from the ESPHome device info. They mirror the
-matching read-only Device Info properties.
+device-level variables. `Connected` tracks the live connection; the rest mirror
+the matching read-only Device Info properties.
 
-| Variable     | Type   | Description                                  |
-| ------------ | ------ | -------------------------------------------- |
-| Name         | STRING | Friendly name reported by the ESPHome device |
-| Model        | STRING | Device model string reported by ESPHome      |
-| Manufacturer | STRING | Manufacturer string reported by ESPHome      |
-| MAC Address  | STRING | ESPHome device MAC address                   |
+| Variable     | Type   | Description                                    |
+| ------------ | ------ | ---------------------------------------------- |
+| Connected    | BOOL   | True while the driver is talking to the device |
+| Name         | STRING | Friendly name reported by the ESPHome device   |
+| Model        | STRING | Device model string reported by ESPHome        |
+| Manufacturer | STRING | Manufacturer string reported by ESPHome        |
+| MAC Address  | STRING | ESPHome device MAC address                     |
+
+> **Tip:** Every sub-driver publishes its own `Connected` variable too, tracking
+> the entity it is bound to. Use it in Programming to drive a custom Navigator
+> element, send a notification, or trigger anything else when a device drops
+> off. Thermostats, lights and fans additionally report their connection state
+> to their proxy, so Navigator greys them out on its own.
 
 ### Variables by Entity Type
 

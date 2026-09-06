@@ -403,13 +403,14 @@ match the property names shown in Composer Pro.
 
 ### Common Variables
 
-| Variable         | Type   | Description                 |
-| ---------------- | ------ | --------------------------- |
-| Name             | STRING | Device name                 |
-| Device Type      | STRING | Detected BTHome device type |
-| Device Type ID   | NUMBER | BTHome device type ID       |
-| Firmware Version | STRING | Device firmware version     |
-| MAC Address      | STRING | Device MAC address          |
+| Variable         | Type   | Description                        |
+| ---------------- | ------ | ---------------------------------- |
+| Connected        | BOOL   | True while the device is reporting |
+| Name             | STRING | Device name                        |
+| Device Type      | STRING | Detected BTHome device type        |
+| Device Type ID   | NUMBER | BTHome device type ID              |
+| Firmware Version | STRING | Device firmware version            |
+| MAC Address      | STRING | Device MAC address                 |
 
 > **Note:** `Last Seen` and `RSSI` are read-only driver properties (see
 > [Device Info](#device-info)) and do not appear as programming variables.

@@ -108,6 +108,11 @@
     <can_preset>False</can_preset>
     <can_preset_schedule>False</can_preset_schedule>
     <has_temperature>True</has_temperature>
+    <!--
+      Lets the proxy surface the device's reachability. The driver keeps this in
+      step with the ESPHome connection through the CONNECTION notification.
+    -->
+    <has_connection_status>True</has_connection_status>
     <current_temperature_min_c>-50</current_temperature_min_c>
     <current_temperature_max_c>150</current_temperature_max_c>
     <current_temperature_min_f>-58</current_temperature_min_f>
@@ -131,7 +136,13 @@
     <setpoint_single_resolution_c>0.5</setpoint_single_resolution_c>
     <setpoint_single_resolution_f>1</setpoint_single_resolution_f>
     <can_inc_dec_setpoints>True</can_inc_dec_setpoints>
-    <can_change_scale>False</can_change_scale>
+    <!--
+      Not device-derived: ESPHome is always Celsius internally, so the scale is
+      purely what Control4 displays and the driver can always change it. True
+      keeps Composer's Celsius/Fahrenheit radio buttons live so an installer can
+      override the project-wide scale for one thermostat.
+    -->
+    <can_change_scale>True</can_change_scale>
     <has_extras>False</has_extras>
     <has_vacation_mode>False</has_vacation_mode>
     <has_remote_sensor>True</has_remote_sensor>

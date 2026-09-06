@@ -125,6 +125,17 @@ Sets the logging mode. Default is `Off`.
 Code sent with lock and unlock commands. Leave blank if the device does not
 require a code.
 
+## Programming Variables
+
+| Variable  | Type | Description                                          |
+| --------- | ---- | ---------------------------------------------------- |
+| Connected | BOOL | True while the driver is talking to the ESPHome lock |
+
+Use `Connected` in Programming to react to the lock going offline, for example
+to drive a custom Navigator element or send a notification. The Lock proxy has
+no connection-status notification of its own, so this variable is the way to
+surface it.
+
 ## Connections
 
 ### Lock (provider)

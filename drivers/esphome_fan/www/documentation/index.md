@@ -162,6 +162,17 @@ Sets the fan oscillation on or off. Available in Composer Pro programming.
 
 - **Oscillation** \[ **_True_** | False \] - Whether the fan should oscillate.
 
+## Programming Variables
+
+| Variable  | Type | Description                                         |
+| --------- | ---- | --------------------------------------------------- |
+| Connected | BOOL | True while the driver is talking to the ESPHome fan |
+
+Use `Connected` in Programming to react to the device going offline, for example
+to drive a custom Navigator element or send a notification. The driver also
+reports its connection state to the Fan proxy, so Navigator marks the device
+unavailable on its own.
+
 ## Connections
 
 ### Fan (provider)

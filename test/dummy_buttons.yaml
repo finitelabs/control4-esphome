@@ -1,0 +1,132 @@
+# Host-mode ESPHome mock for the keypad/button direction work (issue #103).
+#
+# Models a 3-gang smart switch the way ESPHome actually exposes one:
+#   - switch  x3   the relays (gang 1/2 wired to their load, gang 3 decoupled)
+#   - binary_sensor x3   the physical paddles behind each gang
+#   - event   x1   a paddle exposed via the modern `event` entity instead
+#   - button  x1   a device-side action (an ESPHome `button` is an actuator you
+#                  press FROM the controller, NOT a paddle that reports presses)
+#   - light   x1   the gang-3 status LED, to test pushing C4 LED feedback back
+#
+# The point of the mock is the direction of each binding: a paddle must drive
+# Control4 loads (keypad role) while an ESPHome `button` must be pressable from
+# Control4 (load role).
+#
+# Usage:
+#   esphome compile test/dummy_buttons.yaml
+#   .esphome/build/dummy-buttons/.pioenvs/dummy-buttons/program
+#
+# API services:
+#   - paddle_press(gang)     paddle down then up on gang 1-3 (binary_sensor)
+#   - paddle_hold(gang)      paddle down, stays down until paddle_release
+#   - paddle_release(gang)   paddle up
+#   - fire_event(kind)       fire press/double_press/long_press on the event entity
+
+esphome:
+  name: dummy-buttons
+  friendly_name: Dummy Buttons
+
+host:
+
+logger:
+  level: DEBUG
+
+api:
+  port: 6054
+  services:
+    - service: paddle_press
+      variables:
+        gang: int
+      then:
+        - lambda: |-
+            ESP_LOGI("paddle", "press gang %d", gang);
+            if (gang == 1) { id(paddle_1).publish_state(true); id(paddle_1).publish_state(false); }
+            if (gang == 2) { id(paddle_2).publish_state(true); id(paddle_2).publish_state(false); }
+            if (gang == 3) { id(paddle_3).publish_state(true); id(paddle_3).publish_state(false); }
+    - service: paddle_hold
+      variables:
+        gang: int
+      then:
+        - lambda: |-
+            ESP_LOGI("paddle", "hold gang %d", gang);
+            if (gang == 1) { id(paddle_1).publish_state(true); }
+            if (gang == 2) { id(paddle_2).publish_state(true); }
+            if (gang == 3) { id(paddle_3).publish_state(true); }
+    - service: paddle_release
+      variables:
+        gang: int
+      then:
+        - lambda: |-
+            ESP_LOGI("paddle", "release gang %d", gang);
+            if (gang == 1) { id(paddle_1).publish_state(false); }
+            if (gang == 2) { id(paddle_2).publish_state(false); }
+            if (gang == 3) { id(paddle_3).publish_state(false); }
+    - service: fire_event
+      variables:
+        kind: string
+      then:
+        - lambda: |-
+            ESP_LOGI("paddle", "event %s", kind.c_str());
+            id(paddle_3_event).trigger(kind);
+
+output:
+  - platform: template
+    id: out_gang3_led
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("led", "gang3 led -> %.3f", state);'
+
+switch:
+  - platform: template
+    name: "Gang 1 Relay"
+    id: gang_1_relay
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+  - platform: template
+    name: "Gang 2 Relay"
+    id: gang_2_relay
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+  - platform: template
+    name: "Gang 3 Relay"
+    id: gang_3_relay
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+
+binary_sensor:
+  - platform: template
+    name: "Gang 1 Paddle"
+    id: paddle_1
+    device_class: ""
+  - platform: template
+    name: "Gang 2 Paddle"
+    id: paddle_2
+    device_class: ""
+  - platform: template
+    name: "Gang 3 Paddle"
+    id: paddle_3
+    device_class: ""
+
+event:
+  - platform: template
+    name: "Gang 3 Paddle Event"
+    id: paddle_3_event
+    device_class: button
+    event_types:
+      - "press"
+      - "double_press"
+      - "long_press"
+
+button:
+  - platform: template
+    name: "Identify"
+    id: identify_button
+    on_press:
+      - lambda: 'ESP_LOGI("button", "Identify pressed from the controller");'
+
+light:
+  - platform: monochromatic
+    name: "Gang 3 LED"
+    id: gang_3_led
+    output: out_gang3_led
+    default_transition_length: 0s

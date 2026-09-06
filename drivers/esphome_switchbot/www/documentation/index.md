@@ -448,13 +448,14 @@ The following variables are available for programming (varies by device type):
 
 ### Common Variables
 
-| Variable    | Type   | Devices      | Description          |
-| ----------- | ------ | ------------ | -------------------- |
-| Battery     | NUMBER | Most devices | Battery level (%)    |
-| Battery Low | STRING | Water Leak   | Low battery status   |
-| Device Type | STRING | All          | Detected device type |
-| MAC Address | STRING | All          | Device MAC address   |
-| Name        | STRING | All          | Device name          |
+| Variable    | Type   | Devices      | Description                        |
+| ----------- | ------ | ------------ | ---------------------------------- |
+| Connected   | BOOL   | All          | True while the device is reporting |
+| Battery     | NUMBER | Most devices | Battery level (%)                  |
+| Battery Low | STRING | Water Leak   | Low battery status                 |
+| Device Type | STRING | All          | Detected device type               |
+| MAC Address | STRING | All          | Device MAC address                 |
+| Name        | STRING | All          | Device name                        |
 
 ### Bot Variables
 
