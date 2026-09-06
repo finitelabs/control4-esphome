@@ -1015,7 +1015,6 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   if not CAPABILITIES_SENT then
     sendCapabilities(entity)
   else
-    -- Two director reads per update; notifies only on an actual change.
     sendDisplayScale()
   end
 
