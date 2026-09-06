@@ -190,6 +190,14 @@ function BluetoothProxyCapability:_startScannerWatchdog()
     return
   end
 
+  -- The watchdog reads scanner state to tell a stalled scanner from one that
+  -- is legitimately stopped. Without that flag the cached state never leaves
+  -- its default and every check would be a no-op.
+  if bit32.band(self._featureFlags, FEATURE_FLAGS.SCANNER_STATE) == 0 then
+    log:debug("Scanner watchdog not started: device does not report scanner state")
+    return
+  end
+
   log:debug("Starting scanner watchdog (interval: %ds)", SCANNER_WATCHDOG_TIMEOUT_SECONDS)
   self._scannerWatchdogActive = true
   self._scannerWatchdogSeen = false

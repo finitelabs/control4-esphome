@@ -37,13 +37,15 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed Composer's test panel greying out the dimming controls for ESPHome
   lights that do support brightness. Dimming from the Control4 app was never
   affected.
-- Fixed Bluetooth proxy scanner recovery rebooting the device, which it did by
-  pressing whichever button had "restart" in its name. On some devices that is a
-  factory reset button. Recovery now restarts the scanner itself, which is
-  quicker, keeps existing Bluetooth connections alive, and never presses
-  anything. (DRV-115)
-- Fixed Bluetooth proxies never watching for a stuck scanner unless the device
-  exposed a restart button. Scanner recovery now runs on every Bluetooth proxy.
+- Fixed Bluetooth proxy scanner recovery never running on many devices. It
+  needed a button with "restart" in its name, so proxies whose restart button is
+  named in another language, or that expose no such button, silently had no
+  recovery at all. Recovery no longer needs a button and runs on any proxy that
+  reports its scanner state.
+- Fixed Bluetooth proxy scanner recovery rebooting the device, and choosing what
+  to press by name, which could press an unrelated button. It now restarts the
+  scanner itself, which is quicker and keeps existing Bluetooth connections
+  alive. (DRV-115)
 
 ### Changed
 

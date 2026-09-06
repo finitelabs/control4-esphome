@@ -54,11 +54,15 @@ local function fakeClient()
   return client
 end
 
+--- Bluetooth proxy feature flag for scanner state reporting.
+local SCANNER_STATE_FLAG = 0x40
+
 --- Build a capability wired to a stub client, with the watchdog already armed.
 --- @return table capability, table client
 local function capabilityWithWatchdog()
   local client = fakeClient()
   local capability = BluetoothProxyCapability:new(client)
+  capability._featureFlags = SCANNER_STATE_FLAG
   capability._scannerWatchdogActive = true
   return capability, client
 end
@@ -85,7 +89,13 @@ do
   -- ESPHome ignores a set-mode request for the mode it is already in, so
   -- recovery has to leave the current mode to make the firmware act.
   check("scanner mode flipped away from active", client.calls[1] == "mode:passive", table.concat(client.calls, ","))
-  check("nothing else is touched", client.calls[2] == nil, table.concat(client.calls, ","))
+  check("nothing else is touched yet", client.calls[2] == nil, table.concat(client.calls, ","))
+
+  -- The restore runs on a timer. A silently dead restore would strand the
+  -- proxy in passive mode, which is what BTHome devices cannot work with.
+  ShimFireTimers()
+  check("mode restored after the restart", client.calls[2] == "mode:active", table.concat(client.calls, ","))
+  check("nothing further", client.calls[3] == nil, table.concat(client.calls, ","))
   check("watchdog still running", capability._scannerWatchdogActive == true)
 end
 
@@ -96,14 +106,17 @@ do
   local capability, client = capabilityWithWatchdog()
 
   capability:_onScannerWatchdogFired()
+  ShimFireTimers()
   capability:_onScannerWatchdogFired()
-  check("two in-place restarts attempted", #client.calls == 2, table.concat(client.calls, ","))
+  ShimFireTimers()
+  check("two restarts, each restored", #client.calls == 4, table.concat(client.calls, ","))
 
   -- Past the budget the driver stops acting. ESPHome reboots itself for the
   -- scanner failures it can detect, so there is nothing left to escalate to.
   capability:_onScannerWatchdogFired()
   capability:_onScannerWatchdogFired()
-  check("no further action past the budget", #client.calls == 2, table.concat(client.calls, ","))
+  ShimFireTimers()
+  check("no further action past the budget", #client.calls == 4, table.concat(client.calls, ","))
   check("watchdog keeps watching", capability._scannerWatchdogActive == true)
   check("only scanner mode is ever touched", not table.concat(client.calls, ","):find("press"))
 end
@@ -146,6 +159,22 @@ do
   capability:_onScannerWatchdogFired()
 
   check("flipped to active from passive", client.calls[1] == "mode:active", table.concat(client.calls, ","))
+end
+
+--------------------------------------------------------------------------------
+print("\n[7] the watchdog only starts where scanner state is reported")
+--------------------------------------------------------------------------------
+do
+  -- Without the SCANNER_STATE flag the cached state never leaves its default,
+  -- so the watchdog could only ever take its ignore branch.
+  local capability = BluetoothProxyCapability:new(fakeClient())
+  capability._featureFlags = 0x01 -- passive scan only
+  capability:_startScannerWatchdog()
+  check("not started without scanner state support", capability._scannerWatchdogActive == false)
+
+  capability._featureFlags = 0x01 + SCANNER_STATE_FLAG
+  capability:_startScannerWatchdog()
+  check("started once scanner state is reported", capability._scannerWatchdogActive == true)
 end
 
 print(string.format("\n%d passed, %d failed\n", pass, fail))
