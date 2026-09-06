@@ -350,29 +350,20 @@ local function updateDynamicCapabilities(entity)
     maxMireds
   )
 
-  -- Report the bound light's ACTUAL capabilities. The proxy merges this over the
-  -- static driver.xml values and this wins, in both directions: the dimming tier
-  -- is declared True statically for Composer's test panel, so the case that
-  -- matters here is a light without brightness being corrected back down.
-  --
-  -- The color rate bounds ride EVERY send, unconditionally, even when the light
-  -- has no color at all. What gates a control's visibility is the supports_*
-  -- flags, not the presence of bounds, so sending them always costs nothing and
-  -- leaves no window in which a consumer sees a color rate control with no range,
-  -- which is the shape of the "defaultColorRate ... value 0.750 not between 0.000
-  -- and 0.000" exception Composer throws at bind.
+  -- The color rate bounds ride every send even on a light with no color: the
+  -- supports_* flags gate a control's visibility, and bounds relayed as 0/0 are
+  -- what makes Composer throw at bind.
   local caps = {
     -- Brightness/dimmer
     dimmer = supportsDimming,
     set_level = supportsDimming,
     supports_target = supportsDimming,
     supports_brightness_stop = supportsDimming,
-    ramp_level = supportsDimming, -- legacy 3.2-era cap; still gates test panel Ramp button
+    ramp_level = supportsDimming,
     has_fixed_ramp_rate = false,
     fixed_ramp_rate = 0,
     brightness_rate_min = 0,
     brightness_rate_max = 65535,
-    -- Color: the bounds are always present (see above); only the flags gate.
     supports_color = supportsColor,
     supports_color_correlated_temperature = supportsCCT,
     supports_color_stop = supportsColor or supportsCCT,

@@ -30,11 +30,9 @@ function C4:GetDeviceData(deviceId, key)
   end
   return nil
 end
--- The controller returns the project's temperature scale as a full word, not a
--- single letter, so callers have to normalize it. Mutable so a test can flip the
--- project scale mid-run, and Celsius by default: a caller that fails to
--- normalize falls through to its own Fahrenheit default, so only a Celsius
--- project tells a working normalizer apart from a broken one.
+-- The controller returns a full word, not a letter. Celsius by default because a
+-- caller that fails to normalize falls back to Fahrenheit, so only Celsius tells
+-- a working normalizer from a broken one. Mutable so a test can flip it mid-run.
 C4.TemperatureScale = "CELSIUS"
 function C4:GetTemperatureScale()
   return C4.TemperatureScale

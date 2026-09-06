@@ -88,37 +88,12 @@
     <actions/>
   </config>
   <!--
-    Static floor, used until the bound ESPHome light is discovered. Everything
-    the driver reports dynamically is declared at its "off" value here and
-    raised from discovery, except the capabilities Composer's test panel gates
-    on, which are noted below.
-
-    All of these are dynamic and a dynamic value overrides them in both
-    directions, but consumers read the static/dynamic pair differently.
-    Measured on a CORE 1 across all four static/dynamic combinations:
-
-      Composer properties tab   follows the dynamic value alone
-      Navigator / the app       follows the dynamic value alone
-      Composer test panel       needs static AND dynamic true, but only for
-                                the dimming tier - the color picker and color
-                                temperature controls came up usable with
-                                supports_color / _correlated_temperature False
-
-    So the dimming tier is True here and the color tier is False. True costs
-    nothing on a light that is not dimmable: it reports a dynamic dimmer=false
-    and is correctly greyed out in Composer and slider-less in the app whatever
-    this says. Two comparable hub-backed light_v2 drivers land the same way -
-    Matter Light declares dimmer/set_level/supports_target True with the color
-    capabilities False, and Chowmain's ESPHome Light declares
-    set_level/ramp_level/supports_target true and omits the color ones.
-
-    The one consumer this misleads is code that reads the static list via
-    C4:GetDeviceData(id, "capabilities") and falls back to it with `or`, which
-    cannot tell "declared false" from "not declared". That is a consumer-side
-    bug, tracked in DRV-113. It reads dimmer, set_level and ramp_level, which is
-    the cost of this; it also reads supports_color and
-    supports_color_correlated_temperature, which is a further reason to leave
-    the color tier alone.
+    A dynamic capability overrides these in both directions, so discovery
+    corrects a light that lacks one back down. The dimming tier is True anyway
+    because Composer's test panel needs static AND dynamic; the color tier does
+    not, so it stays off. Cost of the dimming tier: consumers that read this list
+    with an `or` fallback cannot tell a declared False from an undeclared one and
+    see every light as dimmable (DRV-113).
   -->
   <capabilities>
     <dimmer>True</dimmer>
@@ -126,23 +101,13 @@
     <supports_target>True</supports_target>
     <supports_brightness_stop>True</supports_brightness_stop>
     <!--
-      on_off, ramp_level, and supports_default_on are documented as
-      "deprecated in 3.3.2" but Composer's test panel still gates UI
-      elements on them: on_off enables the On/Off level buttons;
-      ramp_level enables the Ramp button; supports_default_on enables
-      the Default On preset editor including its Inactive Color picker.
+      Deprecated in 3.3.2, but Composer's test panel still gates on them: the
+      On/Off buttons, the Ramp button, and the Default On preset editor.
     -->
     <on_off>True</on_off>
     <ramp_level>True</ramp_level>
     <supports_default_on>True</supports_default_on>
-    <!--
-      has_fixed_ramp_rate=true means the bulb has a fixed ramp rate that
-      cannot be changed; we want the user to set rates so this is false.
-      fixed_ramp_rate=0 is the placeholder when has_fixed_ramp_rate=false.
-      Default is false but we declare explicitly because Composer's test
-      panel UI gating sometimes treats undeclared caps differently than
-      declared-as-default.
-    -->
+    <!-- True would mean the bulb's ramp rate cannot be changed. -->
     <has_fixed_ramp_rate>False</has_fixed_ramp_rate>
     <fixed_ramp_rate>0</fixed_ramp_rate>
     <hide_proxy_properties>False</hide_proxy_properties>
@@ -168,15 +133,10 @@
     <brightness_rate_min>0</brightness_rate_min>
     <brightness_rate_max>65535</brightness_rate_max>
     <!--
-      brightness_rate_default and color_rate_default are not light_v2
-      capabilities at all: neither key appears in the proxy, and a fresh install
-      declaring them still seeds the proxy's built-in 750 ms rate. They are kept
-      only because Composer reads this static list directly and Chowmain's
-      ESPHome light ships the same two entries, so they are cheap parity rather
-      than a mechanism. What actually prevents the
-      "defaultColorRate ... value 0.750 not between 0.000 and 0.000" throw is
-      color_rate_min / color_rate_max riding every DYNAMIC_CAPABILITIES_CHANGED
-      in driver.lua, so the bounds are never relayed as 0/0.
+      Not light_v2 capabilities; the proxy ignores both and still seeds its own
+      750 ms rate. Kept only for parity with Chowmain's ESPHome light, since
+      Composer reads this list directly. The color rate bounds sent from
+      driver.lua are what prevent the bind-time throw.
     -->
     <brightness_rate_default>0</brightness_rate_default>
     <click_rate_min>0</click_rate_min>

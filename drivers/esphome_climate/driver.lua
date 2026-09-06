@@ -129,8 +129,8 @@ local SCALE = "C"
 --- Persist key for an installer's per-thermostat display-scale override.
 local P_DISPLAY_SCALE = "DisplayScale"
 
---- Normalize any of the scale spellings the proxy uses ("C"/"F",
---- "Celsius"/"Fahrenheit", "CELSIUS"/"FAHRENHEIT") to a single letter.
+--- The proxy and C4:GetTemperatureScale() disagree on spelling ("C" vs "Celsius"
+--- vs "CELSIUS"), so both are reduced to a letter.
 --- @param scale string|nil
 --- @return string|nil scale "C", "F", or nil if unrecognized.
 local function normalizeScale(scale)
@@ -141,35 +141,27 @@ local function normalizeScale(scale)
   return nil
 end
 
---- The scale the thermostat should display in. An installer override set from
---- Composer or programming (SET_SCALE) wins; otherwise follow the project's
---- temperature scale. ESPHome itself is always Celsius, so this is purely a
---- display concern and nothing is pushed to the device.
+--- An installer override wins over the project scale. ESPHome is always Celsius
+--- internally, so this only affects what Control4 displays.
 --- @return string scale "C" or "F".
 local function getDisplayScale()
   return normalizeScale(persist:get(P_DISPLAY_SCALE)) or normalizeScale(C4:GetTemperatureScale()) or "F"
 end
 
---- Report the ESPHome device's reachability to the thermostat proxy.
---- thermostatV2 has no ONLINE_CHANGED; it tracks reachability through
---- CONNECTION/CONNECTED, which drives the proxy's IS_CONNECTED variable and the
---- offline indicator Navigator shows on the thermostat.
+--- thermostatV2 has no ONLINE_CHANGED. It tracks reachability through
+--- CONNECTION/CONNECTED, which drives its IS_CONNECTED variable.
 --- @param connected boolean
 --- @return void
 local function sendConnectionState(connected)
   SendToProxy(PROXY_BINDING, "CONNECTION", { CONNECTED = connected and "true" or "false" }, "NOTIFY")
 end
 
---- Last scale reported to the proxy, so a change in the project's scale is
---- picked up without waiting for the ESPHome device to reconnect.
 --- @type string|nil
 local REPORTED_SCALE = nil
 
---- Tell the proxy which scale to display in, if it has changed. The proxy
---- defaults to Fahrenheit and never consults the project setting on its own, so
---- without this a Celsius project still shows Fahrenheit thermostats. Called on
---- every state update, which is what lets an installer flip the project scale in
---- Composer and see it take effect on an already-connected thermostat.
+--- The proxy defaults to Fahrenheit and never consults the project setting, so a
+--- Celsius project shows Fahrenheit thermostats without this. Called on every
+--- state update so a project scale change lands without a reconnect.
 --- @return void
 local function sendDisplayScale()
   local scale = getDisplayScale()
@@ -917,9 +909,7 @@ function RFP.SET_MODE_HVAC(idBinding, strCommand, tParams)
   })
 end
 
---- The proxy asks the driver to change the displayed units. ESPHome has no
---- device-side scale to push this to, so the driver just records the override
---- and reports the new scale back.
+--- ESPHome has no device-side scale to push this to, so record it and report back.
 function RFP.SET_SCALE(idBinding, strCommand, tParams)
   log:trace("RFP.SET_SCALE(%s, %s, %s)", idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
@@ -1025,9 +1015,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   if not CAPABILITIES_SENT then
     sendCapabilities(entity)
   else
-    -- Re-reads the persisted override and the project scale, then notifies only
-    -- when the value changed. Two director round-trips per state update, which is
-    -- what buys picking up a project scale change without a reconnect.
+    -- Two director reads per update; notifies only on an actual change.
     sendDisplayScale()
   end
 
