@@ -134,8 +134,8 @@
     <brightness_rate_max>65535</brightness_rate_max>
     <!--
       Not light_v2 capabilities; the proxy ignores both and still seeds its own
-      750 ms rate. Kept only for parity with Chowmain's ESPHome light, since
-      Composer reads this list directly. The color rate bounds sent from
+      750 ms rate. Declared because Composer reads this list directly and may
+      seed its own rate control from it. The color rate bounds sent from
       driver.lua are what prevent the bind-time throw.
     -->
     <brightness_rate_default>0</brightness_rate_default>
