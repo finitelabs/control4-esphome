@@ -592,15 +592,6 @@ function RefreshStatus()
           else
             log:debug("No Entities['%s']:discovered() handler", entity.entity_type)
           end
-
-          -- Detect restart button for scanner recovery
-          if entity.entity_type == "button" then
-            local buttonName = entity.name or ""
-            if buttonName:lower():find("restart") then
-              log:info("Found restart button entity: %s", ESPHomeClient.describeEntity(entity))
-              bluetoothProxyCapability:setRestartButtonKey(entity.key)
-            end
-          end
         end
 
         return entities
