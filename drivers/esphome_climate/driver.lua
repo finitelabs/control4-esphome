@@ -1025,7 +1025,9 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   if not CAPABILITIES_SENT then
     sendCapabilities(entity)
   else
-    -- Cheap no-op unless the project scale changed under us.
+    -- Re-reads the persisted override and the project scale, then notifies only
+    -- when the value changed. Two director round-trips per state update, which is
+    -- what buys picking up a project scale change without a reconnect.
     sendDisplayScale()
   end
 
