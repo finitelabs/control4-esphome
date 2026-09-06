@@ -30,6 +30,18 @@ local SCANNER_WATCHDOG_TIMEOUT_SECONDS = 90
 --- Timer key for the scanner watchdog
 local SCANNER_WATCHDOG_TIMER_KEY = "BLEScannerWatchdog"
 
+--- How many times to restart the scanner in place before leaving it to
+--- ESPHome's own recovery. Each attempt costs one watchdog interval.
+local SCANNER_RECOVERY_RESTART_ATTEMPTS = 2
+
+--- Timer key for restoring the scanner mode after an in-place restart.
+local SCANNER_RECOVERY_RESTORE_TIMER_KEY = "BLEScannerRecoveryRestore"
+
+--- How long to leave the scanner in the opposite mode before restoring it.
+--- Long enough for the firmware to finish stopping and relaunch the scan, so
+--- restoring does not land while the scanner is still STOPPING.
+local SCANNER_RECOVERY_RESTORE_SECONDS = 5
+
 --- Reverse lookup for BluetoothScannerState enum (value -> display name)
 --- States that involve active scanning will have mode appended (e.g., "Scanning (Passive)")
 --- @type table<ProtoBluetoothScannerState, string?>
@@ -69,7 +81,6 @@ local SCANNER_MODE_NAMES = {
 --- @field _scannerWatchdogActive boolean Whether the scanner watchdog is active
 --- @field _scannerWatchdogSeen boolean Whether any advertisements were received since last watchdog check
 --- @field _scannerRecoveryAttempts integer Number of recovery attempts since last successful scan
---- @field _restartButtonKey number|nil The key of the restart button entity (nil if not found)
 local BluetoothProxyCapability = {
   TYPE = "bluetooth_proxy",
   LABEL_PROPERTY_NAME = "Bluetooth Proxy Settings",
@@ -141,7 +152,6 @@ function BluetoothProxyCapability:new(client)
   instance._scannerWatchdogActive = false
   instance._scannerWatchdogSeen = false
   instance._scannerRecoveryAttempts = 0
-  instance._restartButtonKey = nil
   return instance
 end
 
@@ -174,16 +184,17 @@ function BluetoothProxyCapability:_onAdvertisementReceived()
 end
 
 --- Start the scanner watchdog.
---- Only starts if a restart button is available for recovery.
 --- @private
 function BluetoothProxyCapability:_startScannerWatchdog()
   if self._scannerWatchdogActive then
     return
   end
 
-  -- Only enable watchdog if we have a restart button for recovery
-  if not self._restartButtonKey then
-    log:debug("Scanner watchdog not started: no restart button available for recovery")
+  -- The watchdog reads scanner state to tell a stalled scanner from one that
+  -- is legitimately stopped. Without that flag the cached state never leaves
+  -- its default and every check would be a no-op.
+  if bit32.band(self._featureFlags, FEATURE_FLAGS.SCANNER_STATE) == 0 then
+    log:debug("Scanner watchdog not started: device does not report scanner state")
     return
   end
 
@@ -198,14 +209,6 @@ function BluetoothProxyCapability:_startScannerWatchdog()
   end, true) -- recurring
 end
 
---- Set the restart button entity key for scanner recovery.
---- Called by the driver when a restart button entity is discovered.
---- @param key number The button entity key
-function BluetoothProxyCapability:setRestartButtonKey(key)
-  log:debug("Restart button key set: %s", key)
-  self._restartButtonKey = key
-end
-
 --- Stop the scanner watchdog.
 --- @private
 function BluetoothProxyCapability:_stopScannerWatchdog()
@@ -217,6 +220,32 @@ function BluetoothProxyCapability:_stopScannerWatchdog()
   self._scannerWatchdogActive = false
   self._scannerWatchdogSeen = false
   CancelTimer(SCANNER_WATCHDOG_TIMER_KEY)
+  CancelTimer(SCANNER_RECOVERY_RESTORE_TIMER_KEY)
+end
+
+--- Restart the BLE scanner in place, without rebooting the device.
+---
+--- ESPHome ignores a set-mode request for the mode the scanner is already in,
+--- so the round trip through the opposite mode is what makes it act: each
+--- accepted change stops the scan and re-arms continuous scanning, which the
+--- firmware relaunches once the stack is idle. The mode is restored afterwards
+--- because active scanning is what BTHome devices need.
+--- @private
+--- @return Deferred<nil, string> result Resolves once the opposite mode is set.
+function BluetoothProxyCapability:_restartScanner()
+  local scannerState = self._client:getBluetoothScannerState()
+  local wasActive = scannerState.mode ~= ESPHomeProtoSchema.Enum.BluetoothScannerMode.BLUETOOTH_SCANNER_MODE_PASSIVE
+
+  return self._client:setBluetoothScannerMode(not wasActive):next(function()
+    SetTimer(SCANNER_RECOVERY_RESTORE_TIMER_KEY, SCANNER_RECOVERY_RESTORE_SECONDS * ONE_SECOND, function()
+      self._client:setBluetoothScannerMode(wasActive):next(function()
+        log:debug("Scanner recovery: scanner mode restored")
+      end, function(err)
+        -- The next connect re-applies the mode, so this is not fatal.
+        log:error("Scanner recovery: failed to restore scanner mode: %s", err)
+      end)
+    end)
+  end)
 end
 
 --- Called when the scanner watchdog timer fires.
@@ -244,31 +273,25 @@ function BluetoothProxyCapability:_onScannerWatchdogFired()
     return
   end
 
-  -- Safety check - should not happen since watchdog only starts if we have restart button
-  if not self._restartButtonKey then
-    log:warn("Scanner watchdog fired but no restart button available, stopping watchdog")
-    self:_stopScannerWatchdog()
+  self._scannerRecoveryAttempts = self._scannerRecoveryAttempts + 1
+
+  if self._scannerRecoveryAttempts <= SCANNER_RECOVERY_RESTART_ATTEMPTS then
+    log:warn(
+      "Scanner watchdog: No BLE advertisements received for %ds (attempt %d), restarting the scanner",
+      SCANNER_WATCHDOG_TIMEOUT_SECONDS,
+      self._scannerRecoveryAttempts
+    )
+    self:_restartScanner():next(nil, function(err)
+      log:error("Scanner recovery: failed to restart the scanner: %s", err)
+    end)
     return
   end
 
-  self._scannerRecoveryAttempts = self._scannerRecoveryAttempts + 1
-  log:warn(
-    "Scanner watchdog: No BLE advertisements received for %ds (attempt %d), rebooting device to recover",
-    SCANNER_WATCHDOG_TIMEOUT_SECONDS,
-    self._scannerRecoveryAttempts
-  )
-
-  -- Stop watchdog - device will reboot and we'll reinitialize on reconnect
-  self:_stopScannerWatchdog()
-
-  -- Attempt recovery by pressing the restart button
-  self._client:pressButton(self._restartButtonKey):next(function()
-    log:info("Scanner recovery: restart button pressed, device will reboot")
-  end, function(err)
-    log:error("Scanner recovery: failed to press restart button: %s", err)
-    -- Restart the watchdog to try again later
-    self:_startScannerWatchdog()
-  end)
+  -- Nothing further to try from here. ESPHome reboots itself for the scanner
+  -- failures it can detect, so keep watching rather than giving up.
+  if self._scannerRecoveryAttempts == SCANNER_RECOVERY_RESTART_ATTEMPTS + 1 then
+    log:warn("Scanner watchdog: Scanner did not recover after %d restarts", SCANNER_RECOVERY_RESTART_ATTEMPTS)
+  end
 end
 
 --- Update the read-only status property.
