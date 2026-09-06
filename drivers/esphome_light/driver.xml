@@ -88,22 +88,20 @@
     <actions/>
   </config>
   <!--
-    Static floor, used until the bound ESPHome light is discovered. Every
-    capability the light_v2 proxy accepts via DYNAMIC_CAPABILITIES_CHANGED is
-    declared at its "off" value here and turned on from discovery; the ones the
-    proxy only reads statically (dimmer, set_level, ramp_level, on_off) must
-    stand on their own, because nothing at runtime can raise them.
+    Static floor, used until the bound ESPHome light is discovered. Everything
+    the driver reports dynamically is declared at its "off" value here and
+    raised from discovery, so an undiscovered or offline light never advertises
+    a capability it may not have.
+
+    dimmer, set_level and ramp_level are genuinely dynamic: with False here and
+    a dynamic dimmer=true, the proxy's own GET_SETUP reports dimmer=True,
+    ramp_level=True and supports_target=True (verified on a CORE 1). They stay
+    False so consumers that read the static list - C4:GetDeviceData(id,
+    "capabilities") - do not see every ESPHome light as dimmable.
   -->
   <capabilities>
-    <!--
-      dimmer/set_level/ramp_level are read only from this static list - they are
-      not in the proxy's dynamic capability set - so declaring them False would
-      permanently grey out Composer's dimming controls even for a light that
-      reports brightness support. The runtime dimmer state a Navigator sees comes
-      from the dynamic supports_target/dimmer pair instead.
-    -->
-    <dimmer>True</dimmer>
-    <set_level>True</set_level>
+    <dimmer>False</dimmer>
+    <set_level>False</set_level>
     <supports_target>False</supports_target>
     <supports_brightness_stop>False</supports_brightness_stop>
     <!--
@@ -114,7 +112,7 @@
       the Default On preset editor including its Inactive Color picker.
     -->
     <on_off>True</on_off>
-    <ramp_level>True</ramp_level>
+    <ramp_level>False</ramp_level>
     <supports_default_on>True</supports_default_on>
     <!--
       has_fixed_ramp_rate=true means the bulb has a fixed ramp rate that
@@ -149,10 +147,13 @@
     <brightness_rate_min>0</brightness_rate_min>
     <brightness_rate_max>65535</brightness_rate_max>
     <!--
-      The proxy seeds a built-in 750 ms rate default at bind time, before our
-      dynamic capabilities arrive. Seeding 0 here keeps that value inside
-      whatever bounds Composer has loaded so binding never throws
-      "defaultColorRate ... value 0.750 not between 0.000 and 0.000".
+      The proxy seeds a built-in 750 ms rate default at bind time, before any
+      dynamic capabilities arrive. It ignores these two entries - there is no
+      such capability in light_v2, and a fresh install still seeds 750 - but
+      Composer reads the static capability list directly and may use them to
+      seed its own rate control, which is where the
+      "defaultColorRate ... value 0.750 not between 0.000 and 0.000" throw
+      happens. Kept at 0 as cheap insurance on the Composer side.
     -->
     <brightness_rate_default>0</brightness_rate_default>
     <click_rate_min>0</click_rate_min>

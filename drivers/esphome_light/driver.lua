@@ -357,14 +357,16 @@ local function updateDynamicCapabilities(entity)
     maxMireds
   )
 
-  -- Report the bound light's ACTUAL capabilities. DYNAMIC_CAPABILITIES_CHANGED is
-  -- the authoritative full set the proxy relays onward, and a numeric cap left out
-  -- of it is relayed as 0 rather than falling back to the static driver.xml. So
-  -- every rate control's bounds and default ride EVERY send, unconditionally, even
-  -- when the light has no color at all; the supports_* flags, not missing bounds,
-  -- are what gate a control's visibility. A color-rate control left at 0/0 bounds
-  -- plus the proxy's built-in 750 ms seed is exactly the "defaultColorRate ...
-  -- value 0.750 not between 0.000 and 0.000" crash Composer throws at bind.
+  -- Report the bound light's ACTUAL capabilities. The proxy merges this over the
+  -- static driver.xml values, so a light that reports brightness ends up dimmable
+  -- even though the XML declares dimmer=False.
+  --
+  -- Every rate control's bounds and default ride EVERY send, unconditionally, even
+  -- when the light has no color at all. What gates a control's visibility is the
+  -- supports_* flags, not the presence of bounds, so sending them always costs
+  -- nothing and leaves no window in which a consumer can see a color rate control
+  -- with no range - which is the shape of the "defaultColorRate ... value 0.750
+  -- not between 0.000 and 0.000" exception Composer throws at bind.
   local brightnessRateDefault = clampRate(persist:get(P_RATE_DEFAULT, DEFAULT_RATE))
   local colorRateDefault = clampRate(persist:get(P_COLOR_RATE_DEFAULT, brightnessRateDefault))
   local caps = {

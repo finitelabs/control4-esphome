@@ -923,8 +923,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Composer can be used to override it for an individual thermostat.
 - Fixed thermostats and water heaters staying shown as connected after the
   ESPHome device went offline.
-- Fixed the dimming controls being greyed out in Composer for ESPHome lights
-  that do support brightness.
 - Fixed an "Error setting default color rate from driver" message in Composer
   when opening the properties of an ESPHome light.
 
