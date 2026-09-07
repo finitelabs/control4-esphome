@@ -156,7 +156,14 @@ end
 --- @return void
 function SensorEntity:updated(entity, state)
   log:trace("SensorEntity:updated(%s, %s)", entity, state)
-  local value = round(tonumber(state.state) or 0, 1)
+  -- Protobuf omits a zero, so an absent state is 0. A NaN is a reading the
+  -- device does not have, and is dropped rather than published.
+  local reading = tofinite(state.state or 0)
+  if reading == nil then
+    log:debug("Ignoring non-finite state for %s", ESPHomeClient.describeEntity(entity))
+    return
+  end
+  local value = round(reading, 1)
   values:update(entity.name, value, "NUMBER")
 
   local config = getBindingConfig(entity)

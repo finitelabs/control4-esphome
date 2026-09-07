@@ -1,3 +1,12 @@
+--- LOCAL PATCH - NOT YET UPSTREAM IN THE TEMPLATE.
+--- CONTRIBUTING.md lists this file as template-owned: it is normally changed in
+--- the template repo and pulled in with `copier update`. This copy carries a
+--- local change that the template does not have yet, so the next `copier update`
+--- will either conflict here or silently revert it. Diff this file by hand on
+--- the next sync until the change lands upstream.
+--- Local change: `tofinite`, the NaN/infinity-safe numeric coercion the climate and
+--- water heater drivers depend on for every reading they publish.
+---
 --- Utility module for managing devices, their bindings, properties, data, and general device-related operations in a Control4-driven environment.
 
 local deferred = require("deferred")
@@ -856,6 +865,20 @@ function tointeger(value)
     return nil
   end
   return (value >= 0) and math.floor(value + 0.5) or math.ceil(value - 0.5)
+end
+
+--- Converts a value to a finite number.
+--- NaN and infinity come back as `nil`, so a caller can treat "no reading" and
+--- "not a number" alike: ESPHome sends NaN for any float the device has not
+--- reported yet.
+--- @param value any The value to convert. Can be a number or a string that represents a number.
+--- @return number|nil number The number when it is finite, or `nil` otherwise.
+function tofinite(value)
+  value = tonumber(value)
+  if value == nil or value ~= value or value == math.huge or value == -math.huge then
+    return nil
+  end
+  return value
 end
 
 --- Asserts that a value is an integer, narrowing the type from DeviceId.

@@ -1,3 +1,12 @@
+--- LOCAL PATCH - NOT YET UPSTREAM IN THE TEMPLATE.
+--- CONTRIBUTING.md lists this file as template-owned: it is normally changed in
+--- the template repo and pulled in with `copier update`. This copy carries a
+--- local change that the template does not have yet, so the next `copier update`
+--- will either conflict here or silently revert it. Diff this file by hand on
+--- the next sync until the change lands upstream.
+--- Local change: decode_float/decode_double reject NaN and infinity instead of
+--- returning a number near 5.1e38 for a reading the device does not have.
+---
 --- @module "protobuf"
 --- A lightweight Protocol Buffers implementation for Lua.
 --- This module provides encoding and decoding functions for Protocol Buffers data format.
@@ -30,6 +39,8 @@ local bit64_to_hex = bit64.to_hex
 local bit64_to_number = bit64.to_number
 
 -- Lua 5.3+ removed math.frexp and math.ldexp; provide polyfills
+-- IEEE 754 NaN. Lua has no literal for it.
+local NAN = 0 / 0
 local math_frexp = math.frexp
   or function(x)
     if x == 0 then
@@ -289,6 +300,16 @@ function pb.decode_float(buffer, pos)
     return 0, pos + 4
   end
 
+  -- An all-ones exponent is not a number: infinity when the mantissa is zero,
+  -- NaN otherwise. Without this branch a NaN decoded as roughly 5.1e38 - and
+  -- NaN is what ESPHome sends for any float the device has not reported yet.
+  if e == 255 then
+    if m == 0 then
+      return (sign == 1) and -math.huge or math.huge, pos + 4
+    end
+    return NAN, pos + 4
+  end
+
   local result = math_ldexp(1 + m / 0x800000, e - 127)
   if sign == 1 then
     result = -result
@@ -357,6 +378,14 @@ function pb.decode_double(buffer, pos)
 
   if e == 0 and m == 0 then
     return 0, pos + 8
+  end
+
+  -- Same non-finite handling as decode_float.
+  if e == 2047 then
+    if m == 0 then
+      return (sign == 1) and -math.huge or math.huge, pos + 8
+    end
+    return NAN, pos + 8
   end
 
   local result = math_ldexp(1 + m / 0x10000000000000, e - 1023)
