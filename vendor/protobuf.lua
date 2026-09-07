@@ -62,7 +62,7 @@ local function is_list(t)
 end
 
 -- Version
-local VERSION = "v0.6.6"
+local VERSION = "v0.6.7"
 
 --- Returns the library version.
 --- @return string version The version string.
@@ -437,6 +437,134 @@ function pb.decode_length_delimited(buffer, pos)
   return data, new_pos + length
 end
 
+--- Decodes one non-length-delimited value off the wire.
+--- @param protoSchema ProtoSchema The complete proto schema.
+--- @param fieldType integer The field's data type, which selects among the wire type's readings.
+--- @param wireType integer The wire type to read as.
+--- @param buffer string The encoded bytes.
+--- @param pos integer The position to read from.
+--- @return any value The decoded value.
+--- @return integer pos The position after the value.
+local function decode_scalar(protoSchema, fieldType, wireType, buffer, pos)
+  local value
+  if wireType == protoSchema.WireType.VARINT then
+    -- Use 64-bit decoder for types that need full precision
+    if fieldType == protoSchema.DataType.UINT64 or fieldType == protoSchema.DataType.INT64 then
+      value, pos = pb.decode_varint64(buffer, pos)
+    elseif fieldType == protoSchema.DataType.SINT64 then
+      local raw
+      raw, pos = pb.decode_varint64(buffer, pos)
+      value = pb.zigzag_decode64(raw)
+    elseif fieldType == protoSchema.DataType.SINT32 then
+      local raw
+      raw, pos = pb.decode_varint(buffer, pos)
+      value = pb.zigzag_decode32(raw)
+    elseif fieldType == protoSchema.DataType.BOOL then
+      value, pos = pb.decode_varint(buffer, pos)
+      value = value ~= 0 -- Convert to boolean
+    else
+      -- INT32, UINT32, ENUM, etc.
+      value, pos = pb.decode_varint(buffer, pos)
+    end
+  elseif wireType == protoSchema.WireType.FIXED64 then
+    if fieldType == protoSchema.DataType.DOUBLE then
+      value, pos = pb.decode_double(buffer, pos)
+    else
+      -- FIXED64, SFIXED64
+      value, pos = pb.decode_fixed64(buffer, pos)
+    end
+  elseif wireType == protoSchema.WireType.FIXED32 then
+    if fieldType == protoSchema.DataType.FLOAT then
+      value, pos = pb.decode_float(buffer, pos)
+    else
+      -- FIXED32, SFIXED32
+      value, pos = pb.decode_fixed32(buffer, pos)
+    end
+  else
+    error("Unsupported wire type: " .. wireType)
+  end
+  return value, pos
+end
+
+--- Decodes a packed repeated scalar block into its elements.
+--- @param protoSchema ProtoSchema The complete proto schema.
+--- @param field ProtoFieldSchema The repeated field, whose wireType is the element's.
+--- @param data string The block's bytes, with the length prefix already consumed.
+--- @return any[] values The decoded elements.
+local function decode_packed(protoSchema, field, data)
+  local values = {}
+  local pos = 1
+  local value
+  while pos <= #data do
+    value, pos = decode_scalar(protoSchema, field.type, field.wireType, data, pos)
+    values[#values + 1] = value
+  end
+  return values
+end
+
+--- Returns a map entry's key and value field schemas.
+--- @param entrySchema ProtoMessageSchema The entry message a map field's subschema names.
+--- @return ProtoFieldSchema keyField The entry's key field.
+--- @return ProtoFieldSchema valueField The entry's value field.
+local function map_entry_fields(entrySchema)
+  -- protobuf fixes a synthesized map entry's field numbers: the key is 1, the value 2.
+  return entrySchema.fields[1], entrySchema.fields[2]
+end
+
+--- Returns the protobuf default for a field's type.
+--- @param protoSchema ProtoSchema The complete proto schema.
+--- @param field ProtoFieldSchema The field whose type supplies the default.
+--- @return any value The type's default value.
+local function default_value(protoSchema, field)
+  local dataType = protoSchema.DataType
+  local fieldType = field.type
+  if fieldType == dataType.STRING or fieldType == dataType.BYTES then
+    return ""
+  elseif fieldType == dataType.BOOL then
+    return false
+  elseif fieldType == dataType.MESSAGE then
+    return {}
+  elseif
+    fieldType == dataType.INT64
+    or fieldType == dataType.UINT64
+    or fieldType == dataType.SINT64
+    or fieldType == dataType.FIXED64
+    or fieldType == dataType.SFIXED64
+  then
+    -- Matches decode, which returns these five as Int64 tables rather than numbers.
+    return bit64_new(0, 0)
+  end
+  return 0
+end
+
+--- Encodes a map field as the repeated key/value entry messages it is on the wire.
+--- @param protoSchema ProtoSchema The complete proto schema.
+--- @param field ProtoFieldSchema The map field's schema.
+--- @param field_number integer The field's number.
+--- @param entries table<any, any> The map to encode.
+--- @return string buffer The encoded entries.
+local function encode_map(protoSchema, field, field_number, entries)
+  if type(entries) ~= "table" or bit64_is_int64(entries) then
+    error("Field '" .. field.name .. "' is a map but received a non-table value.")
+  end
+
+  local entrySchema = protoSchema.Message[field.subschema]
+  local keyField, valueField = map_entry_fields(entrySchema)
+  local wire_type = field.wireType
+  --- @cast wire_type integer
+  local key = bit32_to_unsigned(bit32_raw_lshift(field_number, 3)) + wire_type
+
+  local buffer = ""
+  for entry_key, entry_value in pairs(entries) do
+    local entry = pb.encode(protoSchema, entrySchema, {
+      [keyField.name] = entry_key,
+      [valueField.name] = entry_value,
+    })
+    buffer = buffer .. pb.encode_varint(key) .. pb.encode_length_delimited(entry)
+  end
+  return buffer
+end
+
 --- Encodes a message according to a schema.
 --- @param protoSchema ProtoSchema The complete proto schema.
 --- @param messageSchema ProtoMessageSchema The message schema to use for encoding.
@@ -447,7 +575,9 @@ function pb.encode(protoSchema, messageSchema, message)
 
   for field_number, field in pairs(messageSchema.fields) do
     local values = message[field.name]
-    if values ~= nil then
+    if values ~= nil and field.map then
+      buffer = buffer .. encode_map(protoSchema, field, field_number, values)
+    elseif values ~= nil then
       if field.repeated then
         if not is_list(values) or bit64_is_int64(values) then
           error("Field '" .. field.name .. "' is repeated but received a non-list value.")
@@ -507,6 +637,17 @@ function pb.encode(protoSchema, messageSchema, message)
             -- For nested messages
             local nested_message = pb.encode(protoSchema, protoSchema.Message[field.subschema], value)
             buffer = buffer .. pb.encode_length_delimited(nested_message)
+          else
+            -- The tag is already written; without this a non-string/table value
+            -- would emit a bare tag with no length or payload, silently truncating
+            -- the stream instead of failing like the varint/fixed paths do.
+            error(
+              "Field '"
+                .. field.name
+                .. "' is length-delimited (string, bytes, or message) but received a "
+                .. type(value)
+                .. "."
+            )
           end
         else
           error("Unsupported wire type: " .. tostring(field.wireType))
@@ -561,54 +702,50 @@ function pb.decode(protoSchema, messageSchema, buffer)
     else
       -- Known field - decode and store the value
       local value
-      local fieldType = field.type
+      local packed
       -- Decode the value based on the wire type
-      if wire_type == protoSchema.WireType.VARINT then
-        -- Use 64-bit decoder for types that need full precision
-        if fieldType == protoSchema.DataType.UINT64 or fieldType == protoSchema.DataType.INT64 then
-          value, pos = pb.decode_varint64(buffer, pos)
-        elseif fieldType == protoSchema.DataType.SINT64 then
-          local raw
-          raw, pos = pb.decode_varint64(buffer, pos)
-          value = pb.zigzag_decode64(raw)
-        elseif fieldType == protoSchema.DataType.SINT32 then
-          local raw
-          raw, pos = pb.decode_varint(buffer, pos)
-          value = pb.zigzag_decode32(raw)
-        elseif fieldType == protoSchema.DataType.BOOL then
-          value, pos = pb.decode_varint(buffer, pos)
-          value = value ~= 0 -- Convert to boolean
-        else
-          -- INT32, UINT32, ENUM, etc.
-          value, pos = pb.decode_varint(buffer, pos)
-        end
-      elseif wire_type == protoSchema.WireType.FIXED64 then
-        if fieldType == protoSchema.DataType.DOUBLE then
-          value, pos = pb.decode_double(buffer, pos)
-        else
-          -- FIXED64, SFIXED64
-          value, pos = pb.decode_fixed64(buffer, pos)
-        end
-      elseif wire_type == protoSchema.WireType.FIXED32 then
-        if fieldType == protoSchema.DataType.FLOAT then
-          value, pos = pb.decode_float(buffer, pos)
-        else
-          -- FIXED32, SFIXED32
-          value, pos = pb.decode_fixed32(buffer, pos)
-        end
-      elseif wire_type == protoSchema.WireType.LENGTH_DELIMITED then
+      if wire_type == protoSchema.WireType.LENGTH_DELIMITED then
         local data
         data, pos = pb.decode_length_delimited(buffer, pos)
-        if field.subschema then
+        -- proto3 packs a repeated scalar by default: the tag carries the block's wire
+        -- type, so the element's is the schema's.
+        if field.repeated and field.wireType ~= protoSchema.WireType.LENGTH_DELIMITED then
+          packed = decode_packed(protoSchema, field, data)
+        elseif field.subschema then
           value = pb.decode(protoSchema, protoSchema.Message[field.subschema], data)
         else
           value = data
         end
       else
-        error("Unsupported wire type: " .. wire_type)
+        value, pos = decode_scalar(protoSchema, field.type, wire_type, buffer, pos)
       end
 
-      if field.repeated then
+      if packed then
+        -- One field may arrive as several blocks, or mix packed and unpacked, so append.
+        local list = message[field.name]
+        if list == nil then
+          list = {}
+          message[field.name] = list
+        end
+        for _, element in ipairs(packed) do
+          list[#list + 1] = element
+        end
+      elseif field.map then
+        if message[field.name] == nil then
+          message[field.name] = {}
+        end
+        local keyField, valueField = map_entry_fields(protoSchema.Message[field.subschema])
+        local entry_key = value[keyField.name]
+        local entry_value = value[valueField.name]
+        -- An entry may omit either side when it holds the type's zero value.
+        if entry_key == nil then
+          entry_key = default_value(protoSchema, keyField)
+        end
+        if entry_value == nil then
+          entry_value = default_value(protoSchema, valueField)
+        end
+        message[field.name][entry_key] = entry_value
+      elseif field.repeated then
         if message[field.name] == nil then
           message[field.name] = {}
         end
@@ -785,6 +922,7 @@ function pb.selftest()
           type = data_type,
           wireType = wire_type,
           repeated = opts.repeated,
+          map = opts.map,
           subschema = opts.subschema,
         },
       },
@@ -1041,6 +1179,12 @@ function pb.selftest()
     assert_eq(dec.text, v, "encode/decode string len=" .. #v)
   end
 
+  -- A non-string/table value on a length-delimited field must raise, not emit a
+  -- bare tag with no payload (which would silently truncate the stream).
+  assert_error(function()
+    pb.encode(Schema, stringSchema, { text = 42 })
+  end, "length%-delimited", "error: number on a length-delimited field")
+
   -- Float
   local floatSchema = make_schema("Float", "value", Schema.DataType.FLOAT, Schema.WireType.FIXED32)
   for _, v in ipairs({ 0.0, 1.0, -1.0, 3.14159, 1e10 }) do
@@ -1101,6 +1245,95 @@ function pb.selftest()
   for i, v in ipairs(vals) do
     assert_eq(decR.values[i], v, "repeated field[" .. i .. "]")
   end
+
+  -- ============================================================================
+  -- MESSAGE DECODE: PACKED REPEATED FIELDS
+  -- ============================================================================
+
+  -- `pb.encode` only emits the unpacked spelling, so these assemble the wire bytes by
+  -- hand: field 1 tagged LENGTH_DELIMITED over a block of untagged elements.
+  local function packed_field(block)
+    return pb.encode_varint(8 + Schema.WireType.LENGTH_DELIMITED) .. pb.encode_length_delimited(block)
+  end
+
+  local function concat_encoded(values, encode)
+    local block = ""
+    for _, v in ipairs(values) do
+      block = block .. encode(v)
+    end
+    return block
+  end
+
+  local packedU32Schema =
+    make_schema("PackedU32", "ids", Schema.DataType.UINT32, Schema.WireType.VARINT, { repeated = true })
+  local u32vals = { 0, 1, 300, 65535 }
+  local decPU = pb.decode(Schema, packedU32Schema, packed_field(concat_encoded(u32vals, pb.encode_varint)))
+  assert_eq(#decPU.ids, #u32vals, "packed uint32 element count")
+  for i, v in ipairs(u32vals) do
+    assert_eq(decPU.ids[i], v, "packed uint32[" .. i .. "]")
+  end
+
+  local packedS32Schema =
+    make_schema("PackedS32", "deltas", Schema.DataType.SINT32, Schema.WireType.VARINT, { repeated = true })
+  local s32vals = { -1, 1, -500 }
+  local decPS = pb.decode(
+    Schema,
+    packedS32Schema,
+    packed_field(concat_encoded(s32vals, function(v)
+      return pb.encode_varint(pb.zigzag_encode32(v))
+    end))
+  )
+  for i, v in ipairs(s32vals) do
+    assert_eq(decPS.deltas[i], v, "packed sint32[" .. i .. "] zigzag-decoded")
+  end
+
+  local packedBoolSchema =
+    make_schema("PackedBool", "flags", Schema.DataType.BOOL, Schema.WireType.VARINT, { repeated = true })
+  local decPBool = pb.decode(Schema, packedBoolSchema, packed_field("\1\0\1"))
+  assert_eq(#decPBool.flags, 3, "packed bool element count")
+  assert_eq(decPBool.flags[1], true, "packed bool[1]")
+  assert_eq(decPBool.flags[2], false, "packed bool[2]")
+
+  local packedU64Schema =
+    make_schema("PackedU64", "counters", Schema.DataType.UINT64, Schema.WireType.VARINT, { repeated = true })
+  local decPU64 = pb.decode(Schema, packedU64Schema, packed_field(concat_encoded({ 1, 300 }, pb.encode_varint)))
+  assert_eq(#decPU64.counters, 2, "packed uint64 element count")
+  assert_int64(decPU64.counters[1], 0, 1, "packed uint64[1] stays an Int64 pair")
+  assert_int64(decPU64.counters[2], 0, 300, "packed uint64[2] stays an Int64 pair")
+
+  local packedFloatSchema =
+    make_schema("PackedFloat", "samples", Schema.DataType.FLOAT, Schema.WireType.FIXED32, { repeated = true })
+  local decPFloat = pb.decode(Schema, packedFloatSchema, packed_field(concat_encoded({ 1.5, -2.25 }, pb.encode_float)))
+  assert_eq(#decPFloat.samples, 2, "packed float element count")
+  assert_close(decPFloat.samples[1], 1.5, 0.0001, "packed float[1]")
+  assert_close(decPFloat.samples[2], -2.25, 0.0001, "packed float[2]")
+
+  local packedDoubleSchema =
+    make_schema("PackedDouble", "readings", Schema.DataType.DOUBLE, Schema.WireType.FIXED64, { repeated = true })
+  local decPDouble =
+    pb.decode(Schema, packedDoubleSchema, packed_field(concat_encoded({ 0.5, 3.75 }, pb.encode_double)))
+  assert_eq(#decPDouble.readings, 2, "packed double element count")
+  assert_close(decPDouble.readings[2], 3.75, 0.0001, "packed double[2]")
+
+  local decMixed = pb.decode(
+    Schema,
+    packedU32Schema,
+    packed_field(pb.encode_varint(7))
+      .. pb.encode(Schema, packedU32Schema, { ids = { 1, 300 } })
+      .. packed_field(pb.encode_varint(9))
+  )
+  assert_eq(#decMixed.ids, 4, "packed blocks and unpacked tags append to one list")
+  assert_eq(decMixed.ids[1], 7, "mixed packed/unpacked[1]")
+  assert_eq(decMixed.ids[3], 300, "mixed packed/unpacked[3]")
+  assert_eq(decMixed.ids[4], 9, "mixed packed/unpacked[4]")
+
+  assert_eq(#pb.decode(Schema, packedU32Schema, packed_field("")).ids, 0, "empty packed block decodes to no elements")
+
+  local repeatedStrSchema =
+    make_schema("RepeatedStr", "names", Schema.DataType.STRING, Schema.WireType.LENGTH_DELIMITED, { repeated = true })
+  local decRS = pb.decode(Schema, repeatedStrSchema, pb.encode(Schema, repeatedStrSchema, { names = { "a", "bc" } }))
+  assert_eq(#decRS.names, 2, "repeated string is not unpacked as a packed block")
+  assert_eq(decRS.names[2], "bc", "repeated string[2]")
 
   -- ============================================================================
   -- MESSAGE ENCODE/DECODE: NESTED MESSAGES
@@ -1225,6 +1458,114 @@ function pb.selftest()
   assert_eq(decP.work.city, "W", "multi-nested work.city")
 
   -- ============================================================================
+  -- MESSAGE ENCODE/DECODE: MAP FIELDS
+  -- ============================================================================
+
+  local function make_entry(name, key_type, key_wire, value_type, value_wire, value_subschema)
+    Schema.Message[name] = {
+      name = name,
+      options = {},
+      fields = {
+        [1] = { name = "key", type = key_type, wireType = key_wire },
+        [2] = { name = "value", type = value_type, wireType = value_wire, subschema = value_subschema },
+      },
+    }
+  end
+
+  local function map_size(t)
+    local n = 0
+    for _ in pairs(t) do
+      n = n + 1
+    end
+    return n
+  end
+
+  -- map<string, int32>
+  make_entry(
+    "CountsEntry",
+    Schema.DataType.STRING,
+    Schema.WireType.LENGTH_DELIMITED,
+    Schema.DataType.INT32,
+    Schema.WireType.VARINT
+  )
+  local countsSchema = make_schema(
+    "Counts",
+    "counts",
+    Schema.DataType.MESSAGE,
+    Schema.WireType.LENGTH_DELIMITED,
+    { map = true, subschema = "CountsEntry" }
+  )
+
+  -- `pb.encode` emits a message's fields in `pairs` order, which differs between Lua
+  -- and LuaJIT, and protobuf accepts a submessage's fields in either order.
+  local framing = "\10\5" -- field 1, LENGTH_DELIMITED, 5 bytes
+  local entryKey = "\10\1" .. "a" -- key = "a"
+  local entryValue = "\16\1" -- value = 1
+  local oneEntry = pb.encode(Schema, countsSchema, { counts = { a = 1 } })
+  assert_eq(
+    oneEntry == framing .. entryKey .. entryValue or oneEntry == framing .. entryValue .. entryKey,
+    true,
+    "map encodes as one length-delimited key/value entry"
+  )
+
+  local counts = { alpha = 1, beta = 2, [""] = 0 }
+  local decC = pb.decode(Schema, countsSchema, pb.encode(Schema, countsSchema, { counts = counts }))
+  assert_eq(map_size(decC.counts), 3, "map<string,int32> entry count")
+  for k, v in pairs(counts) do
+    assert_eq(decC.counts[k], v, "map<string,int32> roundtrip key " .. string.format("%q", k))
+  end
+
+  -- map<int32, string>: a non-string key stays a number through the roundtrip
+  make_entry(
+    "NamesEntry",
+    Schema.DataType.INT32,
+    Schema.WireType.VARINT,
+    Schema.DataType.STRING,
+    Schema.WireType.LENGTH_DELIMITED
+  )
+  local namesSchema = make_schema(
+    "Names",
+    "names",
+    Schema.DataType.MESSAGE,
+    Schema.WireType.LENGTH_DELIMITED,
+    { map = true, subschema = "NamesEntry" }
+  )
+  local decN = pb.decode(Schema, namesSchema, pb.encode(Schema, namesSchema, { names = { [7] = "seven" } }))
+  assert_eq(decN.names[7], "seven", "map<int32,string> numeric key roundtrip")
+
+  -- map<string, Item>: message values recurse through the same entry path
+  make_entry(
+    "ItemsEntry",
+    Schema.DataType.STRING,
+    Schema.WireType.LENGTH_DELIMITED,
+    Schema.DataType.MESSAGE,
+    Schema.WireType.LENGTH_DELIMITED,
+    "Item"
+  )
+  local itemsSchema = make_schema(
+    "Items",
+    "items",
+    Schema.DataType.MESSAGE,
+    Schema.WireType.LENGTH_DELIMITED,
+    { map = true, subschema = "ItemsEntry" }
+  )
+  local decI =
+    pb.decode(Schema, itemsSchema, pb.encode(Schema, itemsSchema, { items = { widget = { name = "W", qty = 9 } } }))
+  assert_eq(decI.items.widget.name, "W", "map<string,Item> message value name")
+  assert_eq(decI.items.widget.qty, 9, "map<string,Item> message value qty")
+
+  -- An empty map contributes no bytes, and so decodes back to no field at all
+  assert_eq(pb.encode(Schema, countsSchema, { counts = {} }), "", "empty map encodes to nothing")
+  assert_eq(pb.decode(Schema, countsSchema, "").counts, nil, "empty map decodes to nil field")
+
+  -- A producer may drop either side of an entry when it holds the zero value, so a
+  -- zero-length entry has to read back as the key and value defaults rather than raise.
+  local decDefaults = pb.decode(Schema, countsSchema, "\10\0")
+  assert_eq(decDefaults.counts[""], 0, "entry omitting key and value applies both defaults")
+  local decDefaultValue = pb.decode(Schema, namesSchema, "\10\2\8\7")
+  assert_eq(decDefaultValue.names[7], "", "entry omitting value applies the value default")
+
+  -- ============================================================================
   -- EDGE CASES
   -- ============================================================================
 
@@ -1268,6 +1609,25 @@ function pb.selftest()
   assert_error(function()
     pb.encode(Schema, noSubSchema, { nested = { foo = 1 } })
   end, "no subschema", "error: nested message without subschema")
+
+  assert_error(function()
+    pb.encode(Schema, countsSchema, { counts = 42 })
+  end, "non%-table", "error: non-table for map field")
+
+  local bytesSchema = make_schema("Bytes", "data", Schema.DataType.BYTES, Schema.WireType.LENGTH_DELIMITED)
+  assert_error(function()
+    pb.encode(Schema, bytesSchema, { data = true })
+  end, "length%-delimited", "error: boolean for bytes field")
+
+  assert_error(function()
+    pb.encode(Schema, outerSchema, { inner = 42 })
+  end, "length%-delimited", "error: number for message field")
+
+  local repeatedStringSchema =
+    make_schema("RepeatedString", "tags", Schema.DataType.STRING, Schema.WireType.LENGTH_DELIMITED, { repeated = true })
+  assert_error(function()
+    pb.encode(Schema, repeatedStringSchema, { tags = { "ok", 42 } })
+  end, "length%-delimited", "error: number element in repeated string field")
 
   -- ============================================================================
   -- SUMMARY

@@ -39,8 +39,10 @@ endif
 # ─── Help ─────────────────────────────────────────────────────────────────────
 
 .PHONY: help
+# grep -h so that with an -include'd Makefile.local in MAKEFILE_LIST, grep doesn't
+# prefix `filename:` into the target-name column.
 help: ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 # ─── Init ─────────────────────────────────────────────────────────────────────
@@ -270,3 +272,9 @@ clean: clean-build ## Remove build artifacts and dist
 
 clean-all: clean ## Remove everything (build, dist, deps, venv)
 	rm -rf $(VENV)
+
+# ─── Project-specific ─────────────────────────────────────────────────────────
+# Optional, un-templated targets for this driver (e.g. codegen), kept in a separate
+# Makefile.local so copier update never has to merge them. Included last so it can add
+# targets and extend stock ones via extra prerequisites (test: test-project).
+-include Makefile.local
