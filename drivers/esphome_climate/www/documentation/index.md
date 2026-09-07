@@ -292,9 +292,9 @@ in force.
 Returning the thermostat to the values of the preset that is in force clears the
 hold on its own, without waiting for the next event.
 
-Deleting every scheduled event also clears a hold the driver raised, since there
-is no longer a next event to hold until. A hold set from the thermostat itself
-stays until it is released.
+Deleting every scheduled event also clears a hold the driver raised, including
+one set by hand, since there is no longer a next event to hold until. A
+Permanent hold is deliberate and still survives.
 
 The hold options themselves appear only once a schedule exists. With no
 scheduled events there is no next event for a hold to run until, so the
