@@ -1,3 +1,12 @@
+--- LOCAL PATCH - NOT YET UPSTREAM IN THE TEMPLATE.
+--- CONTRIBUTING.md lists this file as template-owned: it is normally changed in
+--- the template repo and pulled in with `copier update`. This copy carries a
+--- local change that the template does not have yet, so the next `copier update`
+--- will either conflict here or silently revert it. Diff this file by hand on
+--- the next sync until the change lands upstream.
+--- Local change: a `C4:ParseXml` implementation. The whole preset and schedule test
+--- suite is built on it; without it those tests cannot run at all.
+---
 --- Shim layer to replace Control4-specific functions with native Lua equivalents
 --- for debugging and testing outside the Control4 environment.
 ---
