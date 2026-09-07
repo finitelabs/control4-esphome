@@ -974,8 +974,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   sensor.
 
 - A scheduled change that fell due while the controller was restarting now runs
-  once the system is back, instead of being skipped until the same time next
-  week. Only the most recent missed change is applied.
+  as soon as the system is back, instead of being skipped until the same time
+  next week.
 
 - After a restart the thermostat now re-states its hold and its active preset,
   rather than leaving on screen whatever it had last been told. A hold that
