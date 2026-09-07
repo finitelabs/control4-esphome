@@ -194,6 +194,16 @@ local function updateState(entity, state)
   RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", { entity = entity, state = state })
 end
 
+--- Same as updateState, but through the real bridge->child serialization
+--- (SerializeSafe/DeserializeSafe, i.e. a JSON+base64 round trip) instead of
+--- handing the driver raw Lua tables. ClimateEntity:updated does exactly this
+--- before sending UPDATE_STATE for real, and a NaN or infinity reading only
+--- has to survive THIS path - a test that skips it cannot see a regression in
+--- how those values cross the wire.
+local function updateStateSerialized(entity, state)
+  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", { entity = SerializeSafe(entity), state = SerializeSafe(state) })
+end
+
 --- Put the driver back into "not holding". Hold notifications are edge
 --- triggered, so a test asserting that a hold ENGAGES must start from Off or it
 --- sees nothing and blames the driver.
@@ -1517,8 +1527,9 @@ test("A reading the device has not taken is not forwarded as a temperature", fun
   -- the device supplies a value, and a head with no humidity sensor reports NaN
   -- humidity on every frame. Decoded, that used to be roughly 5.1e38, which went
   -- to the proxy as a temperature and which a setpoint nudge then clamped to the
-  -- maximum. Infinity is covered too: JSON drops a NaN on its way over the
-  -- bridge but carries infinity across.
+  -- maximum. This exercises stateFloat directly with raw tables; the version
+  -- below exercises the same values through the real SerializeSafe round trip
+  -- the bridge actually uses.
   local NAN = 0 / 0
   disconnect()
   resetSent()
@@ -1546,6 +1557,39 @@ test("A reading the device has not taken is not forwarded as a temperature", fun
   if body then
     checkEqual(body.target_temperature, 16, "a nudge from an unknown setpoint is not seeded by the sentinel")
   end
+end)
+
+test("A NaN reading still is not forwarded once it has crossed the real bridge serialization", function()
+  -- SerializeSafe/DeserializeSafe is a JSON+base64 round trip, and JSON has no
+  -- NaN literal: a NaN that only crosses stateFloat's own logic (the test
+  -- above) is not proof it survives the hop from the bridge driver to this
+  -- one, where ClimateEntity:updated actually serializes it. Before the
+  -- NAN_SENTINEL fix, a NaN reading here decoded back as a MISSING key
+  -- indistinguishable from a dimension the device never reports, and
+  -- stateFloat's "absent means zero for a declared dimension" rule turned it
+  -- into a real 0 reading - the opposite of what the raw-table test above
+  -- shows. current_temperature/current_humidity must be DECLARED for this to
+  -- bite: undeclared dimensions return nil either way, which would make this
+  -- test pass regardless of the bug - the same trap the original vacuous
+  -- version fell into.
+  local NAN = 0 / 0
+  local entity = singleSetpointEntity()
+  entity.supports_current_temperature = true
+  entity.supports_current_humidity = true
+  entity.supports_target_humidity = true
+  disconnect()
+  resetSent()
+  updateStateSerialized(entity, {
+    mode = Mode.COOL,
+    current_temperature = NAN,
+    target_temperature = math.huge,
+    current_humidity = NAN,
+    target_humidity = -math.huge,
+  })
+  check(lastSent("TEMPERATURE_CHANGED") == nil, "no temperature for a NaN reading, once serialized")
+  check(lastSent("SINGLE_SETPOINT_CHANGED") == nil, "no setpoint for an infinite target, once serialized")
+  check(lastSent("HUMIDITY_CHANGED") == nil, "no humidity for a NaN reading, once serialized")
+  check(lastSent("HUMIDIFY_SETPOINT_CHANGED") == nil, "no humidity setpoint for an infinite target, once serialized")
 end)
 
 test("Deleting the schedule releases the hold it was held against", function()
