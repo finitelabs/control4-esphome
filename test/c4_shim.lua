@@ -12,15 +12,138 @@ if not loadstring then
   loadstring = load
 end
 
+-- Minimal lpack-compatible string.pack/string.unpack for the format codes the ZCL
+-- codec uses (all little-endian); the '<' endian marker is accepted and ignored.
+-- Signature AND code semantics match Control4's lpack, verified on a controller
+-- (Lua 5.1): b unsigned8, c signed8 (NOT the 5.3 convention where b is signed),
+-- h/H signed/unsigned16, i/I signed/unsigned32, l/L signed/unsigned long (4 bytes on
+-- the 32-bit Directors; driver code uses i/I so the width is fixed across ILP32/LP64).
+-- B is kept as an unsigned8 alias. This must track the controller, not the 5.3 stdlib
+-- (which LuaJIT lacks anyway), or a test would agree with a driver bug instead of
+-- catching it.
+if not string.pack then
+  local function packInt(v, size) -- signedness is irrelevant: two's-complement wrap below
+    v = (v >= 0) and math.floor(v + 0.5) or math.ceil(v - 0.5) -- round half away from zero
+    v = v % (2 ^ (8 * size))
+    local out = {}
+    for _ = 1, size do
+      out[#out + 1] = string.char(v % 256)
+      v = math.floor(v / 256)
+    end
+    return table.concat(out)
+  end
+  local function unpackInt(data, pos, size, signed)
+    local v = 0
+    for i = 0, size - 1 do
+      v = v + string.byte(data, pos + i) * 2 ^ (8 * i)
+    end
+    if signed and v >= 2 ^ (8 * size - 1) then
+      v = v - 2 ^ (8 * size)
+    end
+    return pos + size, v
+  end
+  local function packFloat(x)
+    if x == 0 then
+      return string.char(0, 0, 0, 0)
+    end
+    local sign = 0
+    if x < 0 then
+      sign = 0x80
+      x = -x
+    end
+    local mant, expo = math.frexp(x) -- x = mant * 2^expo, 0.5 <= mant < 1
+    expo = expo + 126 -- IEEE754 biased exponent (mant in [0.5,1) => 1.f = 2*mant)
+    if expo <= 0 then
+      -- Underflow: flush to zero. Denormals are out of scope (ZCL floats do not use
+      -- them); unpackFloat still decodes them, so the pair is intentionally asymmetric.
+      return string.char(0, 0, 0, sign)
+    end
+    mant = math.floor((mant * 2 - 1) * 2 ^ 23 + 0.5)
+    if mant == 2 ^ 23 then
+      -- Rounding carried the mantissa into the next binade (e.g. 255.999999): the
+      -- implicit leading 1 must increment the exponent, not be masked off b3.
+      mant = 0
+      expo = expo + 1
+    end
+    if expo >= 255 then
+      return string.char(0, 0, 0x80, sign + 0x7F)
+    end
+    local b1 = mant % 256
+    local b2 = math.floor(mant / 256) % 256
+    local b3 = math.floor(mant / 65536) % 128 + (expo % 2) * 128
+    local b4 = math.floor(expo / 2) + sign
+    return string.char(b1, b2, b3, b4)
+  end
+  local function unpackFloat(data, pos)
+    local b1, b2, b3, b4 = string.byte(data, pos, pos + 3)
+    local sign = (b4 >= 128) and -1 or 1
+    local expo = (b4 % 128) * 2 + math.floor(b3 / 128)
+    local mant = (b3 % 128) * 65536 + b2 * 256 + b1
+    local v
+    if expo == 0 then
+      v = mant / 2 ^ 23 * 2 ^ -126
+    elseif expo == 255 then
+      v = (mant == 0) and math.huge or (0 / 0)
+    else
+      v = (1 + mant / 2 ^ 23) * 2 ^ (expo - 127)
+    end
+    return pos + 4, sign * v
+  end
+  -- code -> { size, signed }. b is UNSIGNED (lpack), c is signed8.
+  local CODE = {
+    b = { 1, false },
+    B = { 1, false },
+    c = { 1, true },
+    h = { 2, true },
+    H = { 2, false },
+    i = { 4, true },
+    I = { 4, false },
+    l = { 4, true },
+    L = { 4, false },
+  }
+  function string.pack(fmt, ...)
+    local args, i, out = { ... }, 0, {}
+    for c in fmt:gmatch(".") do
+      if c == "<" or c == ">" or c == "=" then -- endian marker: ignore (LE)
+      elseif c == "f" then
+        i = i + 1
+        out[#out + 1] = packFloat(args[i])
+      elseif CODE[c] then
+        i = i + 1
+        out[#out + 1] = packInt(args[i], CODE[c][1])
+      else
+        error("shim string.pack: unsupported code '" .. c .. "'")
+      end
+    end
+    return table.concat(out)
+  end
+  function string.unpack(data, fmt, pos)
+    pos = pos or 1
+    local out = {}
+    for c in fmt:gmatch(".") do
+      if c == "<" or c == ">" or c == "=" then
+      elseif c == "f" then
+        local v
+        pos, v = unpackFloat(data, pos)
+        out[#out + 1] = v
+      elseif CODE[c] then
+        local v
+        pos, v = unpackInt(data, pos, CODE[c][1], CODE[c][2])
+        out[#out + 1] = v
+      else
+        error("shim string.unpack: unsupported code '" .. c .. "'")
+      end
+    end
+    return pos, (table.unpack or unpack)(out)
+  end
+end
+
 -- Global C4 object shim
 C4 = {}
 Properties = {}
 Variables = {}
 
 -- Stub C4 functions that are called but not needed for testing
-function C4:GetDriverConfigInfo()
-  return nil
-end
 function C4:GetDeviceID()
   return 12345
 end
@@ -29,13 +152,6 @@ function C4:GetDeviceData(deviceId, key)
     return "Test Device"
   end
   return nil
-end
--- The controller returns a full word, not a letter. Celsius by default because a
--- caller that fails to normalize falls back to Fahrenheit, so only Celsius tells
--- a working normalizer from a broken one. Mutable so a test can flip it mid-run.
-C4.TemperatureScale = "CELSIUS"
-function C4:GetTemperatureScale()
-  return C4.TemperatureScale
 end
 function C4:AllowExecute() end
 function C4:UpdateProperty() end
@@ -126,11 +242,244 @@ end
 function ShimResetSentFrames()
   clear(sent_frames)
 end
+
+---------------------------------------------------------------------------
+-- Dynamic bindings and the connections between them
+-- Shapes and return values were measured on a controller; where the
+-- DriverWorks reference disagrees it is noted at the method. CONTROL and PROXY
+-- surface as type 1 and 2, and removing a binding also drops its connections.
+---------------------------------------------------------------------------
+
+--- @type table<integer, table>
+local dynamic_bindings = {}
+
+--- The driver.xml <connections>, which the get methods return alongside the
+--- dynamic ones.
+--- @type table<integer, table>
+local static_bindings = {}
+
+--- The same connections as driver.xml declares them, behind
+--- C4:GetDriverConfigInfo. Separate from the live records above because a
+--- controller keeps listing a connection here after the live binding is gone.
+--- @type table<integer, table>
+local static_manifest = {}
+
+--- @type { provider: integer, providerBinding: integer, consumer: integer, consumerBinding: integer, class: string }[]
+local connections = {}
+
+local BINDING_TYPE_IDS = { CONTROL = 1, PROXY = 2 }
+
+function C4:AddDynamicBinding(idBinding, strType, bIsProvider, strName, strClass, bHidden, bAutoBind)
+  dynamic_bindings[idBinding] = {
+    id = idBinding,
+    type = strType,
+    provider = bIsProvider,
+    name = strName,
+    class = strClass,
+    hidden = bHidden or false,
+    autoBind = bAutoBind or false,
+  }
+end
+
+local function resolveDeviceId(deviceId)
+  deviceId = tonumber(deviceId)
+  if deviceId == 0 then
+    return tonumber(C4:GetDeviceID())
+  end
+  return deviceId
+end
+
+local function dropConnections(matches)
+  for i = #connections, 1, -1 do
+    if matches(connections[i]) then
+      table.remove(connections, i)
+    end
+  end
+end
+
+--- A controller removes a static driver.xml connection as readily as a dynamic one.
+function C4:RemoveDynamicBinding(idBinding)
+  dynamic_bindings[idBinding] = nil
+  static_bindings[idBinding] = nil
+  local me = tonumber(C4:GetDeviceID())
+  dropConnections(function(c)
+    return (c.provider == me and c.providerBinding == idBinding)
+      or (c.consumer == me and c.consumerBinding == idBinding)
+  end)
+end
+
+function C4:Bind(idDeviceProvider, idBindingProvider, idDeviceConsumer, idBindingConsumer, strClass)
+  local provider, consumer = resolveDeviceId(idDeviceProvider), resolveDeviceId(idDeviceConsumer)
+  for _, c in ipairs(connections) do
+    if
+      c.provider == provider
+      and c.providerBinding == idBindingProvider
+      and c.consumer == consumer
+      and c.consumerBinding == idBindingConsumer
+    then
+      return
+    end
+  end
+  connections[#connections + 1] = {
+    provider = provider,
+    providerBinding = idBindingProvider,
+    consumer = consumer,
+    consumerBinding = idBindingConsumer,
+    class = strClass,
+  }
+end
+
+function C4:Unbind(idDeviceConsumer, idBindingConsumer)
+  local consumer = resolveDeviceId(idDeviceConsumer)
+  dropConnections(function(c)
+    return c.consumer == consumer and c.consumerBinding == idBindingConsumer
+  end)
+end
+
+local function boundPeer(deviceId, bindingId, class)
+  return {
+    bindingid = bindingId,
+    deviceid = deviceId,
+    name = C4:GetDeviceDisplayName(deviceId) or ("Device " .. tostring(deviceId)),
+    boundclasses = { class },
+  }
+end
+
+local function bindingRecord(deviceId, binding)
+  local record = {
+    bindingid = binding.id,
+    deviceid = deviceId,
+    name = binding.name,
+    provider = binding.provider == true,
+    type = BINDING_TYPE_IDS[binding.type] or binding.type,
+    bindingclasses = {
+      { class = binding.class, rank = 0, autobind = binding.autoBind == true, excludeids = {} },
+    },
+    isbound = false,
+    flags = 0,
+    binding_info = "",
+  }
+  for _, c in ipairs(connections) do
+    if record.provider and c.provider == deviceId and c.providerBinding == binding.id then
+      record.isbound = true
+      record.boundconsumers = record.boundconsumers or {}
+      record.boundconsumers[#record.boundconsumers + 1] = boundPeer(c.consumer, c.consumerBinding, c.class)
+    elseif not record.provider and c.consumer == deviceId and c.consumerBinding == binding.id then
+      record.isbound = true
+      record.boundprovider = { bound = boundPeer(c.provider, c.providerBinding, c.class) }
+    end
+  end
+  return record
+end
+
+--- Device 0 is deliberately not resolved: the reference says it means the
+--- current device here, a controller returns nothing for it.
+function C4:GetBindingsByDevice(deviceId)
+  local bindings = {}
+  if tonumber(deviceId) == tonumber(C4:GetDeviceID()) then
+    for _, source in ipairs({ static_bindings, dynamic_bindings }) do
+      for _, binding in pairs(source) do
+        bindings[#bindings + 1] = bindingRecord(tonumber(deviceId), binding)
+      end
+    end
+    table.sort(bindings, function(a, b)
+      return a.bindingid < b.bindingid
+    end)
+  end
+  return { bindings = bindings }
+end
+
+--- @return table|nil devices The bound consumers as { [deviceId] = name }. Nil,
+--- not an empty table, when unbound.
+function C4:GetBoundConsumerDevices(deviceId, bindingId)
+  deviceId = resolveDeviceId(deviceId)
+  local devices, found = {}, false
+  for _, c in ipairs(connections) do
+    if c.provider == deviceId and c.providerBinding == bindingId then
+      devices[c.consumer] = C4:GetDeviceDisplayName(c.consumer) or ("Device " .. tostring(c.consumer))
+      found = true
+    end
+  end
+  if not found then
+    return nil
+  end
+  return devices
+end
+
+--- @return integer deviceId The providing device, 0 when unbound. A device id,
+--- not the id/name table the reference documents. Asked about a bound provider
+--- binding, a controller answers with the querying device itself.
+function C4:GetBoundProviderDevice(deviceId, bindingId)
+  deviceId = resolveDeviceId(deviceId)
+  for _, c in ipairs(connections) do
+    if c.consumer == deviceId and c.consumerBinding == bindingId then
+      return c.provider
+    end
+    if c.provider == deviceId and c.providerBinding == bindingId then
+      return deviceId
+    end
+  end
+  return 0
+end
+
+--- @param section string A driver.xml section. Only "connections" is modelled.
+--- @return string|nil xml The section as XML.
+function C4:GetDriverConfigInfo(section)
+  if section ~= "connections" then
+    return nil
+  end
+  local ids = {}
+  for id in pairs(static_manifest) do
+    ids[#ids + 1] = id
+  end
+  table.sort(ids)
+  local out = { "<connections>" }
+  for _, id in ipairs(ids) do
+    local connection = static_manifest[id]
+    out[#out + 1] = string.format(
+      "<connection><id>%d</id><facing>6</facing><connectionname>%s</connectionname>"
+        .. "<type>%d</type><consumer>%s</consumer>"
+        .. "<classes><class><classname>%s</classname></class></classes></connection>",
+      id,
+      connection.name or "",
+      BINDING_TYPE_IDS[connection.type] or 0,
+      connection.provider and "False" or "True",
+      connection.class or ""
+    )
+  end
+  out[#out + 1] = "</connections>"
+  return table.concat(out)
+end
+
+--- @return table bindings Every live dynamic binding, keyed by binding id.
+function ShimDynamicBindings()
+  return dynamic_bindings
+end
+
+--- @return table connections Every live connection, in the order Bind made them.
+function ShimConnections()
+  return connections
+end
+
+--- Seed the driver.xml <connections>, as { id, type, provider, name, class } records.
+function ShimSetStaticBindings(bindings)
+  clear(static_bindings)
+  clear(static_manifest)
+  for _, binding in pairs(bindings or {}) do
+    static_bindings[binding.id] = binding
+    static_manifest[binding.id] = binding
+  end
+end
+
+--- Clear the recorded dynamic bindings and their connections, in place so a
+--- table a test already holds stays the live one.
+function ShimResetDynamicBindings()
+  clear(dynamic_bindings)
+  clear(connections)
+end
+
 function C4:SendUIRequest()
   return ""
-end
-function C4:GetBindingsByDevice()
-  return {}
 end
 function C4:RegisterVariableListener() end
 function C4:UnregisterVariableListener() end
@@ -245,6 +594,59 @@ function C4:Base64Decode(data, ...)
     -- Called as C4:Base64Decode(data)
     return base64_decode_impl(data)
   end
+end
+
+---------------------------------------------------------------------------
+-- Color conversions (C4:ColorHSVtoRGB, C4:ColorRGBtoHSV)
+-- Pure-Lua ports matching the on-controller behavior, verified against a
+-- CA-1 running OS 3.4: RGB is on the 0-255 scale (float, unrounded), HSV is
+-- h 0-360 / s 0-100 / v 0-100. E.g. ColorHSVtoRGB(120, 75, 100) returns
+-- (63.75, 255, 63.75); ColorRGBtoHSV(64, 255, 64) returns (120, 74.902, 100).
+---------------------------------------------------------------------------
+
+function C4:ColorHSVtoRGB(h, s, v)
+  local sf, vf = (s or 0) / 100, (v or 0) / 100
+  local c = vf * sf
+  local hh = ((h or 0) / 60) % 6
+  local x = c * (1 - math.abs((hh % 2) - 1))
+  local m = vf - c
+  local r, g, b = 0, 0, 0
+  if hh < 1 then
+    r, g, b = c, x, 0
+  elseif hh < 2 then
+    r, g, b = x, c, 0
+  elseif hh < 3 then
+    r, g, b = 0, c, x
+  elseif hh < 4 then
+    r, g, b = 0, x, c
+  elseif hh < 5 then
+    r, g, b = x, 0, c
+  else
+    r, g, b = c, 0, x
+  end
+  return (r + m) * 255, (g + m) * 255, (b + m) * 255
+end
+
+function C4:ColorRGBtoHSV(r, g, b)
+  r, g, b = (r or 0) / 255, (g or 0) / 255, (b or 0) / 255
+  local mx = math.max(r, g, b)
+  local mn = math.min(r, g, b)
+  local d = mx - mn
+  local h = 0
+  if d > 0 then
+    if mx == r then
+      h = 60 * (((g - b) / d) % 6)
+    elseif mx == g then
+      h = 60 * ((b - r) / d + 2)
+    else
+      h = 60 * ((r - g) / d + 4)
+    end
+  end
+  if h < 0 then
+    h = h + 360
+  end
+  local s = mx > 0 and (d / mx) * 100 or 0
+  return h, s, mx * 100
 end
 
 --- Generate a UUID (simplified version)
@@ -362,6 +764,34 @@ end
 -- because AddVariable cannot set one. A device with no variables and a device
 -- that does not exist both give an empty table, and hidden variables are
 -- returned rather than filtered out.
+---------------------------------------------------------------------------
+-- Project temperature scale
+-- The controller answers with the whole word, "CELSIUS" or "FAHRENHEIT", never
+-- an initial, so a driver that never normalizes still reads as correct against
+-- an initial. Celsius by default because callers idiomatically end `... or "F"`:
+-- under a Fahrenheit default that yields "F" whether their normalization works
+-- or not, and the test cannot tell the two apart.
+---------------------------------------------------------------------------
+
+local DEFAULT_TEMPERATURE_SCALE = "CELSIUS"
+local temperature_scale = DEFAULT_TEMPERATURE_SCALE
+
+function C4:GetTemperatureScale()
+  return temperature_scale
+end
+
+--- Harness, not a controller API: C4 is userdata on a controller, so assigning
+--- the scale there raises rather than taking effect. Named to be unmistakable.
+function ShimSetTemperatureScale(scale)
+  temperature_scale = scale
+end
+
+--- Restore the default. A scale a test leaves set carries into every later test
+--- in the process, and under Fahrenheit a scale assertion can no longer fail.
+function ShimResetTemperatureScale()
+  temperature_scale = DEFAULT_TEMPERATURE_SCALE
+end
+
 ---------------------------------------------------------------------------
 -- Project devices
 -- C4:GetDevices / GetDeviceDisplayName / GetDeviceVariables read a registry a
@@ -745,6 +1175,191 @@ function C4:KillTimer(idTimer)
   if type(idTimer) ~= "number" then
     error("idTimer should be a number", 2)
   end
+end
+
+---------------------------------------------------------------------------
+-- Crypto (C4:Hash, C4:Encrypt, C4:Decrypt)
+-- Backed by CommonCrypto (macOS) or libcrypto (Linux) via LuaJIT FFI.
+-- Unavailable under plain Lua (gen-squishy); calls then return nil + error.
+---------------------------------------------------------------------------
+
+local has_ffi, ffi = pcall(require, "ffi")
+local crypto_backend = nil
+
+if has_ffi then
+  if ffi.os == "OSX" then
+    local ok = pcall(function()
+      ffi.cdef([[
+        unsigned char *CC_MD5(const void *data, uint32_t len, unsigned char *md);
+        unsigned char *CC_SHA1(const void *data, uint32_t len, unsigned char *md);
+        unsigned char *CC_SHA256(const void *data, uint32_t len, unsigned char *md);
+        int CCCrypt(uint32_t op, uint32_t alg, uint32_t options,
+                    const void *key, size_t keyLength, const void *iv,
+                    const void *dataIn, size_t dataInLength,
+                    void *dataOut, size_t dataOutAvailable, size_t *dataOutMoved);
+      ]])
+    end)
+    if ok then
+      local C = ffi.C
+      local digests = {
+        MD5 = { fn = C.CC_MD5, len = 16 },
+        SHA1 = { fn = C.CC_SHA1, len = 20 },
+        SHA256 = { fn = C.CC_SHA256, len = 32 },
+      }
+      crypto_backend = {
+        hash = function(algorithm, data)
+          local digest = digests[string.upper(algorithm)]
+          if not digest then
+            return nil, "unsupported hash: " .. tostring(algorithm)
+          end
+          local buf = ffi.new("unsigned char[?]", digest.len)
+          digest.fn(data, #data, buf)
+          return ffi.string(buf, digest.len)
+        end,
+        -- AES-128-CBC with PKCS7 padding (kCCAlgorithmAES128=0, kCCOptionPKCS7Padding=1)
+        aes128cbc = function(encrypt, key, iv, data)
+          local outLen = #data + 16
+          local buf = ffi.new("unsigned char[?]", outLen)
+          local moved = ffi.new("size_t[1]")
+          local status = C.CCCrypt(encrypt and 0 or 1, 0, 1, key, 16, iv, data, #data, buf, outLen, moved)
+          if status ~= 0 then
+            return nil, "CCCrypt failed: " .. tonumber(status)
+          end
+          return ffi.string(buf, tonumber(moved[0]))
+        end,
+      }
+    end
+  else
+    -- ffi.load("crypto") resolves "libcrypto.so", which ships in libssl-dev
+    -- rather than the runtime package, so the bare name misses on a stock
+    -- host (including the CI runners). Fall back to the versioned sonames,
+    -- which are the ones actually installed.
+    local libcrypto
+    for _, soname in ipairs({ "crypto", "libcrypto.so.3", "libcrypto.so.1.1" }) do
+      local loaded, handle = pcall(ffi.load, soname)
+      if loaded then
+        libcrypto = handle
+        break
+      end
+    end
+    if libcrypto then
+      local declared = pcall(function()
+        ffi.cdef([[
+          unsigned char *MD5(const unsigned char *d, size_t n, unsigned char *md);
+          unsigned char *SHA1(const unsigned char *d, size_t n, unsigned char *md);
+          unsigned char *SHA256(const unsigned char *d, size_t n, unsigned char *md);
+          typedef struct evp_cipher_ctx_st EVP_CIPHER_CTX;
+          const void *EVP_aes_128_cbc(void);
+          EVP_CIPHER_CTX *EVP_CIPHER_CTX_new(void);
+          void EVP_CIPHER_CTX_free(EVP_CIPHER_CTX *ctx);
+          int EVP_CipherInit_ex(EVP_CIPHER_CTX *ctx, const void *cipher, void *impl,
+                                const unsigned char *key, const unsigned char *iv, int enc);
+          int EVP_CipherUpdate(EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl,
+                               const unsigned char *in, int inl);
+          int EVP_CipherFinal_ex(EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl);
+        ]])
+      end)
+      if declared then
+        local digests = {
+          MD5 = { fn = libcrypto.MD5, len = 16 },
+          SHA1 = { fn = libcrypto.SHA1, len = 20 },
+          SHA256 = { fn = libcrypto.SHA256, len = 32 },
+        }
+        crypto_backend = {
+          hash = function(algorithm, data)
+            local digest = digests[string.upper(algorithm)]
+            if not digest then
+              return nil, "unsupported hash: " .. tostring(algorithm)
+            end
+            local buf = ffi.new("unsigned char[?]", digest.len)
+            digest.fn(data, #data, buf)
+            return ffi.string(buf, digest.len)
+          end,
+          aes128cbc = function(encrypt, key, iv, data)
+            local ctx = libcrypto.EVP_CIPHER_CTX_new()
+            if ctx == nil then
+              return nil, "EVP_CIPHER_CTX_new failed"
+            end
+            local out = ffi.new("unsigned char[?]", #data + 16)
+            local outl = ffi.new("int[1]")
+            local finl = ffi.new("int[1]")
+            local result = nil
+            if libcrypto.EVP_CipherInit_ex(ctx, libcrypto.EVP_aes_128_cbc(), nil, key, iv, encrypt and 1 or 0) == 1 then
+              if libcrypto.EVP_CipherUpdate(ctx, out, outl, data, #data) == 1 then
+                if libcrypto.EVP_CipherFinal_ex(ctx, out + outl[0], finl) == 1 then
+                  result = ffi.string(out, outl[0] + finl[0])
+                end
+              end
+            end
+            libcrypto.EVP_CIPHER_CTX_free(ctx)
+            if not result then
+              return nil, "EVP cipher failed"
+            end
+            return result
+          end,
+        }
+      end
+    end
+  end
+end
+
+--- Whether the FFI crypto backend resolved. False under plain Lua, and on a host
+--- with no loadable CommonCrypto/libcrypto.
+C4.SHIM_HAS_CRYPTO = crypto_backend ~= nil
+
+local function to_hex(s)
+  return (s:gsub(".", function(c)
+    return string.format("%02X", c:byte())
+  end))
+end
+
+--- C4:Hash(algorithm, data, options) — raw ("NONE") or, with no return_encoding,
+--- hex. Any other value is refused rather than answered in hex, since the shim
+--- has never been measured against one and a wrong-encoding digest still looks
+--- like a digest. Checked ahead of the backend, so the refusal also holds on a
+--- host with no crypto at all.
+function C4:Hash(algorithm, data, options)
+  local encoding = type(options) == "table" and options.return_encoding or nil
+  if encoding ~= nil and string.upper(encoding) ~= "NONE" then
+    return nil, "C4 shim: return_encoding " .. tostring(encoding) .. " is not modelled (only NONE, or absent for hex)"
+  end
+  if not crypto_backend then
+    return nil, "C4 shim: no crypto backend (requires LuaJIT + CommonCrypto/libcrypto)"
+  end
+  local raw, err = crypto_backend.hash(algorithm, data or "")
+  if not raw then
+    return nil, err
+  end
+  if encoding ~= nil then
+    return raw
+  end
+  return to_hex(raw)
+end
+
+local function aes_options_ok(cipher, key, iv)
+  return string.upper(cipher or "") == "AES-128-CBC" and type(key) == "string" and #key == 16 and type(iv) == "string"
+end
+
+--- C4:Encrypt(cipher, key, iv, data, options) — AES-128-CBC/PKCS7, raw in/out.
+function C4:Encrypt(cipher, key, iv, data, options)
+  if not crypto_backend then
+    return nil, "C4 shim: no crypto backend"
+  end
+  if not aes_options_ok(cipher, key, iv) then
+    return nil, "C4 shim: only raw AES-128-CBC is supported"
+  end
+  return crypto_backend.aes128cbc(true, key, iv, data or "")
+end
+
+--- C4:Decrypt(cipher, key, iv, data, options) — AES-128-CBC/PKCS7, raw in/out.
+function C4:Decrypt(cipher, key, iv, data, options)
+  if not crypto_backend then
+    return nil, "C4 shim: no crypto backend"
+  end
+  if not aes_options_ok(cipher, key, iv) then
+    return nil, "C4 shim: only raw AES-128-CBC is supported"
+  end
+  return crypto_backend.aes128cbc(false, key, iv, data or "")
 end
 
 print("C4 shim layer loaded" .. (has_socket and " (with luasocket)" or " (stubs only)"))

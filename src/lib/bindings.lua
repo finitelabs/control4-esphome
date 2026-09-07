@@ -32,6 +32,49 @@ function Bind(idDeviceProvider, idBindingProvider, idDeviceConsumer, idBindingCo
   return false
 end
 
+--- Capture the devices wired to one of our bindings (as provider or consumer), so a
+--- rename that must remove and re-add the binding can reconnect them afterward.
+--- @param bindingId integer
+--- @return { device: integer, binding: integer }[] connections, boolean provider
+local function snapshotConnections(bindingId)
+  local info = Select(GetDeviceBindings(tointeger(C4:GetDeviceID())), bindingId)
+  if type(info) ~= "table" or not info.isbound then
+    return {}, false
+  end
+  local conns = {}
+  local function add(c)
+    if type(c) == "table" and c.deviceid and c.bindingid then
+      conns[#conns + 1] = { device = tointeger(c.deviceid), binding = tointeger(c.bindingid) }
+    end
+  end
+  if info.provider then
+    for _, c in pairs(info.boundconsumers or {}) do
+      add(c)
+    end
+  else
+    add(Select(info, "boundprovider", "bound"))
+  end
+  return conns, info.provider == true
+end
+
+--- Reconnect the connections captured by snapshotConnections. Bind() is a no-op when
+--- the link exists, so this recovers the consumer-side links Control4 drops on a
+--- remove/add without duplicating the provider-side ones it re-attaches itself.
+--- @param bindingId integer
+--- @param provider boolean whether OUR side provides the binding
+--- @param class string the binding's connection class
+--- @param conns { device: integer, binding: integer }[]
+local function restoreConnections(bindingId, provider, class, conns)
+  local me = tointeger(C4:GetDeviceID())
+  for _, c in ipairs(conns) do
+    if provider then
+      Bind(me, bindingId, c.device, c.binding, class)
+    else
+      Bind(c.device, c.binding, me, bindingId, class)
+    end
+  end
+end
+
 --- @class Bindings
 --- A class representing dynamic bindings.
 local Bindings = {}
@@ -114,6 +157,24 @@ function Bindings:getOrAddDynamicBinding(namespace, key, type, provider, display
     bindings[namespace][key] = binding
     self:_saveBindings(bindings)
     C4:AddDynamicBinding(bindingId, type, provider, displayName, class, false, false)
+  elseif binding.displayName ~= displayName or binding.provider ~= provider or binding.class ~= class then
+    -- Control4 has no in-place rename, so re-add under the same id, with the record's own
+    -- type (its id came from that type's range and restoreBindings re-adds from it). Wiring
+    -- is restored only across a name-only rename: a provider flip or class change reshapes
+    -- the link, so the old peers can't be re-bound in the new shape and are dropped (warned).
+    local conns, wasProvider = snapshotConnections(binding.bindingId)
+    local restorable = wasProvider == provider and binding.class == class
+    C4:RemoveDynamicBinding(binding.bindingId)
+    binding.provider = provider
+    binding.displayName = displayName
+    binding.class = class
+    self:_saveBindings(bindings)
+    C4:AddDynamicBinding(binding.bindingId, binding.type, provider, displayName, class, false, false)
+    if restorable then
+      restoreConnections(binding.bindingId, provider, class, conns)
+    elseif #conns > 0 then
+      log:warn("Binding '%s' changed shape; %d connection(s) dropped, re-wire in Composer", displayName, #conns)
+    end
   end
   return binding
 end
@@ -200,6 +261,23 @@ local function isInManagedRange(bindingId)
     or (bindingId >= PROXY_BINDING_START and bindingId <= PROXY_BINDING_END)
 end
 
+--- The static driver.xml connection ids, as a set. They share the dynamic-binding id
+--- space but aren't in the store, so the managed-range sweep must skip them or it deletes
+--- them on every init. GetDriverConfigInfo("connections") returns the block as XML, so
+--- match <id> (a <facing>/<type> value or a digit in a name would else be scraped as one).
+local function staticConnectionIds()
+  local set = {}
+  local ok, xml = pcall(function()
+    return C4:GetDriverConfigInfo("connections")
+  end)
+  if ok and type(xml) == "string" then
+    for id in xml:gmatch("<id>(%d+)</id>") do
+      set[tonumber(id)] = true
+    end
+  end
+  return set
+end
+
 --- Restores all dynamic bindings from persistent storage. Ensures that all
 --- bindings are re-added and removes unknown bindings within managed ranges.
 ---
@@ -226,10 +304,11 @@ function Bindings:restoreBindings()
       )
     end
   end
-  -- Only remove unknown bindings that are within our managed ranges
-  -- This preserves static bindings defined in driver.xml
+  -- Delete unknown bindings inside our managed ranges, but never the driver's own
+  -- static driver.xml connections, which share the id space (see staticConnectionIds).
+  local static = staticConnectionIds()
   for bindingId, _ in pairs(deviceBindings) do
-    if isInManagedRange(bindingId) then
+    if isInManagedRange(bindingId) and not static[bindingId] then
       log:debug("Deleting unknown binding %s", bindingId)
       C4:RemoveDynamicBinding(bindingId)
     end

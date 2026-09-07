@@ -3,20 +3,13 @@
 -- send loop (and its socket) down, so any companion queued after it would be
 -- stranded a version behind.
 --
--- Run from the template root:
---   LUA_PATH="$PWD/test/?.lua;$PWD/src/?.lua;$PWD/vendor/?.lua;$PWD/vendor/?/init.lua;;" \
---     luajit -e "require('c4_shim')" test/test_github_updater_self_last.lua
+-- Run from the driver root:
+--   make test
+-- or:
+--   ./test/run_test.sh test_github_updater_self_last.lua
 
-local pass, fail = 0, 0
-local function check(name, ok, detail)
-  if ok then
-    pass = pass + 1
-    print(string.format("  ok   %s", name))
-  else
-    fail = fail + 1
-    print(string.format("  FAIL %s%s", name, detail and ("  -> " .. tostring(detail)) or ""))
-  end
-end
+local T = require("testlib")
+local F = require("c4_fixtures")
 
 local updater = require("lib.github-updater")
 require("drivers-common-public.global.lib")
@@ -55,36 +48,22 @@ http.get = function()
 end
 
 -- Capture the order filenames are handed to UpdateProjectC4i.
-local sent = {}
-C4.CreateTCPClient = function()
-  local client = {}
-  function client:OnConnect(cb)
-    self._onConnect = cb
-    return self
-  end
-  function client:OnError()
-    return self
-  end
-  function client:Write(data)
-    local name = data:match("([%w_]+%.c4z)")
-    if name then
-      table.insert(sent, name)
-    end
-  end
-  function client:Close() end
-  function client:Connect()
-    if self._onConnect then
-      self._onConnect(self)
-    end
-    return self
-  end
-  return client
-end
+local tcp = F.captureTcpClient()
 
 updater:updateAll("finitelabs/example", { COMPANION_A, RUNNING, COMPANION_B }, false, false)
 
-check("all three drivers were sent", #sent == 3, string.format("sent %d: %s", #sent, table.concat(sent, ", ")))
-check("the running driver is sent last", sent[#sent] == RUNNING, "order: " .. table.concat(sent, ", "))
+tcp.restore()
+
+local sent = {}
+for _, data in ipairs(tcp.writes) do
+  local name = data:match("([%w_]+%.c4z)")
+  if name then
+    table.insert(sent, name)
+  end
+end
+
+T.check("all three drivers were sent", #sent == 3, string.format("sent %d: %s", #sent, table.concat(sent, ", ")))
+T.check("the running driver is sent last", sent[#sent] == RUNNING, "order: " .. table.concat(sent, ", "))
 
 local runningIndex, companionBIndex
 for i, name in ipairs(sent) do
@@ -94,13 +73,10 @@ for i, name in ipairs(sent) do
     companionBIndex = i
   end
 end
-check(
+T.check(
   "no companion is sent after the running driver",
   runningIndex ~= nil and companionBIndex ~= nil and runningIndex > companionBIndex,
   "order: " .. table.concat(sent, ", ")
 )
 
-print(string.format("\n%d passed, %d failed", pass, fail))
-if fail > 0 then
-  os.exit(1)
-end
+T.finish()

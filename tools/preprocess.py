@@ -67,6 +67,11 @@ def process_file(
     # inside the changelog are handled by the main processing loop.
     changelog_pattern = re.compile(r"^\s*<!--\s*#embed-changelog\s*-->\s*$")
 
+    # Embed a generated fragment by path (relative to this file's directory),
+    # e.g. `<!-- #embed generated/binding_keys.xml -->`. Resolved in the same
+    # pre-pass so directives inside the fragment are handled by the main loop.
+    embed_pattern = re.compile(r"^\s*<!--\s*#embed\s+(\S+)\s*-->\s*$")
+
     # Variant filenames pattern (Lua comment style)
     variant_filenames_pattern = re.compile(r"^(\s*)--\s*#variant-filenames\s+(\w+)\s*$")
 
@@ -100,6 +105,7 @@ def process_file(
     # main loop below (no duplicated ifdef/ifndef logic needed).
     expanded_lines = []
     for line in lines:
+        embed_match = embed_pattern.match(line)
         if changelog_pattern.match(line):
             try:
                 changelog_path = Path(__file__).parent.parent / "CHANGELOG.md"
@@ -107,9 +113,26 @@ def process_file(
                     expanded_lines.extend(cf.readlines())
             except Exception as e:
                 print(f"Error embedding changelog in {file_path}: {e}")
+        elif embed_match:
+            rel_path = embed_match.group(1)
+            embed_path = file_path.parent / rel_path
+            try:
+                with open(embed_path, "r", encoding="utf-8") as ef:
+                    expanded_lines.extend(ef.readlines())
+            except Exception as e:
+                raise ValueError(f"Error embedding {rel_path} in {file_path}: {e}")
         else:
             expanded_lines.append(line)
     lines = expanded_lines
+
+    # The pre-pass doesn't recurse, so an #embed inside an embedded fragment is never
+    # expanded. Raise rather than pass it through as a literal comment, matching the
+    # missing-fragment raise above.
+    for line in lines:
+        if embed_pattern.match(line):
+            raise ValueError(
+                f"Nested #embed is not supported (in a fragment embedded into {file_path})"
+            )
 
     for line in lines:
         # Check for conditional directives
