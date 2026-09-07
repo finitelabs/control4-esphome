@@ -246,9 +246,10 @@ A device that lists both Heat and Cool among its modes does not necessarily hold
 two setpoints, so the mode list is not used to decide this.
 
 > **Note:** On a single setpoint device, presets saved by an earlier version of
-> this driver stored a separate heat and cool value. Those values are no longer
-> shown in the preset editor. Open each saved preset after updating and set its
-> setpoint again.
+> this driver stored a separate heat and cool value. Those presets still work:
+> the driver uses whichever of the two suits the mode. The preset editor now
+> shows a single setpoint field, so re-saving one of these presets keeps just
+> that value.
 
 # <span style="color:#17BCF2">Presets and Scheduling</span>
 
@@ -270,12 +271,12 @@ aspect of the device untouched.
 
 ## Scheduling
 
-Presets can be scheduled by weekday and time. The driver keeps the schedule
-itself and applies the scheduled preset at the minute it falls due, so a
-schedule keeps running after a controller restart.
-
-Saving a schedule does not apply its preset straight away. The preset is applied
-when its scheduled time arrives.
+Presets can be scheduled by weekday and time. Control4 keeps the schedule and
+announces each scheduled event to the driver, which applies the event's preset.
+A schedule change that alters which preset is in force applies that preset
+straight away and ends any hold; a change that leaves it unchanged applies
+nothing. An event that selects the preset already in force is not announced, so
+a change made by hand lasts until the next event that names a different preset.
 
 ## Holds
 
@@ -283,8 +284,21 @@ Changing the thermostat by hand while a scheduled preset is in force raises a
 hold. The thermostat shows **Until Next**, and the change stays in place until
 the next scheduled event, which releases the hold and applies its own preset.
 
+Choosing a preset by hand does the same thing. The preset is applied and held
+until the next scheduled event, and the schedule is not disturbed: clearing the
+preset before that event returns the thermostat to the preset the schedule has
+in force.
+
 Returning the thermostat to the values of the preset that is in force clears the
 hold on its own, without waiting for the next event.
+
+Deleting every scheduled event also clears a hold the driver raised, since there
+is no longer a next event to hold until. A hold set from the thermostat itself
+stays until it is released.
+
+The hold options themselves appear only once a schedule exists. With no
+scheduled events there is no next event for a hold to run until, so the
+thermostat offers none.
 
 # <span style="color:#17BCF2">Vane Control</span>
 
@@ -295,7 +309,8 @@ from the device, and are typically Off, Vertical, Horizontal and Both.
 The vane position can also be stored in a preset, so a scheduled preset can set
 the vane along with the setpoint, mode and fan speed.
 
-Devices that report no swing modes show no vane selector.
+Devices that report fewer than two vane positions show no vane selector. A
+single position is not a choice, so nothing is offered.
 
 # <span style="color:#17BCF2">Remote Temperature Sensor</span>
 

@@ -102,7 +102,7 @@
   <capabilities>
     <can_heat>False</can_heat>
     <can_cool>False</can_cool>
-    <can_auto>False</can_auto>
+    <can_do_auto>False</can_do_auto>
     <has_humidity>False</has_humidity>
     <has_single_setpoint>False</has_single_setpoint>
     <can_preset>False</can_preset>
@@ -155,8 +155,10 @@
     <current_temperature_max_f>302</current_temperature_max_f>
     <current_temperature_resolution_c>0.5</current_temperature_resolution_c>
     <current_temperature_resolution_f>1</current_temperature_resolution_f>
-    <setpoint_resolution_c>0.5</setpoint_resolution_c>
-    <setpoint_resolution_f>1</setpoint_resolution_f>
+    <setpoint_heat_resolution_c>0.5</setpoint_heat_resolution_c>
+    <setpoint_heat_resolution_f>1</setpoint_heat_resolution_f>
+    <setpoint_cool_resolution_c>0.5</setpoint_cool_resolution_c>
+    <setpoint_cool_resolution_f>1</setpoint_cool_resolution_f>
     <setpoint_heat_min_c>0</setpoint_heat_min_c>
     <setpoint_heat_max_c>120</setpoint_heat_max_c>
     <setpoint_heat_min_f>32</setpoint_heat_min_f>
@@ -178,7 +180,7 @@
     <has_vacation_mode>False</has_vacation_mode>
     <has_remote_sensor>True</has_remote_sensor>
     <fan_modes/>
-    <hvac_modes>Off,Heat,Cool,Auto</hvac_modes>
+    <hvac_modes>Off,Heat,Cool,Auto,Fan Only,Dry</hvac_modes>
     <hold_modes>Off,Until Next</hold_modes>
   </capabilities>
   <proxies>
