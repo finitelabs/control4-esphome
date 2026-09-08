@@ -456,17 +456,29 @@ function Connect()
     end
   end
 
+  --- Drop the connection and tell sub-drivers straight away. The guards below
+  --- return before the heartbeat's transition check, and one of them also stops
+  --- the heartbeat, so there is no later cycle to notice the drop.
+  local function disconnectAndNotify()
+    esphome:disconnect()
+    if wasConnected then
+      log:info("Connection closed, notifying sub-drivers")
+      notifyEntitiesDisconnected()
+      wasConnected = false
+    end
+  end
+
   local heartbeat = function()
     --#ifdef DRIVERCENTRAL
     if DC_X == 0 then
       updateStatus("No active license", false)
-      esphome:disconnect()
+      disconnectAndNotify()
       return
     end
     --#endif
     if not esphome:isConfigured() then
       updateStatus("Not configured", false)
-      esphome:disconnect()
+      disconnectAndNotify()
       CancelTimer("heartbeat")
       return
     end
