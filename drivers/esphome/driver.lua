@@ -421,6 +421,12 @@ end
 --- Backoff period in seconds after a fatal connection error before retrying.
 local FATAL_ERROR_BACKOFF = 120
 
+--- Whether the last heartbeat saw a live connection. Deliberately outside
+--- Connect(), because changing IP, port or credentials re-runs it: a copy scoped
+--- there would reset to false and the next heartbeat would see no transition, so
+--- sub-drivers would never be told the device went away.
+local wasConnected = false
+
 function Connect()
   log:trace("Connect()")
   if not gInitialized then
@@ -438,7 +444,6 @@ function Connect()
 
   local lastUpdateTime = os.time() -- Don't check for updates on the first cycle
   local lastFatalErrorTime = 0 -- Track when the last fatal error occurred
-  local wasConnected = false -- Track connection state transitions
 
   local function notifyEntitiesDisconnected()
     for _, handler in pairs(Entities) do
