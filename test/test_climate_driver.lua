@@ -1,18 +1,13 @@
 #!/usr/bin/env luajit
 --- Unit tests for the esphome_climate driver's preset, scheduling, hold and
---- swing logic.
+--- swing logic, driven through its RFP entry points against the C4 shim with
+--- SendToProxy captured.
 ---
---- Drives the driver through its public RFP entry points against the C4 shim -
---- no device, no network, no controller. SendToProxy is captured so each test
---- asserts on what the driver actually emitted.
+--- Run: ./run_test.sh test_climate_driver.lua --timeout 30
 ---
---- Run:
----   ./run_test.sh test_climate_driver.lua --timeout 30
----
---- Note: OnDriverInit is deliberately never called. Its --#ifdef DRIVERCENTRAL
---- branches are plain comments in unpreprocessed source, so both arms would
---- execute and require("cloud-client-byte") would fail. The RFP handlers under
---- test do not need it.
+--- OnDriverInit is never called: its --#ifdef DRIVERCENTRAL arms are plain
+--- comments in unpreprocessed source, so both would run and require
+--- "cloud-client-byte". The RFP handlers under test do not need it.
 
 -- Resolved against this file rather than the working directory: run_test.sh
 -- cds into test/, make test runs from the repo root, and dofile takes a path
@@ -133,7 +128,7 @@ local Swing = { OFF = 0, BOTH = 1, VERTICAL = 2, HORIZONTAL = 3 }
 local PROXY, ESPHOME = 5001, 5002
 
 --- A Mitsubishi-shaped single-setpoint head: six modes, six fan speeds, all
---- four swing options. Mirrors the live entity read off real hardware.
+--- four swing options.
 local function singleSetpointEntity()
   return {
     key = 1,
@@ -318,10 +313,8 @@ test("Two-point devices get low/high, never target_temperature", function()
 end)
 
 test("The setpoint model follows what the entity declares", function()
-  -- supports_two_point_target_temperature is the device's own declaration, not a
-  -- guess. A mini-split offers HEAT and COOL as modes while holding ONE target,
-  -- so mode support must not be used to infer setpoint count. Auto survives via
-  -- hvac_modes, which is published independently of these capabilities.
+  -- supports_two_point_target_temperature is the device's own declaration; a
+  -- mini-split offers HEAT and COOL while holding one target. Auto rides on hvac_modes.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -354,8 +347,7 @@ test("The setpoint model follows what the entity declares", function()
     end
   end
   check(dual ~= nil and dual.HAS_SINGLE_SETPOINT == false, "supports_two_point device stays DUAL")
-  -- A real two-point device keeps whatever deadband the proxy wants; we must
-  -- not flatten a device that genuinely holds two independent setpoints.
+  -- A two-point device keeps its deadband; it must not be flattened.
   check(dual ~= nil and dual.CAN_AUTO == true, "a real two-point device keeps heat/cool/auto")
 end)
 
@@ -368,9 +360,8 @@ test("Preset field template is pushed and matches the setpoint mode", function()
   check(tpl ~= nil, "PRESET_FIELDS_CHANGED emitted")
   if tpl then
     local xml = tpl.params.XML
-    -- This device declares one target, so the proxy runs single and the template
-    -- must carry single_setpoint. Offering heat/cool here would render fields the
-    -- device cannot honour and silently discard one of the two on apply.
+    -- One declared target: the template must carry single_setpoint, or the editor
+    -- offers a heat/cool pair the device silently halves.
     check(xml:find('id="single_setpoint_c"', 1, true) ~= nil, "single_setpoint_c offered")
     check(xml:find('id="single_setpoint_f"', 1, true) ~= nil, "single_setpoint_f offered")
     check(xml:find("heat_setpoint", 1, true) == nil, "heat_setpoint NOT offered in single mode")
@@ -406,9 +397,8 @@ test("A lone Off swing mode is withheld from the preset template", function()
   disconnect()
   resetSent()
   local entity = singleSetpointEntity()
-  -- Some heads advertise CLIMATE_SWING_OFF and nothing else. The Extras selector
-  -- already withholds itself in that case; the preset template has to agree, or
-  -- the editor renders a Swing dropdown whose only entry is "Off".
+  -- A head advertising only CLIMATE_SWING_OFF gets no Extras selector; the preset
+  -- template must agree or the editor shows a Swing dropdown with one entry.
   entity.supported_swing_modes = { Swing.OFF }
   updateState(entity, { mode = Mode.COOL, target_temperature = 22 })
 
@@ -443,10 +433,8 @@ test("Humidity publishes on a binding outside the library's managed range", func
 end)
 
 test("Heat/cool preset fields collapse to the device's single setpoint", function()
-  -- The real Mitsubishi case. The head has ONE target_temperature, but because it
-  -- advertises both HEAT and COOL, detectSetpointCaps reports has_single_setpoint
-  -- = false and the proxy runs in heat/cool mode - so presets carry
-  -- heat_setpoint/cool_setpoint, never single_setpoint.
+  -- A preset saved with a heat/cool pair, before the device was declared
+  -- single-setpoint, must collapse onto the one target.
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22.5 })
   setPresets({
@@ -483,9 +471,8 @@ test("A Heat preset uses the heat setpoint on the same device", function()
 end)
 
 test("Parses a verbatim SET_PRESETS payload captured from a real controller", function()
-  -- Captured from OS 4.2.1 driving a Mitsubishi head (2026-08-06). Kept byte-for
-  -- byte: it exercises the real attribute escaping, the proxy auto-inserting the
-  -- second temperature scale, and a preset that omits hvac_mode entirely.
+  -- Kept byte-for-byte: real attribute escaping, the proxy's auto-inserted
+  -- second temperature scale, and a preset omitting hvac_mode.
   local REAL = '<presets><preset name="Finally" preset_fields="&lt;preset_fields&gt;'
     .. "&lt;field id=&quot;cool_setpoint_f&quot; value=&quot;72&quot;/&gt;"
     .. "&lt;field id=&quot;fan_mode&quot; value=&quot;Auto&quot;/&gt;"
@@ -511,10 +498,9 @@ test("Parses a verbatim SET_PRESETS payload captured from a real controller", fu
 end)
 
 test("SET_EVENTS is stored, not applied (the proxy keeps time)", function()
-  -- The proxy keeps the schedule clock: it announces each event through
-  -- SET_EVENT and stays silent at a boundary that re-selects the preset already
-  -- in force. The list is kept only so the driver knows a schedule exists,
-  -- which is what decides whether the hold modes are offered.
+  -- The proxy keeps the schedule clock: it announces each event through SET_EVENT
+  -- and is silent at a boundary that re-selects the preset in force. The list is
+  -- kept only to know a schedule exists, which decides whether holds are offered.
   local REAL = '<events><event preset="Cool after work" weekday="5" hour="15" minute="5"/></events>'
 
   disconnect()
@@ -534,9 +520,7 @@ test("SET_EVENTS is stored, not applied (the proxy keeps time)", function()
 end)
 
 test("REGRESSION: the proxy's next event applies its preset and clears the hold", function()
-  -- Reproduces 2026-08-07: schedule set for 15:05, setpoint nudged by hand at
-  -- 14:59 (correctly entering "Until Next"), then the event passed and the hold
-  -- was never released. The proxy announces the event; the driver acts on it.
+  -- A hold raised by hand must be released when the proxy announces the next event.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -583,10 +567,8 @@ test("A malformed schedule event is skipped, not fatal", function()
 end)
 
 test("SET_EVENT applies the preset the proxy announces", function()
-  -- The proxy sends SET_EVENT when a schedule is saved and at every boundary
-  -- where the scheduled preset changes. Control4's own driver reads it as the
-  -- proxy's word on which preset should be in force; nothing else tells this
-  -- driver a boundary has passed.
+  -- SET_EVENT arrives on save and at every boundary where the scheduled preset
+  -- changes; nothing else tells the driver a boundary has passed.
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.OFF })
   setPresets({
@@ -636,10 +618,8 @@ test("Diverging from the scheduled preset holds, returning to it releases", func
 end)
 
 test("REGRESSION: zero-valued enums are omitted by protobuf, not unknown", function()
-  -- A preset selecting Off/Off is matched against a state frame that omits
-  -- mode and swing_mode entirely - which is exactly what the wire carries when
-  -- both are at their zero value. Reading absence as "unknown" made this preset
-  -- unmatchable, so the hold it triggered could never be released.
+  -- Off/Off preset matched against a frame omitting mode and swing_mode, which is
+  -- what the wire carries at their zero values. Absence must read as zero, not unknown.
   local entity = singleSetpointEntity()
   resetSent()
   updateState(entity, { mode = Mode.OFF })
@@ -685,9 +665,8 @@ test("Renaming a preset keeps the schedule attached without re-running it", func
 end)
 
 test("REGRESSION: adding a schedule must not run the preset immediately", function()
-  -- SET_PRESETS arrives whenever the preset list changes at all, including when
-  -- a schedule event is attached. Re-applying on every rebuild made a preset
-  -- fire the moment it was scheduled, and undid manual changes afterwards.
+  -- SET_PRESETS arrives on any list change, including attaching a schedule event;
+  -- only a real value change may re-apply.
   local entity = singleSetpointEntity()
   resetSent()
   updateState(entity, { mode = Mode.OFF })
@@ -746,10 +725,8 @@ test("An unknown preset name is refused, not silently applied", function()
 end)
 
 test("Preset setpoint fields follow the modes the device reports", function()
-  -- Offering a heat setpoint to a cool-only device invites a preset that
-  -- silently does nothing, so each setpoint field is gated on the mode that
-  -- would use it. can_preset is off in driver.xml and turned on here once an
-  -- entity is attached.
+  -- Each setpoint field is gated on the mode that would use it; can_preset is
+  -- off in driver.xml and raised here once an entity is attached.
   disconnect()
   resetSent()
   local coolOnly = dualSetpointEntity()
@@ -783,10 +760,8 @@ local function TableContainsValue(t, v)
 end
 
 test("An unrelated state report between apply and confirm does not clear the preset", function()
-  -- matchAnyPreset runs on EVERY climate state report, not only the one that
-  -- confirms the command. A thermostat pushes ambient temperature on its own
-  -- schedule through that same message, so a report can land after the command
-  -- and before the device has moved.
+  -- matchAnyPreset runs on every state report, and an ambient push can land
+  -- between the command and the device moving.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -812,8 +787,7 @@ test("An unrelated state report between apply and confirm does not clear the pre
 end)
 
 test("A preset is announced once, by the device's report", function()
-  -- matchAnyPreset, driven by the state report, is the only announcer;
-  -- applyPreset says nothing. Catches an outbound announce being re-added.
+  -- The state report is the only announcer; applyPreset says nothing.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -833,9 +807,7 @@ test("A preset is announced once, by the device's report", function()
 end)
 
 test("PRESET_CHANGED is sent on transitions only, including leaving a preset", function()
-  -- Repeating the active preset on every state report is noise, and sending
-  -- nothing once state moves off it leaves the app highlighting a preset the
-  -- device has already left.
+  -- Report the active preset on transitions only, including the move off it.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -857,9 +829,8 @@ test("PRESET_CHANGED is sent on transitions only, including leaving a preset", f
 end)
 
 test("Device supplied fan mode names are escaped before reaching the preset XML", function()
-  -- supported_custom_fan_modes comes straight from the device's YAML. An
-  -- ampersand or a quote in one would close the attribute early and hand the
-  -- proxy markup it cannot parse, taking the whole preset editor down with it.
+  -- supported_custom_fan_modes comes from device YAML; an unescaped & or quote
+  -- would break the attribute and the whole preset editor.
   disconnect()
   resetSent()
   local entity = singleSetpointEntity()
@@ -899,8 +870,7 @@ test("REGRESSION: a persisted schedule is restored without OnDriverLateInit thro
 end)
 
 test("A preset that constrains nothing is not stored", function()
-  -- An all-empty preset parses to {} and would match every state. The only
-  -- preset in the list, so the result does not depend on pairs order.
+  -- An all-empty preset parses to {} and would match every state.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -916,10 +886,8 @@ test("A preset that constrains nothing is not stored", function()
 end)
 
 test("A hold the user raised survives the next state report", function()
-  -- reconcileHold runs on every climate state report. Raising a hold from the UI
-  -- without changing anything leaves state matching the scheduled preset, so an
-  -- unconditional release cancelled the user's hold on the next ambient push -
-  -- which arrives within seconds.
+  -- reconcileHold runs on every report. A hold raised from the UI without a
+  -- change leaves state matching the preset; an unconditional release cancelled it.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -939,10 +907,8 @@ test("A hold the user raised survives the next state report", function()
 end)
 
 test("Water heaters are not offered presets", function()
-  -- The preset field template is climate shaped and is deliberately not published
-  -- for water heaters. Declaring CAN_PRESET anyway serves the static driver.xml
-  -- template instead, and applying one is a wire level no-op because the body
-  -- serialises against WaterHeaterCommandRequest with nothing set.
+  -- The preset template is climate-shaped and not published for water heaters;
+  -- CAN_PRESET must not be declared for them either.
   local wh = singleSetpointEntity()
   wh.is_water_heater = true
   disconnect()
@@ -960,9 +926,7 @@ test("Water heaters are not offered presets", function()
 end)
 
 test("Releasing a hold with no schedule clears the held preset", function()
-  -- HOLD_PRESET was cleared only inside "if SCHEDULED_PRESET ~= nil", so after a
-  -- release with no schedule a later edit to that preset was still pushed to the
-  -- device through the activeAfter path.
+  -- HOLD_PRESET must clear on release even with no schedule, or a later edit re-applies it.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -981,9 +945,8 @@ test("Releasing a hold with no schedule clears the held preset", function()
 end)
 
 test("Preset setpoints are snapped to the entity's own step", function()
-  -- The template authors at 0.5 C. A device quantising to 1 C echoes 22 back for
-  -- a 21.5 preset, and matchPreset allows only 0.25 C, so the preset never
-  -- matches again: the hold sticks on and the preset stops highlighting.
+  -- Template authors at 0.5 C; a device quantising to 1 C echoes 22 for 21.5 and
+  -- matchPreset allows 0.25 C, so the echo must be snapped before comparing.
   local entity = singleSetpointEntity()
   entity.visual_target_temperature_step = 1
   disconnect()
@@ -1002,8 +965,7 @@ test("Preset setpoints are snapped to the entity's own step", function()
   end
 end)
 
---- Schedule XML for one or more events. The weekday/time never matter here:
---- fireTimer() invokes the armed callback directly rather than waiting.
+--- Schedule XML for one or more events; weekday and time are never inspected here.
 local function eventsXml(entries)
   local parts = { "<events>" }
   for _, e in ipairs(entries) do
@@ -1015,9 +977,8 @@ local function eventsXml(entries)
 end
 
 test("An event naming a preset not yet delivered is applied when the list arrives", function()
-  -- The proxy can announce a preset the driver does not have yet, since
-  -- SET_PRESETS only resends once a device connects. The name must be kept and
-  -- applied when the list arrives.
+  -- The proxy can announce a preset the driver does not have yet (SET_PRESETS
+  -- resends only once a device connects); the name is kept and applied on arrival.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -1042,10 +1003,8 @@ test("An event naming a preset not yet delivered is applied when the list arrive
 end)
 
 test("An event announced while the device is down is applied on reconnect", function()
-  -- The bridge rejects ENTITY_COMMAND while disconnected and only logs it, and
-  -- the SET_PRESETS re-apply path needs a signature CHANGE, which a plain resend
-  -- is not. Without keeping the announced name the event is lost until the
-  -- proxy next announces a different preset.
+  -- The bridge rejects ENTITY_COMMAND while disconnected, and a plain SET_PRESETS
+  -- resend is not a signature change; the announced name must be kept.
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   setPresets({ { name = "Known", fields = { hvac_mode = "Cool", single_setpoint_c = "26" } } })
@@ -1069,10 +1028,8 @@ test("An event announced while the device is down is applied on reconnect", func
 end)
 
 test("A pending event is not consumed while the device is still down", function()
-  -- SET_PRESETS is proxy traffic: it arrives whenever the preset list changes at
-  -- all, including a user editing some unrelated preset while the device is
-  -- offline. Consuming the pending event there hands the command to a bridge
-  -- that rejects it and only logs - there is no queue and no retry.
+  -- SET_PRESETS can arrive while the device is offline; consuming the pending
+  -- event there hands the command to a bridge that only logs it.
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   setPresets({ { name = "Other", fields = { hvac_mode = "Cool", single_setpoint_c = "22" } } })
@@ -1098,8 +1055,7 @@ test("A pending event is not consumed while the device is still down", function(
 end)
 
 test("A rename carries a pending event with it", function()
-  -- The rename block carries SCHEDULED_PRESET across previous_name. An event
-  -- still pending under the old name has to follow, or the very list that
+  -- A pending event under the old name must follow a rename, or the list that
   -- renames it can never satisfy it.
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -1140,10 +1096,8 @@ test("A preset still matches after the device echoes a CLAMPED setpoint", functi
 end)
 
 test("Setpoints snap on a device that reports only target_temperature_step", function()
-  -- getEntityTempStep and the resolution publisher both fall back from
-  -- visual_target_temperature_step to target_temperature_step. snapToStep must
-  -- use the same fallback or a device that reports only the plain field goes
-  -- unsnapped, keeping the quantisation bug alive for exactly that device.
+  -- snapToStep must use the same visual_target_temperature_step ->
+  -- target_temperature_step fallback as the resolution publisher.
   resetSent()
   local entity = singleSetpointEntity()
   entity.visual_target_temperature_step = nil
@@ -1175,10 +1129,7 @@ test("Losing the device retracts the connection, not just ONLINE_CHANGED", funct
 end)
 
 test("Connection state is truthful at every stage of the lifecycle", function()
-  -- The whole offline story in one test, because the failure that started this
-  -- was not one missing call - it was that CONNECTED was only ever sent as true,
-  -- so the proxy held the device as present forever and Navigator looked normal
-  -- while the head was unreachable.
+  -- CONNECTED must be sent false as well as true, or the proxy holds the device present forever.
   local function connectedNow()
     local c = lastSent("CONNECTION")
     return c and tostring(c.params.CONNECTED) or "none"
@@ -1215,9 +1166,7 @@ test("Connection state is truthful at every stage of the lifecycle", function()
 end)
 
 test("Unbinding the device retracts the connection", function()
-  -- Removing the ESPHome connection in Composer is the one disconnect an
-  -- installer can cause directly, and it was the only remaining path where the
-  -- driver left the proxy holding IS_CONNECTED true for absent hardware.
+  -- Removing the ESPHome connection in Composer must also retract IS_CONNECTED.
   disconnect()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   resetSent()
@@ -1233,9 +1182,7 @@ test("Unbinding the device retracts the connection", function()
 end)
 
 test("Rebinding the driver keeps the user's presets", function()
-  -- Presets are proxy-owned user configuration attached to this item, not device
-  -- shape, so a rebind must not discard them. Clearing them here wiped saved
-  -- presets on every driver update, because an update cycles this binding.
+  -- Presets are proxy-owned configuration; a rebind (which an update cycles) must not clear them.
   disconnect()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   setPresets({ { name = "Keeper", fields = { hvac_mode = "Cool", single_setpoint_c = "24" } } })
@@ -1258,10 +1205,8 @@ test("Rebinding the driver keeps the user's presets", function()
 end)
 
 test("Schedule and presets both survive a reload during an outage", function()
-  -- The schedule was already persisted; presets were not. The proxy only resends
-  -- the preset list once a device attaches, so a reload while the device was
-  -- down came up with an armed schedule whose every boundary named a preset the
-  -- driver no longer had. Both halves have to survive for the schedule to run.
+  -- Presets must persist alongside the schedule: the proxy resends the list only
+  -- once a device attaches, so a reload during an outage must still know them.
   disconnect()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   setPresets({ { name = "Survivor", fields = { hvac_mode = "Cool", single_setpoint_c = "26" } } })
@@ -1275,9 +1220,7 @@ test("Schedule and presets both survive a reload during an outage", function()
   check(C4:PersistGetValue("Schedule") ~= nil, "the schedule is persisted")
   check(C4:PersistGetValue("Presets") ~= nil, "and so is the preset list")
 
-  -- The distinguishing claim: the driver can apply a preset BY NAME without the
-  -- proxy having resent the list. With presets unpersisted, PRESETS is empty
-  -- here and applyPreset refuses the name as unknown.
+  -- The distinguishing claim: applyPreset works BY NAME with no SET_PRESETS resend.
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   resetSent()
@@ -1290,9 +1233,8 @@ test("Schedule and presets both survive a reload during an outage", function()
 end)
 
 test("A driver that has never seen a device still reports itself offline", function()
-  -- The thermostatV2 proxy starts IS_CONNECTED true unless the driver declares
-  -- has_connection_status, so an offline declaration that only fires when a
-  -- cached shape exists leaves a fresh install claiming the device is present.
+  -- thermostatV2 starts IS_CONNECTED true unless has_connection_status is
+  -- declared, so a fresh install must declare offline without a cached shape.
   package.loaded["lib.persist"] = nil
   dofile(DRIVER)
   resetSent()
@@ -1307,9 +1249,7 @@ test("A driver that has never seen a device still reports itself offline", funct
 end)
 
 test("Heat engages on a water heater that has never stored a mode", function()
-  -- persist:get returns an EMPTY sentinel table for a missing key, not nil;
-  -- LAST_WATER_HEATER_MODE must not restore as {} and be sent where an enum
-  -- belongs.
+  -- persist:get returns an EMPTY sentinel, not nil; it must not restore as {} and be sent as an enum.
   C4:PersistDeleteValue("LastWaterHeaterMode")
   package.loaded["lib.persist"] = nil
   dofile(DRIVER)
@@ -1331,9 +1271,7 @@ test("Heat engages on a water heater that has never stored a mode", function()
 end)
 
 test("A device with nothing to put in Extras has the section withdrawn", function()
-  -- HAS_EXTRAS was only ever published true, so a node reflashed from a mini
-  -- split to a modeless water heater kept a Swing selector that SET_MODE_SWING
-  -- silently ignores.
+  -- HAS_EXTRAS must go false for a modeless water heater, or a stale Swing selector stays.
   disconnect()
   local bare = singleSetpointEntity()
   bare.supported_swing_modes = {}
@@ -1347,9 +1285,7 @@ test("A device with nothing to put in Extras has the section withdrawn", functio
 end)
 
 test("A pending event is dropped when its schedule is deleted", function()
-  -- With the schedule gone there is nothing for the announcement to belong to;
-  -- left pending it would fire against any later preset list that happens to
-  -- contain that name.
+  -- With the schedule gone a pending announcement must be dropped, not fired later.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -1369,10 +1305,8 @@ test("A pending event is dropped when its schedule is deleted", function()
 end)
 
 test("After a reload the proxy's re-announcement applies a preset still pending", function()
-  -- A pending announcement does not have to survive a reload: the proxy
-  -- announces the schedule's current preset again on every connection. What
-  -- must survive is which preset was last APPLIED, so that re-announcement is
-  -- recognised as new rather than repeated.
+  -- A pending announcement need not survive a reload (the proxy re-announces on
+  -- connect); the last APPLIED preset must, so that repeat is recognised.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -1401,9 +1335,7 @@ test("After a reload the proxy's re-announcement applies a preset still pending"
 end)
 
 test("A reload does not re-apply the preset the proxy re-announces", function()
-  -- The proxy announces the schedule's current preset on every connection,
-  -- reload included. Without remembering which preset was last applied, every
-  -- Director restart re-commanded the device with a preset already in force.
+  -- The proxy re-announces on every connection; a remembered last-applied preset stops a re-command.
   disconnect()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 })
   setPresets({ { name = "Comfort", fields = { single_setpoint_c = "22" } } })
@@ -1431,9 +1363,7 @@ test("A reload does not re-apply the preset the proxy re-announces", function()
 end)
 
 test("A preset still matches after the device echoes the SNAPPED setpoint", function()
-  -- The template authors at 0.5 while the device quantises to 1: a 21.5 preset
-  -- echoes back as 22 and must still match, which needs snapping on the
-  -- comparison side.
+  -- 21.5 authored, 22 echoed: matching must snap the comparison side.
   local entity = singleSetpointEntity()
   entity.visual_target_temperature_step = 1
   disconnect()
@@ -1448,10 +1378,8 @@ test("A preset still matches after the device echoes the SNAPPED setpoint", func
 end)
 
 test("One stale report after a scheduled event does not flap the hold", function()
-  -- A report landing between the command and the confirmation still describes
-  -- the OLD state. Reconciling against it raises a hold that the confirmation
-  -- drops a moment later: two spurious programmable events per boundary.
-  -- Exactly one report is suppressed, because more than that could wedge.
+  -- A report between command and confirmation describes the OLD state; exactly
+  -- one is suppressed, more could wedge.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -1471,9 +1399,7 @@ test("One stale report after a scheduled event does not flap the hold", function
 end)
 
 test("A lone Off swing mode produces no Extras state echo", function()
-  -- The selector is only published when more than one mode is offered, so
-  -- echoing state for a lone Off fired EXTRAS_STATE_CHANGED on every push for an
-  -- object that was never declared, with no transition guard.
+  -- No EXTRAS_STATE_CHANGED for an Extras object that was never published (lone Off).
   local entity = singleSetpointEntity()
   entity.supported_swing_modes = { Swing.OFF }
   disconnect()
@@ -1488,9 +1414,8 @@ test("A lone Off swing mode produces no Extras state echo", function()
 end)
 
 test("A reading the device has not taken is not forwarded as a temperature", function()
-  -- ESPHome reports NaN for a float the device has not supplied. Exercises
-  -- stateFloat with raw tables; the test below exercises the SerializeSafe round
-  -- trip.
+  -- ESPHome reports NaN for an unsupplied float. Raw tables here; the
+  -- SerializeSafe round trip is the test below.
   local NAN = 0 / 0
   disconnect()
   resetSent()
@@ -1508,9 +1433,7 @@ test("A reading the device has not taken is not forwarded as a temperature", fun
   check(lastSentOn(5011, "VALUE_CHANGED") == nil, "nothing on the humidity output either")
   check(lastSent("HUMIDIFY_SETPOINT_CHANGED") == nil, "no humidity setpoint for an infinite target")
 
-  -- A nudge from an unknown setpoint starts from zero and clamps into range, as
-  -- it always did for an absent one. What matters is that the sentinel never
-  -- seeds it: from infinity the nudge commanded the visual maximum.
+  -- A nudge from an unknown setpoint starts from zero; the sentinel must never seed it.
   resetSent()
   RFP.INC_SETPOINT_SINGLE(PROXY, "INC_SETPOINT_SINGLE")
   local body = lastCommandBody()
@@ -1521,10 +1444,8 @@ test("A reading the device has not taken is not forwarded as a temperature", fun
 end)
 
 test("A NaN reading still is not forwarded once it has crossed the real bridge serialization", function()
-  -- JSON has no NaN literal, so a NaN must survive the SerializeSafe round trip
-  -- the bridge uses, or stateFloat reads it as an absent key and reports 0 for
-  -- a declared dimension. The dimensions must be declared for this to be
-  -- meaningful: undeclared ones return nil either way.
+  -- JSON has no NaN literal; a NaN must survive SerializeSafe or stateFloat reads
+  -- an absent key and reports 0 for a declared dimension. Dimensions must be declared.
   local NAN = 0 / 0
   local entity = singleSetpointEntity()
   entity.supports_current_temperature = true
@@ -1546,9 +1467,7 @@ test("A NaN reading still is not forwarded once it has crossed the real bridge s
 end)
 
 test("Deleting the schedule releases the hold it was held against", function()
-  -- The scheduled preset stayed armed after SET_EVENTS emptied the schedule, so
-  -- every later divergence raised "Until Next" against a schedule that no longer
-  -- existed, and releasing the hold re-applied the deleted preset.
+  -- Emptying the schedule must forget the scheduled preset and release the hold.
   local entity = singleSetpointEntity()
   disconnect()
   resetSent()
@@ -1604,10 +1523,8 @@ local function heldUnderSchedule(mode)
 end
 
 test("Deleting the schedule releases even the hold the user raised", function()
-  -- A hold that runs "until next" cannot outlive the schedule: with no events
-  -- there is no next event to end it, reconcileHold returns at its first line
-  -- without a scheduled preset, and the hold modes are withdrawn so the
-  -- thermostat shows no control to release it with. Leaving it set stranded it.
+  -- An "until next" hold cannot outlive the schedule: no next event ends it and
+  -- the hold modes are withdrawn, so nothing could release it.
   heldUnderSchedule("Until Next")
 
   resetSent()
@@ -1632,9 +1549,7 @@ test("A Permanent hold is the one that survives the schedule", function()
 end)
 
 test("A hold with no schedule at all is refused rather than stranded", function()
-  -- Reachable from programming, or from a thermostat still showing a hold
-  -- control after the last event was deleted. Accepting it would leave a hold
-  -- with nothing to release it.
+  -- Reachable from programming; accepting it would leave a hold nothing releases.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.OFF })
@@ -1659,9 +1574,8 @@ test("A hold with no schedule at all is refused rather than stranded", function(
 end)
 
 test("A timed or permanent hold does not become the driver's word for a hold", function()
-  -- The wording is learned from the proxy, but only for the hold that means
-  -- "until the next event". Learning it from a two hour hold would have the
-  -- driver report every divergence it sees as a two hour hold.
+  -- The wording is learned only from the hold meaning "until the next event";
+  -- learning it from a two hour hold would mislabel every divergence.
   heldUnderSchedule("2 Hours")
 
   -- Release it, then diverge from the scheduled preset so the DRIVER raises a
@@ -1678,10 +1592,8 @@ test("A timed or permanent hold does not become the driver's word for a hold", f
 end)
 
 test("Preset lists that differ only in where a preset ends are told apart", function()
-  -- The persist dedupe compares a digest of the list. Length-prefixing made each
-  -- token self-delimiting but nothing marked where one preset ended and the next
-  -- began, so one preset with four fields digested the same as three presets
-  -- with one field each and the second list was never written.
+  -- Length-prefixed tokens alone do not mark preset boundaries: one preset with
+  -- four fields digested like three with one each.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -1698,8 +1610,7 @@ test("Preset lists that differ only in where a preset ends are told apart", func
 end)
 
 test("A fresh install does not forward a bound sensor before the proxy enables it", function()
-  -- persist:get returns a truthy EMPTY sentinel for a missing key, so a fresh
-  -- install must not read as "remote sensor in use".
+  -- persist:get's EMPTY sentinel is truthy; a fresh install must not read as in use.
   package.loaded["lib.persist"] = nil
   dofile(DRIVER)
   OnDriverLateInit()
@@ -1736,16 +1647,14 @@ test("Preset scheduling is published at runtime, not left to the manifest", func
     checkEqual(published.binding, PROXY, "on the proxy binding")
   end
 
-  -- Re-asserted on every connection, not only when the list changes. A reload
-  -- comes up having told the proxy nothing, and the schedule restored from
-  -- persist arrives without a SET_EVENTS to announce it.
+  -- Re-asserted on every connection: a reload has told the proxy nothing and the
+  -- restored schedule arrives without a SET_EVENTS.
   local holdModes = lastSent("ALLOWED_HOLD_MODES_CHANGED")
   check(holdModes ~= nil, "and the hold modes are re-asserted on the same connection")
 end)
 
 test("A water heater is offered neither a preset schedule nor hold modes", function()
-  -- Scheduling presets on a device that is never offered presets leaves a UI
-  -- that can be opened and never completed, and a hold has nothing to hold.
+  -- Scheduling on a device never offered presets gives a UI that cannot complete.
   local heater = singleSetpointEntity()
   heater.is_water_heater = true
   disconnect()
@@ -1761,9 +1670,7 @@ test("A water heater is offered neither a preset schedule nor hold modes", funct
 end)
 
 test("Hold modes are published with the schedule and withdrawn without it", function()
-  -- The proxy's HOLD_MODES_LIST read "-" on a live controller while
-  -- hold_modes was declared in driver.xml, and the HVAC and fan lists beside it
-  -- - both pushed at runtime - were populated. Nothing offered a hold at all.
+  -- hold_modes in driver.xml never reaches the proxy; it must be pushed.
   disconnect()
   setPresets({ { name = "Comfort", fields = { single_setpoint_c = "22" } } })
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = "<events></events>" })
@@ -1786,9 +1693,7 @@ test("Hold modes are published with the schedule and withdrawn without it", func
 end)
 
 test("An unchanged schedule does not re-publish the hold modes", function()
-  -- Every device reconnect makes the proxy resend SET_EVENTS, and any schedule
-  -- edit lands there too. Without the dedupe that is one identical notification
-  -- per reconnect on a flaky device.
+  -- SET_EVENTS is resent on every reconnect; without the dedupe each is a flash write.
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Comfort" } }) })
   resetSent()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Comfort" } }) })
@@ -1811,10 +1716,8 @@ local function scheduledFixture()
 end
 
 test("Choosing a preset by hand holds, and does not replace the schedule", function()
-  -- Control4's own thermostat writes a preset-hold event and leaves its
-  -- scheduled preset alone. Clearing it here disabled hold reporting entirely,
-  -- because reconcileHold returns at its first line while SCHEDULED_PRESET is
-  -- nil, and left the release with nothing to restore.
+  -- A preset chosen by hand is a hold on top of the schedule; clearing the scheduled
+  -- preset would disable hold reporting and leave the release nothing to restore.
   scheduledFixture()
 
   RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Away" })
@@ -1826,8 +1729,7 @@ test("Choosing a preset by hand holds, and does not replace the schedule", funct
   local body = lastCommandBody()
   checkEqual(body and body.target_temperature, 18, "and the chosen preset reaches the device")
 
-  -- The scheduled preset survived, proven by what a release restores rather
-  -- than by reading the driver's internals.
+  -- Proven by what a release restores, not by reading internals.
   resetSent()
   RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "" })
   local restored = lastCommandBody()
@@ -1837,8 +1739,7 @@ test("Choosing a preset by hand holds, and does not replace the schedule", funct
 end)
 
 test("The next scheduled event releases a preset hold", function()
-  -- That is what "until next" means, and it is the one release the user does
-  -- not have to ask for.
+  -- The one release the user does not have to ask for.
   scheduledFixture()
   setPresets({
     { name = "Comfort", fields = { single_setpoint_c = "22" } },
@@ -1870,9 +1771,7 @@ test("Selecting the preset the schedule already holds still reads as a hold", fu
 end)
 
 test("The proxy repeating the scheduled preset on reconnect does not undo a user's hold", function()
-  -- Every connection makes the proxy announce the schedule's current preset
-  -- again. Applying it each time would release the hold the user raised and
-  -- re-command the device on every reconnect.
+  -- Re-announcement on every connection must not release a user hold or re-command the device.
   scheduledFixture()
   RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Until Next" })
   resetSent()
@@ -1883,10 +1782,8 @@ test("The proxy repeating the scheduled preset on reconnect does not undo a user
 end)
 
 test("Clearing the applied preset writes an empty marker rather than deleting the key", function()
-  -- On a live controller a delete of this key issued from the proxy-command
-  -- path, followed by a write from that same path, left the key unreadable
-  -- after the write. An empty table marker avoids the delete, and the restore
-  -- reads it as "no preset" the same way it reads an absent key.
+  -- A delete then a write of this key from the proxy-command path left the key
+  -- unreadable; an empty table marker avoids the delete.
   scheduledFixture()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = "<events></events>" })
   local stored = C4:PersistGetValue("ScheduledPreset")
@@ -1909,9 +1806,7 @@ test("Clearing the applied preset writes an empty marker rather than deleting th
 end)
 
 test("With no schedule, choosing a preset raises no hold", function()
-  -- The hold modes are withdrawn without a schedule, so reporting one would
-  -- name a mode the proxy has been told it does not have, and there is no next
-  -- event for it to run until.
+  -- Without a schedule the hold modes are withdrawn, so no hold may be reported.
   disconnect()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 })
   setPresets({ { name = "Solo", fields = { single_setpoint_c = "19" } } })
@@ -1926,9 +1821,7 @@ test("With no schedule, choosing a preset raises no hold", function()
 end)
 
 test("A rename reaches the SCHEDULE entries", function()
-  -- The rename block carried the tracked NAMES across but not the SCHEDULE
-  -- array. The stale list was then persisted under the old name, and every
-  -- reload restored a schedule naming a preset that no longer existed.
+  -- The rename must carry the SCHEDULE array too, or the stale list persists under the old name.
   disconnect()
   updateState(singleSetpointEntity(), { mode = Mode.OFF })
   setPresets({
@@ -1964,9 +1857,8 @@ test("Deleting the scheduled preset does not strand an unclearable hold", functi
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   clearHold()
 
-  -- Diverge from Morning so a hold is genuinely standing before the deletion.
-  -- Without this the assertion below passes vacuously: setHoldMode dedupes on
-  -- equality, so clearing an already-Off hold emits nothing either way.
+  -- Diverge first so a hold is genuinely standing; setHoldMode dedupes, so
+  -- clearing an already-Off hold emits nothing either way.
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 })
   local standing = lastSent("HOLD_MODE_CHANGED")
   check(standing ~= nil and standing.params.MODE == "Until Next", "a hold is standing against Morning")
@@ -1989,9 +1881,8 @@ test("Deleting the scheduled preset does not strand an unclearable hold", functi
 end)
 
 test("A reload republishes hold mode and active preset even when they read as empty", function()
-  -- Seeding HOLD_MODE to "Off" and ACTIVE_PRESET to nil would make the equality
-  -- guards swallow the first report after a reload while the proxy still shows
-  -- the stale value.
+  -- Seeding HOLD_MODE "Off" / ACTIVE_PRESET nil would swallow the first report
+  -- after a reload while the proxy still shows the stale value.
   disconnect()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   setPresets({ { name = "Comfort", fields = { single_setpoint_c = "22" } } })
@@ -2004,16 +1895,13 @@ test("A reload republishes hold mode and active preset even when they read as em
   dofile(DRIVER)
   OnDriverLateInit()
 
-  -- A report that MATCHES the scheduled preset reconciles to "Off" - the value
-  -- the old seed already believed, so the correction was swallowed.
+  -- A matching report reconciles to "Off", the value a seed would already believe.
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   local hold = lastSent("HOLD_MODE_CHANGED")
   check(hold ~= nil and hold.params.MODE == "Off", "the first report after a reload states the hold mode")
 
-  -- The preset display needs the mirror case: a report matching NO preset
-  -- resolves to "none", which is the value the old seed already believed. Both
-  -- halves have to be exercised or the sentinel on one of them is untested.
+  -- Mirror case: a no-match report resolves to "none"; both sentinels need exercising.
   dofile(DRIVER)
   OnDriverLateInit()
   resetSent()
@@ -2033,9 +1921,7 @@ test("The proxy's own hold wording survives a reload", function()
   check(type(stored) == "table", "the learned wording persists in a form that deserialises")
   checkEqual(stored and stored.mode, "Next Event", "and it round-trips to what the proxy said")
 
-  -- A real reload, not just a re-run of LateInit: the in-memory value is still
-  -- set from the hold above, so re-loading the chunk is the only way to observe
-  -- whether the restore actually lands.
+  -- A real reload: the in-memory value is still set, so only re-loading the chunk observes the restore.
   dofile(DRIVER)
   local ok, err = pcall(OnDriverLateInit)
   check(ok, "OnDriverLateInit survives the restore" .. (ok and "" or ": " .. tostring(err)))
@@ -2067,8 +1953,7 @@ test("Two presets that both match are decided by specificity, not hash order", f
     checkEqual(reported.params.NAME, "Zoned", "the preset that pins down more of the state wins")
   end
 
-  -- Stable across a rebuild. The list arrives again in a different order, which
-  -- is exactly what used to reshuffle the hash and flip the answer.
+  -- Stable across a rebuild that delivers the list in a different order.
   resetSent()
   setPresets({
     { name = "Zoned", fields = { hvac_mode = "Cool", single_setpoint_c = "22", fan_mode = "Quiet" } },
@@ -2080,10 +1965,8 @@ test("Two presets that both match are decided by specificity, not hash order", f
 end)
 
 test("A reading of exactly zero is reported, not dropped", function()
-  -- Protobuf leaves a zero-valued field out of the frame entirely, so a device
-  -- sitting at 0 C sends no current_temperature at all. Read as "no reading",
-  -- freezing point vanished from the thermostat and a preset at 0 could never
-  -- match. The device says which dimensions it has; absence means zero for those.
+  -- Protobuf omits a zero-valued field, so a device at 0 C sends no
+  -- current_temperature; absence means zero for a declared dimension.
   local entity = singleSetpointEntity()
   entity.supports_current_temperature = true
   entity.supports_current_humidity = true
@@ -2104,8 +1987,7 @@ test("A reading of exactly zero is reported, not dropped", function()
 end)
 
 test("A dimension the device does not have stays absent", function()
-  -- The other half of the same rule. Substituting zero for every missing float
-  -- would invent a humidity reading for a device with no humidity sensor.
+  -- Substituting zero for every missing float would invent a humidity reading.
   local entity = singleSetpointEntity()
   entity.supports_current_temperature = false
   entity.supports_current_humidity = false
@@ -2142,9 +2024,8 @@ test("An unreadable schedule frame leaves the stored schedule alone", function()
 end)
 
 test("A preset chosen while the device is down changes nothing and claims nothing", function()
-  -- The bridge rejects a command while disconnected, so the driver must not
-  -- raise a hold or report an HVAC mode change for a preset that never reached
-  -- the device.
+  -- The bridge rejects a command while disconnected; no hold or mode change may
+  -- be reported for a preset that never reached the device.
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   setPresets({
     { name = "Comfort", fields = { hvac_mode = "Heat", single_setpoint_c = "24" } },
@@ -2164,8 +2045,7 @@ test("A preset chosen while the device is down changes nothing and claims nothin
   checkEqual(lastSent("HOLD_MODE_CHANGED"), nil, "and no hold is claimed for it")
   checkEqual(lastSent("HVAC_MODE_CHANGED"), nil, "and no mode change is reported")
 
-  -- Releasing a hold must still work while the device is down, or a hold raised
-  -- before the outage could not be cleared until the device came back.
+  -- Releasing a hold must work while the device is down.
   RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Until Next" })
   resetSent()
   RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Off" })
@@ -2175,9 +2055,7 @@ test("A preset chosen while the device is down changes nothing and claims nothin
 end)
 
 test("A reload does not rewrite a schedule and preset list that have not changed", function()
-  -- The dedupe digests were left empty on a reload, so the first resend of each
-  -- list compared against nothing and wrote the same content straight back. Two
-  -- flash writes per reload, forever, for lists nobody had touched.
+  -- Digests seeded empty on reload rewrote unchanged lists: two flash writes per reload.
   disconnect()
   resetSent()
   setPresets({ { name = "Morning", fields = { hvac_mode = "Heat", single_setpoint_c = "21" } } })
@@ -2219,9 +2097,8 @@ test("The proxy is not sent a notification it does not implement", function()
 end)
 
 test("A water heater ignores a schedule inherited from a climate entity", function()
-  -- Repointing a driver from a climate entity to a water heater leaves the old
-  -- schedule restored, and the proxy still announces its events. Applying them
-  -- would command the heater with presets it is never offered.
+  -- Repointing from a climate entity to a water heater leaves the schedule
+  -- restored and announced; applying it would command the heater with presets.
   disconnect()
   resetSent()
   setPresets({ { name = "Morning", fields = { hvac_mode = "Heat", single_setpoint_c = "21" } } })
@@ -2248,10 +2125,8 @@ test("A water heater ignores a schedule inherited from a climate entity", functi
 end)
 
 test("Editing the scheduled preset while the device is down is applied on reconnect", function()
-  -- The re-apply path set the one-report suppression before asking, so a
-  -- refused apply lost the edit and the first report after reconnect was
-  -- swallowed, leaving the device on the old values with a hold the user
-  -- never raised on screen.
+  -- Suppression must be set only after a command goes out; a refused apply
+  -- otherwise loses the edit and swallows the first report after reconnect.
   scheduledFixture()
   disconnect()
   resetSent()
@@ -2269,10 +2144,8 @@ test("Editing the scheduled preset while the device is down is applied on reconn
 end)
 
 test("A scheduled preset commanded just before a drop is sent again on reconnect", function()
-  -- The name is persisted as applied when the command goes out, before the
-  -- device confirms. A drop inside that window loses the command, and the
-  -- proxy's re-announcement on reconnect reads as a repeat, so nothing sent it
-  -- again until the next boundary that named a different preset.
+  -- The name is persisted as applied when the command goes out, before confirmation;
+  -- a drop in that window must mark it pending or the reconnect repeat is ignored.
   scheduledFixture()
   resetSent()
   RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Away" })
