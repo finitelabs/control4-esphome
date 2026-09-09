@@ -91,14 +91,11 @@ local EVENT_PENDING = false
 local SCHEDULE_SIGNATURE = nil
 local PRESETS = {}
 local PRESETS_SIGNATURE = nil
--- Defined further down, beside the code they belong to.
 local publishHoldModes
 local scheduleSignature
 local runPendingEvent
 
---- Stable digest of the preset list, for the persist dedupe. Names and keys are
---- sorted, tokens are length-prefixed, and each preset carries its field count
---- so distinct lists cannot digest alike.
+--- Stable digest of the preset list, for the persist dedupe.
 --- @param presets table<string, table> The preset table.
 --- @return string signature
 local function presetListSignature(presets)
@@ -441,10 +438,8 @@ local function detectSetpointCaps(entity)
       can_auto = true
     end
   end
-  -- supports_two_point_target_temperature is the entity's own declaration: when
-  -- false it holds exactly one target even if it offers both HEAT and COOL, as a
-  -- mini-split does. The SDK requires can_heat, can_cool and can_do_auto to be
-  -- false alongside has_single_setpoint; Auto still reaches the UI via hvac_modes.
+  -- A single-target device may still offer both HEAT and COOL; the entity's
+  -- declaration decides. Auto still reaches the UI via hvac_modes.
   local single = not entity.supports_two_point_target_temperature
   if single then
     can_heat = false
@@ -480,8 +475,7 @@ end
 
 --- Build the preset_fields template from what this entity supports. The proxy
 --- serves the editor from whatever PRESET_FIELDS_CHANGED last pushed; the static
---- block in driver.xml is only a fallback. Setpoint fields follow the flag the
---- proxy runs on: heat/cool when dual, single otherwise.
+--- block in driver.xml is only a fallback.
 --- @param entity table The entity data.
 --- @param singleSetpoint boolean Whether the proxy is in single-setpoint mode.
 --- @return string xml
@@ -630,10 +624,9 @@ local function sendCapabilities(entity)
   local setpointCaps = detectSetpointCaps(entity)
   IS_SINGLE_SETPOINT = setpointCaps.HAS_SINGLE_SETPOINT
   log:info("Single setpoint mode: %s", tostring(IS_SINGLE_SETPOINT))
-  -- Preset capabilities are raised here once an entity is attached; the static
-  -- driver.xml declarations do not reach the proxy for either flag. Water heaters
-  -- get neither: the preset template is climate-shaped and a preset applied to a
-  -- water heater serialises to an empty command.
+  -- The static driver.xml declarations do not reach the proxy for either flag.
+  -- Water heaters get neither: the preset template is climate-shaped and a
+  -- preset applied to a water heater serialises to an empty command.
   setpointCaps.CAN_PRESET = not entity.is_water_heater
   setpointCaps.CAN_PRESET_SCHEDULE = not entity.is_water_heater
   SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", setpointCaps, "NOTIFY")
@@ -714,12 +707,9 @@ local function sendCapabilities(entity)
 
   CAPABILITIES_SENT = true
 
-  -- HAS_EXTRAS must track the device, so it is published false when nothing
-  -- below claims it.
   local extrasPublished = false
 
-  -- Swing modes (climate only) are surfaced as an Extras selector, since
-  -- thermostatV2 has no swing capability of its own.
+  -- Swing rides on Extras; thermostatV2 has no swing capability.
   if not entity.is_water_heater then
     local swingNames = {}
     for _, mode in ipairs(entity.supported_swing_modes or {}) do
@@ -728,8 +718,7 @@ local function sendCapabilities(entity)
         swingNames[#swingNames + 1] = name
       end
     end
-    -- A lone "Off" is not a choice; only expose the selector if the device
-    -- actually offers somewhere to swing to.
+    -- A lone "Off" is not a choice.
     if #swingNames > 1 then
       extrasPublished = true
       SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", { HAS_EXTRAS = true }, "NOTIFY")
@@ -759,10 +748,9 @@ local function sendCapabilities(entity)
     if #whModeNames > 0 then
       extrasPublished = true
       SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", { HAS_EXTRAS = true }, "NOTIFY")
-      -- custom_preset is borrowed: a water heater publishes no presets, so the
-      -- bridge carries its operating mode there (water_heater.lua). Every read
-      -- of it is gated on is_water_heater because a climate entity can advertise
-      -- a custom preset of the same name.
+      -- custom_preset carries a water heater's operating mode (water_heater.lua).
+      -- Every read is gated on is_water_heater because a climate entity can
+      -- advertise a custom preset of the same name.
       local currentMode = Select(STATE, "custom_preset") or whModeNames[1]
       local extrasXml = '<extras_setup><extra><section label="Operating Mode">'
         .. '<object type="list" id="waterHeaterMode" label="Mode" command="SET_MODE_WATER_HEATER" value="'
@@ -843,10 +831,9 @@ function OnDriverLateInit()
   -- unchanged lists.
   SCHEDULE_SIGNATURE = scheduleSignature()
   PRESETS_SIGNATURE = presetListSignature(PRESETS)
-  -- Restored so the first report after a reload can reconcile a hold, and so the
-  -- proxy's re-announcement on connect reads as already in force. Cleared by
-  -- writing an empty table, never by deleting the key: a delete followed by a
-  -- write from the proxy-command path left the key unreadable (OS 3.3.3).
+  -- Restored so the first report after a reload can reconcile a hold and the
+  -- proxy's re-announcement on connect reads as already in force. Cleared with an
+  -- empty table, never a delete: delete-then-write from the proxy path left the key unreadable.
   local storedScheduled = persist:get("ScheduledPreset")
   if type(storedScheduled) == "table" and type(storedScheduled.preset) == "string" then
     SCHEDULED_PRESET = storedScheduled.preset
@@ -1208,10 +1195,8 @@ local USER_HOLD = false
 --- next report still describes the old state and must not raise a hold.
 local AWAITING_SCHEDULED = false
 
---- The proxy's name for "hold until the next scheduled event" varies ("Next
---- Event", "Until Next") and it declares no canonical list, so it is learned from
---- the first hold the proxy sends. The driver.xml hold_modes value is the
---- starting guess.
+--- The proxy's wording for "hold until the next event" varies and is not declared,
+--- so it is learned from the first hold it sends. driver.xml hold_modes is the starting guess.
 HOLD_UNTIL_NEXT = "Until Next"
 
 --- The one hold that outlives a schedule; released only by the user or programming.
@@ -1229,9 +1214,7 @@ local HOLD_NOT_UNTIL_NEXT = {
 
 --- Publish the hold modes the proxy should offer. With no schedule there is
 --- nothing for a hold to be "until", so none are offered.
---- @param force boolean Publish even if unchanged. Set on a new connection, when
---- the proxy may hold a stale list and the restored schedule arrives with no
---- SET_EVENTS to announce it.
+--- @param force boolean Publish even if unchanged; a new connection may hold a stale list.
 publishHoldModes = function(force)
   local modes = #SCHEDULE > 0 and ("Off," .. HOLD_UNTIL_NEXT) or ""
   if modes == HOLD_MODES_PUBLISHED and not force then
@@ -1264,7 +1247,6 @@ local function parsePresetFields(raw)
 end
 
 --- Stable string form of a preset's fields, for detecting a real edit.
---- Keys are sorted so the same values always produce the same signature.
 --- @param fields table|nil A preset's field table.
 --- @return string|nil signature nil when the preset does not exist.
 local function presetSignature(fields)
@@ -1563,7 +1545,7 @@ local function matchAnyPreset()
 end
 
 --- Drop into "Until Next" when the user diverges from the scheduled preset, and
---- release the hold when state drifts back onto it. This is the whole hold UX.
+--- release the hold when state drifts back onto it.
 local function reconcileHold()
   if SCHEDULED_PRESET == nil then
     return
@@ -1572,8 +1554,7 @@ local function reconcileHold()
 
   -- Suppress exactly one report after a scheduled preset is commanded: it
   -- describes the state before the device moved. One report, not "until it
-  -- matches", so a device that never lands exactly on the preset cannot wedge
-  -- this.
+  -- matches", or a device that never lands exactly on the preset wedges this.
   if AWAITING_SCHEDULED then
     AWAITING_SCHEDULED = false
     return
@@ -2195,8 +2176,6 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     end
   end
 
-  -- Presets: highlight whatever the current state matches, then decide whether
-  -- the user has diverged from the scheduled preset (hold) or returned to it.
   if not entity.is_water_heater then
     matchAnyPreset()
     reconcileHold()
