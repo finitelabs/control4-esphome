@@ -282,15 +282,19 @@ a change made by hand lasts until the next event that names a different preset.
 
 Changing the thermostat by hand while a scheduled preset is in force raises a
 hold. The thermostat shows **Until Next**, and the change stays in place until
-the next scheduled event, which releases the hold and applies its own preset.
+the next scheduled event that names a different preset, which releases the hold
+and applies it; an event that re-selects the preset already in force is not
+announced and leaves the hold in place.
 
 Choosing a preset by hand does the same thing. The preset is applied and held
 until the next scheduled event, and the schedule is not disturbed: clearing the
 preset before that event returns the thermostat to the preset the schedule has
 in force.
 
-Returning the thermostat to the values of the preset that is in force clears the
-hold on its own, without waiting for the next event.
+Returning the thermostat to the values of the preset in force clears a hold
+raised by changing values by hand, without waiting for the next event. A hold
+raised by choosing a preset by hand is not cleared this way; it lasts until the
+next scheduled event.
 
 Deleting every scheduled event also clears a hold the driver raised, including
 one set by hand, since there is no longer a next event to hold until. A
