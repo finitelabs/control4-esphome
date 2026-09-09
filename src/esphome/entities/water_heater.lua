@@ -139,16 +139,11 @@ function WaterHeaterEntity:updated(entity, state, messageSchema)
     state.mode = ClimateMode.CLIMATE_MODE_HEAT
   end
   state.custom_preset = WATER_HEATER_MODE_NAMES[whMode]
-  -- Clean up unset protobuf float sentinel values
-  if state.target_temperature and state.target_temperature > 1e10 then
-    state.target_temperature = nil
-  end
-  if state.target_temperature_high and state.target_temperature_high > 1e10 then
-    state.target_temperature_high = nil
-  end
-  if state.target_temperature_low and state.target_temperature_low > 1e10 then
-    state.target_temperature_low = nil
-  end
+  -- ESPHome reports NaN for a setpoint the device has not supplied. Drop it
+  -- rather than forward it as a temperature.
+  state.target_temperature = tofinite(state.target_temperature)
+  state.target_temperature_high = tofinite(state.target_temperature_high)
+  state.target_temperature_low = tofinite(state.target_temperature_low)
   local binding = bindings:getDynamicBinding(self.TYPE, "water_heater_" .. entity.key)
   if binding ~= nil then
     SendToProxy(binding.bindingId, "UPDATE_STATE", {
