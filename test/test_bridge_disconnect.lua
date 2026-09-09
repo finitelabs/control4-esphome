@@ -1,11 +1,7 @@
 --- The ESPHome bridge tells sub-drivers the device went away only on a
---- true->false edge in its heartbeat. `wasConnected` used to be a Connect()
---- local, and every connection property calls Connect() on change, so a
---- reconfiguration rebuilt the closure with the flag reset and the edge was
---- destroyed: the bridge reported a failed connection while its children went on
---- reporting the device as present. Observed on a controller - the bridge showed
---- "Connection Failed", the climate child showed "Connected", and the
---- touchscreen rendered a live thermostat for an unreachable device.
+--- true->false edge in its heartbeat. A reconfiguration through Connect() must
+--- not reset that edge, or the children keep reporting a device the bridge has
+--- lost.
 
 require("lib.utils")
 require("drivers-common-public.global.lib")

@@ -105,11 +105,9 @@ local function lastSentOn(binding, command)
   end
 end
 
---- Newest record for `command` that actually carries `key`.
---- sendCapabilities emits SEVERAL DYNAMIC_CAPABILITIES_CHANGED messages - setpoint
---- caps, humidity, ranges, resolutions, extras - so lastSent() returns whichever
---- happened to go last and a test asking it for CAN_PRESET reads nil from a
---- message that never had that field. An assertion guarded on that nil never runs.
+--- Newest record for `command` that carries `key`. sendCapabilities emits several
+--- DYNAMIC_CAPABILITIES_CHANGED messages, so lastSent() alone may return one
+--- without the field.
 local function lastSentWith(command, key)
   for i = #sent, 1, -1 do
     if sent[i].command == command and sent[i].params ~= nil and sent[i].params[key] ~= nil then
@@ -195,11 +193,8 @@ local function updateState(entity, state)
 end
 
 --- Same as updateState, but through the real bridge->child serialization
---- (SerializeSafe/DeserializeSafe, i.e. a JSON+base64 round trip) instead of
---- handing the driver raw Lua tables. ClimateEntity:updated does exactly this
---- before sending UPDATE_STATE for real, and a NaN or infinity reading only
---- has to survive THIS path - a test that skips it cannot see a regression in
---- how those values cross the wire.
+--- (SerializeSafe/DeserializeSafe), the only path a NaN or infinity reading has
+--- to survive.
 local function updateStateSerialized(entity, state)
   RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", { entity = SerializeSafe(entity), state = SerializeSafe(state) })
 end
@@ -817,14 +812,8 @@ test("An unrelated state report between apply and confirm does not clear the pre
 end)
 
 test("A preset is announced once, by the device's report", function()
-  -- One emitter: matchAnyPreset, driven by the state report. applyPreset sends
-  -- the command and says nothing, so the confirmation is the only announcement.
-  -- This catches an outbound announce being re-added without the suppression
-  -- that used to accompany it. Two other guards cover the rest: "Applying a
-  -- preset sends every field in one command" asserts nothing is announced before
-  -- the device confirms, which is the most direct statement of the design, and
-  -- "An unrelated state report between apply and confirm" catches the announce
-  -- being re-added with the suppression.
+  -- matchAnyPreset, driven by the state report, is the only announcer;
+  -- applyPreset says nothing. Catches an outbound announce being re-added.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -892,11 +881,8 @@ test("Device supplied fan mode names are escaped before reaching the preset XML"
 end)
 
 test("REGRESSION: a persisted schedule is restored without OnDriverLateInit throwing", function()
-  -- SCHEDULE was declared below OnDriverLateInit, so the restore path resolved
-  -- it to a global: the assignment wrote a global nothing reads. The driver
-  -- only reached it when a schedule had actually been persisted, and the
-  -- CONNECTION notify resent SET_EVENTS afterwards, so the schedule still ran
-  -- and the crash stayed invisible.
+  -- Guards the restore path resolving SCHEDULE to a global when the local is
+  -- declared below OnDriverLateInit.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.OFF })
@@ -913,14 +899,8 @@ test("REGRESSION: a persisted schedule is restored without OnDriverLateInit thro
 end)
 
 test("A preset that constrains nothing is not stored", function()
-  -- parsePresetFields drops empty-valued fields, so an all-empty preset parses to
-  -- {}. matchPreset guards every field with "if preset.X ~= nil" and ends in
-  -- "return true", so an empty table matches EVERY state. Stored, it would be
-  -- announced as active against any state at all.
-  --
-  -- Deliberately the ONLY preset in the list: asserting which of several presets
-  -- wins would depend on Lua's pairs order, which is not deterministic, and such
-  -- a test passes or fails by luck rather than by behaviour.
+  -- An all-empty preset parses to {} and would match every state. The only
+  -- preset in the list, so the result does not depend on pairs order.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -1035,11 +1015,9 @@ local function eventsXml(entries)
 end
 
 test("An event naming a preset not yet delivered is applied when the list arrives", function()
-  -- SCHEDULE is persisted and the proxy only resends SET_PRESETS once a device
-  -- connects, so an announcement can name a preset the driver does not have
-  -- yet. Control4's own driver keeps the last announced name for exactly this
-  -- case; dropping it leaves the device on the previous preset until the proxy
-  -- next announces a different one.
+  -- The proxy can announce a preset the driver does not have yet, since
+  -- SET_PRESETS only resends once a device connects. The name must be kept and
+  -- applied when the list arrives.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -1145,11 +1123,8 @@ test("A rename carries a pending event with it", function()
 end)
 
 test("A preset still matches after the device echoes a CLAMPED setpoint", function()
-  -- Same failure as the SNAPPED case above, on the other transform.
-  -- applyPresetSetpoints sends clampTemperature(snapToStep(v)), so a preset
-  -- above the device's range reaches the wire at the clamp boundary and the
-  -- device echoes that number back. A comparison that snaps but does not clamp
-  -- never matches it: the preset stops highlighting and the hold sticks on.
+  -- Same as the snapped case, for clamping: a preset above the device's range
+  -- echoes back at the clamp boundary and must still match.
   local entity = singleSetpointEntity()
   entity.visual_max_temperature = 30
   disconnect()
@@ -1185,12 +1160,8 @@ test("Setpoints snap on a device that reports only target_temperature_step", fun
 end)
 
 test("Losing the device retracts the connection, not just ONLINE_CHANGED", function()
-  -- sendCapabilities announces CONNECTION {CONNECTED = true} to prompt the proxy
-  -- to resend SET_PRESETS/SET_EVENT, and nothing ever said otherwise, so the
-  -- proxy held the device as connected for the rest of the session. The owner
-  -- confirmed on a controller that an offline thermostat looks entirely normal
-  -- in Navigator. Control4's own thermostatV2 driver sends CONNECTED = false on
-  -- comms loss; this driver never did.
+  -- CONNECTED = false must be sent on comms loss, or the proxy holds the device
+  -- as connected for the rest of the session.
   disconnect()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   resetSent()
@@ -1336,12 +1307,9 @@ test("A driver that has never seen a device still reports itself offline", funct
 end)
 
 test("Heat engages on a water heater that has never stored a mode", function()
-  -- persist:get hands back an EMPTY sentinel TABLE for a missing key, not nil.
-  -- LAST_WATER_HEATER_MODE therefore restored as {} on a fresh install, which
-  -- passed SET_MODE_HEAT's "restoreMode == nil" test, skipped the fallback
-  -- search for the first non-OFF supported mode, then passed {} through as the
-  -- mode field where an enum belongs. Heat silently never engaged and nothing
-  -- told the user why.
+  -- persist:get returns an EMPTY sentinel table for a missing key, not nil;
+  -- LAST_WATER_HEATER_MODE must not restore as {} and be sent where an enum
+  -- belongs.
   C4:PersistDeleteValue("LastWaterHeaterMode")
   package.loaded["lib.persist"] = nil
   dofile(DRIVER)
@@ -1463,12 +1431,9 @@ test("A reload does not re-apply the preset the proxy re-announces", function()
 end)
 
 test("A preset still matches after the device echoes the SNAPPED setpoint", function()
-  -- This is the whole point of snapping. The template authors at 0.5 while the
-  -- device quantises to 1, so a 21.5 preset goes out as 22 and comes back as 22.
-  -- Comparing the raw 21.5 fails by 0.5 against a 0.25 tolerance and the preset
-  -- never matches again: the hold sticks on and the preset stops highlighting.
-  -- Snapping only the outgoing command does NOT fix that; the symptom lives on
-  -- the comparison side.
+  -- The template authors at 0.5 while the device quantises to 1: a 21.5 preset
+  -- echoes back as 22 and must still match, which needs snapping on the
+  -- comparison side.
   local entity = singleSetpointEntity()
   entity.visual_target_temperature_step = 1
   disconnect()
@@ -1523,13 +1488,9 @@ test("A lone Off swing mode produces no Extras state echo", function()
 end)
 
 test("A reading the device has not taken is not forwarded as a temperature", function()
-  -- ESPHome initialises every climate float to NaN and reports it as-is until
-  -- the device supplies a value, and a head with no humidity sensor reports NaN
-  -- humidity on every frame. Decoded, that used to be roughly 5.1e38, which went
-  -- to the proxy as a temperature and which a setpoint nudge then clamped to the
-  -- maximum. This exercises stateFloat directly with raw tables; the version
-  -- below exercises the same values through the real SerializeSafe round trip
-  -- the bridge actually uses.
+  -- ESPHome reports NaN for a float the device has not supplied. Exercises
+  -- stateFloat with raw tables; the test below exercises the SerializeSafe round
+  -- trip.
   local NAN = 0 / 0
   disconnect()
   resetSent()
@@ -1560,18 +1521,10 @@ test("A reading the device has not taken is not forwarded as a temperature", fun
 end)
 
 test("A NaN reading still is not forwarded once it has crossed the real bridge serialization", function()
-  -- SerializeSafe/DeserializeSafe is a JSON+base64 round trip, and JSON has no
-  -- NaN literal: a NaN that only crosses stateFloat's own logic (the test
-  -- above) is not proof it survives the hop from the bridge driver to this
-  -- one, where ClimateEntity:updated actually serializes it. Before the
-  -- NAN_SENTINEL fix, a NaN reading here decoded back as a MISSING key
-  -- indistinguishable from a dimension the device never reports, and
-  -- stateFloat's "absent means zero for a declared dimension" rule turned it
-  -- into a real 0 reading - the opposite of what the raw-table test above
-  -- shows. current_temperature/current_humidity must be DECLARED for this to
-  -- bite: undeclared dimensions return nil either way, which would make this
-  -- test pass regardless of the bug - the same trap the original vacuous
-  -- version fell into.
+  -- JSON has no NaN literal, so a NaN must survive the SerializeSafe round trip
+  -- the bridge uses, or stateFloat reads it as an absent key and reports 0 for
+  -- a declared dimension. The dimensions must be declared for this to be
+  -- meaningful: undeclared ones return nil either way.
   local NAN = 0 / 0
   local entity = singleSetpointEntity()
   entity.supports_current_temperature = true
@@ -1745,11 +1698,8 @@ test("Preset lists that differ only in where a preset ends are told apart", func
 end)
 
 test("A fresh install does not forward a bound sensor before the proxy enables it", function()
-  -- REMOTE_SENSOR_IN_USE was restored with `persist:get(key) or false`, and
-  -- persist:get answers a missing key with its EMPTY sentinel table, which is
-  -- truthy. A newly installed driver therefore treated the remote sensor as in
-  -- use and pushed a bound sensor's readings to the device before
-  -- SET_REMOTE_SENSOR ever arrived.
+  -- persist:get returns a truthy EMPTY sentinel for a missing key, so a fresh
+  -- install must not read as "remote sensor in use".
   package.loaded["lib.persist"] = nil
   dofile(DRIVER)
   OnDriverLateInit()
@@ -1773,11 +1723,8 @@ test("A fresh install does not forward a bound sensor before the proxy enables i
 end)
 
 test("Preset scheduling is published at runtime, not left to the manifest", function()
-  -- driver.xml declares can_preset_schedule True and that declaration does not
-  -- reach the proxy. On a live controller the Schedule UI was absent entirely,
-  -- and appeared the moment this notification was sent. Control4's own KNX
-  -- thermostat driver pushes CAN_PRESET and CAN_PRESET_SCHEDULE together for
-  -- the same reason PRESET_FIELDS_CHANGED exists.
+  -- The static can_preset_schedule in driver.xml does not reach the proxy; it
+  -- has to be pushed.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -2002,11 +1949,8 @@ test("A rename reaches the SCHEDULE entries", function()
 end)
 
 test("Deleting the scheduled preset does not strand an unclearable hold", function()
-  -- SCHEDULED_PRESET named a preset the rebuild removed while other events kept
-  -- the schedule non-empty, so the schedule-emptied branch never ran.
-  -- matchPreset then returned false forever: reconcileHold raised a hold on
-  -- every state report, and releasing it re-applied a preset the driver did not
-  -- have, so the very next report raised it again. No UI action could clear it.
+  -- A scheduled preset removed by a rebuild while other events remain must be
+  -- forgotten, or matchPreset fails forever and the hold can never be cleared.
   disconnect()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 })
   setPresets({
@@ -2045,12 +1989,9 @@ test("Deleting the scheduled preset does not strand an unclearable hold", functi
 end)
 
 test("A reload republishes hold mode and active preset even when they read as empty", function()
-  -- Both were seeded to the value they would most often compute - "Off" and
-  -- nil - and both setters return early on equality. After a reload the proxy
-  -- still holds whatever it was last told while the driver believes the empty
-  -- value, so the one report that would have corrected the display was
-  -- swallowed. A hold that ended during the reload, or a preset the device has
-  -- since left, stayed on screen until a transition that might never come.
+  -- Seeding HOLD_MODE to "Off" and ACTIVE_PRESET to nil would make the equality
+  -- guards swallow the first report after a reload while the proxy still shows
+  -- the stale value.
   disconnect()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   setPresets({ { name = "Comfort", fields = { single_setpoint_c = "22" } } })
@@ -2083,12 +2024,8 @@ test("A reload republishes hold mode and active preset even when they read as em
 end)
 
 test("The proxy's own hold wording survives a reload", function()
-  -- The driver starts on a guess and learns the real wording from the first
-  -- hold the proxy sends. Without persisting it, a reload republishes the guess,
-  -- so a proxy that calls a hold "Next Event" is offered "Until Next" - a mode
-  -- it does not use - and the hold control is dead until the user raises one by
-  -- hand. Storage alone is not the claim; the claim is that the list the driver
-  -- OFFERS after a reload uses the learned wording, so that is what is asserted.
+  -- The learned hold wording must survive a reload. Asserted on the list the
+  -- driver offers afterwards, not on storage.
   scheduledFixture()
   RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Next Event" })
 
@@ -2114,12 +2051,8 @@ test("The proxy's own hold wording survives a reload", function()
 end)
 
 test("Two presets that both match are decided by specificity, not hash order", function()
-  -- "Basic" is a subset of "Zoned": the same mode and setpoint, without the fan.
-  -- Both match this state. The winner used to be whichever pairs() reached
-  -- first, and PRESETS is rebuilt on every SET_PRESETS, so the reported preset
-  -- could flip between the two names with no device change at all. Note the
-  -- names: a plain alphabetical order would pick "Basic", so this also proves
-  -- specificity is what decides.
+  -- "Basic" is a subset of "Zoned" and both match. Specificity must decide, not
+  -- pairs order or alphabetical order (which would pick "Basic").
   disconnect()
   resetSent()
   setPresets({
@@ -2185,11 +2118,8 @@ test("A dimension the device does not have stays absent", function()
 end)
 
 test("An unreadable schedule frame leaves the stored schedule alone", function()
-  -- The clear path and the garbage path used to be indistinguishable: the list
-  -- was emptied before the parse was checked, so a frame that would not parse
-  -- wiped the stored schedule, forgot the scheduled preset, withdrew the hold
-  -- modes and cancelled the timer. Deleting every event arrives as a well formed
-  -- empty document, so refusing garbage costs the user nothing.
+  -- A frame that does not parse must not be read as an empty schedule; deleting
+  -- every event arrives as a well-formed empty document.
   disconnect()
   resetSent()
   setPresets({ { name = "Morning", fields = { hvac_mode = "Heat", single_setpoint_c = "21" } } })
@@ -2212,11 +2142,9 @@ test("An unreadable schedule frame leaves the stored schedule alone", function()
 end)
 
 test("A preset chosen while the device is down changes nothing and claims nothing", function()
-  -- The bridge rejects a command while disconnected and only logs it, so the
-  -- preset never reached the device. The driver used to raise a hold and report
-  -- an HVAC mode change anyway, leaving the thermostat describing a change that
-  -- never happened, with no retry to make it true. Reachable from programming:
-  -- the UI withholds its controls while the device is absent.
+  -- The bridge rejects a command while disconnected, so the driver must not
+  -- raise a hold or report an HVAC mode change for a preset that never reached
+  -- the device.
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   setPresets({
     { name = "Comfort", fields = { hvac_mode = "Heat", single_setpoint_c = "24" } },

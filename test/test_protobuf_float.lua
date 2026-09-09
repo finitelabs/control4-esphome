@@ -1,8 +1,5 @@
---- The protobuf decoder treated every float as finite. An all-ones exponent
---- fell through to the normal-number path, so NaN decoded as roughly 5.1e38
---- and infinity as 3.4e38. ESPHome sends NaN for any float the device has not
---- reported, which made that the temperature a climate driver forwarded in the
---- seconds after an ESP boot.
+--- NaN and infinity must decode as such rather than as a large finite number:
+--- ESPHome sends NaN for any float the device has not reported.
 local pb = require("protobuf")
 
 local passed, failed = 0, 0
