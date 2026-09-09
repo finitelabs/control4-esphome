@@ -158,4 +158,15 @@ function WaterHeaterEntity:updated(entity, state, messageSchema)
   end
 end
 
+--- Notify sub-drivers that the ESPHome device has disconnected.
+--- Water heaters share the ESPHome Climate sub-driver but bind under their own
+--- entity type, so ClimateEntity:disconnected() does not reach them.
+--- @return void
+function WaterHeaterEntity:disconnected()
+  log:trace("WaterHeaterEntity:disconnected()")
+  for _, binding in pairs(bindings:getDynamicBindings(self.TYPE)) do
+    SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", {}, "NOTIFY")
+  end
+end
+
 return WaterHeaterEntity

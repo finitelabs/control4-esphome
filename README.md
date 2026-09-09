@@ -928,6 +928,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed Composer's test panel greying out the dimming controls for ESPHome
   lights that do support brightness. Dimming from the Control4 app was never
   affected.
+- Fixed lights, thermostats, water heaters, fans and locks still showing as
+  connected after the ESPHome driver's IP address, port or credentials were
+  changed or cleared. They now go offline with the device until it reconnects.
 
 ### Changed
 
