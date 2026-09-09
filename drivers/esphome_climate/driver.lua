@@ -1845,8 +1845,9 @@ function RFP.SET_EVENTS(idBinding, strCommand, tParams)
 end
 
 --- The proxy's word on which preset the schedule has in force: sent on save, at
---- a boundary where the preset changes, and on every connection. A repeat of
---- the preset already applied is ignored so a reconnect does not undo a hold.
+--- a boundary where the preset changes, and on every connection; it stays silent
+--- at a boundary that re-selects the preset already in force. A repeat of the
+--- preset already applied is ignored so a reconnect does not undo a hold.
 function RFP.SET_EVENT(idBinding, strCommand, tParams)
   log:trace("RFP.SET_EVENT(%s, %s, %s)", idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
