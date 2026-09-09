@@ -809,8 +809,12 @@ function C4:AddEvent(idEvent, strName, strDescription)
   -- messages, while a number in either position is accepted, so the rule is
   -- "not nil" rather than "string". restoreEvents() replays persisted records,
   -- where a field can go missing, and that raise lands inside OnDriverLateInit.
-  assert(strName ~= nil, "name should be a string")
-  assert(strDescription ~= nil, "description should be a string")
+  if strName == nil then
+    error("name should be a string", 2)
+  end
+  if strDescription == nil then
+    error("description should be a string", 2)
+  end
   events[idEvent] = { name = strName, description = strDescription }
 end
 
