@@ -269,6 +269,25 @@ local connections = {}
 
 local BINDING_TYPE_IDS = { CONTROL = 1, PROXY = 2 }
 
+--- @type table<integer, { name: string, description: string }>
+local events = {}
+
+function C4:AddEvent(idEvent, strName, strDescription)
+  events[idEvent] = { name = strName, description = strDescription }
+end
+
+function C4:DeleteEvent(idEvent)
+  events[idEvent] = nil
+end
+
+function C4:FireEventByID(idEvent) end
+
+--- The events the driver has declared, keyed by event id.
+--- @return table<integer, { name: string, description: string }> events
+function ShimGetEvents()
+  return events
+end
+
 function C4:AddDynamicBinding(idBinding, strType, bIsProvider, strName, strClass, bHidden, bAutoBind)
   dynamic_bindings[idBinding] = {
     id = idBinding,

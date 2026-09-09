@@ -86,11 +86,10 @@ function EventEntity:updated(entity, state)
     return
   end
 
-  -- The device reports a completed event, not a press and release, so all three
-  -- go out together for whichever one the bound load acts on.
+  -- Click only. An event is a gesture the device already finished, so there is no
+  -- button-down to report: a DO_PUSH would start a hold ramp on a dimmer that the
+  -- following DO_RELEASE then freezes where it began, undoing the click.
   SendToProxy(binding.bindingId, "DO_CLICK", {}, "NOTIFY")
-  SendToProxy(binding.bindingId, "DO_PUSH", {}, "NOTIFY")
-  SendToProxy(binding.bindingId, "DO_RELEASE", {}, "NOTIFY")
 end
 
 return EventEntity
