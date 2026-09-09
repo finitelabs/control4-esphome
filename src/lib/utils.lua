@@ -1,15 +1,5 @@
---- LOCAL PATCH - NOT YET UPSTREAM IN THE TEMPLATE.
---- CONTRIBUTING.md lists this file as template-owned: it is normally changed in
---- the template repo and pulled in with `copier update`. This copy carries a
---- local change that the template does not have yet, so the next `copier update`
---- will either conflict here or silently revert it. Diff this file by hand on
---- the next sync until the change lands upstream.
---- Local changes: `tofinite`, the NaN/infinity-safe numeric coercion the climate and
---- water heater drivers depend on for every reading they publish; and
---- SerializeSafe/DeserializeSafe preserving NaN and +/-infinity as their own
---- sentinels (see NAN_SENTINEL below) rather than losing them to JSON's `null`,
---- which the climate driver's stateFloat relies on to tell "not reported yet"
---- apart from "reported as exactly zero" across the bridge->child hop.
+--- LOCAL PATCH, not yet in the template: tofinite, and NaN/infinity sentinels in
+--- SerializeSafe/DeserializeSafe. Re-apply by hand after the next copier update.
 ---
 --- Utility module for managing devices, their bindings, properties, data, and general device-related operations in a Control4-driven environment.
 
@@ -1028,14 +1018,8 @@ local BINARY_MARKER = "__b64"
 --- Sentinel value for nil (since Lua tables can't store nil values).
 local NIL_SENTINEL = "__null__"
 
---- Sentinels for non-finite numbers. JSON has no NaN or Infinity literal:
---- JSON.lua encodes NaN as `null` (indistinguishable, after decode, from a key
---- that was never set) and +/-infinity as an out-of-range exponent that may
---- not even round-trip through a given JSON decoder. A caller that needs to
---- tell "not a number yet" apart from "absent" - stateFloat in the climate
---- driver, decoding ESPHome's NaN-until-measured convention - loses that
---- distinction the moment the value crosses SerializeSafe unless it is
---- carried as its own sentinel instead of a bare JSON number.
+--- JSON has no NaN or infinity literal (NaN encodes as null, indistinguishable
+--- after decode from an absent key), so they travel as sentinels like NIL_SENTINEL.
 local NAN_SENTINEL = "__nan__"
 local POS_INF_SENTINEL = "__inf__"
 local NEG_INF_SENTINEL = "__-inf__"

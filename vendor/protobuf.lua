@@ -1,11 +1,6 @@
---- LOCAL PATCH - NOT YET UPSTREAM IN THE TEMPLATE.
---- CONTRIBUTING.md lists this file as template-owned: it is normally changed in
---- the template repo and pulled in with `copier update`. This copy carries a
---- local change that the template does not have yet, so the next `copier update`
---- will either conflict here or silently revert it. Diff this file by hand on
---- the next sync until the change lands upstream.
---- Local change: decode_float/decode_double reject NaN and infinity instead of
---- returning a number near 5.1e38 for a reading the device does not have.
+--- LOCAL PATCH, not yet in the template: decode_float/decode_double return NaN
+--- and infinity instead of a number near 5.1e38. Re-apply by hand after the next
+--- copier update.
 ---
 --- @module "protobuf"
 --- A lightweight Protocol Buffers implementation for Lua.
@@ -300,9 +295,8 @@ function pb.decode_float(buffer, pos)
     return 0, pos + 4
   end
 
-  -- An all-ones exponent is not a number: infinity when the mantissa is zero,
-  -- NaN otherwise. Without this branch a NaN decoded as roughly 5.1e38 - and
-  -- NaN is what ESPHome sends for any float the device has not reported yet.
+  -- All-ones exponent: infinity when the mantissa is zero, NaN otherwise.
+  -- ESPHome sends NaN for a float the device has not reported yet.
   if e == 255 then
     if m == 0 then
       return (sign == 1) and -math.huge or math.huge, pos + 4

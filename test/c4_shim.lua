@@ -1,11 +1,5 @@
---- LOCAL PATCH - NOT YET UPSTREAM IN THE TEMPLATE.
---- CONTRIBUTING.md lists this file as template-owned: it is normally changed in
---- the template repo and pulled in with `copier update`. This copy carries a
---- local change that the template does not have yet, so the next `copier update`
---- will either conflict here or silently revert it. Diff this file by hand on
---- the next sync until the change lands upstream.
---- Local change: a `C4:ParseXml` implementation. The whole preset and schedule test
---- suite is built on it; without it those tests cannot run at all.
+--- LOCAL PATCH, not yet in the template: C4:ParseXml, which the preset and
+--- schedule tests depend on. Re-apply by hand after the next copier update.
 ---
 --- Shim layer to replace Control4-specific functions with native Lua equivalents
 --- for debugging and testing outside the Control4 environment.
@@ -658,17 +652,11 @@ function C4:ColorRGBtoHSV(r, g, b)
   return h, s, mx * 100
 end
 
---- Minimal XML parser mirroring what C4:ParseXml returns: a node carrying
---- Attributes (name -> value) and ChildNodes (ordered array of child nodes).
---- Covers the attribute-bearing XML that proxies exchange - preset lists,
---- extras setup and extras state.
----
---- Attribute values are entity-unescaped, which is load-bearing rather than
---- cosmetic: nested XML (preset_fields) arrives escaped inside an attribute and
---- has to be re-parsable after extraction. Because markup inside attribute
---- values is always escaped, a non-greedy scan to the first '>' is safe here.
----
---- Not a general-purpose parser: no mixed content, no CDATA, no namespaces.
+--- Minimal XML parser mirroring what C4:ParseXml returns: a node with Attributes
+--- (name -> value) and ChildNodes (ordered). Attribute values are entity-unescaped
+--- so nested XML carried in an attribute (preset_fields) is re-parsable; because
+--- markup inside attributes is always escaped, scanning to the first '>' is safe.
+--- No mixed content, CDATA or namespaces.
 local XML_ENTITIES = { lt = "<", gt = ">", amp = "&", quot = '"', apos = "'" }
 
 local function xml_unescape(text)
