@@ -3,20 +3,11 @@
 --- not reset that edge, or the children keep reporting a device the bridge has
 --- lost.
 
+local T = require("testlib")
+
 require("lib.utils")
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
-
-local passed, failed = 0, 0
-local function check(cond, name)
-  if cond then
-    passed = passed + 1
-    print("  ok   - " .. name)
-  else
-    failed = failed + 1
-    print("  FAIL - " .. name)
-  end
-end
 
 -- Resolved against this file rather than the working directory: run_test.sh cds
 -- into test/, make test runs from the repo root, and dofile takes a path rather
@@ -105,7 +96,7 @@ local function disconnects(sent)
   return n
 end
 
-print("[1] A connection property change while connected notifies the children")
+T.section("A connection property change while connected notifies the children")
 do
   local sent = loadBridge(false)
   Properties["IP Address"] = "192.168.1.119"
@@ -117,14 +108,14 @@ do
   Properties["IP Address"] = "192.168.1.120"
   Connect()
   local fired = disconnects(sent) - before
-  check(fired > 0, "repointing the bridge tells the children the device is gone")
+  T.check("repointing the bridge tells the children the device is gone", fired > 0)
   -- climate, fan, light, lock, water_heater. A new entity type that serves a
   -- child driver should trip this deliberately, so it gets considered rather
   -- than silently never being told its device went away.
-  check(fired == 5, "every entity type that implements disconnected() is notified")
+  T.check("every entity type that implements disconnected() is notified", fired == 5)
 end
 
-print("[2] Clearing the address tells the children before the heartbeat stops")
+T.section("Clearing the address tells the children before the heartbeat stops")
 do
   local sent = loadBridge(false)
   Properties["IP Address"] = "192.168.1.119"
@@ -135,24 +126,20 @@ do
   Properties["IP Address"] = ""
   Connect()
   local afterClear = disconnects(sent)
-  check(afterClear > before, "an unconfigured bridge still notifies its children")
+  T.check("an unconfigured bridge still notifies its children", afterClear > before)
 
   -- The flag is cleared in that branch, so staying unconfigured must not keep
   -- re-notifying on every further Connect().
   Connect()
-  check(disconnects(sent) == afterClear, "and it does not re-notify while it stays unconfigured")
+  T.check("and it does not re-notify while it stays unconfigured", disconnects(sent) == afterClear)
 end
 
-print("[3] A first connection notifies nobody: there is no edge to report")
+T.section("A first connection notifies nobody: there is no edge to report")
 do
   local sent = loadBridge(false)
   Properties["IP Address"] = "192.168.1.120"
   Connect()
-  check(disconnects(sent) == 0, "a cold start fires no disconnect")
+  T.check("a cold start fires no disconnect", disconnects(sent) == 0)
 end
 
-print("")
-print(string.format("%d passed, %d failed", passed, failed))
-if failed > 0 then
-  os.exit(1)
-end
+T.finish()
