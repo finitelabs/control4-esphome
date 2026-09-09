@@ -1,10 +1,8 @@
 -- Tests the button link an event entity publishes for each of its event types.
 --
--- The send is one DO_CLICK and nothing else. A DO_PUSH alongside it starts a
--- hold ramp on a bound dimmer, and a following DO_RELEASE freezes that ramp
--- where it began, so the click is undone at the moment it starts. An ESPHome
--- event is a gesture the device has already completed, so there is no
--- button-down to report in the first place.
+-- The assertion that matters is one DO_CLICK and nothing else: a DO_PUSH and
+-- DO_RELEASE alongside it cancel the click on a bound dimmer. entities/event.lua
+-- carries the mechanism.
 --
 -- Run from the driver root:
 --   make test
@@ -40,13 +38,11 @@ T.eq("long_press binding exists", long ~= nil, true)
 T.eq("distinct binding ids", press.bindingId ~= long.bindingId, true)
 T.eq("class", press.class, "BUTTON_LINK")
 T.eq("type", press.type, "CONTROL")
--- provider=false is the keypad side: it sends button events rather than
--- receiving them, which is what makes the connection an Input in Composer.
+-- provider=false is what makes the connection an Input in Composer.
 T.eq("consumer side", press.provider, false)
 T.eq("display name", long.displayName, "Touch long_press")
 
--- The Control4 events for Programming are published alongside the bindings, so
--- an event type can be used either way.
+-- An event type stays usable from Programming as well as from a connection.
 local declared = {}
 for _, event in pairs(ShimEvents()) do
   declared[event.name] = true

@@ -42,9 +42,8 @@ function EventEntity:discovered(entity)
       entity.name .. " " .. eventType .. " event"
     )
 
-    -- One button link per event type, on the keypad side, so each type can drive a
-    -- different load. provider=false makes this driver the consumer, which is the
-    -- direction that sends button events rather than receives them.
+    -- provider=false is the keypad side: this driver sends button events rather
+    -- than receiving them, and each event type drives its own load.
     bindings:getOrAddDynamicBinding(
       self.TYPE,
       bindingKey(entity, eventType),
@@ -73,10 +72,8 @@ function EventEntity:updated(entity, state)
     return
   end
 
-  -- Update the last event variable
   values:update(entity.name .. " Last Event", eventType, "STRING")
 
-  -- Fire the corresponding C4 event
   events:fire("event_" .. entity.key, eventType)
   log:info("Fired event %s for %s", eventType, ESPHomeClient.describeEntity(entity))
 
@@ -86,9 +83,9 @@ function EventEntity:updated(entity, state)
     return
   end
 
-  -- Click only. An event is a gesture the device already finished, so there is no
-  -- button-down to report: a DO_PUSH would start a hold ramp on a dimmer that the
-  -- following DO_RELEASE then freezes where it began, undoing the click.
+  -- A gesture the device already finished has no button-down to report. Adding
+  -- DO_PUSH starts a hold ramp that the following DO_RELEASE freezes where it
+  -- began, undoing the click.
   SendToProxy(binding.bindingId, "DO_CLICK", {}, "NOTIFY")
 end
 
