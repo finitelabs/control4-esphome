@@ -48,7 +48,7 @@ T.eq("display name", long.displayName, "Touch long_press")
 -- The Control4 events for Programming are published alongside the bindings, so
 -- an event type can be used either way.
 local declared = {}
-for _, event in pairs(ShimGetEvents()) do
+for _, event in pairs(ShimEvents()) do
   declared[event.name] = true
 end
 T.eq("programming event for press", declared["Touch: press"], true)
