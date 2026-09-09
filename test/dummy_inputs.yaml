@@ -10,6 +10,7 @@
 #   .esphome/build/dummy-inputs/.pioenvs/dummy-inputs/program
 #
 # API services (callable from the Control4 driver or test scripts):
+#   - press_local_button()        presses the `button` entity from the device side
 #   - fire_button_press()         fires "press" on the test event
 #   - fire_button_double()        fires "double_press" on the test event
 #   - fire_button_long()          fires "long_press" on the test event
@@ -44,6 +45,9 @@ api:
         - event.trigger:
             id: test_event
             event_type: "long_press"
+    - service: press_local_button
+      then:
+        - button.press: test_button
     - service: device_set_mode
       variables:
         opt: string
@@ -96,6 +100,15 @@ select:
       - "Manual"
       - "Off"
       - "Eco"
+
+button:
+  # Stateless: the controller presses it and the device reports nothing back,
+  # so a local press is invisible over the API.
+  - platform: template
+    name: "Test Action Button"
+    id: test_button
+    on_press:
+      - lambda: 'ESP_LOGI("button", "test_button on_press fired ON DEVICE");'
 
 event:
   - platform: template
