@@ -591,5 +591,42 @@ ShimResetTemperatureScale()
 T.eq("and resets back to the default", C4:GetTemperatureScale(), "CELSIUS")
 
 --------------------------------------------------------------------------------
+T.section("C4:AddEvent / C4:DeleteEvent / C4:FireEventByID")
+--------------------------------------------------------------------------------
+
+C4:AddEvent(7, "Button: press", "Fired on a press")
+C4:AddEvent(8, "Button: long_press", "Fired on a long press")
+
+T.eq("records a declared event by id", ShimEvents()[7].name, "Button: press")
+T.eq("keeps its description", ShimEvents()[7].description, "Fired on a press")
+
+-- Firing is one-way on a controller, so the shim accepts it and records nothing.
+-- The assertion is that a driver firing an event does not disturb the
+-- declarations, which is the half a test can read back.
+C4:FireEventByID(7)
+T.eq("firing leaves the declaration alone", ShimEvents()[7].name, "Button: press")
+
+C4:DeleteEvent(7)
+T.eq("delete removes it", ShimEvents()[7], nil)
+T.eq("and leaves the others", ShimEvents()[8].name, "Button: long_press")
+
+-- Measured on a controller: a nil in either position raises, a number does not.
+T.raises("a nil name is refused", function()
+  C4:AddEvent(9, nil, "Fired on a press")
+end, "name should be a string")
+T.raises("a nil description is refused", function()
+  C4:AddEvent(9, "Button: press", nil)
+end, "description should be a string")
+
+-- Level 2, so the raise names the line that passed the nil. restoreEvents()
+-- replays persisted records, and that caller is the one worth pointing at.
+T.raisesAt("a rejected event blames the caller, not the shim", function()
+  C4:AddEvent(9, nil, "Fired on a press")
+end)
+
+ShimResetEvents()
+T.eq("reset clears every declaration", next(ShimEvents()), nil)
+
+--------------------------------------------------------------------------------
 
 T.finish()
