@@ -22,12 +22,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
-### Added
-
-- Added a button connection for each event type an ESPHome event entity
-  declares, so a touch button or gesture on the device can drive a light, scene
-  or any other load directly, without Programming.
-
 ### Fixed
 
 - Fixed an automatic update sometimes leaving companion drivers on the previous
