@@ -587,15 +587,20 @@ the matching read-only Device Info properties.
 | Cover         | `CONTACT_SENSOR`                | Open/closed state contacts                                        |
 | Cover         | `RELAY`                         | Open/close/stop control relays                                    |
 | Button        | `BUTTON_LINK`                   | Allows other devices to trigger button                            |
+| Event         | `BUTTON_LINK`                   | One connection per event type, triggers other devices             |
 | Climate       | `ESPHOME_CLIMATE`               | Bind to ESPHome Climate sub-driver [\*\*](#climate-services-note) |
 | Fan           | `ESPHOME_FAN_N_SPEED[_REVERSE]` | Bind to ESPHome Fan sub-driver                                    |
 | Light         | `ESPHOME_LIGHT`                 | Bind to ESPHome Light sub-driver                                  |
 | Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver                                   |
 | Water Heater  | `ESPHOME_CLIMATE`               | Bind to ESPHome Climate sub-driver                                |
 
-> **Note:** Sensor, Number, Select, Text, Text Sensor, Date, Time, Datetime, and
-> Event entities do not create bindings. They expose data only through variables
-> and events.
+> **Note:** Sensor, Number, Select, Text, Text Sensor, Date, Time and Datetime
+> entities do not create bindings. They expose data only through variables and
+> events.
+
+> **Note:** The Button and Event binding classes are the same but point opposite
+> ways. A Button binding lets another device press the ESPHome button; an Event
+> binding lets the ESPHome device act as a keypad button and drive a load.
 
 > **Note:** Water Heater entities share the `ESPHOME_CLIMATE` binding class and
 > are controlled via the ESPHome Climate sub-driver. Device modes (such as Eco,
@@ -636,8 +641,9 @@ bindings are created separately from the entity bindings above:
 
 > **Note:** Event entities are stateless triggers (button presses, gestures,
 > doorbell rings). Each discovered event type creates a Control4 event that can
-> be used in programming. The `{name} Last Event` variable tracks the most
-> recent event type.
+> be used in programming, plus a `BUTTON_LINK` connection named
+> `{name} {event_type}` that can be bound straight to a load. The
+> `{name} Last Event` variable tracks the most recent event type.
 
 ### Commands
 
