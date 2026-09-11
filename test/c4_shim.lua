@@ -1,3 +1,6 @@
+--- LOCAL PATCH, not yet in the template: C4:ParseXml, which the preset and
+--- schedule tests depend on. Re-apply by hand after the next copier update.
+---
 --- Shim layer to replace Control4-specific functions with native Lua equivalents
 --- for debugging and testing outside the Control4 environment.
 ---
@@ -647,6 +650,92 @@ function C4:ColorRGBtoHSV(r, g, b)
   end
   local s = mx > 0 and (d / mx) * 100 or 0
   return h, s, mx * 100
+end
+
+--- Minimal XML parser mirroring what C4:ParseXml returns: a node with Attributes
+--- (name -> value) and ChildNodes (ordered). Attribute values are entity-unescaped
+--- so nested XML carried in an attribute (preset_fields) is re-parsable; because
+--- markup inside attributes is always escaped, scanning to the first '>' is safe.
+--- No mixed content, CDATA or namespaces.
+local XML_ENTITIES = { lt = "<", gt = ">", amp = "&", quot = '"', apos = "'" }
+
+local function xml_unescape(text)
+  return (
+    text:gsub("&(#?%w+);", function(entity)
+      if entity:sub(1, 1) == "#" then
+        local code = tonumber(entity:sub(2))
+        return code and string.char(code) or ("&" .. entity .. ";")
+      end
+      return XML_ENTITIES[entity] or ("&" .. entity .. ";")
+    end)
+  )
+end
+
+local function xml_attributes(raw)
+  local attrs = {}
+  for name, value in raw:gmatch('([%w_:%-%.]+)%s*=%s*"([^"]*)"') do
+    attrs[name] = xml_unescape(value)
+  end
+  for name, value in raw:gmatch("([%w_:%-%.]+)%s*=%s*'([^']*)'") do
+    if attrs[name] == nil then
+      attrs[name] = xml_unescape(value)
+    end
+  end
+  return attrs
+end
+
+local function xml_parse_children(body)
+  local nodes = {}
+  local pos = 1
+  while true do
+    local openStart, openEnd, name, rest = body:find("<([%w_:%-%.]+)(.-)>", pos)
+    if not openStart then
+      break
+    end
+
+    if rest:sub(-1) == "/" then
+      nodes[#nodes + 1] = { Name = name, Attributes = xml_attributes(rest:sub(1, -2)), ChildNodes = {} }
+      pos = openEnd + 1
+    else
+      -- Walk to the matching close tag, counting same-name nesting.
+      local depth, searchPos, closeStart, closeEnd = 1, openEnd + 1, nil, nil
+      while true do
+        local tagStart, tagEnd, closing, tagName, tagRest = body:find("<(/?)([%w_:%-%.]+)(.-)>", searchPos)
+        if not tagStart then
+          break
+        end
+        if tagName == name then
+          if closing == "/" then
+            depth = depth - 1
+            if depth == 0 then
+              closeStart, closeEnd = tagStart, tagEnd
+              break
+            end
+          elseif tagRest:sub(-1) ~= "/" then
+            depth = depth + 1
+          end
+        end
+        searchPos = tagEnd + 1
+      end
+
+      local inner = closeStart and body:sub(openEnd + 1, closeStart - 1) or ""
+      nodes[#nodes + 1] = { Name = name, Attributes = xml_attributes(rest), ChildNodes = xml_parse_children(inner) }
+      pos = closeEnd and (closeEnd + 1) or (openEnd + 1)
+    end
+  end
+  return nodes
+end
+
+-- Handle both C4:ParseXml() and C4.ParseXml(C4, ...) calling styles
+function C4:ParseXml(xml, ...)
+  if type(xml) == "table" and xml == C4 then
+    xml = select(1, ...)
+  end
+  if type(xml) ~= "string" or xml == "" then
+    return nil
+  end
+  local body = xml:gsub("<%?.-%?>", ""):gsub("<!%-%-.-%-%->", "")
+  return xml_parse_children(body)[1]
 end
 
 --- Generate a UUID (simplified version)

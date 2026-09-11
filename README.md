@@ -913,21 +913,143 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added presets to the climate driver. A preset stores a setpoint, HVAC mode,
+  fan mode and vane position, and can be applied from the app or from
+  programming.
+- Added preset scheduling. Presets can be scheduled by weekday and time. The
+  schedule is kept by Control4, and the driver applies each scheduled preset
+  when Control4 announces it, including when a schedule change alters the preset
+  in force.
+- Added holds. Changing the thermostat by hand, or choosing a preset by hand,
+  holds the new setting until the next scheduled event, which then releases it.
+  Clearing a held preset before then returns to the preset the schedule has in
+  force. The hold options appear once a schedule exists and are withdrawn when
+  the last scheduled event is deleted, since there is then no next event to hold
+  until.
+- Added vane control for climate devices that report swing modes, in the Extras
+  tab.
+
+### Changed
+
+- Climate devices that report a single setpoint now show one setpoint instead of
+  a heat and cool pair. Most heat pumps and mini splits work this way: they hold
+  one target and decide internally whether to heat or cool toward it, so the
+  pair could never be honored. Auto is unaffected. A preset saved before this
+  release that carried a separate heat and cool value still works: the driver
+  uses whichever of the two suits the mode. The preset editor no longer offers
+  the second field, so re-saving such a preset keeps only the one setpoint.
+- The climate driver's humidity output has moved to a different connection. This
+  is a breaking change: if you had the humidity output connected to anything,
+  that connection is lost when you update and has to be made again. The move was
+  necessary because the position it previously occupied is the first slot the
+  driver uses for connections it creates itself, so a driver that created one
+  could remove the humidity connection without warning.
+
 ### Fixed
+
+- Fixed Heat never engaging on a water heater that had not yet stored an
+  operating mode.
+
+- Fixed the climate driver's temperature and humidity outputs appearing as audio
+  connections in Composer instead of control connections.
+
+- A temperature, setpoint or humidity the device has not measured yet is no
+  longer shown. The protocol decoder turned such a reading into a number near
+  5.1e38, which the climate driver displayed as-is and which a setpoint nudge
+  then clamped to the maximum. Sensor values were affected the same way and are
+  now left unchanged until a real reading arrives.
+
+- Deleting every scheduled event now releases the hold, including one the user
+  set. The last scheduled preset stayed armed, so later manual changes kept
+  raising "Until Next" against a schedule that no longer existed, and releasing
+  the hold re-applied the deleted preset. A hold the user set was left standing
+  with no hold control on screen to clear it, since a hold that runs until the
+  next event has nothing to run until once the events are gone. A Permanent hold
+  is deliberate and still survives.
+
+- A newly installed climate driver no longer forwards a bound temperature
+  sensor's readings to the device before the thermostat has enabled the remote
+  sensor.
+
+- A scheduled change that fell due while the controller was restarting now runs
+  as soon as the system is back, instead of being skipped until the same time
+  next week.
+
+- After a restart the thermostat now re-states its hold and its active preset,
+  rather than leaving on screen whatever it had last been told. A hold that
+  ended during the restart, or a preset the device had since left, could stay
+  displayed indefinitely.
+
+- Renaming a preset no longer detaches it from the schedule. The schedule kept
+  the old name, so every later occurrence of that event silently failed to run
+  and the schedule stopped working for good.
+
+- Deleting a preset that the schedule uses no longer leaves a hold that cannot
+  be cleared. The thermostat kept asking to hold against the deleted preset, and
+  releasing the hold re-raised it on the next update.
+
+- The wording the thermostat uses for a hold now survives a restart. The driver
+  takes that wording from the first hold the thermostat sets and reuses it, but
+  after a restart it fell back to its starting guess, so a thermostat that calls
+  a hold "Next Event" was offered a hold it does not use.
+
+- A hold can no longer be set when there is no schedule at all. Nothing could
+  have released it: a hold runs until the next scheduled event, and the
+  thermostat offers no hold control while there are no events.
+
+- A two hour or permanent hold no longer renames the hold the driver raises for
+  itself. The thermostat's own wording is still adopted, but only from a hold
+  that means "until the next event".
+
+- The preset shown as active no longer flips between two presets that both match
+  what the thermostat is doing. Where one preset is contained in another, the
+  one that pins down more of the settings is now the one reported, and a preset
+  being held or scheduled is preferred over both.
+
+- A reading of exactly zero is no longer dropped. Zero degrees or zero percent
+  arrives as an omitted value, which was read as "not measured", so freezing
+  point disappeared from the thermostat and a preset at zero could never match.
+
+- A schedule the thermostat sends in an unreadable form no longer erases the
+  stored schedule. It was indistinguishable from an empty schedule, so a single
+  bad message stopped the schedule running until the thermostat happened to send
+  it again.
+
+- Choosing a preset while the device is unreachable no longer reports a hold and
+  an HVAC mode change that never happened. The command cannot be delivered, so
+  nothing is claimed for it. Releasing a hold still works while the device is
+  away.
+
+- Pointing a driver at a water heater no longer runs a schedule left over from a
+  climate device. The old schedule stays stored, so pointing it back restores
+  it.
+
+- A preset that asks for an HVAC mode the device does not offer now says so in
+  the log instead of applying the rest in silence.
+
+- A restart no longer rewrites the stored schedule and preset list when nothing
+  has changed.
 
 - Fixed an automatic update sometimes leaving companion drivers on the previous
   version until the next update, which could make them stop responding in the
   meantime.
+
 - Fixed thermostats and water heaters always showing Fahrenheit. They now follow
   the project's temperature scale, and the Celsius/Fahrenheit setting in
   Composer can be used to override it for an individual thermostat.
+
 - Fixed thermostats and water heaters staying shown as connected after the
   ESPHome device went offline.
+
 - Fixed an "Error setting default color rate from driver" message in Composer
   when opening the properties of an ESPHome light.
+
 - Fixed Composer's test panel greying out the dimming controls for ESPHome
   lights that do support brightness. Dimming from the Control4 app was never
   affected.
+
 - Fixed lights, thermostats, water heaters, fans and locks still showing as
   connected after the ESPHome driver's IP address, port or credentials were
   changed or cleared. They now go offline with the device until it reconnects.
