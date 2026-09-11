@@ -772,7 +772,7 @@ local utils = require("noiseprotocol.utils")
 local openssl_wrapper = require("crypto.openssl_wrapper")
 
 --- Module version
-local VERSION = "v0.6.3"
+local VERSION = "v0.6.4"
 
 --- Enable or disable OpenSSL acceleration
 --- @function use_openssl

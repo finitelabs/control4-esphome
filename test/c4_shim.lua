@@ -793,6 +793,50 @@ function ShimResetTemperatureScale()
 end
 
 ---------------------------------------------------------------------------
+-- Driver events
+-- C4:AddEvent declares an event a driver can fire and Programming can bind to.
+-- Declaration is the half worth recording: firing is one-way on a controller,
+-- with nothing readable afterwards, so FireEventByID accepts and drops. On a
+-- controller AddEvent is unavailable before OnDriverLateInit; the shim does not
+-- model that, so a test cannot lean on it to prove ordering.
+---------------------------------------------------------------------------
+
+--- @type table<integer, { name: string, description: string }>
+local events = {}
+
+function C4:AddEvent(idEvent, strName, strDescription)
+  -- Measured on a controller: a nil name or description raises with these
+  -- messages, while a number in either position is accepted, so the rule is
+  -- "not nil" rather than "string". restoreEvents() replays persisted records,
+  -- where a field can go missing, and that raise lands inside OnDriverLateInit.
+  if strName == nil then
+    error("name should be a string", 2)
+  end
+  if strDescription == nil then
+    error("description should be a string", 2)
+  end
+  events[idEvent] = { name = strName, description = strDescription }
+end
+
+function C4:DeleteEvent(idEvent)
+  events[idEvent] = nil
+end
+
+function C4:FireEventByID(idEvent) end
+
+--- The events the driver has declared, keyed by event id.
+--- @return table<integer, { name: string, description: string }> events
+function ShimEvents()
+  return events
+end
+
+--- Restore the empty registry. Declarations a test leaves behind carry into
+--- every later test in the same process.
+function ShimResetEvents()
+  events = {}
+end
+
+---------------------------------------------------------------------------
 -- Project devices
 -- C4:GetDevices / GetDeviceDisplayName / GetDeviceVariables read a registry a
 -- test populates with ShimSetDevices. An id absent from it is the nameless,

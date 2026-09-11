@@ -293,53 +293,82 @@ do
       return "pure Lua"
     end
 
+    -- 4-bit truth tables, indexed [a * 16 + b + 1], so each op is at most 8 steps.
+    local AND4, OR4, XOR4 = {}, {}, {}
+    for a = 0, 15 do
+      for b = 0, 15 do
+        local x, y, r_and, r_or, r_xor, bit_val = a, b, 0, 0, 0, 1
+        for _ = 1, 4 do
+          local xb, yb = x % 2, y % 2
+          if xb == 1 and yb == 1 then
+            r_and = r_and + bit_val
+          end
+          if xb == 1 or yb == 1 then
+            r_or = r_or + bit_val
+          end
+          if xb ~= yb then
+            r_xor = r_xor + bit_val
+          end
+          x, y, bit_val = (x - xb) / 2, (y - yb) / 2, bit_val * 2
+        end
+        local i = a * 16 + b + 1
+        AND4[i], OR4[i], XOR4[i] = r_and, r_or, r_xor
+      end
+    end
+
+    -- band(a, 2^k - 1) is a % 2^k. Built by doubling so the values are integers on 5.3+.
+    local LOW_MASK = {}
+    do
+      local m = 1
+      for _ = 1, 32 do
+        m = m * 2
+        LOW_MASK[m - 1] = m
+      end
+    end
+
     function _compat.band(a, b)
-      local r = 0
-      local bit_val = 1
-      for _ = 0, 31 do
-        if (a % 2 == 1) and (b % 2 == 1) then
-          r = r + bit_val
-        end
-        a = math_floor(a / 2)
-        b = math_floor(b / 2)
-        bit_val = bit_val * 2
-        if a == 0 and b == 0 then
-          break
-        end
+      a, b = math_floor(a) % 0x100000000, math_floor(b) % 0x100000000
+      local m = LOW_MASK[b] or LOW_MASK[a]
+      if m then
+        return (LOW_MASK[b] and a or b) % m
+      end
+      local r, scale = 0, 1
+      while a > 0 and b > 0 do
+        local na, nb = a % 16, b % 16
+        r = r + AND4[na * 16 + nb + 1] * scale
+        a, b, scale = (a - na) / 16, (b - nb) / 16, scale * 16
       end
       return r
     end
 
     function _compat.bor(a, b)
-      local r = 0
-      local bit_val = 1
-      for _ = 0, 31 do
-        if (a % 2 == 1) or (b % 2 == 1) then
-          r = r + bit_val
-        end
-        a = math_floor(a / 2)
-        b = math_floor(b / 2)
-        bit_val = bit_val * 2
-        if a == 0 and b == 0 then
-          break
-        end
+      a, b = math_floor(a) % 0x100000000, math_floor(b) % 0x100000000
+      if a == 0 then
+        return b
+      elseif b == 0 then
+        return a
+      end
+      local r, scale = 0, 1
+      while a > 0 or b > 0 do
+        local na, nb = a % 16, b % 16
+        r = r + OR4[na * 16 + nb + 1] * scale
+        a, b, scale = (a - na) / 16, (b - nb) / 16, scale * 16
       end
       return r
     end
 
     function _compat.bxor(a, b)
-      local r = 0
-      local bit_val = 1
-      for _ = 0, 31 do
-        if (a % 2) ~= (b % 2) then
-          r = r + bit_val
-        end
-        a = math_floor(a / 2)
-        b = math_floor(b / 2)
-        bit_val = bit_val * 2
-        if a == 0 and b == 0 then
-          break
-        end
+      a, b = math_floor(a) % 0x100000000, math_floor(b) % 0x100000000
+      if a == 0 then
+        return b
+      elseif b == 0 then
+        return a
+      end
+      local r, scale = 0, 1
+      while a > 0 or b > 0 do
+        local na, nb = a % 16, b % 16
+        r = r + XOR4[na * 16 + nb + 1] * scale
+        a, b, scale = (a - na) / 16, (b - nb) / 16, scale * 16
       end
       return r
     end
@@ -570,7 +599,12 @@ do
     --- @return integer n 16-bit unsigned integer
     function bit16.be_bytes_to_u16(str, offset)
       offset = offset or 1
-      assert(#str >= offset + 1, "Insufficient bytes for u16")
+      if offset ~= offset or offset < 1 then
+        error("Offset must be at least 1")
+      end
+      if #str < offset + 1 then
+        error("Insufficient bytes for u16")
+      end
       local b1, b2 = string_byte(str, offset, offset + 1)
       return b1 * 256 + b2
     end
@@ -581,7 +615,12 @@ do
     --- @return integer n 16-bit unsigned integer
     function bit16.le_bytes_to_u16(str, offset)
       offset = offset or 1
-      assert(#str >= offset + 1, "Insufficient bytes for u16")
+      if offset ~= offset or offset < 1 then
+        error("Offset must be at least 1")
+      end
+      if #str < offset + 1 then
+        error("Insufficient bytes for u16")
+      end
       local b1, b2 = string_byte(str, offset, offset + 1)
       return b1 + b2 * 256
     end
@@ -797,6 +836,26 @@ do
         end
       end
 
+      local decoder_errors = {
+        { "le_bytes_to_u16 rejects offset 0", bit16.le_bytes_to_u16, "\1\2\3", 0, "Offset must be at least 1" },
+        { "be_bytes_to_u16 rejects offset 0", bit16.be_bytes_to_u16, "\1\2\3", 0, "Offset must be at least 1" },
+        { "le_bytes_to_u16 rejects a NaN offset", bit16.le_bytes_to_u16, "\1\2\3", 0 / 0, "Offset must be at least 1" },
+        { "be_bytes_to_u16 rejects a NaN offset", bit16.be_bytes_to_u16, "\1\2\3", 0 / 0, "Offset must be at least 1" },
+        { "le_bytes_to_u16 rejects a short buffer", bit16.le_bytes_to_u16, "\1", 1, "Insufficient bytes for u16" },
+        { "be_bytes_to_u16 rejects a short buffer", bit16.be_bytes_to_u16, "\1\2", 2, "Insufficient bytes for u16" },
+      }
+      for _, test in ipairs(decoder_errors) do
+        local test_name, fn, input, offset, message = test[1], test[2], test[3], test[4], test[5]
+        total = total + 1
+        local raised, err_text = pcall(fn, input, offset)
+        if not raised and type(err_text) == "string" and string.find(err_text, message, 1, true) then
+          print("  PASS: " .. test_name)
+          passed = passed + 1
+        else
+          print("  FAIL: " .. test_name)
+        end
+      end
+
       print(string.format("\n16-bit operations: %d/%d tests passed\n", passed, total))
       return passed == total
     end
@@ -942,6 +1001,17 @@ do
     --- @return integer result Unsigned 32-bit value (0 to 0xFFFFFFFF)
     function bit32.to_unsigned(n)
       return compat_to_unsigned(n)
+    end
+
+    --- Convert unsigned 32-bit value to signed.
+    --- The inverse of `to_unsigned`: values of 2^31 and above wrap to negative.
+    --- @param n number Unsigned 32-bit value (already-signed values pass through)
+    --- @return integer result Signed 32-bit value (-2^31 to 2^31 - 1)
+    function bit32.to_signed(n)
+      if n >= 0x80000000 then
+        return n - 0x100000000
+      end
+      return n
     end
 
     --- Ensure value fits in 32-bit unsigned integer.
@@ -1111,12 +1181,19 @@ do
 
     local string_char = string.char
     local string_byte = string.byte
+    local string_pack = rawget(string, "pack")
+    local string_unpack = rawget(string, "unpack")
+    -- % is the whole operation on the pure Lua backend; skip the call.
+    local fast_band = _compat.has_native_ops or _compat.has_bit_lib
 
     --- Convert 32-bit unsigned integer to 4 bytes (big-endian).
     --- @param n integer 32-bit unsigned integer
     --- @return string bytes 4-byte string in big-endian order
     function bit32.u32_to_be_bytes(n)
-      n = compat_band(n, MASK32)
+      if string_pack then
+        return string_pack(">I4", n % 0x100000000)
+      end
+      n = fast_band and compat_band(n, MASK32) or n % 0x100000000
       return string_char(
         math_floor(n / 16777216) % 256,
         math_floor(n / 65536) % 256,
@@ -1129,7 +1206,10 @@ do
     --- @param n integer 32-bit unsigned integer
     --- @return string bytes 4-byte string in little-endian order
     function bit32.u32_to_le_bytes(n)
-      n = compat_band(n, MASK32)
+      if string_pack then
+        return string_pack("<I4", n % 0x100000000)
+      end
+      n = fast_band and compat_band(n, MASK32) or n % 0x100000000
       return string_char(
         math_floor(n % 256),
         math_floor(n / 256) % 256,
@@ -1144,7 +1224,15 @@ do
     --- @return integer n 32-bit unsigned integer
     function bit32.be_bytes_to_u32(str, offset)
       offset = offset or 1
-      assert(#str >= offset + 3, "Insufficient bytes for u32")
+      if offset ~= offset or offset < 1 then
+        error("Offset must be at least 1")
+      end
+      if #str < offset + 3 then
+        error("Insufficient bytes for u32")
+      end
+      if string_unpack then
+        return (string_unpack(">I4", str, offset))
+      end
       local b1, b2, b3, b4 = string_byte(str, offset, offset + 3)
       return b1 * 16777216 + b2 * 65536 + b3 * 256 + b4
     end
@@ -1155,7 +1243,15 @@ do
     --- @return integer n 32-bit unsigned integer
     function bit32.le_bytes_to_u32(str, offset)
       offset = offset or 1
-      assert(#str >= offset + 3, "Insufficient bytes for u32")
+      if offset ~= offset or offset < 1 then
+        error("Offset must be at least 1")
+      end
+      if #str < offset + 3 then
+        error("Insufficient bytes for u32")
+      end
+      if string_unpack then
+        return (string_unpack("<I4", str, offset))
+      end
       local b1, b2, b3, b4 = string_byte(str, offset, offset + 3)
       return b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
     end
@@ -1170,6 +1266,10 @@ do
     --- Run comprehensive self-test with test vectors.
     --- @return boolean result True if all tests pass, false otherwise
     function bit32.selftest()
+      local function fmt32(v)
+        return v < 0 and tostring(v) or string.format("0x%08X", v)
+      end
+
       print("Running 32-bit operations test vectors...")
       print(string.format("  Using: %s", impl_name()))
       local passed = 0
@@ -1192,6 +1292,15 @@ do
         { name = "to_unsigned(-1)", fn = bit32.to_unsigned, inputs = { -1 }, expected = 0xFFFFFFFF },
         { name = "to_unsigned(-2147483648)", fn = bit32.to_unsigned, inputs = { -2147483648 }, expected = 0x80000000 },
         { name = "to_unsigned(-2147483647)", fn = bit32.to_unsigned, inputs = { -2147483647 }, expected = 0x80000001 },
+
+        -- to_signed tests
+        { name = "to_signed(0)", fn = bit32.to_signed, inputs = { 0 }, expected = 0 },
+        { name = "to_signed(1)", fn = bit32.to_signed, inputs = { 1 }, expected = 1 },
+        { name = "to_signed(0x7FFFFFFF)", fn = bit32.to_signed, inputs = { 0x7FFFFFFF }, expected = 0x7FFFFFFF },
+        { name = "to_signed(0x80000000)", fn = bit32.to_signed, inputs = { 0x80000000 }, expected = -2147483648 },
+        { name = "to_signed(0x80000001)", fn = bit32.to_signed, inputs = { 0x80000001 }, expected = -2147483647 },
+        { name = "to_signed(0xFFFFFFFF)", fn = bit32.to_signed, inputs = { 0xFFFFFFFF }, expected = -1 },
+        { name = "to_signed(-1)", fn = bit32.to_signed, inputs = { -1 }, expected = -1 },
 
         -- band tests
         { name = "band(0xFF00FF00, 0x00FF00FF)", fn = bit32.band, inputs = { 0xFF00FF00, 0x00FF00FF }, expected = 0 },
@@ -1425,8 +1534,8 @@ do
             print("    Expected: " .. exp_hex)
             print("    Got:      " .. got_hex)
           else
-            print(string.format("    Expected: 0x%08X", test.expected))
-            print(string.format("    Got:      0x%08X", result))
+            print("    Expected: " .. fmt32(test.expected))
+            print("    Got:      " .. fmt32(result))
           end
         end
       end
@@ -1616,6 +1725,58 @@ do
         end
       end
 
+      total = total + 1
+      local mask_failures = {}
+      for k = 1, 32 do
+        if bit32.band(0xDEADBEEF, 2 ^ k - 1) ~= 0xDEADBEEF % 2 ^ k then
+          mask_failures[#mask_failures + 1] = k
+        end
+      end
+      if #mask_failures == 0 then
+        print("  PASS: band against every low-bit mask width")
+        passed = passed + 1
+      else
+        print("  FAIL: band against every low-bit mask width: " .. table.concat(mask_failures, ", "))
+      end
+
+      local decoder_errors = {
+        { "le_bytes_to_u32 rejects offset 0", bit32.le_bytes_to_u32, "\1\2\3\4\5", 0, "Offset must be at least 1" },
+        { "be_bytes_to_u32 rejects offset 0", bit32.be_bytes_to_u32, "\1\2\3\4\5", 0, "Offset must be at least 1" },
+        {
+          "le_bytes_to_u32 rejects a NaN offset",
+          bit32.le_bytes_to_u32,
+          "\1\2\3\4\5",
+          0 / 0,
+          "Offset must be at least 1",
+        },
+        {
+          "be_bytes_to_u32 rejects a NaN offset",
+          bit32.be_bytes_to_u32,
+          "\1\2\3\4\5",
+          0 / 0,
+          "Offset must be at least 1",
+        },
+        { "le_bytes_to_u32 rejects a short buffer", bit32.le_bytes_to_u32, "\1\2\3", 1, "Insufficient bytes for u32" },
+        {
+          "be_bytes_to_u32 rejects a short buffer",
+          bit32.be_bytes_to_u32,
+          "\1\2\3\4",
+          2,
+          "Insufficient bytes for u32",
+        },
+      }
+      for _, test in ipairs(decoder_errors) do
+        local test_name, fn, input, offset, message = test[1], test[2], test[3], test[4], test[5]
+        total = total + 1
+        local raised, err_text = pcall(fn, input, offset)
+        if not raised and type(err_text) == "string" and string.find(err_text, message, 1, true) then
+          print("  PASS: " .. test_name)
+          passed = passed + 1
+        else
+          print("  FAIL: " .. test_name)
+        end
+      end
+
       print(string.format("\n32-bit operations: %d/%d tests passed\n", passed, total))
       return passed == total
     end
@@ -1745,9 +1906,11 @@ do
     local bit32_raw_lshift = bit32.raw_lshift
     local bit32_raw_rshift = bit32.raw_rshift
     local bit32_rshift = bit32.rshift
-    local bit32_u32_to_be_bytes = bit32.u32_to_be_bytes
-    local bit32_u32_to_le_bytes = bit32.u32_to_le_bytes
     local impl_name = _compat.impl_name
+    local math_floor = math.floor
+    local string_char = string.char
+    local string_pack = rawget(string, "pack")
+    local string_unpack = rawget(string, "unpack")
 
     -- Private metatable for Int64 type identification
     local Int64Meta = { __name = "Int64" }
@@ -1989,14 +2152,40 @@ do
     --- @param x Int64HighLow 64-bit value {high, low}
     --- @return string bytes 8-byte string in big-endian order
     function bit64.u64_to_be_bytes(x)
-      return bit32_u32_to_be_bytes(x[1]) .. bit32_u32_to_be_bytes(x[2])
+      local high, low = x[1] % 0x100000000, x[2] % 0x100000000
+      if string_pack then
+        return string_pack(">I4I4", high, low)
+      end
+      return string_char(
+        math_floor(high / 16777216) % 256,
+        math_floor(high / 65536) % 256,
+        math_floor(high / 256) % 256,
+        math_floor(high % 256),
+        math_floor(low / 16777216) % 256,
+        math_floor(low / 65536) % 256,
+        math_floor(low / 256) % 256,
+        math_floor(low % 256)
+      )
     end
 
     --- Convert 64-bit value to 8 bytes (little-endian).
     --- @param x Int64HighLow 64-bit value {high, low}
     --- @return string bytes 8-byte string in little-endian order
     function bit64.u64_to_le_bytes(x)
-      return bit32_u32_to_le_bytes(x[2]) .. bit32_u32_to_le_bytes(x[1])
+      local high, low = x[1] % 0x100000000, x[2] % 0x100000000
+      if string_pack then
+        return string_pack("<I4I4", low, high)
+      end
+      return string_char(
+        math_floor(low % 256),
+        math_floor(low / 256) % 256,
+        math_floor(low / 65536) % 256,
+        math_floor(low / 16777216) % 256,
+        math_floor(high % 256),
+        math_floor(high / 256) % 256,
+        math_floor(high / 65536) % 256,
+        math_floor(high / 16777216) % 256
+      )
     end
 
     --- Convert 8 bytes to 64-bit value (big-endian).
@@ -2005,7 +2194,16 @@ do
     --- @return Int64HighLow value {high, low} 64-bit value
     function bit64.be_bytes_to_u64(str, offset)
       offset = offset or 1
-      assert(#str >= offset + 7, "Insufficient bytes for u64")
+      if offset ~= offset or offset < 1 then
+        error("Offset must be at least 1")
+      end
+      if #str < offset + 7 then
+        error("Insufficient bytes for u64")
+      end
+      if string_unpack then
+        local high, low = string_unpack(">I4I4", str, offset)
+        return setmetatable({ high, low }, Int64Meta)
+      end
       local high = bit32_be_bytes_to_u32(str, offset)
       local low = bit32_be_bytes_to_u32(str, offset + 4)
       return bit64.new(high, low)
@@ -2017,7 +2215,16 @@ do
     --- @return Int64HighLow value {high, low} 64-bit value
     function bit64.le_bytes_to_u64(str, offset)
       offset = offset or 1
-      assert(#str >= offset + 7, "Insufficient bytes for u64")
+      if offset ~= offset or offset < 1 then
+        error("Offset must be at least 1")
+      end
+      if #str < offset + 7 then
+        error("Insufficient bytes for u64")
+      end
+      if string_unpack then
+        local low, high = string_unpack("<I4I4", str, offset)
+        return setmetatable({ high, low }, Int64Meta)
+      end
       local low = bit32_le_bytes_to_u32(str, offset)
       local high = bit32_le_bytes_to_u32(str, offset + 4)
       return bit64.new(high, low)
@@ -2064,14 +2271,12 @@ do
     --- @param value number|Int64HighLow The number to convert (or Int64HighLow to pass through).
     --- @return Int64HighLow pair The {high_32, low_32} pair.
     function bit64.from_number(value)
-      if bit64.is_int64(value) then
+      if type(value) == "table" and getmetatable(value) == Int64Meta then
         --- @cast value Int64HighLow
         return value
       end
       --- @cast value -Int64HighLow
-      local low = math.floor(value % 0x100000000)
-      local high = math.floor(value / 0x100000000)
-      return bit64.new(high, low)
+      return setmetatable({ math_floor(value / 0x100000000) % 0x100000000, math_floor(value % 0x100000000) }, Int64Meta)
     end
 
     --- Checks if two {high, low} pairs are equal.
@@ -2631,6 +2836,18 @@ do
           inputs = { 0 },
           expected = { 0x00000000, 0x00000000 },
         },
+        {
+          name = "from_number(-1)",
+          fn = bit64.from_number,
+          inputs = { -1 },
+          expected = { 0xFFFFFFFF, 0xFFFFFFFF },
+        },
+        {
+          name = "from_number(-2^70) wraps to 64 bits",
+          fn = bit64.from_number,
+          inputs = { -(2 ^ 70) },
+          expected = { 0x00000000, 0x00000000 },
+        },
 
         -- eq tests
         { name = "eq({1,2}, {1,2})", fn = bit64.eq, inputs = { { 1, 2 }, { 1, 2 } }, expected = true },
@@ -3081,6 +3298,70 @@ do
         end
       end
 
+      total = total + 1
+      if 1 / bit64.from_number(-1 / math.huge)[1] > 0 then
+        print("  PASS: from_number(-0.0) gives a +0 high word")
+        passed = passed + 1
+      else
+        print("  FAIL: from_number(-0.0) gives a +0 high word")
+      end
+
+      local decoder_errors = {
+        {
+          "le_bytes_to_u64 rejects offset 0",
+          bit64.le_bytes_to_u64,
+          "\1\2\3\4\5\6\7\8\9",
+          0,
+          "Offset must be at least 1",
+        },
+        {
+          "be_bytes_to_u64 rejects offset 0",
+          bit64.be_bytes_to_u64,
+          "\1\2\3\4\5\6\7\8\9",
+          0,
+          "Offset must be at least 1",
+        },
+        {
+          "le_bytes_to_u64 rejects a NaN offset",
+          bit64.le_bytes_to_u64,
+          "\1\2\3\4\5\6\7\8\9",
+          0 / 0,
+          "Offset must be at least 1",
+        },
+        {
+          "be_bytes_to_u64 rejects a NaN offset",
+          bit64.be_bytes_to_u64,
+          "\1\2\3\4\5\6\7\8\9",
+          0 / 0,
+          "Offset must be at least 1",
+        },
+        {
+          "le_bytes_to_u64 rejects a short buffer",
+          bit64.le_bytes_to_u64,
+          "\1\2\3\4\5\6\7",
+          1,
+          "Insufficient bytes for u64",
+        },
+        {
+          "be_bytes_to_u64 rejects a short buffer",
+          bit64.be_bytes_to_u64,
+          "\1\2\3\4\5\6\7\8",
+          2,
+          "Insufficient bytes for u64",
+        },
+      }
+      for _, test in ipairs(decoder_errors) do
+        local test_name, fn, input, offset, message = test[1], test[2], test[3], test[4], test[5]
+        total = total + 1
+        local raised, err_text = pcall(fn, input, offset)
+        if not raised and type(err_text) == "string" and string.find(err_text, message, 1, true) then
+          print("  PASS: " .. test_name)
+          passed = passed + 1
+        else
+          print("  FAIL: " .. test_name)
+        end
+      end
+
       print(string.format("\n64-bit operations: %d/%d tests passed\n", passed, total))
       return passed == total
     end
@@ -3297,7 +3578,7 @@ local bitn = {
 }
 
 --- Library version (injected at build time for releases).
-local VERSION = "v0.6.2"
+local VERSION = "v0.6.3"
 
 --- Get the library version string.
 --- @return string version Version string (e.g., "v1.0.0" or "dev")
