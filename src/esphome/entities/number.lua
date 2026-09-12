@@ -24,7 +24,12 @@ end
 --- @return void
 function NumberEntity:updated(entity, state)
   log:trace("NumberEntity:updated(%s, %s)", entity, state)
-  values:update(entity.name, round(tonumber(state.state) or 0, 1), "NUMBER", function(newValue)
+  local value = tofinite(state.state)
+  if value == nil or state.missing_state then
+    log:debug("Ignoring non-finite reading for %s", ESPHomeClient.describeEntity(entity))
+    return
+  end
+  values:update(entity.name, round(value, 1), "NUMBER", function(newValue)
     -- Convert the Control4 value (string or number) to a number for ESPHome
     local numValue = tonumber(newValue) or 0
     self.client

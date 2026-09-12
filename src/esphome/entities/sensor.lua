@@ -156,7 +156,15 @@ end
 --- @return void
 function SensorEntity:updated(entity, state)
   log:trace("SensorEntity:updated(%s, %s)", entity, state)
-  local value = round(tonumber(state.state) or 0, 1)
+  -- ESPHome reports NaN with missing_state set for any float the device has not
+  -- measured yet. Leave the variable unset rather than publishing a placeholder:
+  -- a NaN also defeats every downstream equality check, including the memo below.
+  local value = tofinite(state.state)
+  if value == nil or state.missing_state then
+    log:debug("Ignoring non-finite reading for %s", ESPHomeClient.describeEntity(entity))
+    return
+  end
+  value = round(value, 1)
   values:update(entity.name, value, "NUMBER")
 
   local config = getBindingConfig(entity)
