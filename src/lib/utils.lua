@@ -1086,7 +1086,13 @@ function CelsiusFromParams(tParams, defaultScale)
   if value == nil then
     return nil
   end
-  return ToCelsius(value, Select(tParams, "SCALE") or defaultScale)
+  -- Select yields the empty string, not nil, for a SCALE key sent blank, and ""
+  -- is truthy; `or` alone would read VALUE in a scale that names nothing.
+  local scale = Select(tParams, "SCALE")
+  if IsEmpty(scale) then
+    scale = defaultScale
+  end
+  return ToCelsius(value, scale)
 end
 
 --------------------------------------------------------------------------------
