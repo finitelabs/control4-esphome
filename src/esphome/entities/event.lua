@@ -1,4 +1,5 @@
 local log = require("lib.logging")
+local bindings = require("lib.bindings")
 local events = require("lib.events")
 local values = require("lib.values")
 local ESPHomeClient = require("esphome.client")
@@ -8,6 +9,14 @@ local EventEntity = {
   TYPE = ESPHomeClient.EntityType.EVENT,
 }
 EventEntity.__index = EventEntity
+
+--- Build the binding key for one of an entity's event types.
+--- @param entity table<string, any> The entity data received from the ESPHome client.
+--- @param eventType string The event type name declared by the entity.
+--- @return string key
+local function bindingKey(entity, eventType)
+  return "event_" .. entity.key .. ":" .. eventType
+end
 
 --- Create a new instance of the event entity.
 --- @param client ESPHomeClient The ESPHome client instance.
@@ -24,7 +33,6 @@ end
 function EventEntity:discovered(entity)
   log:trace("EventEntity:discovered(%s)", entity)
 
-  -- Register a C4 event for each event type
   local eventTypes = entity.event_types or {}
   for _, eventType in ipairs(eventTypes) do
     events:getOrAddEvent(
@@ -32,6 +40,17 @@ function EventEntity:discovered(entity)
       eventType,
       entity.name .. ": " .. eventType,
       entity.name .. " " .. eventType .. " event"
+    )
+
+    -- provider=false is the keypad side: this driver sends button events rather
+    -- than receiving them, and each event type drives its own load.
+    bindings:getOrAddDynamicBinding(
+      self.TYPE,
+      bindingKey(entity, eventType),
+      "CONTROL",
+      false,
+      entity.name .. " " .. eventType,
+      "BUTTON_LINK"
     )
   end
 
@@ -53,12 +72,21 @@ function EventEntity:updated(entity, state)
     return
   end
 
-  -- Update the last event variable
   values:update(entity.name .. " Last Event", eventType, "STRING")
 
-  -- Fire the corresponding C4 event
   events:fire("event_" .. entity.key, eventType)
   log:info("Fired event %s for %s", eventType, ESPHomeClient.describeEntity(entity))
+
+  local binding = bindings:getDynamicBinding(self.TYPE, bindingKey(entity, eventType))
+  if binding == nil then
+    log:warn("No button link for event type %s on %s", eventType, ESPHomeClient.describeEntity(entity))
+    return
+  end
+
+  -- A gesture the device already finished has no button-down to report. Adding
+  -- DO_PUSH starts a hold ramp that the following DO_RELEASE freezes where it
+  -- began, undoing the click.
+  SendToProxy(binding.bindingId, "DO_CLICK", {}, "NOTIFY")
 end
 
 return EventEntity
