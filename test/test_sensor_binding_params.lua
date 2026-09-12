@@ -371,11 +371,18 @@ for _, case in ipairs(INPUT_CALLERS) do
   -- the two halves cannot drift apart. Collapsing the sites onto one shared
   -- default converts the bare VALUE at a setpoint instead of dropping it, and
   -- fails here as behaviour, not only as changed call text above.
-  local got
+  --
+  -- `readable` is a conjunct rather than a guard: the expected result at a
+  -- setpoint is nil, which is also what an unread call would produce, so
+  -- skipping the assertion would let an unreadable call pass it vacuously.
+  local got, note
   if readable then
     got = CelsiusFromParams({ VALUE = 21.5 }, scale)
+    note = tostring(got)
+  else
+    note = "the call could not be read"
   end
-  T.eq(case.what .. ": a bare VALUE", got, case.bare)
+  T.check(case.what .. ": a bare VALUE", readable and got == case.bare, note)
 end
 
 T.check(
