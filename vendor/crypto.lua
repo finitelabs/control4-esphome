@@ -629,22 +629,7 @@ do
     --- @param counter string 16-byte counter block
     --- @return string result Incremented counter
     local function inc_counter(counter)
-      local result = string_sub(counter, 1, 12) -- Keep first 12 bytes
-
-      -- Increment last 4 bytes (big-endian)
-      local val = 0
-      for i = 13, 16 do
-        val = val * 256 + string_byte(counter, i)
-      end
-
-      val = (val + 1) % 0x100000000
-
-      -- Convert back to bytes (big-endian)
-      for i = 3, 0, -1 do
-        result = result .. string_char(bit32_raw_band(bit32_raw_rshift(val, i * 8), 0xFF))
-      end
-
-      return result
+      return string_sub(counter, 1, 12) .. bytes.u32_to_be_bytes(bytes.be_bytes_to_u32(counter, 13) + 1)
     end
 
     --- Generate counter mode keystream
@@ -3839,7 +3824,8 @@ do
     local bit32_raw_add = bit32.raw_add
     local bit32_raw_bxor = bit32.raw_bxor
     local bit32_raw_rol = bit32.raw_rol
-    local floor = math.floor
+    local bit32_u32_to_le_bytes = bit32.u32_to_le_bytes
+    local bit32_le_bytes_to_u32 = bit32.le_bytes_to_u32
     local min = math.min
     local string_byte = string.byte
     local string_char = string.char
@@ -3881,31 +3867,6 @@ do
     -- Pre-allocated arrays for chacha20_block() to avoid repeated allocation
     local block_state = create_word_array()
     local block_working = create_word_array()
-
-    --- Convert 32-bit word to 4 bytes (little-endian)
-    --- @param word integer 32-bit word
-    --- @return integer, integer, integer, integer bytes Four bytes in little-endian order
-    local function word_to_bytes(word)
-      local byte1 = word % 256
-      word = floor(word * 0.00390625) -- / 256
-      local byte2 = word % 256
-      word = floor(word * 0.00390625)
-      local byte3 = word % 256
-      word = floor(word * 0.00390625)
-      local byte4 = word % 256
-
-      return byte1, byte2, byte3, byte4
-    end
-
-    --- Convert 4 bytes to 32-bit word (little-endian)
-    --- @param byte1 integer First byte (least significant)
-    --- @param byte2 integer Second byte
-    --- @param byte3 integer Third byte
-    --- @param byte4 integer Fourth byte (most significant)
-    --- @return integer word 32-bit word
-    local function bytes_to_word(byte1, byte2, byte3, byte4)
-      return byte1 + byte2 * 256 + byte3 * 65536 + byte4 * 16777216
-    end
 
     --- ChaCha20 quarter round operation
     --- @param state Word32Array 16-word state array (modified in place)
@@ -3950,13 +3911,7 @@ do
 
       -- 256-bit key (8 words)
       for i = 1, 8 do
-        local base = (i - 1) * 4
-        state[4 + i] = bytes_to_word(
-          string_byte(key, base + 1),
-          string_byte(key, base + 2),
-          string_byte(key, base + 3),
-          string_byte(key, base + 4)
-        )
+        state[4 + i] = bit32_le_bytes_to_u32(key, (i - 1) * 4 + 1)
       end
 
       -- 32-bit counter
@@ -3964,13 +3919,7 @@ do
 
       -- 96-bit nonce (3 words)
       for i = 1, 3 do
-        local base = (i - 1) * 4
-        state[13 + i] = bytes_to_word(
-          string_byte(nonce, base + 1),
-          string_byte(nonce, base + 2),
-          string_byte(nonce, base + 3),
-          string_byte(nonce, base + 4)
-        )
+        state[13 + i] = bit32_le_bytes_to_u32(nonce, (i - 1) * 4 + 1)
       end
 
       -- Create working copy of state
@@ -3998,11 +3947,9 @@ do
         working_state[i] = bit32_raw_add(working_state[i], state[i])
       end
 
-      -- Convert state to byte string (little-endian) - optimized with local references
       local result_bytes = {}
       for i = 1, 16 do
-        local b1, b2, b3, b4 = word_to_bytes(working_state[i])
-        result_bytes[i] = string_char(b1, b2, b3, b4)
+        result_bytes[i] = bit32_u32_to_le_bytes(working_state[i])
       end
 
       return table_concat(result_bytes)
@@ -8992,12 +8939,12 @@ do
     local bit64_raw_ror = bit64.raw_ror
     local bit64_raw_rshift = bit64.raw_rshift
     local bit64_new = bit64.new
+    local bit64_from_number = bit64.from_number
     local bit32_raw_bxor = bit32.raw_bxor
     local string_char = string.char
     local string_rep = string.rep
     local string_byte = string.byte
     local table_concat = table.concat
-    local floor = math.floor
 
     -- SHA-512 uses 64-bit words, but Lua numbers are limited to 2^53-1
     -- We'll work with 32-bit high/low pairs for 64-bit arithmetic
@@ -9252,10 +9199,7 @@ do
       -- Append original length as 128-bit big-endian integer
       -- For simplicity, we only support messages < 2^64 bits
       data = data .. string_rep("\0", 8) -- High 64 bits (always 0)
-      -- Low 64 bits of length
-      local len_high = floor(msg_len_bits / 0x100000000)
-      local len_low = msg_len_bits % 0x100000000
-      data = data .. bytes.u64_to_be_bytes({ len_high, len_low })
+      data = data .. bytes.u64_to_be_bytes(bit64_from_number(msg_len_bits))
 
       -- Process message in 128-byte chunks
       for i = 1, #data, 128 do
@@ -10502,10 +10446,18 @@ do
     local bit64 = bitn.bit64
 
     -- Local references for performance
-    local bit32_mask = bit32.mask
     local bit32_raw_bor = bit32.raw_bor
     local bit32_raw_bxor = bit32.raw_bxor
+    local bit32_u32_to_le_bytes = bit32.u32_to_le_bytes
+    local bit32_u32_to_be_bytes = bit32.u32_to_be_bytes
+    local bit32_le_bytes_to_u32 = bit32.le_bytes_to_u32
+    local bit32_be_bytes_to_u32 = bit32.be_bytes_to_u32
     local bit64_new = bit64.new
+    local bit64_from_number = bit64.from_number
+    local bit64_u64_to_le_bytes = bit64.u64_to_le_bytes
+    local bit64_u64_to_be_bytes = bit64.u64_to_be_bytes
+    local bit64_le_bytes_to_u64 = bit64.le_bytes_to_u64
+    local bit64_be_bytes_to_u64 = bit64.be_bytes_to_u64
     local floor = math.floor
     local string_byte = string.byte
     local string_char = string.char
@@ -10535,40 +10487,32 @@ do
     --- @param n integer 32-bit unsigned integer
     --- @return string bytes 4-byte string in little-endian order
     function bytes.u32_to_le_bytes(n)
-      n = bit32_mask(n)
-      return string_char(n % 256, floor(n / 256) % 256, floor(n / 65536) % 256, floor(n / 16777216) % 256)
+      return bit32_u32_to_le_bytes(n)
     end
 
     --- Convert 32-bit unsigned integer to 4 bytes (big-endian)
     --- @param n integer 32-bit unsigned integer
     --- @return string bytes 4-byte string in big-endian order
     function bytes.u32_to_be_bytes(n)
-      n = bit32_mask(n)
-      return string_char(floor(n / 16777216) % 256, floor(n / 65536) % 256, floor(n / 256) % 256, n % 256)
+      return bit32_u32_to_be_bytes(n)
     end
 
     --- Convert 64-bit value to 8 bytes (big-endian)
     --- @param x Int64HighLow {high, low} 64-bit value
     --- @return string bytes 8-byte string in big-endian order
     function bytes.u64_to_be_bytes(x)
-      local high, low = x[1], x[2]
-      return bytes.u32_to_be_bytes(high) .. bytes.u32_to_be_bytes(low)
+      return bit64_u64_to_be_bytes(x)
     end
 
     --- Convert 64-bit value to 8 bytes (little-endian)
     --- @param x Int64HighLow|integer {high, low} 64-bit value or simple integer
     --- @return string bytes 8-byte string in little-endian order
     function bytes.u64_to_le_bytes(x)
-      -- Handle simple integer case (< 2^53)
       if type(x) == "number" then
-        local low = x % 0x100000000
-        local high = floor(x / 0x100000000)
-        return bytes.u32_to_le_bytes(low) .. bytes.u32_to_le_bytes(high)
-      else
-        -- Handle {high, low} pair
-        local high, low = x[1], x[2]
-        return bytes.u32_to_le_bytes(low) .. bytes.u32_to_le_bytes(high)
+        return bit64_u64_to_le_bytes(bit64_from_number(x))
       end
+      --- @cast x Int64HighLow
+      return bit64_u64_to_le_bytes(x)
     end
 
     --- Convert 4 bytes to 32-bit unsigned integer (little-endian)
@@ -10576,10 +10520,7 @@ do
     --- @param offset? integer Starting position (default: 1)
     --- @return integer n 32-bit unsigned integer
     function bytes.le_bytes_to_u32(str, offset)
-      offset = offset or 1
-      assert(#str >= offset + 3, "Insufficient bytes for u32")
-      local b1, b2, b3, b4 = string_byte(str, offset, offset + 3)
-      return b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
+      return bit32_le_bytes_to_u32(str, offset)
     end
 
     --- Convert 4 bytes to 32-bit unsigned integer (big-endian)
@@ -10587,10 +10528,7 @@ do
     --- @param offset? integer Starting position (default: 1)
     --- @return integer n 32-bit unsigned integer
     function bytes.be_bytes_to_u32(str, offset)
-      offset = offset or 1
-      assert(#str >= offset + 3, "Insufficient bytes for u32")
-      local b1, b2, b3, b4 = string_byte(str, offset, offset + 3)
-      return b1 * 16777216 + b2 * 65536 + b3 * 256 + b4
+      return bit32_be_bytes_to_u32(str, offset)
     end
 
     --- Convert 8 bytes to 64-bit value (big-endian)
@@ -10598,11 +10536,7 @@ do
     --- @param offset? integer Starting position (default: 1)
     --- @return Int64HighLow value {high, low} 64-bit value
     function bytes.be_bytes_to_u64(str, offset)
-      offset = offset or 1
-      assert(#str >= offset + 7, "Insufficient bytes for u64")
-      local high = bytes.be_bytes_to_u32(str, offset)
-      local low = bytes.be_bytes_to_u32(str, offset + 4)
-      return { high, low }
+      return bit64_be_bytes_to_u64(str, offset)
     end
 
     --- Convert 8 bytes to 64-bit value (little-endian)
@@ -10610,11 +10544,7 @@ do
     --- @param offset? integer Starting position (default: 1)
     --- @return Int64HighLow value {high, low} 64-bit value
     function bytes.le_bytes_to_u64(str, offset)
-      offset = offset or 1
-      assert(#str >= offset + 7, "Insufficient bytes for u64")
-      local low = bytes.le_bytes_to_u32(str, offset)
-      local high = bytes.le_bytes_to_u32(str, offset + 4)
-      return { high, low }
+      return bit64_le_bytes_to_u64(str, offset)
     end
 
     --- XOR two byte strings
@@ -12520,7 +12450,7 @@ local crypto = {
 local openssl_wrapper = crypto.openssl_wrapper
 
 --- Library version (injected at build time for releases).
-local VERSION = "v0.2.2"
+local VERSION = "v0.2.4"
 
 --- Enable or disable OpenSSL acceleration for the primitives that support it
 --- (hashing and AEAD). Opt-in and safe: when the lua-openssl binding is

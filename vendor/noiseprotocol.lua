@@ -71,10 +71,18 @@ do
     local bit64 = bitn.bit64
 
     -- Local references for performance
-    local bit32_mask = bit32.mask
     local bit32_raw_bor = bit32.raw_bor
     local bit32_raw_bxor = bit32.raw_bxor
+    local bit32_u32_to_le_bytes = bit32.u32_to_le_bytes
+    local bit32_u32_to_be_bytes = bit32.u32_to_be_bytes
+    local bit32_le_bytes_to_u32 = bit32.le_bytes_to_u32
+    local bit32_be_bytes_to_u32 = bit32.be_bytes_to_u32
     local bit64_new = bit64.new
+    local bit64_from_number = bit64.from_number
+    local bit64_u64_to_le_bytes = bit64.u64_to_le_bytes
+    local bit64_u64_to_be_bytes = bit64.u64_to_be_bytes
+    local bit64_le_bytes_to_u64 = bit64.le_bytes_to_u64
+    local bit64_be_bytes_to_u64 = bit64.be_bytes_to_u64
     local floor = math.floor
     local string_byte = string.byte
     local string_char = string.char
@@ -104,40 +112,32 @@ do
     --- @param n integer 32-bit unsigned integer
     --- @return string bytes 4-byte string in little-endian order
     function bytes.u32_to_le_bytes(n)
-      n = bit32_mask(n)
-      return string_char(n % 256, floor(n / 256) % 256, floor(n / 65536) % 256, floor(n / 16777216) % 256)
+      return bit32_u32_to_le_bytes(n)
     end
 
     --- Convert 32-bit unsigned integer to 4 bytes (big-endian)
     --- @param n integer 32-bit unsigned integer
     --- @return string bytes 4-byte string in big-endian order
     function bytes.u32_to_be_bytes(n)
-      n = bit32_mask(n)
-      return string_char(floor(n / 16777216) % 256, floor(n / 65536) % 256, floor(n / 256) % 256, n % 256)
+      return bit32_u32_to_be_bytes(n)
     end
 
     --- Convert 64-bit value to 8 bytes (big-endian)
     --- @param x Int64HighLow {high, low} 64-bit value
     --- @return string bytes 8-byte string in big-endian order
     function bytes.u64_to_be_bytes(x)
-      local high, low = x[1], x[2]
-      return bytes.u32_to_be_bytes(high) .. bytes.u32_to_be_bytes(low)
+      return bit64_u64_to_be_bytes(x)
     end
 
     --- Convert 64-bit value to 8 bytes (little-endian)
     --- @param x Int64HighLow|integer {high, low} 64-bit value or simple integer
     --- @return string bytes 8-byte string in little-endian order
     function bytes.u64_to_le_bytes(x)
-      -- Handle simple integer case (< 2^53)
       if type(x) == "number" then
-        local low = x % 0x100000000
-        local high = floor(x / 0x100000000)
-        return bytes.u32_to_le_bytes(low) .. bytes.u32_to_le_bytes(high)
-      else
-        -- Handle {high, low} pair
-        local high, low = x[1], x[2]
-        return bytes.u32_to_le_bytes(low) .. bytes.u32_to_le_bytes(high)
+        return bit64_u64_to_le_bytes(bit64_from_number(x))
       end
+      --- @cast x Int64HighLow
+      return bit64_u64_to_le_bytes(x)
     end
 
     --- Convert 4 bytes to 32-bit unsigned integer (little-endian)
@@ -145,10 +145,7 @@ do
     --- @param offset? integer Starting position (default: 1)
     --- @return integer n 32-bit unsigned integer
     function bytes.le_bytes_to_u32(str, offset)
-      offset = offset or 1
-      assert(#str >= offset + 3, "Insufficient bytes for u32")
-      local b1, b2, b3, b4 = string_byte(str, offset, offset + 3)
-      return b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
+      return bit32_le_bytes_to_u32(str, offset)
     end
 
     --- Convert 4 bytes to 32-bit unsigned integer (big-endian)
@@ -156,10 +153,7 @@ do
     --- @param offset? integer Starting position (default: 1)
     --- @return integer n 32-bit unsigned integer
     function bytes.be_bytes_to_u32(str, offset)
-      offset = offset or 1
-      assert(#str >= offset + 3, "Insufficient bytes for u32")
-      local b1, b2, b3, b4 = string_byte(str, offset, offset + 3)
-      return b1 * 16777216 + b2 * 65536 + b3 * 256 + b4
+      return bit32_be_bytes_to_u32(str, offset)
     end
 
     --- Convert 8 bytes to 64-bit value (big-endian)
@@ -167,11 +161,7 @@ do
     --- @param offset? integer Starting position (default: 1)
     --- @return Int64HighLow value {high, low} 64-bit value
     function bytes.be_bytes_to_u64(str, offset)
-      offset = offset or 1
-      assert(#str >= offset + 7, "Insufficient bytes for u64")
-      local high = bytes.be_bytes_to_u32(str, offset)
-      local low = bytes.be_bytes_to_u32(str, offset + 4)
-      return { high, low }
+      return bit64_be_bytes_to_u64(str, offset)
     end
 
     --- Convert 8 bytes to 64-bit value (little-endian)
@@ -179,11 +169,7 @@ do
     --- @param offset? integer Starting position (default: 1)
     --- @return Int64HighLow value {high, low} 64-bit value
     function bytes.le_bytes_to_u64(str, offset)
-      offset = offset or 1
-      assert(#str >= offset + 7, "Insufficient bytes for u64")
-      local low = bytes.le_bytes_to_u32(str, offset)
-      local high = bytes.le_bytes_to_u32(str, offset + 4)
-      return { high, low }
+      return bit64_le_bytes_to_u64(str, offset)
     end
 
     --- XOR two byte strings
@@ -770,9 +756,14 @@ local noiseprotocol = {}
 local crypto = require("crypto")
 local utils = require("noiseprotocol.utils")
 local openssl_wrapper = require("crypto.openssl_wrapper")
+local bit64 = require("bitn").bit64
+
+local bit64_from_number = bit64.from_number
+local bit64_u64_to_le_bytes = bit64.u64_to_le_bytes
+local bit64_u64_to_be_bytes = bit64.u64_to_be_bytes
 
 --- Module version
-local VERSION = "v0.6.4"
+local VERSION = "v0.6.6"
 
 --- Enable or disable OpenSSL acceleration
 --- @function use_openssl
@@ -964,14 +955,7 @@ local DH_448 = {
 local function make_chachapoly_nonce(n)
   -- ChaCha20Poly1305 uses little-endian format: 4 zero bytes + 64-bit counter
   assert(n <= MAX_NONCE, "Nonce overflow")
-  local nonce = string.rep("\0", 4) -- 4 zero bytes padding
-  -- Little-endian 64-bit counter (8 bytes)
-  for _ = 1, 8 do
-    nonce = nonce .. string.char(n % 256)
-    n = math.floor(n / 256)
-  end
-
-  return nonce
+  return string.rep("\0", 4) .. bit64_u64_to_le_bytes(bit64_from_number(n))
 end
 
 --- ChaCha20-Poly1305 AEAD implementation
@@ -997,20 +981,7 @@ local CIPHER_ChaChaPoly = {
 local function make_aesgcm_nonce(n)
   -- AESGCM uses big-endian format: 4 zero bytes + 64-bit counter
   assert(n <= MAX_NONCE, "Nonce overflow")
-  local nonce = string.rep("\0", 4) -- 4 zero bytes padding
-
-  -- Big-endian 64-bit counter
-  local bytes = {}
-  for i = 1, 8 do
-    bytes[i] = string.char(n % 256)
-    n = math.floor(n / 256)
-  end
-  -- Reverse the bytes for big-endian
-  for i = 8, 1, -1 do
-    nonce = nonce .. bytes[i]
-  end
-
-  return nonce
+  return string.rep("\0", 4) .. bit64_u64_to_be_bytes(bit64_from_number(n))
 end
 
 --- AES-GCM AEAD implementation

@@ -845,13 +845,26 @@ function toboolean(val)
   return false
 end
 
+--- Converts a value to a finite number.
+--- `tonumber` passes NaN and infinity straight through, so a caller's `or`
+--- fallback never fires for them.
+--- @param value any The value to convert. Can be a number or a string that represents a number.
+--- @return number|nil number The number when it is finite, or `nil` otherwise.
+function tofinite(value)
+  value = tonumber(value)
+  if value == nil or value ~= value or value == math.huge or value == -math.huge then
+    return nil
+  end
+  return value
+end
+
 --- Converts a value to a valid integer.
 --- Rounds fractional numbers and validates string representations.
 --- @param value any The value to convert to an integer. Can be a number or a string that represents a number.
 --- @return integer|nil int Returns the rounded integer if the conversion is successful, or `nil` if the value cannot be converted.
 --- @overload fun(value: number): integer
 function tointeger(value)
-  value = tonumber(value)
+  value = tofinite(value)
   if value == nil then
     return nil
   end
@@ -990,6 +1003,92 @@ function c2f(c)
   return round(f, 1)
 end
 
+--- Temperature scale spellings seen on VALUE_CHANGED and on the thermostat
+--- proxy, reduced to a letter. The proxy sends "C"/"F", sensor bindings send
+--- the whole word, and C4:GetTemperatureScale() returns the whole word.
+--- @type table<string, string>
+local TEMPERATURE_SCALES = {
+  C = "C",
+  CELSIUS = "C",
+  F = "F",
+  FAHRENHEIT = "F",
+  K = "K",
+  KELVIN = "K",
+}
+
+--- Reduce a scale to "C", "F" or "K", or nil when it does not name a
+--- temperature (e.g. "PERCENT").
+--- @param scale string|nil The scale as it appears on the wire.
+--- @return string|nil letter
+function TemperatureScaleLetter(scale)
+  if type(scale) ~= "string" then
+    return nil
+  end
+  return TEMPERATURE_SCALES[scale:upper()]
+end
+
+--- Convert a temperature to Celsius from the scale it was reported in.
+--- @param value number The temperature.
+--- @param scale string|nil The scale of `value`; not a temperature scale yields nil.
+--- @return number|nil celsius
+function ToCelsius(value, scale)
+  if type(value) ~= "number" then
+    return nil
+  end
+  local letter = TemperatureScaleLetter(scale)
+  if letter == "C" then
+    return value
+  elseif letter == "F" then
+    return f2c(value)
+  elseif letter == "K" then
+    return round(value - 273.15, 1)
+  end
+  return nil
+end
+
+--- Build the VALUE_CHANGED params for a sensor binding.
+---
+--- C4-THERM reads a bound sensor from CELSIUS, requires TIMESTAMP, and drops
+--- readings older than 15 minutes; VALUE/SCALE consumers read the rest. VALUE
+--- stays in the measured scale so existing consumers are unaffected.
+--- @param value number The measured value.
+--- @param scale string|nil The scale of `value` (e.g. "CELSIUS", "PERCENT").
+--- @return table params
+function SensorValueParams(value, scale)
+  local params = {
+    VALUE = value,
+    SCALE = scale,
+    TIMESTAMP = os.time(),
+  }
+  local celsius = ToCelsius(value, scale)
+  if celsius ~= nil then
+    params.CELSIUS = celsius
+    params.FAHRENHEIT = c2f(celsius)
+  end
+  return params
+end
+
+--- Read a Celsius temperature out of VALUE_CHANGED params, accepting every key
+--- convention in use: CELSIUS, FAHRENHEIT, or VALUE carrying a SCALE.
+--- @param tParams table|nil The params as received.
+--- @param defaultScale string The scale to read VALUE in when SCALE is absent. Sensor bindings report Celsius; the thermostat proxy sends Fahrenheit.
+--- @return number|nil celsius
+function CelsiusFromParams(tParams, defaultScale)
+  local celsius = tonumber_expect_period(Select(tParams, "CELSIUS"))
+  if celsius ~= nil then
+    return celsius
+  end
+  local fahrenheit = tonumber_expect_period(Select(tParams, "FAHRENHEIT"))
+  if fahrenheit ~= nil then
+    return f2c(fahrenheit)
+  end
+  local value = tonumber_expect_period(Select(tParams, "VALUE"))
+  if value == nil then
+    return nil
+  end
+  return ToCelsius(value, Select(tParams, "SCALE") or defaultScale)
+end
+
 --------------------------------------------------------------------------------
 -- Binary-safe serialization
 --------------------------------------------------------------------------------
@@ -1000,6 +1099,15 @@ local BINARY_MARKER = "__b64"
 
 --- Sentinel value for nil (since Lua tables can't store nil values).
 local NIL_SENTINEL = "__null__"
+
+--- JSON has no NaN or infinity literal. JSON.lua emits `null` for a NaN, which
+--- decodes to a Lua `nil` indistinguishable from a key that was never set, and
+--- `1e+9999` for the infinities, which is out of range for a double and so is
+--- parser-dependent on the far side of a driver-to-driver hop. They travel as
+--- sentinels instead, like NIL_SENTINEL.
+local NAN_SENTINEL = "__nan__"
+local POS_INF_SENTINEL = "__inf__"
+local NEG_INF_SENTINEL = "__-inf__"
 
 --- Check if a byte is binary (unsafe for transport).
 --- Safe: 0x09 (tab), 0x0A (LF), 0x0D (CR), 0x20-0x7E (printable ASCII)
@@ -1044,9 +1152,24 @@ local function encodeBinaryStrings(value)
     return NIL_SENTINEL
   end
   local t = type(value)
+  if t == "number" then
+    if value ~= value then
+      return NAN_SENTINEL
+    elseif value == math.huge then
+      return POS_INF_SENTINEL
+    elseif value == -math.huge then
+      return NEG_INF_SENTINEL
+    end
+  end
   if t == "string" then
-    -- Encode if binary OR if it equals the sentinel (to avoid collision)
-    if needsBase64(value) or value == NIL_SENTINEL then
+    -- Encode if binary OR if it equals a sentinel (to avoid collision)
+    if
+      needsBase64(value)
+      or value == NIL_SENTINEL
+      or value == NAN_SENTINEL
+      or value == POS_INF_SENTINEL
+      or value == NEG_INF_SENTINEL
+    then
       return { [BINARY_MARKER] = C4:Base64Encode(value) }
     end
     return value
@@ -1069,6 +1192,15 @@ end
 local function decodeBinaryStrings(value)
   if value == NIL_SENTINEL then
     return nil
+  end
+  if value == NAN_SENTINEL then
+    return 0 / 0
+  end
+  if value == POS_INF_SENTINEL then
+    return math.huge
+  end
+  if value == NEG_INF_SENTINEL then
+    return -math.huge
   end
   if type(value) ~= "table" then
     return value
