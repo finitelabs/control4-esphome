@@ -1024,10 +1024,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
       SCALE = SCALE,
     }, "NOTIFY")
     -- Forward to temperature output connection
-    SendToProxy(TEMPERATURE_OUTPUT_BINDING, "VALUE_CHANGED", {
-      CELSIUS = tostring(currentTemp),
-      FAHRENHEIT = tostring(c2f(currentTemp)),
-    })
+    SendToProxy(TEMPERATURE_OUTPUT_BINDING, "VALUE_CHANGED", SensorValueParams(currentTemp, "CELSIUS"))
   end
 
   -- HVAC mode
@@ -1123,13 +1120,12 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   -- Humidity
   local currentHumidity = tonumber(Select(state, "current_humidity"))
   if currentHumidity ~= nil then
+    local humidityPercent = math.floor(currentHumidity + 0.5)
     SendToProxy(PROXY_BINDING, "HUMIDITY_CHANGED", {
-      HUMIDITY = tostring(math.floor(currentHumidity + 0.5)),
+      HUMIDITY = tostring(humidityPercent),
     }, "NOTIFY")
     -- Forward to humidity output connection
-    SendToProxy(HUMIDITY_OUTPUT_BINDING, "VALUE_CHANGED", {
-      VALUE = tostring(math.floor(currentHumidity + 0.5)),
-    })
+    SendToProxy(HUMIDITY_OUTPUT_BINDING, "VALUE_CHANGED", SensorValueParams(humidityPercent, "PERCENT"))
   end
 
   -- Target humidity
