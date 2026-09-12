@@ -306,4 +306,44 @@ T.check(
   string.format("parsed %d of %d sends", totalParsed, totalSends)
 )
 
+--------------------------------------------------------------------------------
+T.section("the climate driver reads its inputs with the right default scale")
+--------------------------------------------------------------------------------
+
+-- The local getCelsiusFromParams was folded onto the shared CelsiusFromParams.
+-- Its default scale is per-caller and the two callers disagree: the thermostat
+-- proxy sends Fahrenheit on SET_SETPOINT_*, while a bound sensor reports
+-- Celsius. Getting one of them wrong mis-converts by thirty-odd degrees in
+-- silence, and a file-global search for the call cannot see which caller it
+-- sits in, so each is read out of its own enclosing function.
+local climate = sources["drivers/esphome_climate"]
+
+T.check("the climate source was read", climate ~= nil, "missing")
+
+local INPUT_CALLERS = {
+  { fn = "RFP%.SET_SETPOINT_HEAT", scale = "F", what = "a heat setpoint is Fahrenheit" },
+  { fn = "RFP%.SET_SETPOINT_COOL", scale = "F", what = "a cool setpoint is Fahrenheit" },
+  { fn = "RFP%.SET_SETPOINT_SINGLE", scale = "F", what = "a single setpoint is Fahrenheit" },
+  { fn = "local function handleValueChanged", scale = "CELSIUS", what = "a bound sensor reports Celsius" },
+}
+
+for _, case in ipairs(INPUT_CALLERS) do
+  local body = climate and climate:match(case.fn .. "%s*%b()(.-)\nend\n")
+  -- Frontier-bounded: an unbounded match also hits inside the local
+  -- getCelsiusFromParams this fold removes, which reads as a call with no scale
+  -- argument rather than as the absence of one.
+  local call = body and body:match("%f[%w_]CelsiusFromParams%s*(%b())")
+  T.check(
+    case.what,
+    call ~= nil and call:find('"' .. case.scale .. '"', 1, true) ~= nil,
+    call and oneLine(call) or ("no CelsiusFromParams call found in " .. case.fn)
+  )
+end
+
+T.check(
+  "no local parser is left behind",
+  climate ~= nil and climate:find("getCelsiusFromParams", 1, true) == nil,
+  "getCelsiusFromParams is still referenced"
+)
+
 T.finish()

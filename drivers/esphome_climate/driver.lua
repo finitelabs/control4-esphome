@@ -164,34 +164,6 @@ local function sendDisplayScale()
   applyDisplayScale(getDisplayScale())
 end
 
---- Extract a Celsius temperature from proxy command params.
---- The proxy sends CELSIUS, FAHRENHEIT, KELVIN, and SETPOINT simultaneously.
---- @param tParams table Proxy command parameters.
---- @return number|nil celsius Temperature in Celsius.
-local function getCelsiusFromParams(tParams)
-  local celsius = tonumber(Select(tParams, "CELSIUS"))
-  if celsius ~= nil then
-    return celsius
-  end
-  local fahrenheit = tonumber(Select(tParams, "FAHRENHEIT"))
-  if fahrenheit ~= nil then
-    return f2c(fahrenheit)
-  end
-  -- Fall back to VALUE + SCALE (used by TEMPERATURE_VALUE bindings)
-  local value = tonumber(Select(tParams, "VALUE"))
-  if value ~= nil then
-    local scale = Select(tParams, "SCALE") or "F"
-    if scale == "C" or scale == "c" or scale == "CELSIUS" then
-      return value
-    end
-    if scale == "K" or scale == "k" or scale == "KELVIN" then
-      return value - 273.15
-    end
-    return f2c(value)
-  end
-  return nil
-end
-
 --- Get the entity's min/max temperature range in Celsius.
 --- Handles both climate (visual_min/max_temperature) and water heater (min/max_temperature) field names.
 --- @return number|nil minTemp Minimum temperature in Celsius.
@@ -707,7 +679,7 @@ function RFP.SET_SETPOINT_HEAT(idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  local celsius = getCelsiusFromParams(tParams)
+  local celsius = CelsiusFromParams(tParams, "F")
   if celsius == nil then
     return
   end
@@ -730,7 +702,7 @@ function RFP.SET_SETPOINT_COOL(idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  local celsius = getCelsiusFromParams(tParams)
+  local celsius = CelsiusFromParams(tParams, "F")
   if celsius == nil then
     return
   end
@@ -928,7 +900,7 @@ function RFP.SET_SETPOINT_SINGLE(idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  local celsius = getCelsiusFromParams(tParams)
+  local celsius = CelsiusFromParams(tParams, "F")
   if celsius == nil then
     return
   end
@@ -1186,7 +1158,7 @@ local function handleValueChanged(idBinding, tParams)
   if not REMOTE_SENSOR_IN_USE then
     return
   end
-  local celsius = getCelsiusFromParams(tParams)
+  local celsius = CelsiusFromParams(tParams, "CELSIUS")
   if celsius == nil then
     return
   end
