@@ -406,7 +406,7 @@ test("Humidity publishes on a binding outside the library's managed range", func
   local humidity = lastSentOn(5011, "VALUE_CHANGED")
   T.check("humidity published on 5011", humidity ~= nil)
   if humidity then
-    T.eq("carries the current humidity", humidity.params.VALUE, "57")
+    T.eq("carries the current humidity", humidity.params.VALUE, 57)
   end
   T.check("nothing published on the managed-range id", lastSentOn(5012, "VALUE_CHANGED") == nil)
   T.check("temperature still publishes on 5010", lastSentOn(5010, "VALUE_CHANGED") ~= nil)
