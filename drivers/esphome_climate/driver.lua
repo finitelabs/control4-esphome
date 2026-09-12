@@ -679,7 +679,7 @@ function RFP.SET_SETPOINT_HEAT(idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  local celsius = CelsiusFromParams(tParams, "F")
+  local celsius = CelsiusFromParams(tParams)
   if celsius == nil then
     return
   end
@@ -702,7 +702,7 @@ function RFP.SET_SETPOINT_COOL(idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  local celsius = CelsiusFromParams(tParams, "F")
+  local celsius = CelsiusFromParams(tParams)
   if celsius == nil then
     return
   end
@@ -900,7 +900,7 @@ function RFP.SET_SETPOINT_SINGLE(idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  local celsius = CelsiusFromParams(tParams, "F")
+  local celsius = CelsiusFromParams(tParams)
   if celsius == nil then
     return
   end

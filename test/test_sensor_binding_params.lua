@@ -22,6 +22,7 @@
 local T = require("testlib")
 
 require("c4_shim")
+require("lib.utils")
 
 -- Resolved from this file rather than the working directory: make test runs from
 -- the driver root, test/run_test.sh does not.
@@ -311,21 +312,48 @@ T.section("the climate driver reads its inputs with the right default scale")
 --------------------------------------------------------------------------------
 
 -- The local getCelsiusFromParams was folded onto the shared CelsiusFromParams.
--- Its default scale is per-caller and the two callers disagree: the thermostat
--- proxy sends Fahrenheit on SET_SETPOINT_*, while a bound sensor reports
--- Celsius. Getting one of them wrong mis-converts by thirty-odd degrees in
--- silence, and a file-global search for the call cannot see which caller it
--- sits in, so each is read out of its own enclosing function.
+-- Its default scale is per-caller and the two kinds of caller disagree, so each
+-- call is read out of its own enclosing function: a file-global search cannot
+-- see which caller it sits in, and would still pass with the defaults swapped.
+--
+-- The setpoint handlers pass no default. A proxy setpoint arrives carrying
+-- CELSIUS, FAHRENHEIT and KELVIN at once, so the default gates only the bare
+-- VALUE branch, which no setpoint sender uses; with no default that branch
+-- yields nil and the handler drops the command rather than driving the HVAC
+-- from a misconverted number. handleValueChanged is a sensor binding, where a
+-- bare VALUE is reachable and reports Celsius by the binding convention, so its
+-- default is load-bearing and stays (DRV-123).
 local climate = sources["drivers/esphome_climate"]
 
 T.check("the climate source was read", climate ~= nil, "missing")
 
+-- `bare` is what CelsiusFromParams must return for a VALUE-only payload at that
+-- site: dropped where there is no default, read as Celsius at the sensor.
 local INPUT_CALLERS = {
-  { fn = "RFP%.SET_SETPOINT_HEAT", scale = "F", what = "a heat setpoint is Fahrenheit" },
-  { fn = "RFP%.SET_SETPOINT_COOL", scale = "F", what = "a cool setpoint is Fahrenheit" },
-  { fn = "RFP%.SET_SETPOINT_SINGLE", scale = "F", what = "a single setpoint is Fahrenheit" },
-  { fn = "local function handleValueChanged", scale = "CELSIUS", what = "a bound sensor reports Celsius" },
+  { fn = "RFP%.SET_SETPOINT_HEAT", scale = nil, bare = nil, what = "a heat setpoint takes no default" },
+  { fn = "RFP%.SET_SETPOINT_COOL", scale = nil, bare = nil, what = "a cool setpoint takes no default" },
+  { fn = "RFP%.SET_SETPOINT_SINGLE", scale = nil, bare = nil, what = "a single setpoint takes no default" },
+  {
+    fn = "local function handleValueChanged",
+    scale = "CELSIUS",
+    bare = 21.5,
+    what = "a bound sensor reports Celsius",
+  },
 }
+
+--- The default scale a call site passes, as `scale, readable`. Both shapes are
+--- matched explicitly so an unrecognised one reports as unreadable instead of
+--- reading as the absence of an argument, which is the thing under test.
+local function defaultScaleOf(call)
+  if call == nil then
+    return nil, false
+  end
+  if call:match("^%(%s*tParams%s*%)$") then
+    return nil, true
+  end
+  local scale = call:match('^%(%s*tParams%s*,%s*"([^"]+)"%s*%)$')
+  return scale, scale ~= nil
+end
 
 for _, case in ipairs(INPUT_CALLERS) do
   local body = climate and climate:match(case.fn .. "%s*%b()(.-)\nend\n")
@@ -333,11 +361,21 @@ for _, case in ipairs(INPUT_CALLERS) do
   -- getCelsiusFromParams this fold removes, which reads as a call with no scale
   -- argument rather than as the absence of one.
   local call = body and body:match("%f[%w_]CelsiusFromParams%s*(%b())")
+  local scale, readable = defaultScaleOf(call)
   T.check(
     case.what,
-    call ~= nil and call:find('"' .. case.scale .. '"', 1, true) ~= nil,
+    readable and scale == case.scale,
     call and oneLine(call) or ("no CelsiusFromParams call found in " .. case.fn)
   )
+  -- Driven with the scale parsed out of the call rather than with case.scale, so
+  -- the two halves cannot drift apart. Collapsing the sites onto one shared
+  -- default converts the bare VALUE at a setpoint instead of dropping it, and
+  -- fails here as behaviour, not only as changed call text above.
+  local got
+  if readable then
+    got = CelsiusFromParams({ VALUE = 21.5 }, scale)
+  end
+  T.eq(case.what .. ": a bare VALUE", got, case.bare)
 end
 
 T.check(
