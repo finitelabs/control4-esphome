@@ -16,6 +16,7 @@ local values = require("lib.values")
 local constants = require("constants")
 local bindings = require("lib.bindings")
 local persist = require("lib.persist")
+local displayScale = require("esphome.display_scale")
 
 --- Update the Driver Status property and the Connected variable so
 --- Programming can react to connect/disconnect.
@@ -126,26 +127,11 @@ local C4_TO_CLIMATE_FAN_MODE = TableReverse(CLIMATE_FAN_MODE_TO_C4)
 --- and the proxy converts to the user's display scale based on the SCALE param.
 local SCALE = "C"
 
---- Persist key for an installer's per-thermostat display-scale override.
-local P_DISPLAY_SCALE = "DisplayScale"
-
---- The proxy and C4:GetTemperatureScale() disagree on spelling ("C" vs "Celsius"
---- vs "CELSIUS"), so both are reduced to a letter.
---- @param scale string|nil
---- @return string|nil scale "C", "F", or nil if unrecognized.
-local function normalizeScale(scale)
-  local first = tostring(scale or ""):sub(1, 1):upper()
-  if first == "C" or first == "F" then
-    return first
-  end
-  return nil
-end
-
---- An installer override wins over the project scale. ESPHome is always Celsius
---- internally, so this only affects what Control4 displays.
+--- ESPHome is always Celsius internally, so the display scale only affects what
+--- Control4 shows.
 --- @return string scale "C" or "F".
 local function getDisplayScale()
-  return normalizeScale(persist:get(P_DISPLAY_SCALE)) or normalizeScale(C4:GetTemperatureScale()) or "F"
+  return displayScale.resolve(PROXY_BINDING)
 end
 
 --- thermostatV2 has no ONLINE_CHANGED. It tracks reachability through
@@ -160,17 +146,22 @@ end
 local REPORTED_SCALE = nil
 
 --- The proxy defaults to Fahrenheit and never consults the project setting, so a
---- Celsius project shows Fahrenheit thermostats without this. Called on every
---- state update so a project scale change lands without a reconnect.
+--- Celsius project shows Fahrenheit thermostats without this.
+--- @param scale string "C" or "F".
 --- @return void
-local function sendDisplayScale()
-  local scale = getDisplayScale()
+local function applyDisplayScale(scale)
   if scale == REPORTED_SCALE then
     return
   end
   REPORTED_SCALE = scale
   log:debug("Setting thermostat display scale to %s", scale)
   SendToProxy(PROXY_BINDING, "SCALE_CHANGED", { SCALE = scale }, "NOTIFY")
+end
+
+--- Called on every state update so a scale change lands without a reconnect.
+--- @return void
+local function sendDisplayScale()
+  applyDisplayScale(getDisplayScale())
 end
 
 --- Extract a Celsius temperature from proxy command params.
@@ -552,6 +543,12 @@ function OnDriverLateInit()
   LAST_WATER_HEATER_MODE = persist:get("LastWaterHeaterMode")
   REMOTE_SENSOR_IN_USE = persist:get("RemoteSensorInUse") or false
 
+  -- A Navigator scale change reaches the proxy's variable even when SET_SCALE
+  -- does not reach the driver.
+  displayScale.watch(PROXY_BINDING, function()
+    sendDisplayScale()
+  end)
+
   -- Hide remote sensor properties until services are discovered
   C4:SetPropertyAttribs("Remote Temperature Service", constants.HIDE_PROPERTY)
   C4:SetPropertyAttribs("Internal Temperature Service", constants.HIDE_PROPERTY)
@@ -909,20 +906,21 @@ function RFP.SET_MODE_HVAC(idBinding, strCommand, tParams)
   })
 end
 
---- ESPHome has no device-side scale to push this to, so record it and report back.
+--- ESPHome has no device-side scale to push this to, and Director already holds
+--- the new scale on the proxy item, so this only has to agree with it. The
+--- command carries the chosen scale, which the proxy's variable may not have
+--- caught up to yet, so report back what was asked for.
 function RFP.SET_SCALE(idBinding, strCommand, tParams)
   log:trace("RFP.SET_SCALE(%s, %s, %s)", idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  local scale = normalizeScale(Select(tParams, "SCALE"))
+  local scale = TemperatureScaleLetter(Select(tParams, "SCALE"))
   if scale == nil then
     log:warn("Ignoring SET_SCALE with unrecognized scale: %s", Select(tParams, "SCALE"))
     return
   end
-  persist:set(P_DISPLAY_SCALE, scale)
-  REPORTED_SCALE = nil
-  sendDisplayScale()
+  applyDisplayScale(scale)
 end
 
 function RFP.SET_SETPOINT_SINGLE(idBinding, strCommand, tParams)
