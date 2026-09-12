@@ -37,7 +37,7 @@ local function captureVariableWrites()
   local writes = {}
   local realAdd, realSet = C4.AddVariable, C4.SetVariable
   C4.AddVariable = function(self, name, value, varType, readOnly, hidden)
-    writes[#writes + 1] = { name = name, value = value, how = "add" }
+    writes[#writes + 1] = { name = name, value = value, how = "add", readOnly = readOnly }
     return realAdd(self, name, value, varType, readOnly, hidden)
   end
   C4.SetVariable = function(self, name, value)
@@ -140,5 +140,32 @@ local numberOk = sensorEntity("Fan Speed Finite", { device_class = nil, unit_of_
 local numOk = drive(number, numberOk, { key = numberOk.key, state = 42 }, 5, false)
 T.eq("one variable write for 5 identical finite readings", #numOk.writes, 1)
 T.eq("variable holds the reading", tonumber(numOk.variable), 42)
+
+T.section("NumberEntity:updated comes up writable on the first finite reading after NaN")
+
+-- The early return skips values:update, and with it the setCallback that makes
+-- the variable writable. That must delay writability, not forfeit it. Drop the
+-- callback argument from the update call in number.lua and every number entity
+-- is created read-only: writable is derived from _callbacks[name], and
+-- setCallback only runs from inside update.
+local numberLate = sensorEntity("Fan Speed Late", { device_class = nil, unit_of_measurement = nil })
+local lateNan = drive(number, numberLate, { key = numberLate.key, state = NAN, missing_state = true }, 3, false)
+T.eq("no variable while only NaN has been reported", #lateNan.writes, 0)
+
+local lateOk = drive(number, numberLate, { key = numberLate.key, state = 42 }, 1, false)
+T.eq("the first finite reading creates the variable", #lateOk.writes, 1)
+T.eq("created rather than assigned", lateOk.writes[1] and lateOk.writes[1].how, "add")
+T.eq("variable holds the reading", tonumber(lateOk.variable), 42)
+T.eq("created writable, so AddVariable's readOnly is false", lateOk.writes[1] and lateOk.writes[1].readOnly, false)
+
+--- The readOnly flag as C4 reports it back, rather than as the driver passed it.
+local function readOnlyFlag(name)
+  for _, variable in pairs(C4:GetDeviceVariables(C4:GetDeviceID())) do
+    if variable.name == name then
+      return variable.readonly
+    end
+  end
+end
+T.eq("C4 reports the variable as writable", readOnlyFlag(numberLate.name), "False")
 
 T.finish()
