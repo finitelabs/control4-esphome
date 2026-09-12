@@ -30,6 +30,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed thermostats and water heaters always showing Fahrenheit. They now follow
   the project's temperature scale, and the Celsius/Fahrenheit setting in
   Composer can be used to override it for an individual thermostat.
+- Fixed thermostats and water heaters keeping their own copy of the
+  Celsius/Fahrenheit choice, which could disagree with the one Control4 holds.
+  The scale is now read back from Control4 whenever it is needed, so a change
+  made in Navigator is picked up straight away.
 - Fixed thermostats and water heaters staying shown as connected after the
   ESPHome device went offline.
 - Fixed an "Error setting default color rate from driver" message in Composer
