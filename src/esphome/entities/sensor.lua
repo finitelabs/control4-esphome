@@ -1,3 +1,4 @@
+require("lib.utils")
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local values = require("lib.values")
@@ -96,10 +97,7 @@ local function sendCachedValue(bindingId, entity, config)
   if cached == nil or cached.value == nil then
     return
   end
-  SendToProxy(bindingId, "VALUE_CHANGED", {
-    VALUE = cached.value,
-    SCALE = getScale(entity, config),
-  })
+  SendToProxy(bindingId, "VALUE_CHANGED", SensorValueParams(cached.value, getScale(entity, config)))
 end
 
 --- Handle the discovery of a sensor entity.
@@ -172,10 +170,7 @@ function SensorEntity:updated(entity, state)
   local binding = bindings:getDynamicBinding(self.TYPE, bindingKey)
   if binding ~= nil then
     lastPushed[bindingKey] = value
-    SendToProxy(binding.bindingId, "VALUE_CHANGED", {
-      VALUE = value,
-      SCALE = getScale(entity, config),
-    })
+    SendToProxy(binding.bindingId, "VALUE_CHANGED", SensorValueParams(value, getScale(entity, config)))
   end
 end
 

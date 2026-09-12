@@ -483,11 +483,7 @@ local function getOrCreateSensorBinding(reading, sensorConfig)
         -- Send cached value
         local cachedValue = values:getValue(displayName)
         if cachedValue and cachedValue.value then
-          local params = {
-            VALUE = cachedValue.value,
-            SCALE = sensorConfig.scale,
-          }
-          SendToProxy(idBinding, "VALUE_CHANGED", params)
+          SendToProxy(idBinding, "VALUE_CHANGED", SensorValueParams(cachedValue.value, sensorConfig.scale))
         end
       end
     end
@@ -507,11 +503,7 @@ local function getOrCreateSensorBinding(reading, sensorConfig)
         -- Send current value when bound
         local cachedValue = values:getValue(displayName)
         if cachedValue and cachedValue.value then
-          local params = {
-            VALUE = cachedValue.value,
-            SCALE = sensorConfig.scale,
-          }
-          SendToProxy(idBinding, "VALUE_CHANGED", params)
+          SendToProxy(idBinding, "VALUE_CHANGED", SensorValueParams(cachedValue.value, sensorConfig.scale))
         end
       end
     end
@@ -530,10 +522,7 @@ local function sendSensorValue(reading, sensorConfig)
   end
 
   log:debug("Sending %s value %s to binding %s", reading.name, reading.value, binding.bindingId)
-  SendToProxy(binding.bindingId, "VALUE_CHANGED", {
-    VALUE = reading.value,
-    SCALE = sensorConfig.scale,
-  })
+  SendToProxy(binding.bindingId, "VALUE_CHANGED", SensorValueParams(reading.value, sensorConfig.scale))
 end
 
 --- Get or create a contact sensor binding.
