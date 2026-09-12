@@ -107,6 +107,14 @@ do
   T.eq("a setpoint handler reads Fahrenheit", CelsiusFromParams({ VALUE = 70.7 }, "F"), 21.5)
 end
 
+do
+  -- Select returns the empty string for SCALE = "" rather than nil, and "" is
+  -- truthy, so an absent-SCALE fallback has to treat it as absent explicitly.
+  T.eq("an empty SCALE falls back like an absent one", CelsiusFromParams({ VALUE = 21.5, SCALE = "" }, "CELSIUS"), 21.5)
+  T.eq("an empty SCALE on a Fahrenheit default", CelsiusFromParams({ VALUE = 70.7, SCALE = "" }, "F"), 21.5)
+  T.eq("an empty SCALE still yields nil with no VALUE", CelsiusFromParams({ SCALE = "" }, "CELSIUS"), nil)
+end
+
 --------------------------------------------------------------------------------
 T.section("Params arriving as strings still parse")
 --------------------------------------------------------------------------------
