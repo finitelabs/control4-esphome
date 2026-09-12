@@ -1,0 +1,274 @@
+<devicedata>
+  <name>ESPHome SereneScent</name>
+  <version/>
+  <manufacturer>Finite Labs</manufacturer>
+  <model>ESPHome SereneScent</model>
+  <creator>Josh Bernstein</creator>
+  <control>lua_gen</control>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026. All rights reserved.</copyright>
+  <created>03/26/2026 12:00:00 PM</created>
+  <modified/>
+  <combo>true</combo>
+  <minimum_os_version>3.3.0</minimum_os_version>
+  <composer_categories>
+    <category>Comfort</category>
+  </composer_categories>
+  <conditionals/>
+  <events/>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <properties>
+      <property>
+        <name>Driver Settings</name>
+        <type>LABEL</type>
+        <default>Driver Settings</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <default>3 - Info</default>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+      </property>
+     <property>
+        <name>Polling Interval</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>1</minimum>
+        <maximum>10</maximum>
+        <default>5</default>
+      </property>
+      <property>
+        <name>Detected Capabilities</name>
+        <type>STRING</type>
+        <default>Not detected</default>
+        <readonly>true</readonly>
+      </property>
+      <!-- Device State (read-only, updated automatically) -->
+      <property>
+        <name>Device State</name>
+        <type>LABEL</type>
+        <default>Device State</default>
+      </property>
+      <property>
+        <name>Power</name>
+        <type>STRING</type>
+        <default>Off</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Intensity</name>
+        <type>STRING</type>
+        <default>low</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Color</name>
+        <type>STRING</type>
+        <default>white</default>
+        <readonly>true</readonly>
+      </property>
+      <!-- Device Info -->
+      <property>
+        <name>Device Info</name>
+        <type>LABEL</type>
+        <default>Device Info</default>
+      </property>
+      <property>
+        <name>Device Name</name>
+        <type>STRING</type>
+        <default>Unknown</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>MAC Address</name>
+        <type>STRING</type>
+        <default>Unknown</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>RSSI</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Last Seen</name>
+        <type>STRING</type>
+        <default>Never</default>
+        <readonly>true</readonly>
+      </property>
+    </properties>
+    <actions>
+      <action>
+        <name>Power On</name>
+        <command>Power_On</command>
+      </action>
+      <action>
+        <name>Power Off</name>
+        <command>Power_Off</command>
+      </action>
+      <action>
+        <name>Toggle Power</name>
+        <command>Toggle_Power</command>
+      </action>
+      <action>
+        <name>Set Intensity</name>
+        <command>Set_Intensity</command>
+        <params>
+          <param>
+            <name>Level</name>
+            <type>LIST</type>
+            <items>
+              <item>low</item>
+              <item>medium</item>
+              <item>high</item>
+            </items>
+          </param>
+        </params>
+      </action>
+      <action>
+        <name>Set Color</name>
+        <command>Set_Color</command>
+        <params>
+          <param>
+            <name>Color</name>
+            <type>LIST</type>
+            <items>
+              <item>off</item>
+              <item>rotating</item>
+              <item>white</item>
+              <item>red</item>
+              <item>blue</item>
+              <item>violet</item>
+              <item>green</item>
+              <item>orange</item>
+            </items>
+          </param>
+        </params>
+      </action>
+      <action>
+        <name>Detect Capabilities</name>
+        <command>Detect_Capabilities</command>
+      </action>
+      <action>
+        <name>Request Status</name>
+        <command>Request_Status</command>
+      </action>
+      <action>
+        <name>Reset Driver</name>
+        <command>Reset_Driver</command>
+        <params>
+          <param>
+            <name>Are You Sure?</name>
+            <type>LIST</type>
+            <items>
+              <item>No</item>
+              <item>Yes</item>
+            </items>
+          </param>
+        </params>
+      </action>
+    </actions>
+    <commands>
+      <command>
+        <name>Power On</name>
+        <description>Turn on the SereneScent diffuser</description>
+      </command>
+      <command>
+        <name>Power Off</name>
+        <description>Turn off the SereneScent diffuser</description>
+      </command>
+      <command>
+        <name>Toggle Power</name>
+        <description>Toggle the SereneScent diffuser on or off</description>
+      </command>
+      <command>
+        <name>Set Intensity</name>
+        <description>Set diffuser intensity to PARAM1</description>
+        <params>
+          <param>
+            <name>Level</name>
+            <type>DYNAMIC_LIST</type>
+          </param>
+        </params>
+      </command>
+      <command>
+        <name>Set Color</name>
+        <description>Set diffuser light color to PARAM1</description>
+        <params>
+          <param>
+            <name>Color</name>
+            <type>DYNAMIC_LIST</type>
+          </param>
+        </params>
+      </command>
+      <command>
+        <name>Request Status</name>
+        <description>Request immediate status update from the diffuser</description>
+      </command>
+      <command>
+        <name>Set Polling Interval</name>
+        <description>Set the polling interval for NAME to PARAM1 minutes</description>
+        <params>
+          <param>
+            <name>Interval</name>
+            <type>RANGED_INTEGER</type>
+            <minimum>1</minimum>
+            <maximum>10</maximum>
+          </param>
+        </params>
+      </command>
+    </commands>
+  </config>
+  <proxies/>
+  <connections>
+    <connection>
+      <id>5002</id>
+      <facing>6</facing>
+      <connectionname>ESPHome SereneScent</connectionname>
+      <type>2</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>ESPHOME_SERENESCENT</classname>
+        </class>
+      </classes>
+      <hidden>False</hidden>
+    </connection>
+  </connections>
+</devicedata>

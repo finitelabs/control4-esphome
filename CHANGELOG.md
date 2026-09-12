@@ -22,6 +22,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added ESPHome SereneScent sub-driver for Homedics SereneScent BLE diffusers
+  with power, intensity, color control, and automatic status polling
+
 ### Fixed
 
 - Fixed an automatic update sometimes leaving companion drivers on the previous
