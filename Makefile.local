@@ -1,22 +1,13 @@
-# Project-specific build targets for the esphome driver, kept out of the
-# template-managed Makefile so `copier update` never clobbers them. Hooked in by
-# the `-include Makefile.local` line at the end of the Makefile.
+# Kept out of Makefile so `copier update` cannot clobber these.
 
-# Regenerate the ESPHome native API protobuf schema (src/esphome/proto_schema.lua)
-# that the runtime uses to encode/decode the connection to the device. Source of
-# truth is upstream ESPHome, not this repo: the generator fetches the two .proto
-# files over HTTP, so ESPHOME_VERSION is the only record of which upstream release
-# the checked-in schema corresponds to. Bumping it is a deliberate act - the API
-# gains messages between releases - so this is kept out of `build`. The generator
-# lives in the sibling lua-protobuf checkout and needs protoc on PATH; override
-# its location with LUA_PROTOBUF=.
-ESPHOME_VERSION ?= 2026.7.2
+# `release` is the ESPHome branch tracking the latest stable release; override to pin a tag.
+ESPHOME_VERSION ?= release
 LUA_PROTOBUF ?= ../lua-protobuf
 ESPHOME_API := https://raw.githubusercontent.com/esphome/esphome/$(ESPHOME_VERSION)/esphome/components/api
 PROTO_SCHEMA := src/esphome/proto_schema.lua
 
 .PHONY: gen-proto
-gen-proto: ## Regenerate src/esphome/proto_schema.lua from the pinned ESPHome API protos
+gen-proto: ## Regenerate src/esphome/proto_schema.lua from the ESPHome API protos
 	@[ -f "$(LUA_PROTOBUF)/Makefile" ] || { echo "lua-protobuf not found at $(LUA_PROTOBUF); set LUA_PROTOBUF=<path>"; exit 1; }
 	@[ -x "$(LUA_PROTOBUF)/.venv/bin/python3" ] || $(MAKE) -C "$(LUA_PROTOBUF)" setup-schema-generator
 	$(MAKE) -C "$(LUA_PROTOBUF)" gen-schema \
