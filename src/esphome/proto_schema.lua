@@ -51,6 +51,7 @@ ProtoSchema.DataType = {
 --- @field wireType ProtoWireType The protobuf wire type (see ProtoSchema.WireType).
 --- @field type ProtoDataType The protobuf type (see ProtoSchema.DataType).
 --- @field repeated boolean? Whether the field is repeated (optional).
+--- @field map boolean? Whether the field is a map, encoded as repeated `subschema` entries (optional).
 --- @field subschema string? The subschema name for nested messages (optional).
 
 --- @class ProtoMessageSchema
