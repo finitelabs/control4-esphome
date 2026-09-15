@@ -605,7 +605,10 @@ local function getOrCreateButtonBinding(reading)
 end
 
 --- Send button event to bound consumers.
---- Sends DO_PUSH followed by DO_CLICK to the event-specific binding.
+--- Sends DO_PUSH followed by DO_CLICK, the pair a Control4 keypad emits for a
+--- tap. DO_CLICK and DO_RELEASE are the two mutually exclusive terminations of a
+--- press, so no DO_RELEASE follows: a ramping load reads one as RELEASE_HOLD and
+--- freezes where the DO_PUSH left it.
 --- @param reading BTHomeReading The BTHome reading with name and index fields
 local function sendButtonEvent(reading)
   -- Get or create the binding for this specific event type
@@ -614,10 +617,9 @@ local function sendButtonEvent(reading)
     return
   end
 
-  log:debug("Sending DO_CLICK and DO_PUSH/DO_RELEASE from binding %s", binding.bindingId)
-  SendToProxy(binding.bindingId, "DO_CLICK", {}, "NOTIFY")
+  log:debug("Sending DO_PUSH then DO_CLICK from binding %s", binding.bindingId)
   SendToProxy(binding.bindingId, "DO_PUSH", {}, "NOTIFY")
-  SendToProxy(binding.bindingId, "DO_RELEASE", {}, "NOTIFY")
+  SendToProxy(binding.bindingId, "DO_CLICK", {}, "NOTIFY")
 end
 
 --------------------------------------------------------------------------------

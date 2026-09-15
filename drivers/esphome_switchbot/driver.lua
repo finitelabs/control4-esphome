@@ -966,7 +966,11 @@ local function getOrCreateButtonBinding(key, displayName)
   return binding
 end
 
---- Send button press event to bound consumers
+--- Send button press event to bound consumers.
+--- Sends DO_PUSH followed by DO_CLICK, the pair a Control4 keypad emits for a
+--- tap. DO_CLICK and DO_RELEASE are the two mutually exclusive terminations of a
+--- press, so no DO_RELEASE follows: a ramping load reads one as RELEASE_HOLD and
+--- freezes where the DO_PUSH left it.
 --- @param key string The binding key (e.g., "contact_button")
 --- @param displayName string The display name for the binding
 local function sendButtonEvent(key, displayName)
@@ -976,10 +980,9 @@ local function sendButtonEvent(key, displayName)
     return
   end
 
-  log:debug("Sending DO_CLICK and DO_PUSH/DO_RELEASE from binding %s", binding.bindingId)
-  SendToProxy(binding.bindingId, "DO_CLICK", {}, "NOTIFY")
+  log:debug("Sending DO_PUSH then DO_CLICK from binding %s", binding.bindingId)
   SendToProxy(binding.bindingId, "DO_PUSH", {}, "NOTIFY")
-  SendToProxy(binding.bindingId, "DO_RELEASE", {}, "NOTIFY")
+  SendToProxy(binding.bindingId, "DO_CLICK", {}, "NOTIFY")
 end
 
 --------------------------------------------------------------------------------
@@ -1487,7 +1490,9 @@ local function registerBotButtonLinkHandler(binding, action)
 
   RFP[binding.bindingId] = function(idBinding, strCommand, _tParams, _args)
     log:trace("RFP[%s](%s, %s, %s, %s) action=%s", binding.bindingId, idBinding, strCommand, _tParams, _args, action)
-    if strCommand ~= "DO_CLICK" and strCommand ~= "DO_PUSH" then
+    -- DO_CLICK alone: a tap arrives as DO_PUSH then DO_CLICK, so acting on both
+    -- runs the action twice for one press.
+    if strCommand ~= "DO_CLICK" then
       return
     end
 
