@@ -137,6 +137,25 @@ ProtoSchema.DataType = {
 --- @field serial_proxies ProtoSerialProxyInfo[]?
 --- @field api_encryption_provisionable boolean?
 
+--- @class ProtoDeviceCapabilitiesRequest
+
+--- @class ProtoBluetoothProxyCapabilities
+--- @field feature_flags number?
+--- @field mac_address string?
+
+--- @class ProtoVoiceAssistantCapabilities
+--- @field feature_flags number?
+
+--- @class ProtoZWaveProxyCapabilities
+--- @field feature_flags number?
+--- @field home_id number?
+
+--- @class ProtoDeviceCapabilitiesResponse
+--- @field bluetooth_proxy ProtoBluetoothProxyCapabilities?
+--- @field voice_assistant ProtoVoiceAssistantCapabilities?
+--- @field zwave_proxy ProtoZWaveProxyCapabilities?
+--- @field serial_proxies ProtoSerialProxyInfo[]?
+
 --- @class ProtoListEntitiesRequest
 
 --- @class ProtoListEntitiesDoneResponse
@@ -2015,6 +2034,101 @@ ProtoSchema.Message.DeviceInfoResponse = {
       name = "api_encryption_provisionable",
       wireType = ProtoSchema.WireType.VARINT,
       type = ProtoSchema.DataType.BOOL,
+    },
+  },
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.DeviceCapabilitiesRequest = {
+  name = "DeviceCapabilitiesRequest",
+  options = {
+    id = 149,
+    source = 2,
+  },
+  fields = {},
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.BluetoothProxyCapabilities = {
+  name = "BluetoothProxyCapabilities",
+  options = {},
+  fields = {
+    [1] = {
+      name = "feature_flags",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+    [2] = {
+      name = "mac_address",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.STRING,
+    },
+  },
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.VoiceAssistantCapabilities = {
+  name = "VoiceAssistantCapabilities",
+  options = {},
+  fields = {
+    [1] = {
+      name = "feature_flags",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+  },
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.ZWaveProxyCapabilities = {
+  name = "ZWaveProxyCapabilities",
+  options = {},
+  fields = {
+    [1] = {
+      name = "feature_flags",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+    [2] = {
+      name = "home_id",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+  },
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.DeviceCapabilitiesResponse = {
+  name = "DeviceCapabilitiesResponse",
+  options = {
+    id = 150,
+    source = 1,
+  },
+  fields = {
+    [1] = {
+      name = "bluetooth_proxy",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.MESSAGE,
+      subschema = "BluetoothProxyCapabilities",
+    },
+    [2] = {
+      name = "voice_assistant",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.MESSAGE,
+      subschema = "VoiceAssistantCapabilities",
+    },
+    [3] = {
+      name = "zwave_proxy",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.MESSAGE,
+      subschema = "ZWaveProxyCapabilities",
+    },
+    [4] = {
+      name = "serial_proxies",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.MESSAGE,
+      repeated = true,
+      subschema = "SerialProxyInfo",
     },
   },
 }
@@ -5386,7 +5500,7 @@ ProtoSchema.Message.BluetoothDeviceRequest = {
   options = {
     id = 68,
     source = 2,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5418,7 +5532,7 @@ ProtoSchema.Message.BluetoothDeviceConnectionResponse = {
   options = {
     id = 69,
     source = 1,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5450,7 +5564,7 @@ ProtoSchema.Message.BluetoothGATTGetServicesRequest = {
   options = {
     id = 70,
     source = 2,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5558,7 +5672,7 @@ ProtoSchema.Message.BluetoothGATTGetServicesResponse = {
   options = {
     id = 71,
     source = 1,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5582,7 +5696,7 @@ ProtoSchema.Message.BluetoothGATTGetServicesDoneResponse = {
   options = {
     id = 72,
     source = 1,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5599,7 +5713,7 @@ ProtoSchema.Message.BluetoothGATTReadRequest = {
   options = {
     id = 73,
     source = 2,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5621,7 +5735,7 @@ ProtoSchema.Message.BluetoothGATTReadResponse = {
   options = {
     id = 74,
     source = 1,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5648,7 +5762,7 @@ ProtoSchema.Message.BluetoothGATTWriteRequest = {
   options = {
     id = 75,
     source = 2,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5680,7 +5794,7 @@ ProtoSchema.Message.BluetoothGATTReadDescriptorRequest = {
   options = {
     id = 76,
     source = 2,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5702,7 +5816,7 @@ ProtoSchema.Message.BluetoothGATTWriteDescriptorRequest = {
   options = {
     id = 77,
     source = 2,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5729,7 +5843,7 @@ ProtoSchema.Message.BluetoothGATTNotifyRequest = {
   options = {
     id = 78,
     source = 2,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5756,7 +5870,7 @@ ProtoSchema.Message.BluetoothGATTNotifyDataResponse = {
   options = {
     id = 79,
     source = 1,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5783,7 +5897,7 @@ ProtoSchema.Message.SubscribeBluetoothConnectionsFreeRequest = {
   options = {
     id = 80,
     source = 2,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {},
 }
@@ -5794,7 +5908,7 @@ ProtoSchema.Message.BluetoothConnectionsFreeResponse = {
   options = {
     id = 81,
     source = 1,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5822,7 +5936,7 @@ ProtoSchema.Message.BluetoothGATTErrorResponse = {
   options = {
     id = 82,
     source = 1,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5849,7 +5963,7 @@ ProtoSchema.Message.BluetoothGATTWriteResponse = {
   options = {
     id = 83,
     source = 1,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5871,7 +5985,7 @@ ProtoSchema.Message.BluetoothGATTNotifyResponse = {
   options = {
     id = 84,
     source = 1,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5893,7 +6007,7 @@ ProtoSchema.Message.BluetoothDevicePairingResponse = {
   options = {
     id = 85,
     source = 1,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5920,7 +6034,7 @@ ProtoSchema.Message.BluetoothDeviceUnpairingResponse = {
   options = {
     id = 86,
     source = 1,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -5958,7 +6072,7 @@ ProtoSchema.Message.BluetoothDeviceClearCacheResponse = {
   options = {
     id = 88,
     source = 1,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -7882,7 +7996,7 @@ ProtoSchema.Message.BluetoothSetConnectionParamsRequest = {
   options = {
     id = 145,
     source = 2,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -7919,7 +8033,7 @@ ProtoSchema.Message.BluetoothSetConnectionParamsResponse = {
   options = {
     id = 146,
     source = 1,
-    ifdef = "USE_BLUETOOTH_PROXY",
+    ifdef = "USE_BLUETOOTH_PROXY_CONNECTIONS",
   },
   fields = {
     [1] = {
@@ -7960,6 +8074,12 @@ ProtoSchema.RPC.APIConnection = {
     method = "device_info",
     inputType = ProtoSchema.Message.DeviceInfoRequest,
     outputType = ProtoSchema.Message.DeviceInfoResponse,
+  },
+  device_capabilities = {
+    service = "APIConnection",
+    method = "device_capabilities",
+    inputType = ProtoSchema.Message.DeviceCapabilitiesRequest,
+    outputType = ProtoSchema.Message.DeviceCapabilitiesResponse,
   },
   list_entities = {
     service = "APIConnection",
