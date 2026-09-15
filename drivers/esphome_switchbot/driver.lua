@@ -298,6 +298,8 @@ local notificationsSubscribing = false
 local DISCONNECT_DELAY_MS = 4000
 --- @type integer
 local PRESS_REVERT_DELAY_MS = 5000
+--- @type integer
+local BUTTON_LINK_COALESCE_MS = 500
 
 -- Encryption state (runtime only)
 --- @type string|nil
@@ -1487,13 +1489,31 @@ local function registerBotButtonLinkHandler(binding, action)
     return
   end
 
+  local coalescing = false
+
   RFP[binding.bindingId] = function(idBinding, strCommand, _tParams, _args)
     log:trace("RFP[%s](%s, %s, %s, %s) action=%s", binding.bindingId, idBinding, strCommand, _tParams, _args, action)
-    -- A tap arrives as DO_PUSH then DO_CLICK, so acting on both would run the
-    -- action twice for one press.
-    if strCommand ~= "DO_CLICK" then
+    if strCommand ~= "DO_CLICK" and strCommand ~= "DO_PUSH" then
       return
     end
+
+    -- Senders disagree on which of the pair they emit: some send only DO_CLICK,
+    -- some only DO_PUSH, and a keypad tap sends DO_PUSH then DO_CLICK. Acting on
+    -- the first of a burst and ignoring the rest of the window runs the action
+    -- once per tap for all three, whichever command arrives first.
+    if coalescing then
+      log:debug(
+        "Ignoring %s within %dms of the last button action on '%s' binding",
+        strCommand,
+        BUTTON_LINK_COALESCE_MS,
+        binding.displayName
+      )
+      return
+    end
+    coalescing = true
+    SetTimer("BotButtonLinkCoalesce" .. binding.bindingId, BUTTON_LINK_COALESCE_MS, function()
+      coalescing = false
+    end)
 
     log:info("Button action %s received on '%s' binding", action, binding.displayName)
     if action == "on" or action == "press" then

@@ -9,8 +9,13 @@
 -- DO_RELEASE are the two mutually exclusive terminations of a press, DO_RELEASE
 -- being the one that ends a hold, so a sender emitting all three drives a
 -- ramping load through PRESS, RELEASE_CLICK and RELEASE_HOLD in turn and the
--- last of those freezes the ramp where the first left it. Symmetrically, a
--- receiver acting on DO_CLICK *or* DO_PUSH runs its action twice for one tap.
+-- last of those freezes the ramp where the first left it.
+--
+-- The receive side cannot mirror that by narrowing to one command, because
+-- senders disagree on which of the pair they emit: some send only DO_CLICK,
+-- some only DO_PUSH. A discrete receiver instead acts on whichever arrives
+-- first and ignores the rest of a short window, which is one action per tap for
+-- every sender shape.
 --
 -- The senders are file-local functions in drivers/*/driver.lua, and a driver.lua
 -- cannot be loaded far enough to reach them (see test_sensor_binding_params.lua).
@@ -237,14 +242,36 @@ T.section("the switchbot bot handler fires once for a tap")
 local registrar = extract(switchbot, "registerBotButtonLinkHandler")
 T.check("registerBotButtonLinkHandler was cut out of the source", registrar ~= nil, "no match, or it did not compile")
 
+-- Read the real window out of the driver rather than restating it here. Feeding
+-- the declared value in as the upvalue is what lets the delay assertion below
+-- mean something: it fails if the handler arms a literal of its own instead of
+-- the constant, and stays true when the constant is retuned.
+local coalesceMs = tonumber(switchbot:match("\nlocal BUTTON_LINK_COALESCE_MS%s*=%s*(%d+)\n"))
+T.check("the coalescing window constant was found in the driver", coalesceMs ~= nil, "no declaration matched")
+T.check("the coalescing window is a positive duration", coalesceMs ~= nil and coalesceMs > 0, tostring(coalesceMs))
+
 if registrar then
-  --- Register a handler for `action` and return it alongside its call counters.
+  --- Register a handler for `action`.
+  ---
+  --- The coalescing window is driven by SetTimer, which is stubbed here so the
+  --- window closes exactly when the test says it does rather than on wall clock.
+  --- `expire()` runs the pending callback, standing in for the timer firing.
+  ---
+  --- @return function handler, table fired, function expire, table timers
   local function handlerFor(action)
     local fired = { on = 0, off = 0, toggle = 0 }
     local RFP = {}
+    local timers = { set = 0, pending = nil, ids = {}, delays = {} }
     local register = callIn(select(1, extract(switchbot, "registerBotButtonLinkHandler")), {
       log = newLog(),
       RFP = RFP,
+      BUTTON_LINK_COALESCE_MS = coalesceMs,
+      SetTimer = function(id, delay, fn)
+        timers.set = timers.set + 1
+        timers.pending = fn
+        table.insert(timers.ids, id)
+        table.insert(timers.delays, delay)
+      end,
       turnOn = function()
         fired.on = fired.on + 1
       end,
@@ -256,7 +283,14 @@ if registrar then
       end,
     })
     register({ bindingId = BINDING_ID, displayName = "Press" }, action)
-    return RFP[BINDING_ID], fired
+    local function expire()
+      local fn = timers.pending
+      timers.pending = nil
+      if fn then
+        fn()
+      end
+    end
+    return RFP[BINDING_ID], fired, expire, timers
   end
 
   local function tap(handler)
@@ -264,27 +298,56 @@ if registrar then
     handler(BINDING_ID, "DO_CLICK", {}, nil)
   end
 
-  local press, pressed = handlerFor("press")
+  local press, pressed, pressExpire, pressTimers = handlerFor("press")
   T.check("a press binding registers a handler", press ~= nil, "nothing landed in RFP")
 
   if press then
     tap(press)
     T.eq("one tap turns the bot on exactly once", pressed.on, 1)
 
-    -- Asserted separately so a handler that had simply stopped responding could
-    -- not pass the count above.
+    -- The suppression must be the window, not a command filter: exactly one
+    -- timer was armed, and it was armed by the first command of the pair.
+    T.eq("one tap arms the coalescing window once", pressTimers.set, 1)
+    T.eq("the window armed is the driver's declared constant", pressTimers.delays[1], coalesceMs)
+
+    -- A second tap after the window closes is a second action. Without this the
+    -- handler could latch permanently and still pass every count above.
+    pressExpire()
+    tap(press)
+    T.eq("a tap after the window closes fires again", pressed.on, 2)
+
+    -- Derek's case, and the reason the receive side cannot narrow to one
+    -- command: a sender emitting only one half must still drive the bot.
     local pushOnly, pushFired = handlerFor("press")
     pushOnly(BINDING_ID, "DO_PUSH", {}, nil)
-    T.eq("DO_PUSH on its own does nothing", pushFired.on, 0)
+    T.eq("a DO_PUSH-only sender fires the action", pushFired.on, 1)
 
     local clickOnly, clickFired = handlerFor("press")
     clickOnly(BINDING_ID, "DO_CLICK", {}, nil)
-    T.eq("DO_CLICK on its own is what fires", clickFired.on, 1)
+    T.eq("a DO_CLICK-only sender fires the action", clickFired.on, 1)
 
-    local held, heldFired = handlerFor("press")
+    -- Order-independence. A sender emitting the pair backwards (which is what
+    -- our own senders did before this change) must still fire exactly once.
+    local reversed, reversedFired = handlerFor("press")
+    reversed(BINDING_ID, "DO_CLICK", {}, nil)
+    reversed(BINDING_ID, "DO_PUSH", {}, nil)
+    T.eq("a reversed pair fires exactly once", reversedFired.on, 1)
+
+    -- A hold is DO_PUSH then DO_RELEASE. The push is a real button-down and
+    -- fires; DO_RELEASE is not a command this receiver acts on at all.
+    local held, heldFired, heldExpire = handlerFor("press")
     held(BINDING_ID, "DO_PUSH", {}, nil)
     held(BINDING_ID, "DO_RELEASE", {}, nil)
-    T.eq("a hold does not fire the action", heldFired.on, 0)
+    T.eq("a hold fires once, on the push", heldFired.on, 1)
+    heldExpire()
+    held(BINDING_ID, "DO_RELEASE", {}, nil)
+    T.eq("DO_RELEASE on its own never fires", heldFired.on, 1)
+
+    -- An unrelated command is still ignored, and must not arm the window.
+    local other, otherFired, _, otherTimers = handlerFor("press")
+    other(BINDING_ID, "DO_SOMETHING_ELSE", {}, nil)
+    T.eq("an unrelated command does not fire", otherFired.on, 0)
+    T.eq("an unrelated command does not arm the window", otherTimers.set, 0)
   end
 
   -- Every action the registrar dispatches, so a narrowing applied to one branch
