@@ -40,7 +40,6 @@ C4.SendToProxy = function(_, idBinding, strCommand, tParams, strMessage)
   table.insert(sends, { idBinding = idBinding, command = strCommand, params = tParams, message = strMessage })
 end
 
---- The commands in `sends`, in order.
 local function commands()
   local out = {}
   for _, send in ipairs(sends) do
@@ -71,8 +70,7 @@ end
 --- Cut `local function <name>(...) ... end` out of a source and compile it.
 ---
 --- The closing `end` is matched anchored to the start of a line, which is the
---- only one at column zero: every `end` inside the body is indented. Names the
---- chunk after the file it came from so a syntax error points back at it.
+--- only one at column zero: every `end` inside the body is indented.
 ---
 --- @return function|nil fn, string text The compiled function and its source.
 local function extract(src, name)
@@ -80,8 +78,6 @@ local function extract(src, name)
   if not text then
     return nil, ""
   end
-  -- The cut text declares the function as a local, which would fall out of scope
-  -- at the end of the chunk, so the chunk returns it.
   local chunk = loadstring(text .. "\nreturn " .. name, "=" .. name)
   return chunk, text
 end
@@ -107,8 +103,6 @@ T.check("the switchbot source was read", switchbot ~= nil, "missing")
 T.section("each sender emits DO_PUSH then DO_CLICK, and nothing else")
 --------------------------------------------------------------------------------
 
--- Both senders take the binding from a getOrCreateButtonBinding of their own and
--- differ only in its arguments, so each is driven through its own signature.
 local SENDERS = {
   {
     what = "bthome",
@@ -134,9 +128,8 @@ for _, case in ipairs(SENDERS) do
   local chunk, text = extract(case.src, "sendButtonEvent")
   T.check(case.what .. ": sendButtonEvent was cut out of the source", chunk ~= nil, "no match, or it did not compile")
 
-  -- Without this the extraction could have matched some other function body and
-  -- still have emitted nothing, which is indistinguishable from the bug being
-  -- fixed by deletion.
+  -- A cut that matched the wrong body would emit nothing, which is
+  -- indistinguishable from the bug being fixed by deletion.
   T.check(case.what .. ": the cut text sends", text:find("SendToProxy", 1, true) ~= nil, text)
 
   if chunk then
@@ -165,9 +158,7 @@ for _, case in ipairs(SENDERS) do
       T.eq(case.what .. ": " .. send.command .. " is a NOTIFY", send.message, "NOTIFY")
     end
 
-    --------------------------------------------------------------------------------
     -- A sender that finds no binding must not send at all.
-    --------------------------------------------------------------------------------
     local noBinding = callIn(select(1, extract(case.src, "sendButtonEvent")), {
       log = newLog(),
       getOrCreateButtonBinding = function()
@@ -268,7 +259,6 @@ if registrar then
     return RFP[BINDING_ID], fired
   end
 
-  --- Deliver one keypad tap: DO_PUSH, then DO_CLICK.
   local function tap(handler)
     handler(BINDING_ID, "DO_PUSH", {}, nil)
     handler(BINDING_ID, "DO_CLICK", {}, nil)
@@ -281,8 +271,8 @@ if registrar then
     tap(press)
     T.eq("one tap turns the bot on exactly once", pressed.on, 1)
 
-    -- The half of the tap that used to fire on its own. Asserted separately so a
-    -- handler that had simply stopped responding could not pass the count above.
+    -- Asserted separately so a handler that had simply stopped responding could
+    -- not pass the count above.
     local pushOnly, pushFired = handlerFor("press")
     pushOnly(BINDING_ID, "DO_PUSH", {}, nil)
     T.eq("DO_PUSH on its own does nothing", pushFired.on, 0)
@@ -291,8 +281,6 @@ if registrar then
     clickOnly(BINDING_ID, "DO_CLICK", {}, nil)
     T.eq("DO_CLICK on its own is what fires", clickFired.on, 1)
 
-    -- A hold, which terminates in DO_RELEASE rather than DO_CLICK, is not a tap
-    -- and must not run the action.
     local held, heldFired = handlerFor("press")
     held(BINDING_ID, "DO_PUSH", {}, nil)
     held(BINDING_ID, "DO_RELEASE", {}, nil)

@@ -969,8 +969,7 @@ end
 --- Send button press event to bound consumers.
 --- Sends DO_PUSH followed by DO_CLICK, the pair a Control4 keypad emits for a
 --- tap. DO_CLICK and DO_RELEASE are the two mutually exclusive terminations of a
---- press, so no DO_RELEASE follows: a ramping load reads one as RELEASE_HOLD and
---- freezes where the DO_PUSH left it.
+--- press, so no DO_RELEASE follows.
 --- @param key string The binding key (e.g., "contact_button")
 --- @param displayName string The display name for the binding
 local function sendButtonEvent(key, displayName)
@@ -1490,8 +1489,8 @@ local function registerBotButtonLinkHandler(binding, action)
 
   RFP[binding.bindingId] = function(idBinding, strCommand, _tParams, _args)
     log:trace("RFP[%s](%s, %s, %s, %s) action=%s", binding.bindingId, idBinding, strCommand, _tParams, _args, action)
-    -- DO_CLICK alone: a tap arrives as DO_PUSH then DO_CLICK, so acting on both
-    -- runs the action twice for one press.
+    -- A tap arrives as DO_PUSH then DO_CLICK, so acting on both would run the
+    -- action twice for one press.
     if strCommand ~= "DO_CLICK" then
       return
     end

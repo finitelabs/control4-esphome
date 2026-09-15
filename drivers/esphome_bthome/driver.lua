@@ -607,8 +607,7 @@ end
 --- Send button event to bound consumers.
 --- Sends DO_PUSH followed by DO_CLICK, the pair a Control4 keypad emits for a
 --- tap. DO_CLICK and DO_RELEASE are the two mutually exclusive terminations of a
---- press, so no DO_RELEASE follows: a ramping load reads one as RELEASE_HOLD and
---- freezes where the DO_PUSH left it.
+--- press, so no DO_RELEASE follows.
 --- @param reading BTHomeReading The BTHome reading with name and index fields
 local function sendButtonEvent(reading)
   -- Get or create the binding for this specific event type
