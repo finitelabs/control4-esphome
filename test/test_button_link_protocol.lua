@@ -180,21 +180,29 @@ end
 T.section("no sender anywhere emits DO_RELEASE")
 --------------------------------------------------------------------------------
 
--- Scanned over every driver rather than the two edited here, so the triple
--- cannot be reintroduced elsewhere. Sends only: esphome_light and tplink_light
--- legitimately *receive* DO_RELEASE as RELEASE_HOLD, and those are RFP handlers,
--- not SendToProxy calls.
-local function ls(dir)
-  local names = {}
-  local pipe = io.popen(string.format("ls %q 2>/dev/null", dir))
+-- Scanned over every driver and every src module, so the triple cannot be
+-- reintroduced elsewhere; entities/event.lua is a sender too. Sends only:
+-- esphome_light and tplink_light legitimately *receive* DO_RELEASE as
+-- RELEASE_HOLD, and those are RFP handlers, not SendToProxy calls.
+local function lines(command)
+  local out = {}
+  local pipe = io.popen(command)
   if not pipe then
-    return names
+    return out
   end
-  for name in pipe:lines() do
-    table.insert(names, name)
+  for line in pipe:lines() do
+    table.insert(out, line)
   end
   pipe:close()
-  return names
+  return out
+end
+
+local sources = {}
+for _, name in ipairs(lines(string.format("ls %q 2>/dev/null", root .. "/drivers"))) do
+  table.insert(sources, { name = name, path = root .. "/drivers/" .. name .. "/driver.lua" })
+end
+for _, path in ipairs(lines(string.format("find %q -name '*.lua' 2>/dev/null", root .. "/src"))) do
+  table.insert(sources, { name = path:match("/(src/.*)$") or path, path = path })
 end
 
 local function stripComments(src)
@@ -205,12 +213,17 @@ local function stripComments(src)
   return table.concat(out, "\n")
 end
 
-local scanned, releaseSends, unreadable = 0, 0, 0
-for _, name in ipairs(ls(root .. "/drivers")) do
-  local body = readFile(root .. "/drivers/" .. name .. "/driver.lua")
+local scanned, scannedSrc, releaseSends, unreadable = 0, 0, 0, 0
+for _, source in ipairs(sources) do
+  local name = source.name
+  local body = readFile(source.path)
   if body then
+    if name:find("^src/") then
+      scannedSrc = scannedSrc + 1
+    end
     scanned = scanned + 1
-    local src = stripComments(body)
+    -- lib/utils.lua forwards the name as a string to C4Call; that is not a call.
+    local src = (stripComments(body):gsub('"SendToProxy"', '""'))
     for _ in src:gmatch("SendToProxy") do
       unreadable = unreadable + 1
     end
@@ -225,8 +238,9 @@ for _, name in ipairs(ls(root .. "/drivers")) do
 end
 
 -- A rename or a moved tree that stopped matching would otherwise pass silently.
-T.check("the scan read some drivers", scanned > 0, scanned)
-T.eq("no driver sends DO_RELEASE", releaseSends, 0)
+T.check("the scan read some drivers", scanned > scannedSrc, scanned)
+T.check("the scan read the src modules", scannedSrc > 0, scannedSrc)
+T.eq("nothing sends DO_RELEASE", releaseSends, 0)
 T.check(
   "every SendToProxy occurrence was read as a call",
   unreadable == 0,
