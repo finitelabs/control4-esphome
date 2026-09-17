@@ -487,15 +487,20 @@ the matching read-only Device Info properties.
 | Cover         | `CONTACT_SENSOR`                | Open/closed state contacts                                        |
 | Cover         | `RELAY`                         | Open/close/stop control relays                                    |
 | Button        | `BUTTON_LINK`                   | Allows other devices to trigger button                            |
+| Event         | `BUTTON_LINK`                   | One connection per event type, triggers other devices             |
 | Climate       | `ESPHOME_CLIMATE`               | Bind to ESPHome Climate sub-driver [\*\*](#climate-services-note) |
 | Fan           | `ESPHOME_FAN_N_SPEED[_REVERSE]` | Bind to ESPHome Fan sub-driver                                    |
 | Light         | `ESPHOME_LIGHT`                 | Bind to ESPHome Light sub-driver                                  |
 | Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver                                   |
 | Water Heater  | `ESPHOME_CLIMATE`               | Bind to ESPHome Climate sub-driver                                |
 
-> **Note:** Sensor, Number, Select, Text, Text Sensor, Date, Time, Datetime, and
-> Event entities do not create bindings. They expose data only through variables
-> and events.
+> **Note:** Sensor, Number, Select, Text, Text Sensor, Date, Time and Datetime
+> entities do not create bindings. They expose data only through variables and
+> events.
+
+> **Note:** The Button and Event binding classes are the same but point opposite
+> ways. A Button binding lets another device press the ESPHome button; an Event
+> binding lets the ESPHome device act as a keypad button and drive a load.
 
 > **Note:** Water Heater entities share the `ESPHOME_CLIMATE` binding class and
 > are controlled via the ESPHome Climate sub-driver. Device modes (such as Eco,
@@ -536,8 +541,9 @@ bindings are created separately from the entity bindings above:
 
 > **Note:** Event entities are stateless triggers (button presses, gestures,
 > doorbell rings). Each discovered event type creates a Control4 event that can
-> be used in programming. The `{name} Last Event` variable tracks the most
-> recent event type.
+> be used in programming, plus a `BUTTON_LINK` connection named
+> `{name} {event_type}` that can be bound straight to a load. The
+> `{name} Last Event` variable tracks the most recent event type.
 
 ### Commands
 
@@ -915,37 +921,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
-- Added presets to the climate driver. A preset stores a setpoint, HVAC mode,
-  fan mode and vane position, and can be applied from the app or from
-  programming.
-- Added preset scheduling. Presets can be scheduled by weekday and time. The
-  schedule is kept by Control4, and the driver applies each scheduled preset
-  when Control4 announces it, including when a schedule change alters the preset
-  in force.
-- Added holds. Changing the thermostat by hand, or choosing a preset by hand,
-  holds the new setting until the next scheduled event, which then releases it.
-  Clearing a held preset before then returns to the preset the schedule has in
-  force. The hold options appear once a schedule exists and are withdrawn when
-  the last scheduled event is deleted, since there is then no next event to hold
-  until.
-- Added vane control for climate devices that report swing modes, in the Extras
-  tab.
-
-### Changed
-
-- Climate devices that report a single setpoint now show one setpoint instead of
-  a heat and cool pair. Most heat pumps and mini splits work this way: they hold
-  one target and decide internally whether to heat or cool toward it, so the
-  pair could never be honored. Auto is unaffected. A preset saved before this
-  release that carried a separate heat and cool value still works: the driver
-  uses whichever of the two suits the mode. The preset editor no longer offers
-  the second field, so re-saving such a preset keeps only the one setpoint.
-- The climate driver's humidity output has moved to a different connection. This
-  is a breaking change: if you had the humidity output connected to anything,
-  that connection is lost when you update and has to be made again. The move was
-  necessary because the position it previously occupied is the first slot the
-  driver uses for connections it creates itself, so a driver that created one
-  could remove the humidity connection without warning.
+- Added a button connection for each event type an ESPHome event entity
+  declares, so a touch button or gesture on the device can drive a light, scene
+  or any other load directly, without Programming.
 
 ### Fixed
 

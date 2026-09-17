@@ -22,37 +22,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
-- Added presets to the climate driver. A preset stores a setpoint, HVAC mode,
-  fan mode and vane position, and can be applied from the app or from
-  programming.
-- Added preset scheduling. Presets can be scheduled by weekday and time. The
-  schedule is kept by Control4, and the driver applies each scheduled preset
-  when Control4 announces it, including when a schedule change alters the preset
-  in force.
-- Added holds. Changing the thermostat by hand, or choosing a preset by hand,
-  holds the new setting until the next scheduled event, which then releases it.
-  Clearing a held preset before then returns to the preset the schedule has in
-  force. The hold options appear once a schedule exists and are withdrawn when
-  the last scheduled event is deleted, since there is then no next event to hold
-  until.
-- Added vane control for climate devices that report swing modes, in the Extras
-  tab.
-
-### Changed
-
-- Climate devices that report a single setpoint now show one setpoint instead of
-  a heat and cool pair. Most heat pumps and mini splits work this way: they hold
-  one target and decide internally whether to heat or cool toward it, so the
-  pair could never be honored. Auto is unaffected. A preset saved before this
-  release that carried a separate heat and cool value still works: the driver
-  uses whichever of the two suits the mode. The preset editor no longer offers
-  the second field, so re-saving such a preset keeps only the one setpoint.
-- The climate driver's humidity output has moved to a different connection. This
-  is a breaking change: if you had the humidity output connected to anything,
-  that connection is lost when you update and has to be made again. The move was
-  necessary because the position it previously occupied is the first slot the
-  driver uses for connections it creates itself, so a driver that created one
-  could remove the humidity connection without warning.
+- Added a button connection for each event type an ESPHome event entity
+  declares, so a touch button or gesture on the device can drive a light, scene
+  or any other load directly, without Programming.
 
 ### Fixed
 
