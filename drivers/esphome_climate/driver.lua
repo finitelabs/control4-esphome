@@ -972,6 +972,18 @@ local function stateNumber(state, name, reported)
   return value
 end
 
+--- @param list any[]|nil
+--- @param value any
+--- @return boolean
+local function listHas(list, value)
+  for _, item in ipairs(list or {}) do
+    if item == value then
+      return true
+    end
+  end
+  return false
+end
+
 function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   log:trace("RFP.UPDATE_STATE(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
   if idBinding ~= ESPHOME_BINDING then
@@ -1093,7 +1105,10 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- Fan mode
-  local fanMode = tointeger(Select(state, "fan_mode"))
+  -- ESPHome also leaves fan_mode off when the unit has none set, so a missing one
+  -- is read as On (0) only where On is one of the unit's fan modes.
+  local fanOn = ESPHomeProtoSchema.Enum.ClimateFanMode.CLIMATE_FAN_ON
+  local fanMode = tointeger(stateNumber(state, "fan_mode", listHas(entity.supported_fan_modes, fanOn)))
   local customFanMode = Select(state, "custom_fan_mode")
   if customFanMode ~= nil and customFanMode ~= "" then
     SendToProxy(PROXY_BINDING, "FAN_MODE_CHANGED", { MODE = customFanMode }, "NOTIFY")

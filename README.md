@@ -929,8 +929,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   ESPHome device went offline.
 - Fixed a thermostat staying on its last mode after the unit was turned off
   outside Control4, for example with its own remote. It now shows Off, and a
-  unit that reports whether it is heating or cooling shows when that stops. A
-  temperature of exactly 0°C or a humidity of 0% is no longer ignored either.
+  unit that reports whether it is heating or cooling shows when that stops. The
+  same applied to switching the fan to On, and to a temperature of exactly 0°C
+  or a humidity of 0%, which are now shown too.
 - Fixed an "Error setting default color rate from driver" message in Composer
   when opening the properties of an ESPHome light.
 - Fixed Composer's test panel greying out the dimming controls for ESPHome
