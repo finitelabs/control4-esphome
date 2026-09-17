@@ -1036,12 +1036,13 @@ function ToCelsius(value, scale)
     return nil
   end
   local letter = TemperatureScaleLetter(scale)
+  -- The conversions can overflow a finite input to infinity.
   if letter == "C" then
-    return value
+    return tofinite(value)
   elseif letter == "F" then
-    return f2c(value)
+    return tofinite(f2c(value))
   elseif letter == "K" then
-    return round(value - 273.15, 1)
+    return tofinite(round(value - 273.15, 1))
   end
   return nil
 end
@@ -1051,10 +1052,14 @@ end
 --- C4-THERM reads a bound sensor from CELSIUS, requires TIMESTAMP, and drops
 --- readings older than 15 minutes; VALUE/SCALE consumers read the rest. VALUE
 --- stays in the measured scale so existing consumers are unaffected.
+--- A non-finite value is dropped, as a nil one is.
 --- @param value number The measured value.
 --- @param scale string|nil The scale of `value` (e.g. "CELSIUS", "PERCENT").
 --- @return table params
 function SensorValueParams(value, scale)
+  if type(value) == "number" and tofinite(value) == nil then
+    value = nil
+  end
   local params = {
     VALUE = value,
     SCALE = scale,
@@ -1063,7 +1068,7 @@ function SensorValueParams(value, scale)
   local celsius = ToCelsius(value, scale)
   if celsius ~= nil then
     params.CELSIUS = celsius
-    params.FAHRENHEIT = c2f(celsius)
+    params.FAHRENHEIT = tofinite(c2f(celsius))
   end
   return params
 end
@@ -1071,18 +1076,21 @@ end
 --- Read a Celsius temperature out of VALUE_CHANGED params, accepting every key
 --- convention in use: CELSIUS, FAHRENHEIT, or VALUE carrying a SCALE.
 --- @param tParams table|nil The params as received.
---- @param defaultScale string The scale to read VALUE in when SCALE is absent. Sensor bindings report Celsius; the thermostat proxy sends Fahrenheit.
+--- @param defaultScale string The scale to read VALUE in when SCALE is absent
+--- or blank. A thermostat proxy setpoint carries CELSIUS, FAHRENHEIT and KELVIN
+--- together, so only a bare VALUE, as a sensor binding sends, reaches it.
 --- @return number|nil celsius
 function CelsiusFromParams(tParams, defaultScale)
-  local celsius = tonumber_expect_period(Select(tParams, "CELSIUS"))
+  -- tonumber parses "nan" and "1e999" as non-finite numbers, not nil.
+  local celsius = tofinite(tonumber_expect_period(Select(tParams, "CELSIUS")))
   if celsius ~= nil then
     return celsius
   end
-  local fahrenheit = tonumber_expect_period(Select(tParams, "FAHRENHEIT"))
+  local fahrenheit = tofinite(tonumber_expect_period(Select(tParams, "FAHRENHEIT")))
   if fahrenheit ~= nil then
-    return f2c(fahrenheit)
+    return ToCelsius(fahrenheit, "F")
   end
-  local value = tonumber_expect_period(Select(tParams, "VALUE"))
+  local value = tofinite(tonumber_expect_period(Select(tParams, "VALUE")))
   if value == nil then
     return nil
   end
