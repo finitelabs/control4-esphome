@@ -1000,19 +1000,24 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- HVAC mode
-  local mode = tointeger(Select(state, "mode"))
-  if mode ~= nil then
-    local c4Mode = CLIMATE_MODE_TO_C4[mode]
-    if c4Mode ~= nil then
-      SendToProxy(PROXY_BINDING, "HVAC_MODE_CHANGED", { MODE = c4Mode }, "NOTIFY")
-    elseif warnedMode ~= mode then
-      warnedMode = mode
-      log:warn("Unmapped ESPHome climate mode %s; HVAC mode not updated", mode)
-    end
+  -- ESPHome leaves a zero-valued field off the wire, so an absent mode carries
+  -- CLIMATE_MODE_OFF rather than "unknown".
+  local mode = tointeger(Select(state, "mode")) or ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_OFF
+  local c4Mode = CLIMATE_MODE_TO_C4[mode]
+  if c4Mode ~= nil then
+    SendToProxy(PROXY_BINDING, "HVAC_MODE_CHANGED", { MODE = c4Mode }, "NOTIFY")
+  elseif warnedMode ~= mode then
+    warnedMode = mode
+    log:warn("Unmapped ESPHome climate mode %s; HVAC mode not updated", mode)
   end
 
   -- HVAC action/state
+  -- An absent action is CLIMATE_ACTION_OFF for the same reason, but only a
+  -- device that advertises the field reports one at all.
   local action = tointeger(Select(state, "action"))
+  if action == nil and toboolean(entity.supports_action) then
+    action = ESPHomeProtoSchema.Enum.ClimateAction.CLIMATE_ACTION_OFF
+  end
   if action ~= nil then
     local c4State = CLIMATE_ACTION_TO_C4[action]
     if c4State ~= nil then
@@ -1078,7 +1083,12 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- Fan mode
+  -- CLIMATE_FAN_ON is also zero, so gate the default on the device offering
+  -- standard fan modes; one driven only by custom modes reports none.
   local fanMode = tointeger(Select(state, "fan_mode"))
+  if fanMode == nil and not IsEmpty(entity.supported_fan_modes) then
+    fanMode = ESPHomeProtoSchema.Enum.ClimateFanMode.CLIMATE_FAN_ON
+  end
   local customFanMode = Select(state, "custom_fan_mode")
   if customFanMode ~= nil and customFanMode ~= "" then
     SendToProxy(PROXY_BINDING, "FAN_MODE_CHANGED", { MODE = customFanMode }, "NOTIFY")
