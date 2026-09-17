@@ -55,26 +55,20 @@ local LAST_WATER_HEATER_MODE = nil -- restored from persist in OnDriverLateInit
 --- learning logic live with the hold helpers below.
 local HOLD_UNTIL_NEXT
 
---- Read a state field the device may have omitted. Protobuf leaves a zero-valued
---- field off the wire, so an absent field means zero (OFF, for the enums) for a
---- dimension the entity declares and nothing for one it does not. A present but
---- non-finite value is ESPHome's "not measured yet" placeholder and returns nil.
---- @param source table The state table.
---- @param key string Field name.
---- @param declared boolean|nil Whether the entity says it has this dimension.
---- @return number|nil
-local function stateNumber(source, key, declared)
-  local value = tofinite(Select(source, key))
-  if value ~= nil then
-    return value
-  end
-  if Select(source, key) ~= nil then
-    return nil
-  end
-  if declared then
+--- Read a numeric state field, treating a missing one as zero when the entity
+--- reports that field. Protobuf leaves a zero off the wire, so missing here means
+--- zero (OFF, for the enums), not unchanged. A present but non-finite reading is
+--- not missing, so it returns nil rather than zero.
+--- @param state table<string, any> The decoded state.
+--- @param name string The field name.
+--- @param reported boolean|nil Whether the entity reports this field.
+--- @return number|nil value
+local function stateNumber(state, name, reported)
+  local raw = Select(state, name)
+  if raw == nil and reported then
     return 0
   end
-  return nil
+  return tofinite(raw)
 end
 
 -- Restored in OnDriverLateInit, so declared above it: a local declared below
@@ -2029,22 +2023,6 @@ end
 --- push.
 local warnedMode = nil
 local warnedAction = nil
-
---- Read a numeric state field, treating a missing one as zero when the entity
---- reports that field. Protobuf leaves a zero off the wire, so missing here means
---- zero (OFF, for the enums), not unchanged. A present but non-finite reading is
---- not missing, so it returns nil rather than zero.
---- @param state table<string, any> The decoded state.
---- @param name string The field name.
---- @param reported boolean|nil Whether the entity reports this field.
---- @return number|nil value
-local function stateNumber(state, name, reported)
-  local raw = Select(state, name)
-  if raw == nil and reported then
-    return 0
-  end
-  return tofinite(raw)
-end
 
 --- @param list any[]|nil
 --- @param value any
