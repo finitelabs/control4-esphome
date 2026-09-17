@@ -2030,6 +2030,33 @@ end
 local warnedMode = nil
 local warnedAction = nil
 
+--- Read a numeric state field, treating a missing one as zero when the entity
+--- reports that field. Protobuf leaves a zero off the wire, so missing here means
+--- zero (OFF, for the enums), not unchanged.
+--- @param state table<string, any> The decoded state.
+--- @param name string The field name.
+--- @param reported boolean|nil Whether the entity reports this field.
+--- @return number|nil value
+local function stateNumber(state, name, reported)
+  local value = tonumber(Select(state, name))
+  if value == nil and reported then
+    return 0
+  end
+  return value
+end
+
+--- @param list any[]|nil
+--- @param value any
+--- @return boolean
+local function listHas(list, value)
+  for _, item in ipairs(list or {}) do
+    if item == value then
+      return true
+    end
+  end
+  return false
+end
+
 function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   log:trace("RFP.UPDATE_STATE(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
   if idBinding ~= ESPHOME_BINDING then
@@ -2068,7 +2095,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   -- ESPHome reports NaN for a float the device has not supplied yet, so every
   -- reading below goes through stateFloat.
   -- Current temperature
-  local currentTemp = stateFloat(state, "current_temperature", entity.supports_current_temperature)
+  local currentTemp = stateNumber(state, "current_temperature", entity.supports_current_temperature)
   if currentTemp ~= nil then
     SendToProxy(PROXY_BINDING, "TEMPERATURE_CHANGED", {
       TEMPERATURE = tostring(currentTemp),
@@ -2079,7 +2106,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- HVAC mode
-  local mode = tointeger(Select(state, "mode"))
+  local mode = tointeger(stateNumber(state, "mode", true))
   if mode ~= nil then
     local c4Mode = CLIMATE_MODE_TO_C4[mode]
     if c4Mode ~= nil then
@@ -2091,7 +2118,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- HVAC action/state
-  local action = tointeger(Select(state, "action"))
+  local action = tointeger(stateNumber(state, "action", entity.supports_action))
   if action ~= nil then
     local c4State = CLIMATE_ACTION_TO_C4[action]
     if c4State ~= nil then
@@ -2135,7 +2162,10 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- Fan mode
-  local fanMode = tointeger(Select(state, "fan_mode"))
+  -- ESPHome also leaves fan_mode off when the unit has none set, so a missing one
+  -- is read as On only where On is one of the unit's fan modes.
+  local fanOn = ESPHomeProtoSchema.Enum.ClimateFanMode.CLIMATE_FAN_ON
+  local fanMode = tointeger(stateNumber(state, "fan_mode", listHas(entity.supported_fan_modes, fanOn)))
   local customFanMode = Select(state, "custom_fan_mode")
   if customFanMode ~= nil and customFanMode ~= "" then
     SendToProxy(PROXY_BINDING, "FAN_MODE_CHANGED", { MODE = customFanMode }, "NOTIFY")
@@ -2182,7 +2212,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- Humidity
-  local currentHumidity = stateFloat(state, "current_humidity", entity.supports_current_humidity)
+  local currentHumidity = stateNumber(state, "current_humidity", entity.supports_current_humidity)
   if currentHumidity ~= nil then
     local humidityPercent = math.floor(currentHumidity + 0.5)
     SendToProxy(PROXY_BINDING, "HUMIDITY_CHANGED", {
@@ -2193,7 +2223,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- Target humidity
-  local targetHumidity = stateFloat(state, "target_humidity", entity.supports_target_humidity)
+  local targetHumidity = stateNumber(state, "target_humidity", entity.supports_target_humidity)
   if targetHumidity ~= nil then
     SendToProxy(PROXY_BINDING, "HUMIDIFY_SETPOINT_CHANGED", {
       SETPOINT = tostring(math.floor(targetHumidity + 0.5)),

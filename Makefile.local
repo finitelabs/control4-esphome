@@ -1,0 +1,16 @@
+# Kept out of Makefile so `copier update` cannot clobber these.
+
+# `release` is the ESPHome branch tracking the latest stable release; override to pin a tag.
+ESPHOME_VERSION ?= release
+LUA_PROTOBUF ?= ../lua-protobuf
+ESPHOME_API := https://raw.githubusercontent.com/esphome/esphome/$(ESPHOME_VERSION)/esphome/components/api
+PROTO_SCHEMA := src/esphome/proto_schema.lua
+
+.PHONY: gen-proto
+gen-proto: ## Regenerate src/esphome/proto_schema.lua from the ESPHome API protos
+	@[ -f "$(LUA_PROTOBUF)/Makefile" ] || { echo "lua-protobuf not found at $(LUA_PROTOBUF); set LUA_PROTOBUF=<path>"; exit 1; }
+	@[ -x "$(LUA_PROTOBUF)/.venv/bin/python3" ] || $(MAKE) -C "$(LUA_PROTOBUF)" setup-schema-generator
+	$(MAKE) -C "$(LUA_PROTOBUF)" gen-schema \
+		OUTPUT="$(CURDIR)/$(PROTO_SCHEMA)" \
+		PROTO="$(ESPHOME_API)/api.proto $(ESPHOME_API)/api_options.proto"
+	@$(MAKE) fmt-lua # normalize the generator's blank lines to the committed style
