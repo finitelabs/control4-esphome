@@ -546,6 +546,26 @@ test("A malformed schedule event is skipped, not fatal", function()
   T.check("handler survived a malformed event", true)
 end)
 
+test("A frame with no XML param warns instead of raising", function()
+  -- Director's C4:ParseXml raises on nil, so a missing XML param must never
+  -- reach it; the shim raises the same way.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL })
+  setPresets({
+    { name = "Kept", fields = { hvac_mode = "Cool", cool_setpoint_c = "24" } },
+  })
+  clearSchedule()
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", {
+    XML = '<events><event preset="Kept" weekday="3" hour="8" minute="0"/></events>',
+  })
+  resetSent()
+
+  T.check("SET_EVENTS without XML returns normally", pcall(RFP.SET_EVENTS, PROXY, "SET_EVENTS", {}))
+  T.check("SET_PRESETS without XML returns normally", pcall(RFP.SET_PRESETS, PROXY, "SET_PRESETS", {}))
+  T.check("and neither frame republished the hold modes", lastSent("ALLOWED_HOLD_MODES_CHANGED") == nil)
+end)
+
 test("SET_EVENT applies the preset the proxy announces", function()
   -- SET_EVENT arrives on save and at every boundary where the scheduled preset
   -- changes; nothing else tells the driver a boundary has passed.

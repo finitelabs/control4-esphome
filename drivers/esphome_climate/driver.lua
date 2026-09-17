@@ -1567,7 +1567,8 @@ function RFP.SET_PRESETS(idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  local xml = C4:ParseXml(Select(tParams, "XML"))
+  -- Director's ParseXml raises on nil; "" parses to nil and takes the guard.
+  local xml = C4:ParseXml(Select(tParams, "XML") or "")
   if xml == nil or xml.ChildNodes == nil then
     log:warn("SET_PRESETS carried no parsable XML")
     return
@@ -1764,7 +1765,7 @@ function RFP.SET_EVENTS(idBinding, strCommand, tParams)
   end
   -- Parse before clearing: an unparsable frame is not an empty schedule.
   -- Deleting every event arrives as a well-formed empty <events/>.
-  local xml = C4:ParseXml(Select(tParams, "XML"))
+  local xml = C4:ParseXml(Select(tParams, "XML") or "")
   if xml == nil then
     log:warn("SET_EVENTS carried no parsable XML; the stored schedule stands")
     return
