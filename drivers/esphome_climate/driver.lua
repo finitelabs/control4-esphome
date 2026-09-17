@@ -55,15 +55,15 @@ local LAST_WATER_HEATER_MODE = nil -- restored from persist in OnDriverLateInit
 --- learning logic live with the hold helpers below.
 local HOLD_UNTIL_NEXT
 
---- Resolve a float the device may have omitted. Protobuf leaves a zero-valued
---- field out of the frame, so an absent float means zero for a dimension the
---- entity declares and nothing for one it does not. A present but non-finite
---- value is ESPHome's "not measured yet" placeholder and returns nil.
+--- Read a state field the device may have omitted. Protobuf leaves a zero-valued
+--- field off the wire, so an absent field means zero (OFF, for the enums) for a
+--- dimension the entity declares and nothing for one it does not. A present but
+--- non-finite value is ESPHome's "not measured yet" placeholder and returns nil.
 --- @param source table The state table.
 --- @param key string Field name.
---- @param declared boolean Whether the entity says it has this dimension.
+--- @param declared boolean|nil Whether the entity says it has this dimension.
 --- @return number|nil
-local function stateFloat(source, key, declared)
+local function stateNumber(source, key, declared)
   local value = tofinite(Select(source, key))
   if value ~= nil then
     return value
@@ -1421,7 +1421,7 @@ local function matchPreset(name)
     if expected == nil then
       return true
     end
-    local actual = stateFloat(STATE, stateKey, ENTITY ~= nil)
+    local actual = stateNumber(STATE, stateKey, ENTITY ~= nil)
     -- Compare against what was actually sent: the same snap and clamp as
     -- applyPresetSetpoints, or a quantised or out-of-range preset never matches
     -- its own echo.
@@ -2030,21 +2030,6 @@ end
 local warnedMode = nil
 local warnedAction = nil
 
---- Read a numeric state field, treating a missing one as zero when the entity
---- reports that field. Protobuf leaves a zero off the wire, so missing here means
---- zero (OFF, for the enums), not unchanged.
---- @param state table<string, any> The decoded state.
---- @param name string The field name.
---- @param reported boolean|nil Whether the entity reports this field.
---- @return number|nil value
-local function stateNumber(state, name, reported)
-  local value = tonumber(Select(state, name))
-  if value == nil and reported then
-    return 0
-  end
-  return value
-end
-
 --- @param list any[]|nil
 --- @param value any
 --- @return boolean
@@ -2093,7 +2078,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   runPendingEvent()
 
   -- ESPHome reports NaN for a float the device has not supplied yet, so every
-  -- reading below goes through stateFloat.
+  -- reading below goes through stateNumber.
   -- Current temperature
   local currentTemp = stateNumber(state, "current_temperature", entity.supports_current_temperature)
   if currentTemp ~= nil then
@@ -2133,7 +2118,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   local twoPoint = entity.supports_two_point_target_temperature
   if IS_SINGLE_SETPOINT then
     -- Single setpoint mode (water heaters, floor heaters, etc.)
-    local targetTemp = stateFloat(state, "target_temperature", true)
+    local targetTemp = stateNumber(state, "target_temperature", true)
     if targetTemp ~= nil then
       SendToProxy(PROXY_BINDING, "SINGLE_SETPOINT_CHANGED", {
         SETPOINT = tostring(targetTemp),
@@ -2141,8 +2126,8 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
       }, "NOTIFY")
     end
   elseif twoPoint then
-    local targetLow = stateFloat(state, "target_temperature_low", true)
-    local targetHigh = stateFloat(state, "target_temperature_high", true)
+    local targetLow = stateNumber(state, "target_temperature_low", true)
+    local targetHigh = stateNumber(state, "target_temperature_high", true)
     if targetLow ~= nil then
       SendToProxy(PROXY_BINDING, "HEAT_SETPOINT_CHANGED", {
         SETPOINT = tostring(targetLow),
