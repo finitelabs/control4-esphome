@@ -1,8 +1,7 @@
 -- Tests the button link an event entity publishes for each of its event types.
 --
--- The assertion that matters is one DO_CLICK and nothing else: a DO_PUSH and
--- DO_RELEASE alongside it cancel the click on a bound dimmer. entities/event.lua
--- carries the mechanism.
+-- The assertion that matters is DO_PUSH then DO_CLICK and nothing else, the tap
+-- test_button_link_protocol.lua holds the other senders to.
 --
 -- Run from the driver root:
 --   make test
@@ -50,15 +49,15 @@ end
 T.eq("programming event for press", declared["Touch: press"], true)
 T.eq("programming event for long_press", declared["Touch: long_press"], true)
 
-T.section("An event sends exactly one DO_CLICK, on its own type's binding")
+T.section("An event sends DO_PUSH then DO_CLICK, on its own type's binding")
 
 sent = {}
 instance:updated(entity, { event_type = "press" })
-T.eq("press", table.concat(sent, ","), press.bindingId .. ":DO_CLICK")
+T.eq("press", table.concat(sent, ","), press.bindingId .. ":DO_PUSH," .. press.bindingId .. ":DO_CLICK")
 
 sent = {}
 instance:updated(entity, { event_type = "long_press" })
-T.eq("long_press", table.concat(sent, ","), long.bindingId .. ":DO_CLICK")
+T.eq("long_press", table.concat(sent, ","), long.bindingId .. ":DO_PUSH," .. long.bindingId .. ":DO_CLICK")
 
 T.section("An undeclared event type sends nothing")
 

@@ -83,9 +83,9 @@ function EventEntity:updated(entity, state)
     return
   end
 
-  -- A gesture the device already finished has no button-down to report. Adding
-  -- DO_PUSH starts a hold ramp that the following DO_RELEASE freezes where it
-  -- began, undoing the click.
+  -- The pair a keypad sends for a tap. DO_RELEASE ends a hold instead of a click,
+  -- so it does not follow.
+  SendToProxy(binding.bindingId, "DO_PUSH", {}, "NOTIFY")
   SendToProxy(binding.bindingId, "DO_CLICK", {}, "NOTIFY")
 end
 
