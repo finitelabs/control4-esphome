@@ -51,8 +51,7 @@ local SENSOR_BINDING = nil
 local USER_SERVICES_DISCOVERED = false
 local IS_SINGLE_SETPOINT = false
 local LAST_WATER_HEATER_MODE = nil -- restored from persist in OnDriverLateInit
---- The proxy's wording for a hold. Restored in OnDriverLateInit; default and
---- learning logic live with the hold helpers below.
+--- The proxy's wording for a hold; restored in OnDriverLateInit.
 local HOLD_UNTIL_NEXT
 
 --- The only wordings learnable as "until next"; both are first-party.
@@ -74,17 +73,13 @@ local function stateNumber(state, name, reported)
   return tofinite(raw)
 end
 
--- Restored in OnDriverLateInit, so declared above it: a local declared below
--- that function would leave the restore writing a global.
---- Preset schedule from SET_EVENTS. The proxy keeps the clock and announces each
---- event through SET_EVENT; this copy only decides whether hold modes are offered,
---- and is persisted so a reload can offer them before the proxy resends the list.
+-- Declared above OnDriverLateInit, which restores them; a local below it would make the restore write a global.
+--- Preset schedule from SET_EVENTS; decides whether holds are offered and feeds the same-preset poll.
 --- @type table[] Array of { preset = string, weekday = 0-6, hour = 0-23, minute = 0-59 }
 local SCHEDULE = {}
 --- Preset the proxy most recently had the schedule apply (SET_EVENT).
 local SCHEDULED_PRESET = nil
---- A scheduled preset the proxy announced that could not be applied yet (device
---- absent, or preset not yet delivered).
+--- A scheduled preset the proxy announced that could not be applied yet.
 local EVENT_PENDING = false
 local SCHEDULE_SIGNATURE = nil
 local PRESETS = {}
@@ -187,9 +182,7 @@ local CLIMATE_FAN_MODE_TO_C4 = {
 --- C4 fan mode string -> ESPHome ClimateFanMode
 local C4_TO_CLIMATE_FAN_MODE = TableReverse(CLIMATE_FAN_MODE_TO_C4)
 
---- ESPHome ClimateSwingMode -> display string.
---- thermostatV2 has no swing capability, so swing is surfaced through the Extras
---- section (the same mechanism used for water heater operating modes).
+--- ESPHome ClimateSwingMode -> display string; thermostatV2 has no swing capability, so swing rides on Extras.
 local CLIMATE_SWING_MODE_TO_C4 = {
   [ESPHomeProtoSchema.Enum.ClimateSwingMode.CLIMATE_SWING_OFF] = "Off",
   [ESPHomeProtoSchema.Enum.ClimateSwingMode.CLIMATE_SWING_BOTH] = "Both",
@@ -203,9 +196,7 @@ local C4_TO_CLIMATE_SWING_MODE = TableReverse(CLIMATE_SWING_MODE_TO_C4)
 --- Extras object id for the swing selector.
 local SWING_EXTRA_ID = "swingMode"
 
--- The device's own ESPHome presets are not mapped to proxy presets: the API
--- publishes which presets exist and which is active but never what one does,
--- and a device keeps reporting its preset after the user overrides it.
+-- Device presets are not mapped: the API never says what one does, and the device keeps reporting it after an override.
 
 --- Temperature values are always sent in Celsius - ESPHome uses Celsius natively
 --- and the proxy converts to the user's display scale based on the SCALE param.
@@ -399,9 +390,7 @@ local function detectSetpointCaps(entity)
       can_auto = true
     end
   end
-  -- A single-target device may still offer both HEAT and COOL; the entity's
-  -- declaration decides. The SDK requires can_heat, can_cool and can_do_auto to be
-  -- false alongside has_single_setpoint. Auto still reaches the UI via hvac_modes.
+  -- The entity decides. The SDK requires can_heat, can_cool and can_do_auto false with has_single_setpoint.
   local single = not entity.supports_two_point_target_temperature
   if single then
     can_heat = false
@@ -435,9 +424,7 @@ local function xmlAttr(value)
   return XMLEncode(tostring(value))
 end
 
---- Build the preset_fields template from what this entity supports. The proxy
---- serves the editor from whatever PRESET_FIELDS_CHANGED last pushed; the static
---- block in driver.xml is only a fallback.
+--- Build the preset_fields template for this entity; the static block in driver.xml is only a fallback.
 --- @param entity table The entity data.
 --- @param singleSetpoint boolean Whether the proxy is in single-setpoint mode.
 --- @return string xml
@@ -464,8 +451,7 @@ local function buildPresetFieldsXml(entity, singleSetpoint)
     numberField("single_setpoint_f", "Setpoint", minF, maxF, 1)
     numberField("single_setpoint_c", "Setpoint", minC, maxC, 0.5)
   else
-    -- Only offer setpoints the device can act on: no heat setpoint without a
-    -- HEAT mode.
+    -- No heat setpoint without a HEAT mode, and likewise for cool.
     local offersHeat, offersCool = false, false
     for _, mode in ipairs(entity.supported_modes or {}) do
       if mode == ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_HEAT then
@@ -586,9 +572,7 @@ local function sendCapabilities(entity)
   local setpointCaps = detectSetpointCaps(entity)
   IS_SINGLE_SETPOINT = setpointCaps.HAS_SINGLE_SETPOINT
   log:info("Single setpoint mode: %s", tostring(IS_SINGLE_SETPOINT))
-  -- The static driver.xml declarations do not reach the proxy for either flag.
-  -- Water heaters get neither: the preset template is climate-shaped and a
-  -- preset applied to a water heater serialises to an empty command.
+  -- Pushed because the static declarations do not reach the proxy; water heaters get neither.
   setpointCaps.CAN_PRESET = not entity.is_water_heater
   setpointCaps.CAN_PRESET_SCHEDULE = not entity.is_water_heater
   SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", setpointCaps, "NOTIFY")
@@ -598,8 +582,7 @@ local function sendCapabilities(entity)
     publishHoldModes(true)
   end
 
-  -- The template must agree with the setpoint mode just published, or the
-  -- preset editor has nothing to render.
+  -- The template must agree with the setpoint mode just published.
   if not entity.is_water_heater then
     local presetFieldsXml = buildPresetFieldsXml(entity, IS_SINGLE_SETPOINT)
     log:debug("Preset fields template: %s", presetFieldsXml)
@@ -710,9 +693,7 @@ local function sendCapabilities(entity)
     if #whModeNames > 0 then
       extrasPublished = true
       SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", { HAS_EXTRAS = true }, "NOTIFY")
-      -- custom_preset carries a water heater's operating mode (water_heater.lua).
-      -- Every read is gated on is_water_heater because a climate entity can
-      -- advertise a custom preset of the same name.
+      -- custom_preset is a water heater's operating mode; a climate entity can advertise one of the same name.
       local currentMode = Select(STATE, "custom_preset") or whModeNames[1]
       local extrasXml = '<extras_setup><extra><section label="Operating Mode">'
         .. '<object type="list" id="waterHeaterMode" label="Mode" command="SET_MODE_WATER_HEATER" value="'
@@ -730,8 +711,7 @@ local function sendCapabilities(entity)
     SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", { HAS_EXTRAS = false }, "NOTIFY")
   end
 
-  -- The proxy only resends SET_PRESETS / SET_EVENT once the connection is
-  -- announced.
+  -- The proxy resends SET_PRESETS and SET_EVENTS on a connection announce.
   sendConnectionState(true)
 end
 
@@ -767,8 +747,7 @@ function OnDriverLateInit()
       log:error("Error in OnPropertyChanged for property '%s': %s", p, err or "unknown error")
     end
   end
-  -- Restore persisted state. persist:get returns its EMPTY sentinel table for a
-  -- missing key, never nil.
+  -- persist:get returns an empty table, never nil, for a missing key.
   local storedWaterHeaterMode = persist:get("LastWaterHeaterMode")
   if storedWaterHeaterMode == nil or type(storedWaterHeaterMode) == "table" then
     LAST_WATER_HEATER_MODE = nil
@@ -783,25 +762,19 @@ function OnDriverLateInit()
     sendDisplayScale()
   end)
 
-  -- Without this a reload republishes the default hold wording and a proxy that
-  -- says "Next Event" is offered a mode it does not use. Stored as a table:
-  -- Deserialize cannot reliably read back a bare string.
+  -- Stored as a table: a bare string does not read back reliably.
   local storedHoldWording = persist:get("HoldWording")
   if type(storedHoldWording) == "table" and HOLD_UNTIL_NEXT_NAMES[storedHoldWording.mode] then
     HOLD_UNTIL_NEXT = storedHoldWording.mode
   end
 
-  -- Explicit {} defaults: the shared EMPTY sentinel is returned by reference and
-  -- must not be mutated.
+  -- Explicit {} defaults: the shared empty sentinel must not be mutated.
   SCHEDULE = persist:get("Schedule", {})
   PRESETS = persist:get("Presets", {})
-  -- Seed the dedupe digests so the first resend after a reload does not rewrite
-  -- unchanged lists.
+  -- Seeded so the first resend after a reload does not rewrite unchanged lists.
   SCHEDULE_SIGNATURE = scheduleSignature()
   PRESETS_SIGNATURE = presetListSignature(PRESETS)
-  -- Restored so the first report after a reload can reconcile a hold and the
-  -- proxy's re-announcement on connect reads as already in force. Cleared with an
-  -- empty table, never a delete: delete-then-write from the proxy path left the key unreadable.
+  -- Cleared with an empty table, never a delete: delete-then-write left the key unreadable.
   local storedScheduled = persist:get("ScheduledPreset")
   if type(storedScheduled) == "table" and type(storedScheduled.preset) == "string" then
     SCHEDULED_PRESET = storedScheduled.preset
@@ -1145,36 +1118,27 @@ end
 
 --- Preset selected directly by the user; holds until the next scheduled event.
 local HOLD_PRESET = nil
---- Hold mode last reported, so only transitions are sent. nil rather than "Off"
---- so the first reconcile after a reload always publishes: the proxy may still
---- show a hold that ended during the reload.
+--- Hold mode last reported; nil so the first reconcile after a reload always publishes.
 local HOLD_MODE = nil
 --- Allowed hold modes as last published, to skip identical resends.
 local HOLD_MODES_PUBLISHED = nil
---- Preset last reported as active, so only transitions are sent. A sentinel
---- rather than nil, since nil ("no preset") is itself a legitimate report that
---- must still publish once after a reload.
+--- Preset last reported; a sentinel because nil ("no preset") must itself publish once after a reload.
 local UNREPORTED = {}
 local ACTIVE_PRESET = UNREPORTED
 --- Inputs the last preset match ran on; cleared on disconnect.
 local LAST_MATCH_SIGNATURE = nil
---- A hold the user asked for, as opposed to one raised because state diverged
---- from the schedule. A divergence hold ends when state returns to the scheduled
---- preset; a user hold ends only when released or at the next scheduled event.
+--- A hold the user asked for; unlike a divergence hold it does not end when state returns to the schedule.
 local USER_HOLD = false
---- Set while a scheduled preset has been commanded but not yet confirmed. The
---- next report still describes the old state and must not raise a hold.
+--- A scheduled preset was commanded but not confirmed; the next report still describes the old state.
 local AWAITING_SCHEDULED = false
 
---- The proxy's wording for "hold until the next event" varies and is not declared,
---- so it is learned from the first hold it sends. driver.xml hold_modes is the starting guess.
+--- The proxy's "until next" wording; this is the starting guess, replaced only from HOLD_UNTIL_NEXT_NAMES.
 HOLD_UNTIL_NEXT = "Until Next"
 
 --- The one hold that outlives a schedule; released only by the user or programming.
 local HOLD_PERMANENT = "Permanent"
 
---- Publish the hold modes the proxy should offer. With no schedule there is
---- nothing for a hold to be "until", so none are offered.
+--- Publish the hold modes to offer; none without a schedule.
 --- @param force boolean Publish even if unchanged; a new connection may hold a stale list.
 publishHoldModes = function(force)
   local modes = #SCHEDULE > 0 and ("Off," .. HOLD_UNTIL_NEXT) or ""
@@ -1226,8 +1190,7 @@ local function presetSignature(fields)
   return table.concat(parts, ";")
 end
 
---- Resolve one preset setpoint pair to Celsius. ESPHome is Celsius natively, so
---- the Fahrenheit field is only a fallback for projects authored in F.
+--- Resolve a preset setpoint to Celsius; the Fahrenheit field is only a fallback.
 --- @param preset table The preset field table.
 --- @param cKey string Celsius field id.
 --- @param fKey string Fahrenheit field id.
@@ -1243,9 +1206,7 @@ local function presetSetpoint(preset, cKey, fKey)
   return celsius
 end
 
---- Collapse a preset's setpoint fields to the ONE value a single-setpoint device
---- can accept. Used by both apply and match so the two can never disagree about
---- which setpoint a preset means.
+--- Collapse a preset's setpoints to the one value a single-setpoint device accepts; shared by apply and match.
 --- @param preset table The preset field table.
 --- @return number|nil celsius
 local function chooseSingleSetpoint(preset)
@@ -1258,14 +1219,11 @@ local function chooseSingleSetpoint(preset)
   if preset.hvac_mode == "Heat" then
     return heat or cool
   end
-  -- Cool, Auto, Dry, Fan Only or unspecified: prefer cool rather than inventing
-  -- a midpoint the user never chose.
+  -- Otherwise prefer cool rather than invent a midpoint.
   return cool or heat
 end
 
---- Round a setpoint onto the entity's step. The preset editor authors at 0.5 C
---- while a device may quantise to 1 C; unsnapped, the echo never matches the
---- preset within matchPreset's tolerance.
+--- Round a setpoint onto the entity's step, or the device's echo never matches the preset.
 local function snapToStep(value)
   local step = ENTITY ~= nil and tonumber(ENTITY.visual_target_temperature_step or ENTITY.target_temperature_step)
     or nil
@@ -1275,12 +1233,10 @@ local function snapToStep(value)
   return math.floor(value / step + 0.5) * step
 end
 
---- Write a preset's setpoints into a climate command body. Two-point devices
---- use low/high regardless of mode, matching SET_SETPOINT_HEAT/COOL.
+--- Write a preset's setpoints into a command body; two-point devices use low/high regardless of mode.
 local function applyPresetSetpoints(preset, body)
   if ENTITY ~= nil and ENTITY.supports_two_point_target_temperature then
-    -- The proxy auto-fills whichever scale the template omits, so reading either
-    -- field is enough.
+    -- The proxy fills in whichever scale the template omits.
     local heat = presetSetpoint(preset, "heat_setpoint_c", "heat_setpoint_f")
     local cool = presetSetpoint(preset, "cool_setpoint_c", "cool_setpoint_f")
     if heat ~= nil then
@@ -1294,8 +1250,7 @@ local function applyPresetSetpoints(preset, body)
     return
   end
 
-  -- A preset saved before this device was reported single-setpoint may still
-  -- carry a heat/cool pair; collapse it onto the one target.
+  -- A preset saved before the device reported single-setpoint may carry a heat/cool pair.
   local chosen = chooseSingleSetpoint(preset)
   if chosen ~= nil then
     body.has_target_temperature = true
@@ -1312,8 +1267,7 @@ local function applyPreset(name)
     log:warn("Asked to apply unknown preset '%s'", tostring(name))
     return false
   end
-  -- The bridge rejects ENTITY_COMMAND while disconnected; refusing here keeps
-  -- the caller from reporting a change that never happened.
+  -- The bridge rejects commands while disconnected.
   if ENTITY == nil then
     log:warn("Cannot apply preset '%s' while the device is disconnected", tostring(name))
     return false
@@ -1370,22 +1324,18 @@ local function applyPreset(name)
 
   log:info("Applying preset '%s'", name)
   sendClimateCommand(body)
-  -- No announcement here: matchAnyPreset is the only emitter. A device pushes
-  -- ambient temperature through the same state message, so a report can land
-  -- between the command and the device moving.
+  -- Not announced here: matchAnyPreset is the only emitter, since a report can land before the device moves.
   return true
 end
 
---- Does current device state match every field this preset defines?
---- Fields the preset leaves unset are not compared.
+--- Does device state match every field this preset defines?
 local function matchPreset(name)
   local preset = name ~= nil and PRESETS[name] or nil
   if preset == nil or IsEmpty(STATE) then
     return false
   end
 
-  -- Protobuf omits zero-valued fields, so an absent enum means its zero value
-  -- (mode OFF, swing OFF, fan ON), not "unknown".
+  -- Protobuf omits zero values, so an absent enum is its zero value, not unknown.
   local function stateEnum(key, supported)
     local raw = tointeger(Select(STATE, key))
     if raw ~= nil then
@@ -1404,17 +1354,14 @@ local function matchPreset(name)
     end
   end
 
-  -- Tolerance, not equality: C4 authors presets in whole/half degrees while the
-  -- device reports a float that has been through an F/C round trip.
+  -- Tolerance, not equality: the device's float has been through an F/C round trip.
   local function setpointMatches(expected, stateKey)
     if expected == nil then
       return true
     end
     -- A setpoint is never defaulted to zero when absent, unlike a reading.
     local actual = tofinite(Select(STATE, stateKey))
-    -- Compare against what was actually sent: the same snap and clamp as
-    -- applyPresetSetpoints, or a quantised or out-of-range preset never matches
-    -- its own echo.
+    -- Compare against what was sent: the same snap and clamp as applyPresetSetpoints.
     return actual ~= nil and math.abs(actual - clampTemperature(snapToStep(expected))) <= 0.25
   end
 
@@ -1456,8 +1403,7 @@ local function setHoldMode(mode)
   SendToProxy(PROXY_BINDING, "HOLD_MODE_CHANGED", { MODE = mode }, "NOTIFY")
 end
 
---- How many fields a preset pins down; of two matching presets, the more
---- specific one is the one in force.
+--- Fields a preset pins down; of two matches the more specific wins.
 local function presetFieldCount(name)
   local count = 0
   for _ in pairs(PRESETS[name] or {}) do
@@ -1466,12 +1412,9 @@ local function presetFieldCount(name)
   return count
 end
 
---- Highlight whichever preset current state matches, reported on transitions
---- only.
+--- Report whichever preset current state matches, on transitions only.
 local function matchAnyPreset()
-  -- Deliberate order: the held preset, then the scheduled one, then the most
-  -- specific match with a name sort as tie-break, so the winner is stable across
-  -- SET_PRESETS rebuilds.
+  -- Order: held, then scheduled, then most specific with a name tie-break, so the winner is stable.
   local matched = nil
   if HOLD_PRESET ~= nil and matchPreset(HOLD_PRESET) then
     matched = HOLD_PRESET
@@ -1521,25 +1464,21 @@ local function matchInputSignature()
   }, "|")
 end
 
---- Drop into "Until Next" when the user diverges from the scheduled preset, and
---- release the hold when state drifts back onto it.
+--- Raise "Until Next" on divergence from the scheduled preset; release it when state returns.
 local function reconcileHold()
   if SCHEDULED_PRESET == nil then
     return
   end
   local onSchedule = matchPreset(SCHEDULED_PRESET)
 
-  -- Suppress exactly one report after a scheduled preset is commanded: it
-  -- describes the state before the device moved. One report, not "until it
-  -- matches", or a device that never lands exactly on the preset wedges this.
+  -- Exactly one report: "until it matches" would wedge on a device that never lands on the preset.
   if AWAITING_SCHEDULED then
     AWAITING_SCHEDULED = false
     return
   end
 
   if onSchedule then
-    -- A user hold outlives a match; only the user or the next scheduled event
-    -- ends it.
+    -- A user hold outlives a match.
     if not USER_HOLD then
       setHoldMode("Off")
     end
@@ -1557,8 +1496,7 @@ scheduleSignature = function()
   return table.concat(parts, ";")
 end
 
---- Write the schedule only when it changed: the proxy resends SET_EVENTS on
---- every reconnect and persist:set does not dedupe.
+--- Write the schedule only when it changed; the proxy resends SET_EVENTS on every reconnect.
 local function persistSchedule()
   local signature = scheduleSignature()
   if signature ~= SCHEDULE_SIGNATURE then
@@ -1567,8 +1505,7 @@ local function persistSchedule()
   end
 end
 
---- Receive the full preset list. The proxy sends every preset each time, so
---- this rebuilds rather than merges.
+--- Receive the full preset list; the proxy sends every preset each time, so rebuild.
 function RFP.SET_PRESETS(idBinding, strCommand, tParams)
   log:trace("RFP.SET_PRESETS(%s, %s, %s)", idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
@@ -1581,8 +1518,7 @@ function RFP.SET_PRESETS(idBinding, strCommand, tParams)
     return
   end
 
-  -- Snapshot the active preset's values before the rebuild so only a real edit
-  -- re-applies; SET_PRESETS also arrives for unrelated list changes.
+  -- Snapshot before the rebuild so only a real edit re-applies.
   local activeBefore = HOLD_PRESET or SCHEDULED_PRESET
   local signatureBefore = presetSignature(PRESETS[activeBefore])
 
@@ -1600,14 +1536,12 @@ function RFP.SET_PRESETS(idBinding, strCommand, tParams)
         PRESETS[name] = fields
       end
 
-      -- A rename must carry the tracked names across, or the running schedule
-      -- silently detaches from the preset it is holding.
+      -- A rename must carry the tracked names across.
       local previous = attrs["previous_name"]
       if not IsEmpty(previous) then
         if SCHEDULED_PRESET == previous then
           SCHEDULED_PRESET = name
-          -- Keep the persisted copy under the new name, or the first announcement
-          -- after a reload re-commands a preset already in force.
+          -- Or the first announcement after a reload re-commands a preset already in force.
           if not EVENT_PENDING then
             persist:set("ScheduledPreset", { preset = name })
           end
@@ -1615,8 +1549,7 @@ function RFP.SET_PRESETS(idBinding, strCommand, tParams)
         if HOLD_PRESET == previous then
           HOLD_PRESET = name
         end
-        -- The schedule entries carry the name too; until the proxy resends
-        -- SET_EVENTS the stored copy would name a missing preset.
+        -- The stored schedule names the preset too.
         for _, e in ipairs(SCHEDULE) do
           if e.preset == previous then
             e.preset = name
@@ -1632,8 +1565,7 @@ function RFP.SET_PRESETS(idBinding, strCommand, tParams)
     persistSchedule()
   end
 
-  -- A deleted preset cannot stay held or scheduled: matchPreset would fail
-  -- forever and the resulting hold could never be cleared.
+  -- A deleted preset cannot stay held or scheduled; its hold could never clear.
   local forgot = false
   if SCHEDULED_PRESET ~= nil and PRESETS[SCHEDULED_PRESET] == nil then
     log:info("Scheduled preset '%s' no longer exists; forgetting it", SCHEDULED_PRESET)
@@ -1654,9 +1586,7 @@ function RFP.SET_PRESETS(idBinding, strCommand, tParams)
     setHoldMode("Off")
   end
 
-  -- Persisted so a reload during an outage can still apply the preset the proxy
-  -- announces on reconnect; deduped because the list is resent on every
-  -- reconnect.
+  -- Persisted so a reload during an outage can still apply what the proxy announces on reconnect.
   local presetsSignature = presetListSignature(PRESETS)
   if presetsSignature ~= PRESETS_SIGNATURE then
     PRESETS_SIGNATURE = presetsSignature
@@ -1676,8 +1606,7 @@ function RFP.SET_PRESETS(idBinding, strCommand, tParams)
       log:info("Active preset '%s' was edited; re-applying", activeAfter)
       local applied = applyPreset(activeAfter)
       if activeAfter == SCHEDULED_PRESET then
-        -- Suppress a report only when a command went out; a refused apply stays
-        -- pending for the device-back door.
+        -- Suppress a report only when a command went out.
         AWAITING_SCHEDULED = applied
         if not applied then
           EVENT_PENDING = true
@@ -1695,8 +1624,7 @@ function RFP.SET_PRESET(idBinding, strCommand, tParams)
   end
   local name = Select(tParams, "NAME")
   if IsEmpty(name) then
-    -- An empty name releases the held preset and returns to the scheduled one,
-    -- which sends no change-of-state of its own.
+    -- An empty name releases the held preset and returns to the scheduled one.
     HOLD_PRESET = nil
     USER_HOLD = false
     setHoldMode("Off")
@@ -1706,13 +1634,10 @@ function RFP.SET_PRESET(idBinding, strCommand, tParams)
     return
   end
   if applyPreset(name) then
-    -- SCHEDULED_PRESET survives: a preset chosen by hand is a hold on top of the
-    -- schedule, restored when the hold ends. It is the user's hold, so a report
-    -- that matches the scheduled preset does not release it.
+    -- SCHEDULED_PRESET survives: a preset chosen by hand is a hold on top of the schedule.
     HOLD_PRESET = name
     USER_HOLD = true
-    -- With no schedule the hold modes are withdrawn and there is no "next" to
-    -- run until.
+    -- With no schedule there is no "next" to hold until.
     if #SCHEDULE > 0 then
       setHoldMode(HOLD_UNTIL_NEXT)
     else
@@ -1722,10 +1647,7 @@ function RFP.SET_PRESET(idBinding, strCommand, tParams)
   end
 end
 
---- Apply the preset the proxy says the schedule has in force. Releases any hold
---- (a new event is what "until next" waits for), then suppresses one stale
---- report. Returns false when it cannot apply yet (device absent, or preset not
---- delivered) and leaves the event pending.
+--- Apply the scheduled preset and release any hold; false leaves the event pending.
 --- @return boolean applied
 local function runScheduledEvent()
   local name = SCHEDULED_PRESET
@@ -1806,8 +1728,7 @@ updateScheduleBoundaryTimer = function()
   end
 end
 
---- Apply a pending scheduled preset. Called from both SET_PRESETS and
---- UPDATE_STATE, since either the preset list or the device can arrive last.
+--- Apply a pending scheduled preset; either the preset list or the device can arrive last.
 --- @return boolean true if a pending event was applied.
 runPendingEvent = function()
   if not EVENT_PENDING then
@@ -1821,15 +1742,13 @@ runPendingEvent = function()
   return false
 end
 
---- The full preset schedule, sent whenever it changes. Kept only to know whether
---- a schedule exists; the proxy runs it and announces each event via SET_EVENT.
+--- The full schedule; the proxy runs it, this copy gates hold modes and feeds the same-preset poll.
 function RFP.SET_EVENTS(idBinding, strCommand, tParams)
   log:trace("RFP.SET_EVENTS(%s, %s, %s)", idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
   -- Parse before clearing: an unparsable frame is not an empty schedule.
-  -- Deleting every event arrives as a well-formed empty <events/>.
   local xml = C4:ParseXml(Select(tParams, "XML") or "")
   if xml == nil then
     log:warn("SET_EVENTS carried no parsable XML; the stored schedule stands")
@@ -1852,9 +1771,7 @@ function RFP.SET_EVENTS(idBinding, strCommand, tParams)
   end
   log:info("Schedule updated: %d event(s)", #SCHEDULE)
 
-  -- With no events there is nothing for a hold to be "until": forget the
-  -- scheduled preset and release any hold but Permanent, which never depended
-  -- on a schedule.
+  -- With no events, forget the scheduled preset and release any hold but Permanent.
   if #SCHEDULE == 0 then
     if SCHEDULED_PRESET ~= nil then
       log:info("Schedule emptied; '%s' is no longer the scheduled preset", SCHEDULED_PRESET)
@@ -1873,18 +1790,14 @@ function RFP.SET_EVENTS(idBinding, strCommand, tParams)
   end
 
   persistSchedule()
-  -- Saving the first schedule or deleting the last changes what is offered
-  -- without a reconnect, so republish here too.
+  -- A first or last event changes what is offered without a reconnect.
   if not (ENTITY and ENTITY.is_water_heater) then
     publishHoldModes()
   end
   updateScheduleBoundaryTimer()
 end
 
---- The proxy's word on which preset the schedule has in force: sent on save, at
---- a boundary where the preset changes, and on every connection; it stays silent
---- at a boundary that re-selects the preset already in force. A repeat of the
---- preset already applied is ignored so a reconnect does not undo a hold.
+--- Sent on save, on connect, and at a boundary that changes the preset, never for a re-select; a repeat is ignored.
 function RFP.SET_EVENT(idBinding, strCommand, tParams)
   log:trace("RFP.SET_EVENT(%s, %s, %s)", idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
@@ -1922,18 +1835,14 @@ function RFP.SET_MODE_HOLD(idBinding, strCommand, tParams)
   end
   if mode == "Off" then
     USER_HOLD = false
-    -- Cleared even without a schedule, or a later edit to the preset is still
-    -- pushed through SET_PRESETS.
+    -- Cleared even without a schedule, or a later preset edit is still pushed.
     HOLD_PRESET = nil
-    -- Return to whatever the schedule last asked for. Not one-report-suppressed:
-    -- a stale push may flap the hold once, but suppression would swallow a real
-    -- divergence made right after a release.
+    -- Not report-suppressed: that would swallow a real divergence made right after a release.
     if SCHEDULED_PRESET ~= nil then
       applyPreset(SCHEDULED_PRESET)
     end
   elseif #SCHEDULE == 0 and mode ~= HOLD_PERMANENT then
-    -- Any hold but Permanent runs until the next scheduled event; with no events
-    -- nothing could release it.
+    -- With no events nothing could release it.
     log:warn("Refusing hold '%s' with no schedule; nothing could release it", tostring(mode))
     USER_HOLD = false
     setHoldMode("Off")
@@ -1956,8 +1865,7 @@ function RFP.SET_MODE_SWING(idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING or (ENTITY and ENTITY.is_water_heater) then
     return
   end
-  -- An extras object may name its parameter via param_name; ours does not, so
-  -- the value arrives as "value". Accept either.
+  -- Without param_name the value arrives as "value"; accept either.
   local mode = Select(tParams, SWING_EXTRA_ID) or Select(tParams, "value")
   if IsEmpty(mode) then
     log:warn("SET_MODE_SWING carried no value: %s", tParams)
@@ -1972,8 +1880,7 @@ function RFP.SET_MODE_SWING(idBinding, strCommand, tParams)
     has_swing_mode = true,
     swing_mode = swingMode,
   })
-  -- Echo the selection so the Extras UI settles immediately; the device's own
-  -- state report is still authoritative and will overwrite this if it differs.
+  -- Echo so the Extras UI settles; the device's report still overrides.
   SendToProxy(PROXY_BINDING, "EXTRAS_STATE_CHANGED", {
     XML = '<extras_state><extra><object id="' .. SWING_EXTRA_ID .. '" value="' .. mode .. '"/></extra></extras_state>',
   }, "NOTIFY")
@@ -2077,8 +1984,7 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   IS_SINGLE_SETPOINT = false
   USER_SERVICES_DISCOVERED = false
   LAST_MATCH_SIGNATURE = nil
-  -- A scheduled preset commanded but unconfirmed when the device dropped may
-  -- never have arrived; mark it pending so it is sent again on reconnect.
+  -- A preset commanded but unconfirmed at the drop may not have arrived; resend on reconnect.
   if AWAITING_SCHEDULED then
     AWAITING_SCHEDULED = false
     if SCHEDULED_PRESET ~= nil then
@@ -2139,14 +2045,12 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     sendDisplayScale()
   end
 
-  -- The device may be the missing half of a pending scheduled preset; a
-  -- reconnect does not guarantee a SET_PRESETS resend.
+  -- A reconnect does not guarantee a SET_PRESETS resend.
   runPendingEvent()
   -- Only now is it known whether this entity is a water heater.
   updateScheduleBoundaryTimer()
 
-  -- ESPHome reports NaN for a float the device has not supplied yet, so every
-  -- reading below goes through stateNumber.
+  -- ESPHome reports NaN for a float not yet supplied, so readings go through stateNumber.
   -- Current temperature
   local currentTemp = stateNumber(state, "current_temperature", entity.supports_current_temperature)
   if currentTemp ~= nil then
@@ -2261,8 +2165,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     end
   end
 
-  -- Swing mode, reflected into the Extras selector only when one was published:
-  -- more than one mapped mode, the same count sendCapabilities uses.
+  -- Reflected into Extras only when a selector was published (more than one mapped mode).
   local swingChoices, seenSwing = {}, {}
   for _, raw in ipairs(entity.supported_swing_modes or {}) do
     local mappedName = CLIMATE_SWING_MODE_TO_C4[raw]
@@ -2310,8 +2213,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     }, "NOTIFY")
   end
 
-  -- Water heater modes via extras; custom_preset carries the operating mode
-  -- (see sendCapabilities), so keep every read behind is_water_heater.
+  -- custom_preset carries the operating mode, so keep every read behind is_water_heater.
   local customPreset = Select(state, "custom_preset")
   if entity.is_water_heater and customPreset ~= nil and customPreset ~= "" then
     SendToProxy(PROXY_BINDING, "EXTRAS_STATE_CHANGED", {
@@ -2522,8 +2424,7 @@ end
 OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   ENTITY = nil
   STATE = nil
-  -- Presets are proxy-owned user configuration, not derived from the device, so
-  -- a rebind (which an update cycles) must not clear them.
+  -- Presets are proxy-owned configuration; a rebind must not clear them.
   CAPABILITIES_SENT = false
   IS_SINGLE_SETPOINT = false
   LAST_WATER_HEATER_MODE = nil
@@ -2532,8 +2433,7 @@ OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   if isBound then
     SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
   else
-    -- Losing the binding is losing the device; otherwise the proxy keeps the last
-    -- IS_CONNECTED and the UI stays live.
+    -- Otherwise the proxy keeps the last IS_CONNECTED and the UI stays live.
     updateStatus("Disconnected", false)
     sendConnectionState(false)
   end
