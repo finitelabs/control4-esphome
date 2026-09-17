@@ -23,6 +23,13 @@ local function ovcKey(name)
   return string.gsub(name, "%s+", "_")
 end
 
+--- Equality for a stored value. Differs from `==` only for NaN, which is never
+--- equal to itself: a driver republishing an unknown reading would otherwise
+--- report a change on every push and rewrite persistent storage each time.
+local function sameValue(a, b)
+  return a == b or (a ~= a and b ~= b)
+end
+
 --- @class Value
 --- @field index integer Index used for ordering values during restore.
 --- @field varType VariableType? Optional variable type if registered as a variable
@@ -134,7 +141,7 @@ function Values:update(name, value, varType, callbackOrWritable, propertySuffix)
 
   -- Check if the entry has changed
   local changed = not existing
-    or existing.value ~= value
+    or not sameValue(existing.value, value)
     or existing.suffix ~= propertySuffix
     or existing.varType ~= varType
     or existing.writable ~= writable

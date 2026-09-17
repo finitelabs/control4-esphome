@@ -16,6 +16,7 @@ local values = require("lib.values")
 local constants = require("constants")
 local bindings = require("lib.bindings")
 local persist = require("lib.persist")
+local displayScale = require("esphome.display_scale")
 
 --- Update the Driver Status property and the Connected variable so
 --- Programming can react to connect/disconnect.
@@ -126,26 +127,11 @@ local C4_TO_CLIMATE_FAN_MODE = TableReverse(CLIMATE_FAN_MODE_TO_C4)
 --- and the proxy converts to the user's display scale based on the SCALE param.
 local SCALE = "C"
 
---- Persist key for an installer's per-thermostat display-scale override.
-local P_DISPLAY_SCALE = "DisplayScale"
-
---- The proxy and C4:GetTemperatureScale() disagree on spelling ("C" vs "Celsius"
---- vs "CELSIUS"), so both are reduced to a letter.
---- @param scale string|nil
---- @return string|nil scale "C", "F", or nil if unrecognized.
-local function normalizeScale(scale)
-  local first = tostring(scale or ""):sub(1, 1):upper()
-  if first == "C" or first == "F" then
-    return first
-  end
-  return nil
-end
-
---- An installer override wins over the project scale. ESPHome is always Celsius
---- internally, so this only affects what Control4 displays.
+--- ESPHome is always Celsius internally, so the display scale only affects what
+--- Control4 shows.
 --- @return string scale "C" or "F".
 local function getDisplayScale()
-  return normalizeScale(persist:get(P_DISPLAY_SCALE)) or normalizeScale(C4:GetTemperatureScale()) or "F"
+  return displayScale.resolve(PROXY_BINDING)
 end
 
 --- thermostatV2 has no ONLINE_CHANGED. It tracks reachability through
@@ -160,11 +146,10 @@ end
 local REPORTED_SCALE = nil
 
 --- The proxy defaults to Fahrenheit and never consults the project setting, so a
---- Celsius project shows Fahrenheit thermostats without this. Called on every
---- state update so a project scale change lands without a reconnect.
+--- Celsius project shows Fahrenheit thermostats without this.
+--- @param scale string "C" or "F".
 --- @return void
-local function sendDisplayScale()
-  local scale = getDisplayScale()
+local function applyDisplayScale(scale)
   if scale == REPORTED_SCALE then
     return
   end
@@ -173,32 +158,10 @@ local function sendDisplayScale()
   SendToProxy(PROXY_BINDING, "SCALE_CHANGED", { SCALE = scale }, "NOTIFY")
 end
 
---- Extract a Celsius temperature from proxy command params.
---- The proxy sends CELSIUS, FAHRENHEIT, KELVIN, and SETPOINT simultaneously.
---- @param tParams table Proxy command parameters.
---- @return number|nil celsius Temperature in Celsius.
-local function getCelsiusFromParams(tParams)
-  local celsius = tonumber(Select(tParams, "CELSIUS"))
-  if celsius ~= nil then
-    return celsius
-  end
-  local fahrenheit = tonumber(Select(tParams, "FAHRENHEIT"))
-  if fahrenheit ~= nil then
-    return f2c(fahrenheit)
-  end
-  -- Fall back to VALUE + SCALE (used by TEMPERATURE_VALUE bindings)
-  local value = tonumber(Select(tParams, "VALUE"))
-  if value ~= nil then
-    local scale = Select(tParams, "SCALE") or "F"
-    if scale == "C" or scale == "c" or scale == "CELSIUS" then
-      return value
-    end
-    if scale == "K" or scale == "k" or scale == "KELVIN" then
-      return value - 273.15
-    end
-    return f2c(value)
-  end
-  return nil
+--- Called on every state update so a scale change lands without a reconnect.
+--- @return void
+local function sendDisplayScale()
+  applyDisplayScale(getDisplayScale())
 end
 
 --- Get the entity's min/max temperature range in Celsius.
@@ -552,6 +515,12 @@ function OnDriverLateInit()
   LAST_WATER_HEATER_MODE = persist:get("LastWaterHeaterMode")
   REMOTE_SENSOR_IN_USE = persist:get("RemoteSensorInUse") or false
 
+  -- A Navigator scale change reaches the proxy's variable even when SET_SCALE
+  -- does not reach the driver.
+  displayScale.watch(PROXY_BINDING, function()
+    sendDisplayScale()
+  end)
+
   -- Hide remote sensor properties until services are discovered
   C4:SetPropertyAttribs("Remote Temperature Service", constants.HIDE_PROPERTY)
   C4:SetPropertyAttribs("Internal Temperature Service", constants.HIDE_PROPERTY)
@@ -710,7 +679,7 @@ function RFP.SET_SETPOINT_HEAT(idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  local celsius = getCelsiusFromParams(tParams)
+  local celsius = CelsiusFromParams(tParams)
   if celsius == nil then
     return
   end
@@ -733,7 +702,7 @@ function RFP.SET_SETPOINT_COOL(idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  local celsius = getCelsiusFromParams(tParams)
+  local celsius = CelsiusFromParams(tParams)
   if celsius == nil then
     return
   end
@@ -909,20 +878,21 @@ function RFP.SET_MODE_HVAC(idBinding, strCommand, tParams)
   })
 end
 
---- ESPHome has no device-side scale to push this to, so record it and report back.
+--- ESPHome has no device-side scale to push this to, and Director already holds
+--- the new scale on the proxy item, so this only has to agree with it. The
+--- command carries the chosen scale, which the proxy's variable may not have
+--- caught up to yet, so report back what was asked for.
 function RFP.SET_SCALE(idBinding, strCommand, tParams)
   log:trace("RFP.SET_SCALE(%s, %s, %s)", idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  local scale = normalizeScale(Select(tParams, "SCALE"))
+  local scale = TemperatureScaleLetter(Select(tParams, "SCALE"))
   if scale == nil then
     log:warn("Ignoring SET_SCALE with unrecognized scale: %s", Select(tParams, "SCALE"))
     return
   end
-  persist:set(P_DISPLAY_SCALE, scale)
-  REPORTED_SCALE = nil
-  sendDisplayScale()
+  applyDisplayScale(scale)
 end
 
 function RFP.SET_SETPOINT_SINGLE(idBinding, strCommand, tParams)
@@ -930,7 +900,7 @@ function RFP.SET_SETPOINT_SINGLE(idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  local celsius = getCelsiusFromParams(tParams)
+  local celsius = CelsiusFromParams(tParams)
   if celsius == nil then
     return
   end
@@ -987,6 +957,33 @@ end
 local warnedMode = nil
 local warnedAction = nil
 
+--- Read a numeric state field, treating a missing one as zero when the entity
+--- reports that field. Protobuf leaves a zero off the wire, so missing here means
+--- zero (OFF, for the enums), not unchanged.
+--- @param state table<string, any> The decoded state.
+--- @param name string The field name.
+--- @param reported boolean|nil Whether the entity reports this field.
+--- @return number|nil value
+local function stateNumber(state, name, reported)
+  local value = tonumber(Select(state, name))
+  if value == nil and reported then
+    return 0
+  end
+  return value
+end
+
+--- @param list any[]|nil
+--- @param value any
+--- @return boolean
+local function listHas(list, value)
+  for _, item in ipairs(list or {}) do
+    if item == value then
+      return true
+    end
+  end
+  return false
+end
+
 function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   log:trace("RFP.UPDATE_STATE(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
   if idBinding ~= ESPHOME_BINDING then
@@ -1019,21 +1016,18 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- Current temperature
-  local currentTemp = tonumber(Select(state, "current_temperature"))
+  local currentTemp = stateNumber(state, "current_temperature", entity.supports_current_temperature)
   if currentTemp ~= nil then
     SendToProxy(PROXY_BINDING, "TEMPERATURE_CHANGED", {
       TEMPERATURE = tostring(currentTemp),
       SCALE = SCALE,
     }, "NOTIFY")
     -- Forward to temperature output connection
-    SendToProxy(TEMPERATURE_OUTPUT_BINDING, "VALUE_CHANGED", {
-      CELSIUS = tostring(currentTemp),
-      FAHRENHEIT = tostring(c2f(currentTemp)),
-    })
+    SendToProxy(TEMPERATURE_OUTPUT_BINDING, "VALUE_CHANGED", SensorValueParams(currentTemp, "CELSIUS"))
   end
 
   -- HVAC mode
-  local mode = tointeger(Select(state, "mode"))
+  local mode = tointeger(stateNumber(state, "mode", true))
   if mode ~= nil then
     local c4Mode = CLIMATE_MODE_TO_C4[mode]
     if c4Mode ~= nil then
@@ -1045,7 +1039,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- HVAC action/state
-  local action = tointeger(Select(state, "action"))
+  local action = tointeger(stateNumber(state, "action", entity.supports_action))
   if action ~= nil then
     local c4State = CLIMATE_ACTION_TO_C4[action]
     if c4State ~= nil then
@@ -1111,7 +1105,10 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- Fan mode
-  local fanMode = tointeger(Select(state, "fan_mode"))
+  -- ESPHome also leaves fan_mode off when the unit has none set, so a missing one
+  -- is read as On only where On is one of the unit's fan modes.
+  local fanOn = ESPHomeProtoSchema.Enum.ClimateFanMode.CLIMATE_FAN_ON
+  local fanMode = tointeger(stateNumber(state, "fan_mode", listHas(entity.supported_fan_modes, fanOn)))
   local customFanMode = Select(state, "custom_fan_mode")
   if customFanMode ~= nil and customFanMode ~= "" then
     SendToProxy(PROXY_BINDING, "FAN_MODE_CHANGED", { MODE = customFanMode }, "NOTIFY")
@@ -1123,19 +1120,18 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- Humidity
-  local currentHumidity = tonumber(Select(state, "current_humidity"))
+  local currentHumidity = stateNumber(state, "current_humidity", entity.supports_current_humidity)
   if currentHumidity ~= nil then
+    local humidityPercent = math.floor(currentHumidity + 0.5)
     SendToProxy(PROXY_BINDING, "HUMIDITY_CHANGED", {
-      HUMIDITY = tostring(math.floor(currentHumidity + 0.5)),
+      HUMIDITY = tostring(humidityPercent),
     }, "NOTIFY")
     -- Forward to humidity output connection
-    SendToProxy(HUMIDITY_OUTPUT_BINDING, "VALUE_CHANGED", {
-      VALUE = tostring(math.floor(currentHumidity + 0.5)),
-    })
+    SendToProxy(HUMIDITY_OUTPUT_BINDING, "VALUE_CHANGED", SensorValueParams(humidityPercent, "PERCENT"))
   end
 
   -- Target humidity
-  local targetHumidity = tonumber(Select(state, "target_humidity"))
+  local targetHumidity = stateNumber(state, "target_humidity", entity.supports_target_humidity)
   if targetHumidity ~= nil then
     SendToProxy(PROXY_BINDING, "HUMIDIFY_SETPOINT_CHANGED", {
       SETPOINT = tostring(math.floor(targetHumidity + 0.5)),
@@ -1192,7 +1188,7 @@ local function handleValueChanged(idBinding, tParams)
   if not REMOTE_SENSOR_IN_USE then
     return
   end
-  local celsius = getCelsiusFromParams(tParams)
+  local celsius = CelsiusFromParams(tParams, "CELSIUS")
   if celsius == nil then
     return
   end

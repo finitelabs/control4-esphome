@@ -912,12 +912,18 @@ do
     --- @class bthome.crypto.aes_ccm
     local aes_ccm = {}
 
-    local bit32 = require("bitn").bit32
+    local bitn = require("bitn")
+    local bit16 = bitn.bit16
+    local bit32 = bitn.bit32
+    local bit64 = bitn.bit64
 
     -- Local references for performance
+    local bit16_u16_to_be_bytes = bit16.u16_to_be_bytes
     local bit32_raw_band = bit32.raw_band
     local bit32_raw_bxor = bit32.raw_bxor
     local bit32_raw_lshift = bit32.raw_lshift
+    local bit64_from_number = bit64.from_number
+    local bit64_u64_to_be_bytes = bit64.u64_to_be_bytes
     local math_floor = math.floor
     local math_min = math.min
     local string_byte = string.byte
@@ -1449,6 +1455,14 @@ do
       return table_concat(result)
     end
 
+    --- Big-endian encoding of n in exactly L bytes (L <= 8).
+    --- @param n integer Value to encode
+    --- @param L integer Field width in bytes
+    --- @return string bytes
+    local function be_bytes(n, L)
+      return string_sub(bit64_u64_to_be_bytes(bit64_from_number(n)), 9 - L)
+    end
+
     --- Generate CTR counter blocks.
     --- @param nonce string CCM nonce
     --- @param counter integer Counter value (0 for CBC-MAC tag encryption, 1+ for CTR)
@@ -1459,18 +1473,7 @@ do
       -- Flags = L-1 (for CTR blocks)
       local flags = math_floor(L - 1)
 
-      -- Build counter block
-      local block = string_char(flags) .. nonce
-
-      -- Append counter (big-endian, L bytes)
-      local counter_bytes = {}
-      local temp_counter = counter
-      for i = L, 1, -1 do
-        counter_bytes[i] = string_char(math_floor(temp_counter % 256))
-        temp_counter = math_floor(temp_counter / 256)
-      end
-
-      return block .. table_concat(counter_bytes)
+      return string_char(flags) .. nonce .. be_bytes(counter, L)
     end
 
     --- Compute CBC-MAC authentication tag.
@@ -1495,14 +1498,7 @@ do
       -- B0 = Flags || Nonce || Q (message length, L bytes, big-endian)
       local b0 = string_char(flags) .. nonce
 
-      -- Append message length (L bytes, big-endian)
-      local msg_len = #plaintext
-      local len_bytes = {}
-      for i = L, 1, -1 do
-        len_bytes[i] = string_char(math_floor(msg_len % 256))
-        msg_len = math_floor(msg_len / 256)
-      end
-      b0 = b0 .. table_concat(len_bytes)
+      b0 = b0 .. be_bytes(#plaintext, L)
 
       -- Initialize CBC-MAC with B0
       local y = aes_encrypt_block(b0, expanded_key, nr)
@@ -1512,7 +1508,7 @@ do
         local aad_block
         if #aad < 0xFF00 then
           -- Short encoding: 2-byte length prefix
-          aad_block = string_char(math_floor(#aad / 256), math_floor(#aad % 256)) .. aad
+          aad_block = bit16_u16_to_be_bytes(#aad) .. aad
         else
           error("AAD too long")
         end
@@ -1855,6 +1851,10 @@ do
     --- @class bthome.event
     local event = {}
 
+    local bit16 = require("bitn").bit16
+    local bit16_band = bit16.band
+    local bit16_rshift = bit16.rshift
+
     --- @class BTHomeButtonEvent
     --- @field raw_value integer Raw event byte value
     --- @field event_type integer Event type code
@@ -1955,9 +1955,8 @@ do
     --- @param value integer The raw 2-byte dimmer value (as little-endian uint16)
     --- @return BTHomeDimmerEvent result Decoded dimmer event with event_type and steps
     function event.decode_dimmer(value)
-      -- Value is read as little-endian uint16: low byte = event_type, high byte = steps
-      local event_type = value % 256
-      local steps = math.floor(value / 256)
+      local event_type = bit16_band(value, 0xFF)
+      local steps = bit16_rshift(value, 8)
 
       return {
         raw_value = value,
@@ -2069,6 +2068,10 @@ do
     --- @class bthome.parser
     local parser = {}
 
+    local bitn = require("bitn")
+    local bit16_u16_to_le_bytes = bitn.bit16.u16_to_le_bytes
+    local bit32_u32_to_le_bytes = bitn.bit32.u32_to_le_bytes
+
     --- BTHome V1 unencrypted service UUID.
     --- @type integer
     parser.UUID_V1_UNENCRYPTED = 0x181C
@@ -2137,14 +2140,7 @@ do
     --- @param counter integer 32-bit counter
     --- @return string nonce 12-byte nonce
     local function build_v1_nonce(mac, uuid, counter)
-      return mac
-        .. string.char(uuid % 256, math.floor(uuid / 256))
-        .. string.char(
-          counter % 256,
-          math.floor(counter / 256) % 256,
-          math.floor(counter / 65536) % 256,
-          math.floor(counter / 16777216) % 256
-        )
+      return mac .. bit16_u16_to_le_bytes(uuid) .. bit32_u32_to_le_bytes(counter)
     end
 
     --- Build nonce for BTHome V2 encrypted advertisements.
@@ -2155,15 +2151,7 @@ do
     --- @param counter integer 32-bit counter
     --- @return string nonce 13-byte nonce
     local function build_v2_nonce(mac, uuid, device_info, counter)
-      return mac
-        .. string.char(uuid % 256, math.floor(uuid / 256))
-        .. string.char(device_info)
-        .. string.char(
-          counter % 256,
-          math.floor(counter / 256) % 256,
-          math.floor(counter / 65536) % 256,
-          math.floor(counter / 16777216) % 256
-        )
+      return mac .. bit16_u16_to_le_bytes(uuid) .. string.char(device_info) .. bit32_u32_to_le_bytes(counter)
     end
 
     --- Parse the device info byte to extract flags and version.
@@ -3423,7 +3411,7 @@ bthome.UUID_V1_ENCRYPTED = bthome.parser.UUID_V1_ENCRYPTED
 bthome.UUID_V2 = bthome.parser.UUID_V2
 
 --- Library version (injected at build time for releases).
-local VERSION = "v0.1.5"
+local VERSION = "v0.1.7"
 
 --- Get the library version string.
 --- @return string version Version string (e.g., "v1.0.0" or "dev")

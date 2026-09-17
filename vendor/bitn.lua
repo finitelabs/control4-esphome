@@ -33,6 +33,31 @@ do
     -- Constants
     local MASK32 = 0xFFFFFFFF
 
+    -- string.pack/unpack are bound only if they answer in the 5.3 dialect. Control4's
+    -- LuaJIT ships lpack under the same names: no size suffixes, and unpack takes
+    -- (data, fmt, pos) and returns the position first, so existence proves nothing.
+    local function probe_string_pack()
+      local pack, unpack = rawget(string, "pack"), rawget(string, "unpack")
+      if not (pack and unpack) then
+        return nil, nil
+      end
+      local packed_ok, packed = pcall(pack, "<I4", 0x04030201)
+      if not packed_ok or packed ~= "\1\2\3\4" then
+        return nil, nil
+      end
+      packed_ok, packed = pcall(pack, ">I4", 0x04030201)
+      if not packed_ok or packed ~= "\4\3\2\1" then
+        return nil, nil
+      end
+      local unpacked_ok, value, next_pos = pcall(unpack, "<I4", "\0\1\2\3\4", 2)
+      if not unpacked_ok or value ~= 0x04030201 or next_pos ~= 6 then
+        return nil, nil
+      end
+      return pack, unpack
+    end
+
+    _compat.string_pack, _compat.string_unpack = probe_string_pack()
+
     --------------------------------------------------------------------------------
     -- Implementation 1: Native operators (Lua 5.3+)
     --------------------------------------------------------------------------------
@@ -1181,8 +1206,8 @@ do
 
     local string_char = string.char
     local string_byte = string.byte
-    local string_pack = rawget(string, "pack")
-    local string_unpack = rawget(string, "unpack")
+    local string_pack = _compat.string_pack
+    local string_unpack = _compat.string_unpack
     -- % is the whole operation on the pure Lua backend; skip the call.
     local fast_band = _compat.has_native_ops or _compat.has_bit_lib
 
@@ -1909,8 +1934,8 @@ do
     local impl_name = _compat.impl_name
     local math_floor = math.floor
     local string_char = string.char
-    local string_pack = rawget(string, "pack")
-    local string_unpack = rawget(string, "unpack")
+    local string_pack = _compat.string_pack
+    local string_unpack = _compat.string_unpack
 
     -- Private metatable for Int64 type identification
     local Int64Meta = { __name = "Int64" }
@@ -3578,7 +3603,7 @@ local bitn = {
 }
 
 --- Library version (injected at build time for releases).
-local VERSION = "v0.6.3"
+local VERSION = "v0.6.4"
 
 --- Get the library version string.
 --- @return string version Version string (e.g., "v1.0.0" or "dev")
