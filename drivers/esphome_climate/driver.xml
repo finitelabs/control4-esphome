@@ -139,6 +139,9 @@
     <has_remote_sensor>True</has_remote_sensor>
     <fan_modes/>
     <hvac_modes>Off,Heat,Cool,Auto</hvac_modes>
+    <!-- thermostatV2 drops HVAC_STATE_CHANGED values outside this list without logging, and reads
+         the list only at Director start, so it must cover every string CLIMATE_ACTION_TO_C4 emits. -->
+    <hvac_states>Off,Heating,Cooling,Idle,Drying,Fan Only</hvac_states>
     <hold_modes/>
   </capabilities>
   <proxies>
