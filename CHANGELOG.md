@@ -50,13 +50,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed an "Error setting default color rate from driver" message in Composer
   when opening the properties of an ESPHome light.
 - Fixed a thermostat never showing whether it is heating, cooling, idle, drying
-  or running the fan only, on a unit that reports what it is currently doing.
-  Navigator's flame and snowflake icons and the ring around the temperature now
-  follow the unit. On a system that already has ESPHome thermostats, updating
-  the driver in Composer and refreshing Navigators is not enough on its own:
-  this fix takes effect once Director restarts or the controller reboots,
-  because Control4 reads the list of states a thermostat can report only at
-  startup.
+  or running the fan only. On a system that already has ESPHome thermostats,
+  this takes effect after Director restarts or the controller reboots, not on
+  the driver update alone.
 - Fixed Composer's test panel greying out the dimming controls for ESPHome
   lights that do support brightness. Dimming from the Control4 app was never
   affected.

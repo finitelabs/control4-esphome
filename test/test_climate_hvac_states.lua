@@ -41,13 +41,11 @@ T.check("the esphome_climate driver.xml was read", xml ~= nil, "missing")
 T.section("the states the driver can send")
 --------------------------------------------------------------------------------
 
--- The mapping comes out of the driver rather than being copied here, so this
--- asserts the driver's own vocabulary.
 local mapText = src and src:match("\n(local CLIMATE_ACTION_TO_C4 = %b{})\n")
 T.check("CLIMATE_ACTION_TO_C4 was cut out of the source", mapText ~= nil, "no match")
 
--- A cut of the wrong region would yield an empty table, and every membership
--- case below would then pass vacuously.
+-- A cut of the wrong region yields an empty table, leaving every membership case
+-- below to pass vacuously.
 T.check(
   "the cut table maps CLIMATE_ACTION_COOLING",
   (mapText or ""):find("CLIMATE_ACTION_COOLING", 1, true) ~= nil,
@@ -65,8 +63,8 @@ end
 local map = loadMap(mapText)
 T.check("the cut table compiles", type(map) == "table", "it did not compile")
 
---- Distinct C4 state strings, since several actions share one (Defrosting sends
---- Heating), in a stable order for reporting.
+--- Distinct C4 state strings: Defrosting also sends Heating, so the map's seven
+--- actions are six states.
 local function sentStates(actionMap)
   local seen, out = {}, {}
   for _, state in pairs(actionMap or {}) do
@@ -137,9 +135,8 @@ for _, state in ipairs(SENT) do
   T.check("the proxy accepts " .. state, isDeclared(declared, state), "not in <hvac_states>")
 end
 
--- A state the driver can never send would not break the proxy, but it is the
--- shape a typo takes, and a misspelling that merely adds a token leaves every
--- case above passing.
+-- A misspelling that adds a token rather than replacing one leaves every case
+-- above passing.
 for _, token in ipairs(declared or {}) do
   local sendable = false
   for _, state in ipairs(SENT) do
@@ -160,8 +157,6 @@ end
 T.section("the assertion discriminates")
 --------------------------------------------------------------------------------
 
--- Without these arms a declaration that silently stopped matching the map would
--- read the same as one that matches.
 local strippedXml = xml and xml:gsub("%s*<hvac_states>.-</hvac_states>", "", 1)
 local strippedDeclared, strippedFault = declaredStates(strippedXml)
 T.eq("with the declaration removed the list is absent", strippedDeclared, nil)
@@ -173,13 +168,9 @@ local emptiedDeclared, emptiedFault = declaredStates(emptiedXml)
 T.eq("an empty declaration is told apart from an absent one", emptiedFault, "empty")
 T.eq("and declares nothing", #(emptiedDeclared or {}), 0)
 
--- The pre-fix state of the driver, and the reason DRV-131 was filed: Cooling was
--- dropped while the mode vocabulary was declared and worked.
 T.check("Cooling is undeclared before the fix", not isDeclared(emptiedDeclared, "Cooling"), "reported as declared")
 T.check("Cooling is declared after it", isDeclared(declared, "Cooling"), "not in <hvac_states>")
 
--- Substring matching would accept the state "Heating" on the strength of the
--- mode "Heat", which is declared one line above it in driver.xml.
 T.check("a prefix of a state does not count as the state", not isDeclared({ "Heat" }, "Heating"), "matched")
 
 T.finish()
