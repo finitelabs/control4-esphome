@@ -198,7 +198,8 @@ function CoverEntity:updated(entity, state)
   local coverClosed = true
   local coverOperation = tointeger(state.current_operation) or 0
   local supportsPosition = toboolean(entity.supports_position)
-  local position = tointeger((tonumber(state.position) or 0) * 100)
+  -- ESPHome sends NaN for a position the device has not reported.
+  local position = tointeger((tofinite(state.position) or 0) * 100)
   local legacyState = tointeger(state.legacy_state)
 
   if supportsPosition then
