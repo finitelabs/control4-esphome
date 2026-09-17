@@ -928,9 +928,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   fan mode and vane position, and can be applied from the app or from
   programming.
 - Added preset scheduling. Presets can be scheduled by weekday and time. The
-  schedule is kept by Control4, and the driver applies each scheduled preset
-  when Control4 announces it, including when a schedule change alters the preset
-  in force.
+  schedule is kept by Control4, and the driver applies each scheduled preset as
+  it falls due, including an event that re-selects the preset already in force
+  and one that falls due while the device is unreachable.
 - Added holds. Changing the thermostat by hand, or choosing a preset by hand,
   holds the new setting until the next scheduled event, which then releases it.
   Clearing a held preset before then returns to the preset the schedule has in

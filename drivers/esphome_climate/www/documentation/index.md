@@ -275,16 +275,15 @@ Presets can be scheduled by weekday and time. Control4 keeps the schedule and
 announces each scheduled event to the driver, which applies the event's preset.
 A schedule change that alters which preset is in force applies that preset
 straight away and ends any hold; a change that leaves it unchanged applies
-nothing. An event that selects the preset already in force is not announced, so
-a change made by hand lasts until the next event that names a different preset.
+nothing. Every scheduled event runs, including one that re-selects the preset
+already in force.
 
 ## Holds
 
 Changing the thermostat by hand while a scheduled preset is in force raises a
 hold. The thermostat shows **Until Next**, and the change stays in place until
-the next scheduled event that names a different preset, which releases the hold
-and applies it; an event that re-selects the preset already in force is not
-announced and leaves the hold in place.
+the next scheduled event, which releases the hold and applies its preset. An
+event that re-selects the preset already in force releases it too.
 
 Choosing a preset by hand does the same thing. The preset is applied and held
 until the next scheduled event, and the schedule is not disturbed: clearing the

@@ -55,6 +55,9 @@ local LAST_WATER_HEATER_MODE = nil -- restored from persist in OnDriverLateInit
 --- learning logic live with the hold helpers below.
 local HOLD_UNTIL_NEXT
 
+--- The only wordings learnable as "until next"; both are first-party.
+local HOLD_UNTIL_NEXT_NAMES = { ["Until Next"] = true, ["Next Event"] = true }
+
 --- Read a numeric state field, treating a missing one as zero when the entity
 --- reports that field. Protobuf leaves a zero off the wire, so missing here means
 --- zero (OFF, for the enums), not unchanged. A present but non-finite reading is
@@ -89,6 +92,7 @@ local PRESETS_SIGNATURE = nil
 local publishHoldModes
 local scheduleSignature
 local runPendingEvent
+local updateScheduleBoundaryTimer
 
 --- Stable digest of the preset list, for the persist dedupe.
 --- @param presets table<string, table> The preset table.
@@ -728,7 +732,7 @@ local function sendCapabilities(entity)
 
   -- The proxy only resends SET_PRESETS / SET_EVENT once the connection is
   -- announced.
-  SendToProxy(PROXY_BINDING, "CONNECTION", { CONNECTED = true }, "NOTIFY")
+  sendConnectionState(true)
 end
 
 function OnDriverInit()
@@ -783,7 +787,7 @@ function OnDriverLateInit()
   -- says "Next Event" is offered a mode it does not use. Stored as a table:
   -- Deserialize cannot reliably read back a bare string.
   local storedHoldWording = persist:get("HoldWording")
-  if type(storedHoldWording) == "table" and type(storedHoldWording.mode) == "string" then
+  if type(storedHoldWording) == "table" and HOLD_UNTIL_NEXT_NAMES[storedHoldWording.mode] then
     HOLD_UNTIL_NEXT = storedHoldWording.mode
   end
 
@@ -805,6 +809,7 @@ function OnDriverLateInit()
   if #SCHEDULE > 0 then
     log:info("Restored %d scheduled event(s)", #SCHEDULE)
   end
+  updateScheduleBoundaryTimer()
 
   -- Hide remote sensor properties until services are discovered
   C4:SetPropertyAttribs("Remote Temperature Service", constants.HIDE_PROPERTY)
@@ -1151,6 +1156,8 @@ local HOLD_MODES_PUBLISHED = nil
 --- must still publish once after a reload.
 local UNREPORTED = {}
 local ACTIVE_PRESET = UNREPORTED
+--- Inputs the last preset match ran on; cleared on disconnect.
+local LAST_MATCH_SIGNATURE = nil
 --- A hold the user asked for, as opposed to one raised because state diverged
 --- from the schedule. A divergence hold ends when state returns to the scheduled
 --- preset; a user hold ends only when released or at the next scheduled event.
@@ -1165,16 +1172,6 @@ HOLD_UNTIL_NEXT = "Until Next"
 
 --- The one hold that outlives a schedule; released only by the user or programming.
 local HOLD_PERMANENT = "Permanent"
-
---- Hold names that must never be learned as the "until next" wording.
-local HOLD_NOT_UNTIL_NEXT = {
-  ["Off"] = true,
-  [HOLD_PERMANENT] = true,
-  ["2 Hours"] = true,
-  ["4 Hour"] = true,
-  ["24 Hour"] = true,
-  ["Hold Until"] = true,
-}
 
 --- Publish the hold modes the proxy should offer. With no schedule there is
 --- nothing for a hold to be "until", so none are offered.
@@ -1236,9 +1233,9 @@ end
 --- @param fKey string Fahrenheit field id.
 --- @return number|nil celsius
 local function presetSetpoint(preset, cKey, fKey)
-  local celsius = tonumber(preset[cKey])
+  local celsius = tofinite(preset[cKey])
   if celsius == nil then
-    local fahrenheit = tonumber(preset[fKey])
+    local fahrenheit = tofinite(preset[fKey])
     if fahrenheit ~= nil then
       celsius = f2c(fahrenheit)
     end
@@ -1321,6 +1318,11 @@ local function applyPreset(name)
     log:warn("Cannot apply preset '%s' while the device is disconnected", tostring(name))
     return false
   end
+  -- Before any field is announced, or a refused preset still reports a mode change.
+  if ENTITY.is_water_heater then
+    log:warn("Preset '%s' not applied: presets are not offered for water heaters", name)
+    return false
+  end
 
   local body = {}
 
@@ -1366,13 +1368,6 @@ local function applyPreset(name)
     return false
   end
 
-  -- CAN_PRESET is withheld from water heaters, and a climate body sent to one
-  -- serialises with nothing set; refuse out loud rather than no-op.
-  if ENTITY ~= nil and ENTITY.is_water_heater then
-    log:warn("Preset '%s' not applied: presets are not offered for water heaters", name)
-    return false
-  end
-
   log:info("Applying preset '%s'", name)
   sendClimateCommand(body)
   -- No announcement here: matchAnyPreset is the only emitter. A device pushes
@@ -1415,7 +1410,8 @@ local function matchPreset(name)
     if expected == nil then
       return true
     end
-    local actual = stateNumber(STATE, stateKey, ENTITY ~= nil)
+    -- A setpoint is never defaulted to zero when absent, unlike a reading.
+    local actual = tofinite(Select(STATE, stateKey))
     -- Compare against what was actually sent: the same snap and clamp as
     -- applyPresetSetpoints, or a quantised or out-of-range preset never matches
     -- its own echo.
@@ -1506,6 +1502,23 @@ local function matchAnyPreset()
   ACTIVE_PRESET = matched
   -- "None" is what the proxy expects when no preset is in force.
   SendToProxy(PROXY_BINDING, "PRESET_CHANGED", { NAME = matched or "None" }, "NOTIFY")
+end
+
+--- Digest of everything matchPreset and reconcileHold read.
+local function matchInputSignature()
+  return table.concat({
+    tostring(Select(STATE, "mode")),
+    tostring(Select(STATE, "target_temperature")),
+    tostring(Select(STATE, "target_temperature_low")),
+    tostring(Select(STATE, "target_temperature_high")),
+    tostring(Select(STATE, "fan_mode")),
+    tostring(Select(STATE, "custom_fan_mode")),
+    tostring(Select(STATE, "swing_mode")),
+    PRESETS_SIGNATURE or "",
+    tostring(HOLD_PRESET),
+    tostring(SCHEDULED_PRESET),
+    tostring(AWAITING_SCHEDULED),
+  }, "|")
 end
 
 --- Drop into "Until Next" when the user diverges from the scheduled preset, and
@@ -1735,6 +1748,63 @@ local function runScheduledEvent()
   return true
 end
 
+local SCHEDULE_POLL_TIMER = "ScheduleBoundary"
+local SCHEDULE_POLL_MS = 60 * 1000
+--- Last minute the poll acted on, so two ticks inside one minute fire once.
+local LAST_BOUNDARY = nil
+local SCHEDULE_POLL_RUNNING = false
+
+--- Re-run a boundary that re-selects the preset in force; the proxy sends no SET_EVENT for those.
+local function checkScheduleBoundary()
+  if #SCHEDULE == 0 or SCHEDULED_PRESET == nil then
+    return
+  end
+  -- A Permanent hold never depended on the schedule, so no boundary releases it.
+  if HOLD_MODE == HOLD_PERMANENT then
+    return
+  end
+  local now = os.date("*t")
+  local key = string.format("%d:%d:%d", now.wday, now.hour, now.min)
+  if key == LAST_BOUNDARY then
+    return
+  end
+  local due = false
+  for _, event in ipairs(SCHEDULE) do
+    -- Director is C, so the proxy's 0-6 weekday is os.date's 1-7 less one.
+    if
+      event.weekday == now.wday - 1
+      and event.hour == now.hour
+      and event.minute == now.min
+      and event.preset == SCHEDULED_PRESET
+    then
+      due = true
+      break
+    end
+  end
+  if not due then
+    return
+  end
+  LAST_BOUNDARY = key
+  log:info("Schedule re-selects '%s'; the proxy sends no event for that", SCHEDULED_PRESET)
+  if not runScheduledEvent() then
+    EVENT_PENDING = true
+  end
+end
+
+--- Started on a change only: SET_EVENTS repeats per client connection and SetTimer restarts the interval.
+updateScheduleBoundaryTimer = function()
+  local want = #SCHEDULE > 0 and not (ENTITY ~= nil and ENTITY.is_water_heater)
+  if want == SCHEDULE_POLL_RUNNING then
+    return
+  end
+  SCHEDULE_POLL_RUNNING = want
+  if want then
+    SetTimer(SCHEDULE_POLL_TIMER, SCHEDULE_POLL_MS, checkScheduleBoundary, true)
+  else
+    CancelTimer(SCHEDULE_POLL_TIMER)
+  end
+end
+
 --- Apply a pending scheduled preset. Called from both SET_PRESETS and
 --- UPDATE_STATE, since either the preset list or the device can arrive last.
 --- @return boolean true if a pending event was applied.
@@ -1807,6 +1877,7 @@ function RFP.SET_EVENTS(idBinding, strCommand, tParams)
   if not (ENTITY and ENTITY.is_water_heater) then
     publishHoldModes()
   end
+  updateScheduleBoundaryTimer()
 end
 
 --- The proxy's word on which preset the schedule has in force: sent on save, at
@@ -1868,9 +1939,8 @@ function RFP.SET_MODE_HOLD(idBinding, strCommand, tParams)
     return
   else
     USER_HOLD = true
-    -- Learn the proxy's wording, but only from a hold that means "until next":
-    -- a timed or permanent hold carries a different name.
-    if mode ~= HOLD_UNTIL_NEXT and not HOLD_NOT_UNTIL_NEXT[mode] then
+    -- Any other name still holds, but must not rewrite the wording offered.
+    if mode ~= HOLD_UNTIL_NEXT and HOLD_UNTIL_NEXT_NAMES[mode] then
       log:info("Proxy calls a hold '%s'; using that from now on", mode)
       HOLD_UNTIL_NEXT = mode
       persist:set("HoldWording", { mode = mode })
@@ -2005,6 +2075,7 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   -- BINDING are persisted or proxy-driven and stay across reconnects.
   IS_SINGLE_SETPOINT = false
   USER_SERVICES_DISCOVERED = false
+  LAST_MATCH_SIGNATURE = nil
   -- A scheduled preset commanded but unconfirmed when the device dropped may
   -- never have arrived; mark it pending so it is sent again on reconnect.
   if AWAITING_SCHEDULED then
@@ -2070,6 +2141,8 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   -- The device may be the missing half of a pending scheduled preset; a
   -- reconnect does not guarantee a SET_PRESETS resend.
   runPendingEvent()
+  -- Only now is it known whether this entity is a water heater.
+  updateScheduleBoundaryTimer()
 
   -- ESPHome reports NaN for a float the device has not supplied yet, so every
   -- reading below goes through stateNumber.
@@ -2178,8 +2251,13 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   if not entity.is_water_heater then
-    matchAnyPreset()
-    reconcileHold()
+    -- Recorded before the run, so reconcileHold still consumes AWAITING_SCHEDULED.
+    local signature = matchInputSignature()
+    if signature ~= LAST_MATCH_SIGNATURE then
+      LAST_MATCH_SIGNATURE = signature
+      matchAnyPreset()
+      reconcileHold()
+    end
   end
 
   -- Swing mode, reflected into the Extras selector only when one was published:
@@ -2449,12 +2527,13 @@ OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   IS_SINGLE_SETPOINT = false
   LAST_WATER_HEATER_MODE = nil
   USER_SERVICES_DISCOVERED = false
+  LAST_MATCH_SIGNATURE = nil
   if isBound then
     SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
   else
     -- Losing the binding is losing the device; otherwise the proxy keeps the last
     -- IS_CONNECTED and the UI stays live.
     updateStatus("Disconnected", false)
-    SendToProxy(PROXY_BINDING, "CONNECTION", { CONNECTED = false }, "NOTIFY")
+    sendConnectionState(false)
   end
 end

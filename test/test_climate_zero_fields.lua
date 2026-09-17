@@ -98,6 +98,7 @@ local PIECES = {
   { what = "CLIMATE_SWING_MODE_TO_C4", text = cutTable("CLIMATE_SWING_MODE_TO_C4") },
   { what = "stateNumber", text = cutLocalFunction("stateNumber") },
   { what = "listHas", text = cutLocalFunction("listHas") },
+  { what = "matchInputSignature", text = cutLocalFunction("matchInputSignature") },
   { what = "RFP.UPDATE_STATE", text = cutHandler("UPDATE_STATE") },
 }
 for _, piece in ipairs(PIECES) do
@@ -148,6 +149,7 @@ local function newHandler()
     runPendingEvent = function() end,
     matchAnyPreset = function() end,
     reconcileHold = function() end,
+    updateScheduleBoundaryTimer = function() end,
   }
   local fn = setfenv(
     loadstring(table.concat(body, "\n") .. "\nreturn RFP.UPDATE_STATE", "=UPDATE_STATE"),

@@ -2161,6 +2161,358 @@ test("A scheduled preset commanded just before a drop is sent again on reconnect
 end)
 
 ---------------------------------------------------------------------------
+-- Final review pass: hold wording, the boundary poll, and match gating
+---------------------------------------------------------------------------
+
+-- The boundary poll runs on a repeating timer. Capture the registration so a
+-- tick can be driven here instead of waiting a minute for one.
+local timers = {}
+function SetTimer(id, ms, fn, repeating)
+  timers[id] = { ms = ms, fn = fn, repeating = repeating }
+  return { id = id }
+end
+function CancelTimer(id)
+  timers[id] = nil
+end
+
+local realOsDate = os.date
+local fakeNow = nil
+os.date = function(fmt, when)
+  if fakeNow ~= nil and fmt == "*t" and when == nil then
+    return { wday = fakeNow.wday, hour = fakeNow.hour, min = fakeNow.min }
+  end
+  return realOsDate(fmt, when)
+end
+
+local POLL = "ScheduleBoundary"
+
+--- Run one poll tick with the clock parked at a weekday and time. wday is
+--- os.date's 1-7, so Monday is 2 and the proxy writes that event as weekday 1.
+local function tickAt(wday, hour, min)
+  fakeNow = { wday = wday, hour = hour, min = min }
+  local timer = timers[POLL]
+  if timer ~= nil and timer.fn ~= nil then
+    timer.fn()
+  end
+  fakeNow = nil
+end
+
+--- Schedule XML with the weekday spelled out, since these tests do inspect it.
+local function eventsOn(entries)
+  entries = entries or { { preset = "Comfort" } }
+  local parts = { "<events>" }
+  for _, e in ipairs(entries) do
+    parts[#parts + 1] = string.format(
+      '<event preset="%s" weekday="%d" hour="%d" minute="%d"/>',
+      e.preset,
+      e.weekday or 1,
+      e.hour or 6,
+      e.minute or 0
+    )
+  end
+  parts[#parts + 1] = "</events>"
+  return table.concat(parts)
+end
+
+--- A device, two presets, one Monday 06:00 event, with "Comfort" in force and
+--- the device sitting on it.
+local function boundaryFixture(events)
+  -- A fresh driver each time: the poll remembers the last minute it acted on and
+  -- the hold wording is learned, so both leak into the next test otherwise.
+  package.loaded["lib.persist"] = nil
+  dofile(DRIVER)
+  disconnect()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 })
+  setPresets({
+    { name = "Comfort", fields = { single_setpoint_c = "22" } },
+    { name = "Away", fields = { single_setpoint_c = "18" } },
+  })
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsOn(events or { { preset = "Comfort" } }) })
+  RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Comfort" })
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  clearHold()
+end
+
+test("Only a first-party wording is learned as the until-next hold", function()
+  -- One stray value through programming must not rewrite the mode offered
+  -- forever after.
+  boundaryFixture()
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Vacation" })
+  local raised = lastSent("HOLD_MODE_CHANGED")
+  T.eq("an unknown hold is still honoured", raised and raised.params.MODE, "Vacation")
+
+  resetSent()
+  clearSchedule()
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsOn() })
+  local offered = lastSent("ALLOWED_HOLD_MODES_CHANGED")
+  T.eq("but it is not learned as the wording", offered and offered.params.MODES, "Off,Until Next")
+end)
+
+test("Next Event is learned, because the proxy really does use it", function()
+  boundaryFixture()
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Next Event" })
+
+  resetSent()
+  clearSchedule()
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsOn() })
+  local offered = lastSent("ALLOWED_HOLD_MODES_CHANGED")
+  T.eq("the allow-listed wording is adopted", offered and offered.params.MODES, "Off,Next Event")
+end)
+
+test("A persisted hold wording outside the allow-list is ignored on restore", function()
+  C4:PersistSetValue("HoldWording", { mode = "Vacation" })
+  package.loaded["lib.persist"] = nil
+  dofile(DRIVER)
+  OnDriverLateInit()
+  resetSent()
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsOn() })
+  local offered = lastSent("ALLOWED_HOLD_MODES_CHANGED")
+  T.eq("the stored junk does not come back", offered and offered.params.MODES, "Off,Until Next")
+
+  C4:PersistSetValue("HoldWording", { mode = "Next Event" })
+  package.loaded["lib.persist"] = nil
+  dofile(DRIVER)
+  OnDriverLateInit()
+  resetSent()
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsOn() })
+  offered = lastSent("ALLOWED_HOLD_MODES_CHANGED")
+  T.eq("while an allow-listed one is restored", offered and offered.params.MODES, "Off,Next Event")
+  C4:PersistSetValue("HoldWording", nil)
+end)
+
+test("The boundary poll runs only while there is a schedule", function()
+  boundaryFixture()
+  T.check("a schedule starts it", timers[POLL] ~= nil)
+  T.eq("every 60 seconds", timers[POLL] and timers[POLL].ms, 60 * 1000)
+  T.eq("repeating", timers[POLL] and timers[POLL].repeating, true)
+
+  local running = timers[POLL]
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsOn() })
+  -- SET_EVENTS arrives on every client connection and SetTimer restarts the
+  -- interval, so re-registering here would starve a 60 s timer.
+  T.check("a repeated schedule does not restart the interval", timers[POLL] == running)
+
+  clearSchedule()
+  T.eq("and deleting the schedule stops it", timers[POLL], nil)
+end)
+
+test("A boundary that re-selects the preset in force is re-run by the poll", function()
+  boundaryFixture()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 25 })
+  local held = lastSent("HOLD_MODE_CHANGED")
+  T.eq("changing it by hand raises a hold", held and held.params.MODE, "Until Next")
+
+  resetSent()
+  tickAt(2, 6, 0)
+  local body = lastCommandBody()
+  T.eq("the scheduled preset is re-applied", body and body.target_temperature, 22)
+  local released = lastSent("HOLD_MODE_CHANGED")
+  T.eq("and the hold is released", released and released.params.MODE, "Off")
+end)
+
+test("Two ticks inside one minute act once", function()
+  boundaryFixture()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 25 })
+  resetSent()
+  tickAt(2, 6, 0)
+  T.check("the first tick acts", lastCommandBody() ~= nil)
+  resetSent()
+  tickAt(2, 6, 0)
+  T.eq("the second does not", lastCommandBody(), nil)
+end)
+
+test("The poll ignores a time, day or preset that is not due", function()
+  boundaryFixture()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 25 })
+
+  resetSent()
+  tickAt(2, 6, 1)
+  T.eq("a minute later is not the boundary", lastCommandBody(), nil)
+  tickAt(2, 7, 0)
+  T.eq("nor is an hour later", lastCommandBody(), nil)
+  tickAt(3, 6, 0)
+  T.eq("nor the same time on another day", lastCommandBody(), nil)
+end)
+
+test("A boundary naming a different preset is left to the proxy", function()
+  -- The proxy does announce those, and applying one here would double up.
+  boundaryFixture({
+    { preset = "Comfort", weekday = 1, hour = 6, minute = 0 },
+    { preset = "Away", weekday = 1, hour = 7, minute = 0 },
+  })
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 25 })
+  resetSent()
+  tickAt(2, 7, 0)
+  T.eq("the poll stays out of it", lastCommandBody(), nil)
+end)
+
+test("A Permanent hold is not released by a boundary", function()
+  boundaryFixture()
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Permanent" })
+  resetSent()
+  tickAt(2, 6, 0)
+  T.eq("nothing is applied", lastCommandBody(), nil)
+  T.eq("and the hold stands", lastSent("HOLD_MODE_CHANGED"), nil)
+end)
+
+test("A boundary while the device is away is applied when it returns", function()
+  boundaryFixture()
+  disconnect()
+  resetSent()
+  tickAt(2, 6, 0)
+  T.eq("nothing goes out while it is away", lastCommandBody(), nil)
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 25 })
+  local body = lastCommandBody()
+  T.eq("and the preset lands on reconnect", body and body.target_temperature, 22)
+end)
+
+test("CONNECTION carries the string form from every announcer", function()
+  -- The proxy reads CONNECTED as a string; a boolean leaves IS_CONNECTED unset.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  local connected = lastSent("CONNECTION")
+  T.eq("sendCapabilities announces a string", type(connected and connected.params.CONNECTED), "string")
+  T.eq("reading true", connected and connected.params.CONNECTED, "true")
+
+  resetSent()
+  OBC[ESPHOME](ESPHOME, "ESPHOME", false)
+  local unbound = lastSent("CONNECTION")
+  T.eq("unbinding announces a string too", type(unbound and unbound.params.CONNECTED), "string")
+  T.eq("reading false", unbound and unbound.params.CONNECTED, "false")
+end)
+
+test("A water heater refuses a preset before anything is announced", function()
+  disconnect()
+  local heater = singleSetpointEntity()
+  heater.is_water_heater = true
+  updateState(heater, { mode = Mode.HEAT, target_temperature = 50 })
+  setPresets({ { name = "Hot", fields = { hvac_mode = "Heat", single_setpoint_c = "60" } } })
+  resetSent()
+  RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Hot" })
+  T.eq("no HVAC mode is reported for a refused preset", lastSent("HVAC_MODE_CHANGED"), nil)
+  T.eq("and nothing reaches the device", lastCommandBody(), nil)
+end)
+
+test("A non-finite preset setpoint is dropped rather than sent", function()
+  disconnect()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  setPresets({ { name = "Broken", fields = { hvac_mode = "Cool", single_setpoint_c = "1e999" } } })
+  resetSent()
+  RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Broken" })
+  local body = lastCommandBody()
+  T.check("the mode still applies", body ~= nil and body.has_mode == true)
+  T.eq("but no setpoint is carried", body and body.target_temperature, nil)
+end)
+
+test("An absent setpoint does not match a preset that asks for zero", function()
+  -- A setpoint is never defaulted to zero the way a reported reading is. The
+  -- range has to reach zero or the clamp rejects the preset first and the case
+  -- passes for the wrong reason.
+  local entity = singleSetpointEntity()
+  entity.visual_min_temperature = 0
+  disconnect()
+  updateState(entity, { mode = Mode.COOL, target_temperature = 20 })
+  setPresets({ { name = "Zero", fields = { single_setpoint_c = "0" } } })
+  resetSent()
+  updateState(entity, { mode = Mode.COOL })
+  local preset = lastSent("PRESET_CHANGED")
+  T.check(
+    "a missing setpoint matches nothing",
+    preset == nil or preset.params.NAME ~= "Zero",
+    "matched Zero off an absent setpoint"
+  )
+end)
+
+test("Every field the preset match reads re-runs the match when it changes", function()
+  -- The skip is keyed on a digest of exactly these fields. Each case changes one
+  -- of them and nothing else, against a baseline the gate has already recorded,
+  -- so a field missing from the digest leaves the match skipped and stale.
+  disconnect()
+  setPresets({
+    { name = "ByMode", fields = { hvac_mode = "Heat" } },
+    { name = "BySetpoint", fields = { single_setpoint_c = "24" } },
+    { name = "ByFan", fields = { fan_mode = "Low" } },
+    { name = "ByCustomFan", fields = { fan_mode = "Turbo" } },
+    { name = "BySwing", fields = { swing = "Vertical" } },
+  })
+
+  local function baseline()
+    return { mode = Mode.COOL, target_temperature = 22, fan_mode = Fan.AUTO, swing_mode = Swing.OFF }
+  end
+
+  --- Drive the baseline until the gate has recorded it, then change one field.
+  local function onlyChanging(label, field, value, expected)
+    updateState(singleSetpointEntity(), baseline())
+    updateState(singleSetpointEntity(), baseline())
+    local state = baseline()
+    state[field] = value
+    resetSent()
+    updateState(singleSetpointEntity(), state)
+    local preset = lastSent("PRESET_CHANGED")
+    T.eq(label, preset and preset.params.NAME or nil, expected)
+  end
+
+  onlyChanging("mode", "mode", Mode.HEAT, "ByMode")
+  onlyChanging("setpoint", "target_temperature", 24, "BySetpoint")
+  onlyChanging("fan mode", "fan_mode", Fan.LOW, "ByFan")
+  onlyChanging("custom fan mode", "custom_fan_mode", "Turbo", "ByCustomFan")
+  onlyChanging("swing mode", "swing_mode", Swing.VERTICAL, "BySwing")
+end)
+
+test("The two-point setpoints are in the digest too", function()
+  disconnect()
+  setPresets({
+    { name = "LowOnly", fields = { heat_setpoint_c = "18" } },
+    { name = "HighOnly", fields = { cool_setpoint_c = "27" } },
+  })
+
+  local function baseline()
+    return { mode = Mode.HEAT_COOL, target_temperature_low = 20, target_temperature_high = 25 }
+  end
+
+  local function onlyChanging(label, field, value, expected)
+    updateState(dualSetpointEntity(), baseline())
+    updateState(dualSetpointEntity(), baseline())
+    local state = baseline()
+    state[field] = value
+    resetSent()
+    updateState(dualSetpointEntity(), state)
+    local preset = lastSent("PRESET_CHANGED")
+    T.eq(label, preset and preset.params.NAME or nil, expected)
+  end
+
+  onlyChanging("heat setpoint", "target_temperature_low", 18, "LowOnly")
+  onlyChanging("cool setpoint", "target_temperature_high", 27, "HighOnly")
+end)
+
+test("A temperature-only push does not disturb the reported preset or hold", function()
+  boundaryFixture()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 25 })
+  resetSent()
+  -- Ambient temperature moves constantly and reaches none of the matched fields.
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 25, current_temperature = 19.5 })
+  T.eq("no preset transition is reported", lastSent("PRESET_CHANGED"), nil)
+  T.eq("and no hold transition either", lastSent("HOLD_MODE_CHANGED"), nil)
+end)
+
+test("The one-report suppression still consumes its report under the skip", function()
+  -- reconcileHold swallows exactly one report after a scheduled preset is
+  -- commanded; the skip must not swallow the swallow.
+  boundaryFixture()
+  RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Away" })
+  resetSent()
+  -- Still describing the old state: this is the report that must be eaten.
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  T.eq("the stale report raises no hold", lastSent("HOLD_MODE_CHANGED"), nil)
+  resetSent()
+  -- A second report still off the preset is a real divergence.
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 21 })
+  local held = lastSent("HOLD_MODE_CHANGED")
+  T.eq("the next one does", held and held.params.MODE, "Until Next")
+end)
+
+---------------------------------------------------------------------------
 
 SendToProxy = originalSendToProxy
 
