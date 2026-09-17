@@ -2363,7 +2363,8 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   if not isOn then
     newBrightness = 0
   elseif supportsDimming then
-    local brightness = tonumber(Select(state, "brightness")) or 1.0
+    -- ESPHome sends NaN for the brightness of a light that has not reported one.
+    local brightness = tofinite(Select(state, "brightness")) or 1.0
     newBrightness = math.floor(brightness * 100 + 0.5)
     newBrightness = math.max(0, math.min(100, newBrightness))
     if newBrightness == 0 and isOn then
