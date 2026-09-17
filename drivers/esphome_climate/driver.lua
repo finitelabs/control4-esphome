@@ -1764,15 +1764,16 @@ local function checkScheduleBoundary()
     return
   end
   local now = os.date("*t")
-  local key = string.format("%d:%d:%d", now.wday, now.hour, now.min)
+  -- Dated, or the same weekday and time next week compares equal and is skipped.
+  local key = os.date("%Y-%m-%d %H:%M")
   if key == LAST_BOUNDARY then
     return
   end
   local due = false
   for _, event in ipairs(SCHEDULE) do
-    -- Director is C, so the proxy's 0-6 weekday is os.date's 1-7 less one.
+    -- The proxy counts 0-6 from Sunday and some senders write 7 for it; os.date counts 1-7.
     if
-      event.weekday == now.wday - 1
+      event.weekday % 7 == now.wday - 1
       and event.hour == now.hour
       and event.minute == now.min
       and event.preset == SCHEDULED_PRESET

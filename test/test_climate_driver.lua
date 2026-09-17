@@ -2178,18 +2178,25 @@ end
 local realOsDate = os.date
 local fakeNow = nil
 os.date = function(fmt, when)
-  if fakeNow ~= nil and fmt == "*t" and when == nil then
-    return { wday = fakeNow.wday, hour = fakeNow.hour, min = fakeNow.min }
+  if fakeNow ~= nil and when == nil then
+    if fmt == "*t" then
+      return { wday = fakeNow.wday, hour = fakeNow.hour, min = fakeNow.min }
+    end
+    if fmt == "%Y-%m-%d %H:%M" then
+      return string.format("%s %02d:%02d", fakeNow.date, fakeNow.hour, fakeNow.min)
+    end
   end
   return realOsDate(fmt, when)
 end
 
 local POLL = "ScheduleBoundary"
+-- A Monday, so the default date agrees with wday 2 in the cases below.
+local MONDAY = "2026-09-21"
 
---- Run one poll tick with the clock parked at a weekday and time. wday is
+--- Run one poll tick with the clock parked at a weekday, time and date. wday is
 --- os.date's 1-7, so Monday is 2 and the proxy writes that event as weekday 1.
-local function tickAt(wday, hour, min)
-  fakeNow = { wday = wday, hour = hour, min = min }
+local function tickAt(wday, hour, min, date)
+  fakeNow = { wday = wday, hour = hour, min = min, date = date or MONDAY }
   local timer = timers[POLL]
   if timer ~= nil and timer.fn ~= nil then
     timer.fn()
@@ -2319,6 +2326,35 @@ test("Two ticks inside one minute act once", function()
   resetSent()
   tickAt(2, 6, 0)
   T.eq("the second does not", lastCommandBody(), nil)
+end)
+
+test("The same boundary a week later acts again", function()
+  -- The dedupe key has to name the date: a weekly schedule has one occurrence of
+  -- each boundary, so a key of weekday and time alone suppresses it forever after
+  -- the first week.
+  boundaryFixture()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 25 })
+
+  resetSent()
+  tickAt(2, 6, 0, "2026-09-21")
+  T.check("the first week acts", lastCommandBody() ~= nil)
+
+  -- Diverge again, as a user would during the week.
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 25 })
+  resetSent()
+  tickAt(2, 6, 0, "2026-09-28")
+  T.check("and so does the next", lastCommandBody() ~= nil)
+end)
+
+test("A weekday of 7 is read as Sunday", function()
+  -- Senders disagree: 0 to 6 from Sunday is the common form, and 7 for Sunday is
+  -- also in the wild.
+  boundaryFixture({ { preset = "Comfort", weekday = 7, hour = 6, minute = 0 } })
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 25 })
+  resetSent()
+  -- wday 1 is Sunday.
+  tickAt(1, 6, 0, "2026-09-20")
+  T.check("a Sunday event written as 7 still fires", lastCommandBody() ~= nil)
 end)
 
 test("The poll ignores a time, day or preset that is not due", function()
