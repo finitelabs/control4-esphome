@@ -140,13 +140,16 @@ function WaterHeaterEntity:updated(entity, state, messageSchema)
   end
   state.custom_preset = WATER_HEATER_MODE_NAMES[whMode]
   -- Clean up unset protobuf float sentinel values
-  if state.target_temperature and state.target_temperature > 1e10 then
+  local target = tofinite(state.target_temperature)
+  if target == nil or target > 1e10 then
     state.target_temperature = nil
   end
-  if state.target_temperature_high and state.target_temperature_high > 1e10 then
+  local targetHigh = tofinite(state.target_temperature_high)
+  if targetHigh == nil or targetHigh > 1e10 then
     state.target_temperature_high = nil
   end
-  if state.target_temperature_low and state.target_temperature_low > 1e10 then
+  local targetLow = tofinite(state.target_temperature_low)
+  if targetLow == nil or targetLow > 1e10 then
     state.target_temperature_low = nil
   end
   local binding = bindings:getDynamicBinding(self.TYPE, "water_heater_" .. entity.key)

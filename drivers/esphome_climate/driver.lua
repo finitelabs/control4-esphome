@@ -732,10 +732,10 @@ local function adjustSetpoint(twoPointField, hasTwoPointField, delta)
   end
   local step = getEntityTempStep() * delta
   if ENTITY.supports_two_point_target_temperature then
-    local current = tonumber(Select(STATE, twoPointField)) or 0
+    local current = tofinite(Select(STATE, twoPointField)) or 0
     sendClimateCommand({ [hasTwoPointField] = true, [twoPointField] = clampTemperature(current + step) })
   else
-    local current = tonumber(Select(STATE, "target_temperature")) or 0
+    local current = tofinite(Select(STATE, "target_temperature")) or 0
     sendClimateCommand({ has_target_temperature = true, target_temperature = clampTemperature(current + step) })
   end
 end
@@ -914,7 +914,7 @@ function RFP.INC_SETPOINT_SINGLE(idBinding, strCommand)
     return
   end
   local step = getEntityTempStep()
-  local current = tonumber(Select(STATE, "target_temperature")) or 0
+  local current = tofinite(Select(STATE, "target_temperature")) or 0
   sendTargetTemperature(clampTemperature(current + step))
 end
 
@@ -924,7 +924,7 @@ function RFP.DEC_SETPOINT_SINGLE(idBinding, strCommand)
     return
   end
   local step = getEntityTempStep()
-  local current = tonumber(Select(STATE, "target_temperature")) or 0
+  local current = tofinite(Select(STATE, "target_temperature")) or 0
   sendTargetTemperature(clampTemperature(current - step))
 end
 
@@ -959,17 +959,18 @@ local warnedAction = nil
 
 --- Read a numeric state field, treating a missing one as zero when the entity
 --- reports that field. Protobuf leaves a zero off the wire, so missing here means
---- zero (OFF, for the enums), not unchanged.
+--- zero (OFF, for the enums), not unchanged. A present but non-finite reading is
+--- not missing, so it returns nil rather than zero.
 --- @param state table<string, any> The decoded state.
 --- @param name string The field name.
 --- @param reported boolean|nil Whether the entity reports this field.
 --- @return number|nil value
 local function stateNumber(state, name, reported)
-  local value = tonumber(Select(state, name))
-  if value == nil and reported then
+  local raw = Select(state, name)
+  if raw == nil and reported then
     return 0
   end
-  return value
+  return tofinite(raw)
 end
 
 --- @param list any[]|nil
@@ -1054,7 +1055,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   local twoPoint = entity.supports_two_point_target_temperature
   if IS_SINGLE_SETPOINT then
     -- Single setpoint mode (water heaters, floor heaters, etc.)
-    local targetTemp = tonumber(Select(state, "target_temperature"))
+    local targetTemp = tofinite(Select(state, "target_temperature"))
     if targetTemp ~= nil then
       SendToProxy(PROXY_BINDING, "SINGLE_SETPOINT_CHANGED", {
         SETPOINT = tostring(targetTemp),
@@ -1062,8 +1063,8 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
       }, "NOTIFY")
     end
   elseif twoPoint then
-    local targetLow = tonumber(Select(state, "target_temperature_low"))
-    local targetHigh = tonumber(Select(state, "target_temperature_high"))
+    local targetLow = tofinite(Select(state, "target_temperature_low"))
+    local targetHigh = tofinite(Select(state, "target_temperature_high"))
     if targetLow ~= nil then
       SendToProxy(PROXY_BINDING, "HEAT_SETPOINT_CHANGED", {
         SETPOINT = tostring(targetLow),
@@ -1077,7 +1078,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
       }, "NOTIFY")
     end
   else
-    local targetTemp = tonumber(Select(state, "target_temperature"))
+    local targetTemp = tofinite(Select(state, "target_temperature"))
     if targetTemp ~= nil then
       -- Send to the appropriate setpoint based on current mode
       if mode == ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_COOL then
