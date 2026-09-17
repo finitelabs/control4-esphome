@@ -181,6 +181,7 @@
     <has_remote_sensor>True</has_remote_sensor>
     <fan_modes/>
     <hvac_modes>Off,Heat,Cool,Auto,Fan Only,Dry</hvac_modes>
+    <hvac_states>Off,Heating,Cooling,Idle,Drying,Fan Only</hvac_states>
     <hold_modes>Off,Until Next</hold_modes>
   </capabilities>
   <proxies>

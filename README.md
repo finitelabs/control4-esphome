@@ -1066,6 +1066,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed an "Error setting default color rate from driver" message in Composer
   when opening the properties of an ESPHome light.
 
+- Fixed a thermostat never showing whether it is heating, cooling, idle, drying
+  or running the fan only.
+
 - Fixed Composer's test panel greying out the dimming controls for ESPHome
   lights that do support brightness. Dimming from the Control4 app was never
   affected.
