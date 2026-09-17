@@ -958,8 +958,8 @@ local warnedMode = nil
 local warnedAction = nil
 
 --- Read a numeric state field, treating a missing one as zero when the entity
---- reports that field. Protobuf leaves zero values off the wire, so an OFF mode
---- or action, or a 0 reading, arrives as nothing rather than as "unchanged".
+--- reports that field. Protobuf leaves a zero off the wire, so missing here means
+--- zero (OFF, for the enums), not unchanged.
 --- @param state table<string, any> The decoded state.
 --- @param name string The field name.
 --- @param reported boolean|nil Whether the entity reports this field.
@@ -1106,7 +1106,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
 
   -- Fan mode
   -- ESPHome also leaves fan_mode off when the unit has none set, so a missing one
-  -- is read as On (0) only where On is one of the unit's fan modes.
+  -- is read as On only where On is one of the unit's fan modes.
   local fanOn = ESPHomeProtoSchema.Enum.ClimateFanMode.CLIMATE_FAN_ON
   local fanMode = tointeger(stateNumber(state, "fan_mode", listHas(entity.supported_fan_modes, fanOn)))
   local customFanMode = Select(state, "custom_fan_mode")

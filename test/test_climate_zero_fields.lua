@@ -6,24 +6,12 @@
 -- or:
 --   ./test/run_test.sh test_climate_zero_fields.lua
 --
--- ESPHome's API is proto3 with implicit presence: a field holding the type's
--- zero is left off the wire entirely. In api_pb2.cpp, ClimateStateResponse
--- accounts for `mode` as `size += this->mode ? 2 : 0`, and proto.h's
--- encode_uint32 returns early on `value == 0 && !force`. So for a unit that is
--- off, CLIMATE_MODE_OFF (0) never arrives, and vendor/protobuf.lua decodes the
--- message into a table with no `mode` key rather than one holding 0.
+-- A unit switched OFF sends no mode at all, and vendor/protobuf.lua decodes
+-- that as a missing key.
 --
--- Turning the unit off therefore used to strand the Control4 proxy on whatever
--- mode it last saw, while off -> cool worked, because COOL is 2 and 2 is sent.
--- CLIMATE_ACTION_OFF and CLIMATE_FAN_ON are zero for the same reason, and a
--- float is dropped when its bits are all zero, so a 0 C or 0% reading is too.
--- An unknown reading is NaN, which is sent, so a missing reading on a unit that
--- reports it means exactly 0.
---
--- States go through the real decoder. vendor/protobuf.lua's encoder writes a
--- zero where ESPHome's does not, so zero fields are stripped first by the same
--- rule ESPHome applies, and a test can write `mode = OFF` or a 0 C reading and
--- get the bytes a unit actually sends.
+-- States go through the real decoder. The vendored encoder writes zeros that
+-- ESPHome skips, so fromWire strips them first, and a case can write
+-- `mode = OFF` or a 0 C reading and get the bytes a unit actually sends.
 --
 -- Regression test for #119.
 
@@ -47,17 +35,13 @@ local root = (debug.getinfo(1, "S").source:match("^@(.*[/\\])") or "./") .. ".."
 local ESPHOME_BINDING = 1
 local PROXY_BINDING = 5001
 
---- Everything sent since the last reset.
----
---- Captured at C4.SendToProxy rather than the global of the same name, which is
---- a wrapper in lib/utils.lua: stubbing the global would measure the argument
---- the driver passed instead of what came out the far end.
+-- Captured below lib/utils.lua's SendToProxy wrapper, so the wrapper stays in
+-- the path under test.
 local sends = {}
 C4.SendToProxy = function(_, idBinding, strCommand, tParams, strMessage)
   table.insert(sends, { idBinding = idBinding, command = strCommand, params = tParams, message = strMessage })
 end
 
---- The parameters of the last `command` sent to the proxy, or nil.
 local function lastParams(command)
   for i = #sends, 1, -1 do
     if sends[i].command == command and sends[i].idBinding == PROXY_BINDING then
@@ -67,7 +51,6 @@ local function lastParams(command)
   return nil
 end
 
---- A no-op logger. The driver calls log:trace/debug/warn on the way through.
 local function newLog()
   return setmetatable({}, {
     __index = function()
@@ -93,11 +76,9 @@ T.check("the esphome_climate source was read", src ~= nil, "missing")
 T.section("cutting UPDATE_STATE and its lookup tables out of the driver")
 --------------------------------------------------------------------------------
 
--- A driver.lua cannot be loaded far enough to reach its handlers (see
--- test_sensor_binding_params.lua), so the handler is cut out and compiled on its
--- own. The lookup tables come along in the same chunk so that what is asserted
--- is the driver's own mapping, not a copy of it written here: a copy would agree
--- with the fix by construction.
+-- A driver.lua cannot be loaded far enough to reach its handlers, so the handler
+-- is cut out and compiled on its own. The lookup tables come with it, so the
+-- driver's own mapping is what gets asserted rather than a copy made here.
 local function cutTable(name)
   return src and src:match("\n(local " .. name .. " = %b{})\n")
 end
@@ -126,8 +107,8 @@ local body = {}
 for _, piece in ipairs(PIECES) do
   table.insert(body, piece.text or "")
 end
--- A cut that matched the wrong region would send nothing, which reads the same
--- as the bug being fixed by deletion.
+-- A cut of the wrong region would send nothing, which would pass the "sends
+-- nothing" cases below.
 T.check(
   "the cut handler sends HVAC_MODE_CHANGED",
   (PIECES[6].text or ""):find("HVAC_MODE_CHANGED", 1, true) ~= nil,
@@ -142,11 +123,8 @@ T.check(
 local chunk = loadstring(table.concat(body, "\n") .. "\nreturn RFP.UPDATE_STATE", "=UPDATE_STATE")
 T.check("the chunk compiles", chunk ~= nil, "it did not compile")
 
---- Compile UPDATE_STATE against a stub environment and return it.
----
---- What were upvalues in driver.lua resolve as globals here, so `env` supplies
---- them; anything env does not name falls through to _G, which is how Select,
---- tointeger and the SendToProxy wrapper reach the real lib/utils.lua.
+--- The driver's upvalues resolve as globals here, so `env` supplies them and
+--- everything else falls through to the real lib/utils.lua.
 local function newHandler()
   local env = {
     RFP = {},
@@ -173,10 +151,8 @@ local function newHandler()
   return fn
 end
 
---- Encode a ClimateStateResponse as an ESPHome unit would and decode it back.
----
---- ESPHome skips a 0 enum and an all-zero float (proto.h: `if (value == 0 &&
---- !force) return;`, and `raw == 0` for floats), and likewise "" and false.
+--- Encode a ClimateStateResponse as a unit would and decode it back. ESPHome
+--- skips a zero enum or float, "" and false.
 local function fromWire(state)
   local sent = {}
   for name, value in pairs(state) do
@@ -239,8 +215,6 @@ T.section("cool -> off, the reported cycle")
 
 local handler = newHandler()
 
--- Cooling: every field is non-zero, so every field is on the wire. This is the
--- direction that already worked, and it is the control for the one that did not.
 drive(handler, ENTITY, {
   key = 1234,
   mode = Mode.CLIMATE_MODE_COOL,
@@ -252,8 +226,6 @@ drive(handler, ENTITY, {
 T.eq("cool is reported as Cool", (lastParams("HVAC_MODE_CHANGED") or {}).MODE, "Cool")
 T.eq("cooling is reported as Cooling", (lastParams("HVAC_STATE_CHANGED") or {}).STATE, "Cooling")
 
--- Off: mode and action hold zero, so ESPHome sends neither. Before #119 this
--- update carried no HVAC_MODE_CHANGED at all and the proxy stayed on Cool.
 drive(handler, ENTITY, {
   key = 1234,
   mode = Mode.CLIMATE_MODE_OFF,
@@ -275,8 +247,7 @@ T.eq("a low fan is reported as Low", (lastParams("FAN_MODE_CHANGED") or {}).MODE
 drive(handler, ENTITY, { key = 1234, mode = Mode.CLIMATE_MODE_COOL, fan_mode = Fan.CLIMATE_FAN_ON })
 T.eq("an On fan mode is reported as On", (lastParams("FAN_MODE_CHANGED") or {}).MODE, "On")
 
--- ESPHome also omits fan_mode when the unit has none set, so on a unit that
--- does not offer On a missing one is not On. The reporter's unit is this shape.
+-- A missing fan mode can also mean none is set. The reporter's unit has no On.
 local noOn = {
   key = 1234,
   supported_modes = { Mode.CLIMATE_MODE_OFF, Mode.CLIMATE_MODE_COOL },
@@ -286,7 +257,6 @@ drive(handler, noOn, { key = 1234, mode = Mode.CLIMATE_MODE_COOL })
 T.eq("the handler ran for a unit without On", (lastParams("HVAC_MODE_CHANGED") or {}).MODE, "Cool")
 T.eq("a unit without On is not reported as On", lastParams("FAN_MODE_CHANGED"), nil)
 
--- A custom fan mode still wins: it is a non-empty string, so it is on the wire.
 drive(handler, ENTITY, { key = 1234, mode = Mode.CLIMATE_MODE_COOL, custom_fan_mode = "Turbo" })
 T.eq("a custom fan mode still takes precedence", (lastParams("FAN_MODE_CHANGED") or {}).MODE, "Turbo")
 
@@ -305,8 +275,7 @@ T.eq("a 0 C reading is reported", (lastParams("TEMPERATURE_CHANGED") or {}).TEMP
 T.eq("a 0% humidity is reported", (lastParams("HUMIDITY_CHANGED") or {}).HUMIDITY, "0")
 T.eq("a 0% humidity setpoint is reported", (lastParams("HUMIDIFY_SETPOINT_CHANGED") or {}).SETPOINT, "0")
 
--- Setpoints are left alone: the water heater path clears a sentinel target to
--- nil to mean unset, so a missing setpoint must stay missing.
+-- The water heater path uses a missing target to mean unset.
 T.eq("no cool setpoint is invented", lastParams("COOL_SETPOINT_CHANGED"), nil)
 T.eq("no heat setpoint is invented", lastParams("HEAT_SETPOINT_CHANGED"), nil)
 
@@ -314,9 +283,8 @@ T.eq("no heat setpoint is invented", lastParams("HEAT_SETPOINT_CHANGED"), nil)
 T.section("a device that does not advertise the field reports nothing for it")
 --------------------------------------------------------------------------------
 
--- The default is per-field on purpose. Reading an absent action as Off on a
--- device that never reports one would invent a state the device does not have,
--- and the same for a fan mode on a device with no fan control.
+-- ESPHome writes action for every unit, tracking it or not. Each case also checks
+-- the handler ran, since it returns early on an empty entity or state.
 local bare = {
   key = 1234,
   supported_modes = { Mode.CLIMATE_MODE_OFF, Mode.CLIMATE_MODE_HEAT },
