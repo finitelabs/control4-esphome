@@ -2549,6 +2549,46 @@ test("The one-report suppression still consumes its report under the skip", func
 end)
 
 ---------------------------------------------------------------------------
+-- Rig pass: holds the schedule must not overwrite, and frames it repeats
+---------------------------------------------------------------------------
+
+test("A Permanent hold is not downgraded by a divergence", function()
+  -- Downgrading it to Until Next hands the next boundary a hold it will release.
+  boundaryFixture()
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Permanent" })
+  resetSent()
+
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 25 })
+  T.eq("the hold keeps its own mode", lastSent("HOLD_MODE_CHANGED"), nil)
+end)
+
+test("A scheduled event defers to a Permanent hold and lands when it is released", function()
+  boundaryFixture()
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Permanent" })
+  resetSent()
+
+  RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Away" })
+  T.eq("the boundary commands nothing", lastCommandBody(), nil)
+  T.eq("and does not release the hold", lastSent("HOLD_MODE_CHANGED"), nil)
+
+  resetSent()
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Off" })
+  local body = lastCommandBody()
+  T.eq("releasing it applies the preset the boundary recorded", body and body.target_temperature, 18)
+end)
+
+test("Choosing a preset by hand does not re-time a Permanent hold", function()
+  boundaryFixture()
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Permanent" })
+  resetSent()
+
+  RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Away" })
+  local body = lastCommandBody()
+  T.eq("the preset is applied", body and body.target_temperature, 18)
+  T.eq("but the hold stays Permanent", lastSent("HOLD_MODE_CHANGED"), nil)
+end)
+
+---------------------------------------------------------------------------
 
 SendToProxy = originalSendToProxy
 

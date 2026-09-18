@@ -1477,13 +1477,9 @@ local function reconcileHold()
     return
   end
 
-  if onSchedule then
-    -- A user hold outlives a match.
-    if not USER_HOLD then
-      setHoldMode("Off")
-    end
-  else
-    setHoldMode(HOLD_UNTIL_NEXT)
+  -- A user hold outlives a match, and keeps its own mode across a divergence.
+  if not USER_HOLD then
+    setHoldMode(onSchedule and "Off" or HOLD_UNTIL_NEXT)
   end
 end
 
@@ -1637,6 +1633,10 @@ function RFP.SET_PRESET(idBinding, strCommand, tParams)
     -- SCHEDULED_PRESET survives: a preset chosen by hand is a hold on top of the schedule.
     HOLD_PRESET = name
     USER_HOLD = true
+    -- Changing which preset a Permanent hold holds must not re-time the hold.
+    if HOLD_MODE == HOLD_PERMANENT then
+      return
+    end
     -- With no schedule there is no "next" to hold until.
     if #SCHEDULE > 0 then
       setHoldMode(HOLD_UNTIL_NEXT)
@@ -1659,6 +1659,12 @@ local function runScheduledEvent()
     log:info("Scheduled preset '%s' does not apply to a water heater; ignoring", name)
     EVENT_PENDING = false
     return true
+  end
+  -- A Permanent hold never depended on the schedule, so no boundary releases it.
+  if HOLD_MODE == HOLD_PERMANENT then
+    log:debug("Permanent hold defers scheduled preset '%s'", name)
+    persist:set("ScheduledPreset", { preset = name })
+    return false
   end
   EVENT_PENDING = false
   HOLD_PRESET = nil
@@ -1838,8 +1844,9 @@ function RFP.SET_MODE_HOLD(idBinding, strCommand, tParams)
     -- Cleared even without a schedule, or a later preset edit is still pushed.
     HOLD_PRESET = nil
     -- Not report-suppressed: that would swallow a real divergence made right after a release.
-    if SCHEDULED_PRESET ~= nil then
-      applyPreset(SCHEDULED_PRESET)
+    if SCHEDULED_PRESET ~= nil and applyPreset(SCHEDULED_PRESET) then
+      -- Satisfies a boundary a Permanent hold had deferred.
+      EVENT_PENDING = false
     end
   elseif #SCHEDULE == 0 and mode ~= HOLD_PERMANENT then
     -- With no events nothing could release it.
