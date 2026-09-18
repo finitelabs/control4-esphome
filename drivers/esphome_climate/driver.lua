@@ -94,9 +94,14 @@ local HOLD_MODE = nil
 local USER_HOLD = false
 --- Last hold written, for the persist dedupe.
 local PERSISTED_HOLD = nil
+
+--- Stable form of the hold, for the persist dedupe.
+local function holdSignature()
+  return table.concat({ tostring(HOLD_MODE), tostring(USER_HOLD), tostring(HOLD_PRESET) }, "|")
+end
+
 local publishHoldModes
 local scheduleSignature
-local holdSignature
 local runPendingEvent
 local updateScheduleBoundaryTimer
 
@@ -1416,11 +1421,6 @@ local function matchPreset(name)
   end
 
   return true
-end
-
---- Stable form of the hold, for the persist dedupe.
-holdSignature = function()
-  return table.concat({ tostring(HOLD_MODE), tostring(USER_HOLD), tostring(HOLD_PRESET) }, "|")
 end
 
 --- Write the hold only when it changed; a deferred boundary is re-entered on every report.

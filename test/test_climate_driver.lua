@@ -2687,9 +2687,7 @@ test("A deferred boundary persists the scheduled preset once, not per report", f
   T.eq("the deferral writes the key once", writes, 1)
 end)
 
---- Three presets and a schedule on Comfort, so a boundary can move to a preset
---- that is neither the scheduled one nor the one a hand-pick holds. A fresh
---- driver each time: the restore tests below read whatever the last one stored.
+--- Three presets and a schedule on Comfort, on a fresh driver: the restore tests read what the last one stored.
 local function threePresetFixture()
   package.loaded["lib.persist"] = nil
   dofile(DRIVER)
