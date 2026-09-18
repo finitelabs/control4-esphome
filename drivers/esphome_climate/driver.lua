@@ -1835,7 +1835,9 @@ function RFP.SET_EVENT(idBinding, strCommand, tParams)
     log:info(
       "Scheduled preset '%s' cannot be applied yet (%s); it will be when it can",
       name,
-      ENTITY == nil and "device disconnected" or "preset not yet known"
+      ENTITY == nil and "device disconnected"
+        or HOLD_MODE == HOLD_PERMANENT and "a Permanent hold is in force"
+        or "preset not yet known"
     )
   end
 end
