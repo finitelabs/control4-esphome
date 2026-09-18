@@ -153,6 +153,16 @@ climate:
     fan_mode_high_action:
       - logger.log: "Fan: High"
 
+    # Swing modes - exercises the Extras swing selector in the climate driver
+    swing_off_action:
+      - logger.log: "Swing: Off"
+    swing_both_action:
+      - logger.log: "Swing: Both"
+    swing_vertical_action:
+      - logger.log: "Swing: Vertical"
+    swing_horizontal_action:
+      - logger.log: "Swing: Horizontal"
+
     # Humidity control (dehumidify only - humidify/dehumidify are mutually exclusive)
     humidity_control_dehumidify_action:
       - logger.log: "Humidity: Dehumidifying"

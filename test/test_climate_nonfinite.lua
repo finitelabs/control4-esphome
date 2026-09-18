@@ -247,8 +247,10 @@ local UPDATE_STATE_SPEC = {
   { "table_", "CLIMATE_MODE_TO_C4" },
   { "table_", "CLIMATE_ACTION_TO_C4" },
   { "table_", "CLIMATE_FAN_MODE_TO_C4" },
+  { "table_", "CLIMATE_SWING_MODE_TO_C4" },
   { "localFn", "stateNumber" },
   { "localFn", "listHas" },
+  { "localFn", "matchInputSignature" },
   { "handler", "UPDATE_STATE" },
 }
 
@@ -314,6 +316,11 @@ local function compile(body, extraEnv, returns, chunkName)
     sendDisplayScale = function() end,
     updateStatus = function() end,
     sendConnectionState = function() end,
+    SWING_EXTRA_ID = "swingMode",
+    runPendingEvent = function() end,
+    matchAnyPreset = function() end,
+    reconcileHold = function() end,
+    updateScheduleBoundaryTimer = function() end,
   }
   for k, v in pairs(extraEnv or {}) do
     env[k] = v

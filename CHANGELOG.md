@@ -27,6 +27,21 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Added a button connection for each event type an ESPHome event entity
   declares, so a touch button or gesture on the device can drive a light, scene
   or any other load directly, without Programming.
+- Added presets to the climate driver. A preset stores a setpoint, HVAC mode,
+  fan mode and vane position, and can be applied from the app or from
+  programming.
+- Added preset scheduling. Presets can be scheduled by weekday and time. The
+  schedule is kept by Control4, and the driver applies each scheduled preset as
+  it falls due, including an event that re-selects the preset already in force
+  and one that falls due while the device is unreachable.
+- Added holds. Changing the thermostat by hand, or choosing a preset by hand,
+  holds the new setting until the next scheduled event, which then releases it.
+  Clearing a held preset before then returns to the preset the schedule has in
+  force. The hold options appear once a schedule exists and are withdrawn when
+  the last scheduled event is deleted, since there is then no next event to hold
+  until.
+- Added vane control for climate devices that report swing modes, in the Extras
+  tab.
 
 ### Fixed
 
@@ -64,11 +79,28 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   so linked dimmers, switches and other loads all respond.
 - Fixed a SwitchBot Bot running its action twice for a single press of a linked
   keypad button, which turned a toggle back to where it started.
+- Fixed Heat never engaging on a water heater that had not yet stored an
+  operating mode.
+- Fixed the climate driver's temperature and humidity outputs appearing as audio
+  connections in Composer instead of control connections.
+- Fixed a temperature, setpoint or humidity the device has not measured yet
+  being shown as a number near 5.1e38, which a setpoint nudge then clamped to
+  the maximum. Such a reading is now left blank until a real one arrives, and
+  sensor values are handled the same way.
+- Fixed a newly installed climate driver forwarding a bound temperature sensor's
+  readings to the device before the thermostat had enabled the remote sensor.
 
 ### Changed
 
 - Documented the `Connected` variable that every driver publishes, so it can be
   used in Programming to show whether a device is online.
+- Climate devices that report a single setpoint now show one setpoint instead of
+  a heat and cool pair. Most heat pumps and mini splits work this way: they hold
+  one target and decide internally whether to heat or cool toward it, so the
+  pair could never be honored. Auto is unaffected.
+- The climate driver's humidity output has moved to a different connection.
+  Nothing needs reconnecting: it was listed as an audio connection before, so it
+  could not be connected to anything in Composer.
 
 <!-- #endif -->
 

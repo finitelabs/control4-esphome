@@ -95,8 +95,10 @@ local PIECES = {
   { what = "CLIMATE_MODE_TO_C4", text = cutTable("CLIMATE_MODE_TO_C4") },
   { what = "CLIMATE_ACTION_TO_C4", text = cutTable("CLIMATE_ACTION_TO_C4") },
   { what = "CLIMATE_FAN_MODE_TO_C4", text = cutTable("CLIMATE_FAN_MODE_TO_C4") },
+  { what = "CLIMATE_SWING_MODE_TO_C4", text = cutTable("CLIMATE_SWING_MODE_TO_C4") },
   { what = "stateNumber", text = cutLocalFunction("stateNumber") },
   { what = "listHas", text = cutLocalFunction("listHas") },
+  { what = "matchInputSignature", text = cutLocalFunction("matchInputSignature") },
   { what = "RFP.UPDATE_STATE", text = cutHandler("UPDATE_STATE") },
 }
 for _, piece in ipairs(PIECES) do
@@ -111,7 +113,7 @@ end
 -- nothing" cases below.
 T.check(
   "the cut handler sends HVAC_MODE_CHANGED",
-  (PIECES[6].text or ""):find("HVAC_MODE_CHANGED", 1, true) ~= nil,
+  (PIECES[#PIECES].text or ""):find("HVAC_MODE_CHANGED", 1, true) ~= nil,
   "not in the cut text"
 )
 T.check(
@@ -143,6 +145,11 @@ local function newHandler()
     sendDisplayScale = function() end,
     updateStatus = function() end,
     sendConnectionState = function() end,
+    SWING_EXTRA_ID = "swingMode",
+    runPendingEvent = function() end,
+    matchAnyPreset = function() end,
+    reconcileHold = function() end,
+    updateScheduleBoundaryTimer = function() end,
   }
   local fn = setfenv(
     loadstring(table.concat(body, "\n") .. "\nreturn RFP.UPDATE_STATE", "=UPDATE_STATE"),
