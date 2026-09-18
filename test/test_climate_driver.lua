@@ -2660,9 +2660,7 @@ test("A steady-state push does not re-announce the connection", function()
 end)
 
 test("A deferred boundary persists the scheduled preset once, not per report", function()
-  -- runPendingEvent re-enters the deferral on every state report, and Persist:set
-  -- does not dedupe, so an unguarded write here is flash traffic every few seconds
-  -- for as long as the hold stands.
+  -- runPendingEvent re-enters the deferral on every report, and Persist:set does not dedupe.
   boundaryFixture()
   RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Permanent" })
 
