@@ -1647,6 +1647,12 @@ function RFP.SET_PRESET(idBinding, strCommand, tParams)
   end
 end
 
+local SCHEDULE_POLL_TIMER = "ScheduleBoundary"
+local SCHEDULE_POLL_MS = 60 * 1000
+--- Last minute a boundary was run in, so two ticks inside one minute fire once.
+local LAST_BOUNDARY = nil
+local SCHEDULE_POLL_RUNNING = false
+
 --- Apply the scheduled preset and release any hold; false leaves the event pending.
 --- @return boolean applied
 local function runScheduledEvent()
@@ -1666,6 +1672,8 @@ local function runScheduledEvent()
     persist:set("ScheduledPreset", { preset = name })
     return false
   end
+  -- The proxy delivers a preset-changing boundary itself, so the poll skips this minute.
+  LAST_BOUNDARY = os.date("%Y-%m-%d %H:%M")
   EVENT_PENDING = false
   HOLD_PRESET = nil
   USER_HOLD = false
@@ -1675,12 +1683,6 @@ local function runScheduledEvent()
   persist:set("ScheduledPreset", { preset = name })
   return true
 end
-
-local SCHEDULE_POLL_TIMER = "ScheduleBoundary"
-local SCHEDULE_POLL_MS = 60 * 1000
---- Last minute the poll acted on, so two ticks inside one minute fire once.
-local LAST_BOUNDARY = nil
-local SCHEDULE_POLL_RUNNING = false
 
 --- Re-run a boundary that re-selects the preset in force; the proxy sends no SET_EVENT for those.
 local function checkScheduleBoundary()
@@ -1713,9 +1715,9 @@ local function checkScheduleBoundary()
   if not due then
     return
   end
-  LAST_BOUNDARY = key
   log:info("Schedule re-selects '%s'; the proxy sends no event for that", SCHEDULED_PRESET)
   if not runScheduledEvent() then
+    LAST_BOUNDARY = key
     EVENT_PENDING = true
   end
 end

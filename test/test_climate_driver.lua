@@ -2204,6 +2204,17 @@ local function tickAt(wday, hour, min, date)
   fakeNow = nil
 end
 
+--- Park the clock for the body, so a proxy SET_EVENT and a poll tick can be
+--- placed in the same minute.
+local function atMinute(wday, hour, min, fn)
+  fakeNow = { wday = wday, hour = hour, min = min, date = MONDAY }
+  local ok, err = pcall(fn)
+  fakeNow = nil
+  if not ok then
+    error(err, 0)
+  end
+end
+
 --- Schedule XML with the weekday spelled out, since these tests do inspect it.
 local function eventsOn(entries)
   entries = entries or { { preset = "Comfort" } }
@@ -2586,6 +2597,24 @@ test("Choosing a preset by hand does not re-time a Permanent hold", function()
   local body = lastCommandBody()
   T.eq("the preset is applied", body and body.target_temperature, 18)
   T.eq("but the hold stays Permanent", lastSent("HOLD_MODE_CHANGED"), nil)
+end)
+
+test("A boundary the proxy delivered is not applied a second time by the poll", function()
+  -- The proxy applies a preset-changing boundary at the top of the minute; the
+  -- 60 s tick then finds an event due this minute naming what is now the
+  -- scheduled preset.
+  boundaryFixture({ { preset = "Away", weekday = 1, hour = 6, minute = 0 } })
+  resetSent()
+
+  atMinute(2, 6, 0, function()
+    RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Away" })
+  end)
+  local body = lastCommandBody()
+  T.eq("the proxy's event commands the device", body and body.target_temperature, 18)
+
+  resetSent()
+  tickAt(2, 6, 0)
+  T.eq("and the poll leaves that minute alone", lastCommandBody(), nil)
 end)
 
 ---------------------------------------------------------------------------
