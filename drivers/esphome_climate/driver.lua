@@ -209,11 +209,19 @@ local function getDisplayScale()
   return displayScale.resolve(PROXY_BINDING)
 end
 
+--- @type boolean|nil
+local CONNECTION_ANNOUNCED = nil
+
 --- thermostatV2 has no ONLINE_CHANGED. It tracks reachability through
 --- CONNECTION/CONNECTED, which drives its IS_CONNECTED variable.
 --- @param connected boolean
 --- @return void
 local function sendConnectionState(connected)
+  -- The proxy answers every announce with SET_PRESETS and SET_EVENTS.
+  if connected == CONNECTION_ANNOUNCED then
+    return
+  end
+  CONNECTION_ANNOUNCED = connected
   SendToProxy(PROXY_BINDING, "CONNECTION", { CONNECTED = connected and "true" or "false" }, "NOTIFY")
 end
 
@@ -710,9 +718,6 @@ local function sendCapabilities(entity)
   if not extrasPublished then
     SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", { HAS_EXTRAS = false }, "NOTIFY")
   end
-
-  -- The proxy resends SET_PRESETS and SET_EVENTS on a connection announce.
-  sendConnectionState(true)
 end
 
 function OnDriverInit()

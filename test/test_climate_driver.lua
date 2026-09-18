@@ -2647,6 +2647,18 @@ test("Re-applying the preset already in force does not swallow the next divergen
   T.eq("the first real divergence raises the hold", held and held.params.MODE, "Until Next")
 end)
 
+test("A steady-state push does not re-announce the connection", function()
+  -- Each announce costs an XML parse and a schedule pass in the proxy's reply.
+  disconnect()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  T.check("the report that reconnects announces", lastSent("CONNECTION") ~= nil)
+
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22, current_temperature = 19.5 })
+  T.eq("the next push does not", lastSent("CONNECTION"), nil)
+end)
+
 ---------------------------------------------------------------------------
 
 SendToProxy = originalSendToProxy
