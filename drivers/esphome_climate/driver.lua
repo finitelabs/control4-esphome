@@ -86,8 +86,17 @@ local SCHEDULE_SIGNATURE = nil
 local PERSISTED_SCHEDULED_PRESET = nil
 local PRESETS = {}
 local PRESETS_SIGNATURE = nil
+--- Preset selected directly by the user; holds until the next scheduled event.
+local HOLD_PRESET = nil
+--- Hold mode in force; restored from persist, because a user hold is not re-derivable from device state.
+local HOLD_MODE = nil
+--- A hold the user asked for; unlike a divergence hold it does not end when state returns to the schedule.
+local USER_HOLD = false
+--- Last hold written, for the persist dedupe.
+local PERSISTED_HOLD = nil
 local publishHoldModes
 local scheduleSignature
+local holdSignature
 local runPendingEvent
 local updateScheduleBoundaryTimer
 
@@ -786,6 +795,18 @@ function OnDriverLateInit()
     SCHEDULED_PRESET = storedScheduled.preset
   end
   PERSISTED_SCHEDULED_PRESET = SCHEDULED_PRESET
+  local storedHold = persist:get("Hold")
+  if type(storedHold) == "table" then
+    if type(storedHold.preset) == "string" then
+      HOLD_PRESET = storedHold.preset
+    end
+    -- Only a user hold is authoritative here; a divergence hold is left for the first report to re-derive.
+    if storedHold.user == true and type(storedHold.mode) == "string" then
+      USER_HOLD = true
+      HOLD_MODE = storedHold.mode
+    end
+  end
+  PERSISTED_HOLD = holdSignature()
   if #SCHEDULE > 0 then
     log:info("Restored %d scheduled event(s)", #SCHEDULE)
   end
@@ -1123,10 +1144,8 @@ end
 -- Presets and preset scheduling
 ---------------------------------------------------------------------------
 
---- Preset selected directly by the user; holds until the next scheduled event.
-local HOLD_PRESET = nil
---- Hold mode last reported; nil so the first reconcile after a reload always publishes.
-local HOLD_MODE = nil
+--- Hold mode as last reported; nil so the first reconcile after a reload always publishes.
+local HOLD_MODE_PUBLISHED = nil
 --- Allowed hold modes as last published, to skip identical resends.
 local HOLD_MODES_PUBLISHED = nil
 --- Preset last reported; a sentinel because nil ("no preset") must itself publish once after a reload.
@@ -1134,8 +1153,6 @@ local UNREPORTED = {}
 local ACTIVE_PRESET = UNREPORTED
 --- Inputs the last preset match ran on; cleared on disconnect.
 local LAST_MATCH_SIGNATURE = nil
---- A hold the user asked for; unlike a divergence hold it does not end when state returns to the schedule.
-local USER_HOLD = false
 --- A scheduled preset was commanded but not confirmed; the next report still describes the old state.
 local AWAITING_SCHEDULED = false
 
@@ -1401,13 +1418,44 @@ local function matchPreset(name)
   return true
 end
 
---- Report a hold transition once.
+--- Stable form of the hold, for the persist dedupe.
+holdSignature = function()
+  return table.concat({ tostring(HOLD_MODE), tostring(USER_HOLD), tostring(HOLD_PRESET) }, "|")
+end
+
+--- Write the hold only when it changed; a deferred boundary is re-entered on every report.
+--- @return boolean written
+local function persistHold()
+  local signature = holdSignature()
+  if signature == PERSISTED_HOLD then
+    return false
+  end
+  PERSISTED_HOLD = signature
+  persist:set("Hold", { mode = HOLD_MODE, user = USER_HOLD, preset = HOLD_PRESET })
+  return true
+end
+
+--- Report a hold transition once, and record it.
 local function setHoldMode(mode)
-  if HOLD_MODE == mode then
+  HOLD_MODE = mode
+  -- Keyed on what the proxy was told, not on HOLD_MODE: a restored mode has been reported to nobody.
+  if HOLD_MODE_PUBLISHED ~= mode then
+    HOLD_MODE_PUBLISHED = mode
+    SendToProxy(PROXY_BINDING, "HOLD_MODE_CHANGED", { MODE = mode }, "NOTIFY")
+  end
+  persistHold()
+end
+
+--- Drop a hold restored at LateInit once the entity turns out to be a water heater.
+local function dropWaterHeaterHold()
+  if HOLD_MODE == nil and not USER_HOLD and HOLD_PRESET == nil then
     return
   end
-  HOLD_MODE = mode
-  SendToProxy(PROXY_BINDING, "HOLD_MODE_CHANGED", { MODE = mode }, "NOTIFY")
+  log:info("Water heaters are offered no hold; discarding the restored one")
+  HOLD_MODE = nil
+  USER_HOLD = false
+  HOLD_PRESET = nil
+  persistHold()
 end
 
 --- Fields a preset pins down; of two matches the more specific wins.
@@ -1487,6 +1535,9 @@ local function reconcileHold()
   -- A user hold outlives a match, and keeps its own mode across a divergence.
   if not USER_HOLD then
     setHoldMode(onSchedule and "Off" or HOLD_UNTIL_NEXT)
+  elseif HOLD_MODE ~= nil then
+    -- Publishes only when the hold came back from persist; otherwise the proxy already has it.
+    setHoldMode(HOLD_MODE)
   end
 end
 
@@ -1601,6 +1652,8 @@ function RFP.SET_PRESETS(idBinding, strCommand, tParams)
   if forgot and SCHEDULED_PRESET == nil then
     setHoldMode("Off")
   end
+  -- A rename or a deletion moves HOLD_PRESET without touching the mode.
+  persistHold()
 
   -- Persisted so a reload during an outage can still apply what the proxy announces on reconnect.
   local presetsSignature = presetListSignature(PRESETS)
@@ -1655,6 +1708,7 @@ function RFP.SET_PRESET(idBinding, strCommand, tParams)
     USER_HOLD = true
     -- Changing which preset a Permanent hold holds must not re-time the hold.
     if HOLD_MODE == HOLD_PERMANENT then
+      persistHold()
       return
     end
     -- With no schedule there is no "next" to hold until.
@@ -2191,7 +2245,9 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     end
   end
 
-  if not entity.is_water_heater then
+  if entity.is_water_heater then
+    dropWaterHeaterHold()
+  else
     -- Recorded before the run, so reconcileHold still consumes AWAITING_SCHEDULED.
     local signature = matchInputSignature()
     if signature ~= LAST_MATCH_SIGNATURE then

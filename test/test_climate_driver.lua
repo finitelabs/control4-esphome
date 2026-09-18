@@ -2687,6 +2687,219 @@ test("A deferred boundary persists the scheduled preset once, not per report", f
   T.eq("the deferral writes the key once", writes, 1)
 end)
 
+--- Three presets and a schedule on Comfort, so a boundary can move to a preset
+--- that is neither the scheduled one nor the one a hand-pick holds. A fresh
+--- driver each time: the restore tests below read whatever the last one stored.
+local function threePresetFixture()
+  package.loaded["lib.persist"] = nil
+  dofile(DRIVER)
+  disconnect()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 })
+  setPresets({
+    { name = "Comfort", fields = { single_setpoint_c = "22" } },
+    { name = "Away", fields = { single_setpoint_c = "18" } },
+    { name = "Night", fields = { single_setpoint_c = "16" } },
+  })
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Comfort" } }) })
+  RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Comfort" })
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  clearHold()
+end
+
+--- Reload the way Director does: a new chunk, an empty persist cache, then LateInit.
+local function reload()
+  package.loaded["lib.persist"] = nil
+  dofile(DRIVER)
+  OnDriverLateInit()
+end
+
+local function countSent(command)
+  local n = 0
+  for _, entry in ipairs(sent) do
+    if entry.command == command then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+test("A Permanent user hold survives a reload", function()
+  -- A divergence hold is re-derivable from device state; a user hold is not, so
+  -- losing it left the proxy showing a hold the driver no longer believed in.
+  scheduledFixture()
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Permanent" })
+
+  reload()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  local hold = lastSent("HOLD_MODE_CHANGED")
+  T.check("the first report after a reload re-states the hold", hold ~= nil and hold.params.MODE == "Permanent")
+
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 28 })
+  T.eq("and a divergent report does not downgrade it", lastSent("HOLD_MODE_CHANGED"), nil)
+  clearHold()
+end)
+
+test("A hand-picked preset survives a reload", function()
+  -- Which preset a hold holds decides what a later edit re-applies; forgetting it
+  -- left an edit to the held preset going nowhere.
+  threePresetFixture()
+  RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Away" })
+
+  reload()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 18 })
+
+  resetSent()
+  setPresets({
+    { name = "Comfort", fields = { single_setpoint_c = "22" } },
+    { name = "Away", fields = { single_setpoint_c = "17" } },
+    { name = "Night", fields = { single_setpoint_c = "16" } },
+  })
+  local body = lastCommandBody()
+  T.check("editing the preset still held after a reload reaches the device", body ~= nil)
+  T.eq("carrying the edited value", body and body.target_temperature, 17)
+  clearHold()
+end)
+
+test("A boundary deferred behind a Permanent hold survives a reload", function()
+  -- The hold is what defers the boundary, so losing the hold lost the release
+  -- condition: the preset would sit pending with nothing left to release it.
+  threePresetFixture()
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Permanent" })
+  resetSent()
+  RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Away" })
+  T.eq("the hold defers the boundary rather than applying it", lastCommandBody(), nil)
+
+  reload()
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  local hold = lastSent("HOLD_MODE_CHANGED")
+  T.check("the hold still stands after the reload", hold ~= nil and hold.params.MODE == "Permanent")
+  T.eq("and the deferred preset is still not applied", countSent("ENTITY_COMMAND"), 0)
+
+  resetSent()
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Off" })
+  T.eq("releasing the hold applies the deferred preset once", countSent("ENTITY_COMMAND"), 1)
+  local body = lastCommandBody()
+  T.eq("and it is the preset the boundary named", body and body.target_temperature, 18)
+  clearHold()
+end)
+
+test("A boundary that passed while the driver was down meets the restored hold", function()
+  -- The proxy re-announces SET_EVENT on connect; the driver compares it against
+  -- the restored ScheduledPreset. Both holds have to answer that announcement.
+  threePresetFixture()
+  RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Away" })
+
+  reload()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 18 })
+  resetSent()
+  RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Night" })
+  local hold = lastSent("HOLD_MODE_CHANGED")
+  T.check("a changed preset releases a restored until-next hold", hold ~= nil and hold.params.MODE == "Off")
+  T.eq("and the boundary's preset reaches the device", (lastCommandBody() or {}).target_temperature, 16)
+
+  -- Same boundary, against a Permanent hold: deferred, not applied.
+  threePresetFixture()
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Permanent" })
+
+  reload()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  resetSent()
+  RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Night" })
+  T.eq("a restored Permanent hold defers the changed preset", lastCommandBody(), nil)
+  T.eq("and reports no hold transition", lastSent("HOLD_MODE_CHANGED"), nil)
+
+  resetSent()
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Off" })
+  T.eq("and releasing it applies that preset once", countSent("ENTITY_COMMAND"), 1)
+  T.eq("with the boundary's value", (lastCommandBody() or {}).target_temperature, 16)
+  clearHold()
+end)
+
+test("Restoring a hold commands nothing", function()
+  -- The reload path must stay silent towards the device: a restore that
+  -- re-applied what it read would fight whatever the user did in the meantime.
+  threePresetFixture()
+  RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Away" })
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Permanent" })
+
+  package.loaded["lib.persist"] = nil
+  dofile(DRIVER)
+  resetSent()
+  OnDriverLateInit()
+  T.eq("the restore itself issues no device command", countSent("ENTITY_COMMAND"), 0)
+
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 18 })
+  T.eq("and neither does the first report after it", countSent("ENTITY_COMMAND"), 0)
+  clearHold()
+end)
+
+test("The hold is persisted once per change, not per report", function()
+  -- reconcileHold re-states the hold on every report and Persist:set does not dedupe.
+  scheduledFixture()
+
+  local writes = 0
+  local realSet = C4.PersistSetValue
+  C4.PersistSetValue = function(selfRef, key, value, encrypted)
+    if key == "Hold" then
+      writes = writes + 1
+    end
+    return realSet(selfRef, key, value, encrypted)
+  end
+
+  local ok, err = pcall(function()
+    RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Permanent" })
+    for i = 1, 5 do
+      updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 + i })
+    end
+  end)
+  C4.PersistSetValue = realSet
+  if not ok then
+    error(err, 0)
+  end
+
+  T.eq("the hold writes once for the change", writes, 1)
+  clearHold()
+end)
+
+test("A restored hold on a deleted preset is released and forgotten", function()
+  -- The held preset can be deleted while the driver is down; the release path
+  -- has to reach the stored copy too, or the next reload restores it again.
+  threePresetFixture()
+  RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Away" })
+
+  reload()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 18 })
+
+  setPresets({
+    { name = "Comfort", fields = { single_setpoint_c = "22" } },
+    { name = "Night", fields = { single_setpoint_c = "16" } },
+  })
+  local stored = Deserialize(C4:PersistGetValue("Hold"))
+  T.check("the stored hold no longer names the deleted preset", type(stored) == "table" and stored.preset == nil)
+  T.check("and no longer reads as the user's hold", type(stored) == "table" and stored.user ~= true)
+  clearHold()
+end)
+
+test("A restored hold is not carried onto a water heater", function()
+  -- A schedule and hold inherited from a climate entity; water heaters are
+  -- offered neither, so a restored hold must not survive meeting one.
+  threePresetFixture()
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Permanent" })
+
+  reload()
+  local heater = singleSetpointEntity()
+  heater.is_water_heater = true
+  resetSent()
+  updateState(heater, { mode = Mode.HEAT, target_temperature = 50 })
+
+  T.eq("no hold is reported for a water heater", lastSent("HOLD_MODE_CHANGED"), nil)
+  local stored = Deserialize(C4:PersistGetValue("Hold"))
+  T.check("and the restored hold is dropped from storage", type(stored) == "table" and stored.mode == nil)
+end)
+
 ---------------------------------------------------------------------------
 
 SendToProxy = originalSendToProxy
