@@ -82,6 +82,8 @@ local SCHEDULED_PRESET = nil
 --- A scheduled preset the proxy announced that could not be applied yet.
 local EVENT_PENDING = false
 local SCHEDULE_SIGNATURE = nil
+--- Last preset name written to the ScheduledPreset key, for the persist dedupe.
+local PERSISTED_SCHEDULED_PRESET = nil
 local PRESETS = {}
 local PRESETS_SIGNATURE = nil
 local publishHoldModes
@@ -779,11 +781,11 @@ function OnDriverLateInit()
   -- Seeded so the first resend after a reload does not rewrite unchanged lists.
   SCHEDULE_SIGNATURE = scheduleSignature()
   PRESETS_SIGNATURE = presetListSignature(PRESETS)
-  -- Cleared with an empty table, never a delete: delete-then-write left the key unreadable.
   local storedScheduled = persist:get("ScheduledPreset")
   if type(storedScheduled) == "table" and type(storedScheduled.preset) == "string" then
     SCHEDULED_PRESET = storedScheduled.preset
   end
+  PERSISTED_SCHEDULED_PRESET = SCHEDULED_PRESET
   if #SCHEDULE > 0 then
     log:info("Restored %d scheduled event(s)", #SCHEDULE)
   end
@@ -1506,6 +1508,19 @@ local function persistSchedule()
   end
 end
 
+--- Write the scheduled preset only when it changed; a deferred boundary is re-entered on every report.
+--- @param name string|nil Preset name, or nil to clear the key.
+--- @return boolean written
+local function persistScheduledPreset(name)
+  if name == PERSISTED_SCHEDULED_PRESET then
+    return false
+  end
+  PERSISTED_SCHEDULED_PRESET = name
+  -- Cleared with an empty table, never a delete: delete-then-write left the key unreadable.
+  persist:set("ScheduledPreset", name ~= nil and { preset = name } or {})
+  return true
+end
+
 --- Receive the full preset list; the proxy sends every preset each time, so rebuild.
 function RFP.SET_PRESETS(idBinding, strCommand, tParams)
   log:trace("RFP.SET_PRESETS(%s, %s, %s)", idBinding, strCommand, tParams)
@@ -1544,7 +1559,7 @@ function RFP.SET_PRESETS(idBinding, strCommand, tParams)
           SCHEDULED_PRESET = name
           -- Or the first announcement after a reload re-commands a preset already in force.
           if not EVENT_PENDING then
-            persist:set("ScheduledPreset", { preset = name })
+            persistScheduledPreset(name)
           end
         end
         if HOLD_PRESET == previous then
@@ -1573,7 +1588,7 @@ function RFP.SET_PRESETS(idBinding, strCommand, tParams)
     SCHEDULED_PRESET = nil
     EVENT_PENDING = false
     AWAITING_SCHEDULED = false
-    persist:set("ScheduledPreset", {})
+    persistScheduledPreset(nil)
     forgot = true
   end
   if HOLD_PRESET ~= nil and PRESETS[HOLD_PRESET] == nil then
@@ -1673,8 +1688,10 @@ local function runScheduledEvent()
   end
   -- A Permanent hold never depended on the schedule, so no boundary releases it.
   if HOLD_MODE == HOLD_PERMANENT then
-    log:debug("Permanent hold defers scheduled preset '%s'", name)
-    persist:set("ScheduledPreset", { preset = name })
+    -- Re-entered from runPendingEvent on every state report, so both only fire on a change.
+    if persistScheduledPreset(name) then
+      log:info("Permanent hold defers scheduled preset '%s' until the hold is released", name)
+    end
     return false
   end
   -- The proxy delivers a preset-changing boundary itself, so the poll skips this minute.
@@ -1687,7 +1704,7 @@ local function runScheduledEvent()
   -- Suppress a report only when a command actually went out.
   AWAITING_SCHEDULED = applyPreset(name) and not unchanged
   setHoldMode("Off")
-  persist:set("ScheduledPreset", { preset = name })
+  persistScheduledPreset(name)
   return true
 end
 
@@ -1794,7 +1811,7 @@ function RFP.SET_EVENTS(idBinding, strCommand, tParams)
       SCHEDULED_PRESET = nil
       EVENT_PENDING = false
       AWAITING_SCHEDULED = false
-      persist:set("ScheduledPreset", {})
+      persistScheduledPreset(nil)
     end
     local holding = USER_HOLD or HOLD_PRESET ~= nil or (HOLD_MODE ~= nil and HOLD_MODE ~= "Off")
     if holding and HOLD_MODE ~= HOLD_PERMANENT then

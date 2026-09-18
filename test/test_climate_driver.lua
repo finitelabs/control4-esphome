@@ -2659,6 +2659,36 @@ test("A steady-state push does not re-announce the connection", function()
   T.eq("the next push does not", lastSent("CONNECTION"), nil)
 end)
 
+test("A deferred boundary persists the scheduled preset once, not per report", function()
+  -- runPendingEvent re-enters the deferral on every state report, and Persist:set
+  -- does not dedupe, so an unguarded write here is flash traffic every few seconds
+  -- for as long as the hold stands.
+  boundaryFixture()
+  RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Permanent" })
+
+  local writes = 0
+  local realSet = C4.PersistSetValue
+  C4.PersistSetValue = function(selfRef, key, value, encrypted)
+    if key == "ScheduledPreset" then
+      writes = writes + 1
+    end
+    return realSet(selfRef, key, value, encrypted)
+  end
+
+  local ok, err = pcall(function()
+    RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Away" })
+    for i = 1, 5 do
+      updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 + i })
+    end
+  end)
+  C4.PersistSetValue = realSet
+  if not ok then
+    error(err, 0)
+  end
+
+  T.eq("the deferral writes the key once", writes, 1)
+end)
+
 ---------------------------------------------------------------------------
 
 SendToProxy = originalSendToProxy
