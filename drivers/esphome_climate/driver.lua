@@ -1762,6 +1762,7 @@ function RFP.SET_EVENTS(idBinding, strCommand, tParams)
     log:warn("SET_EVENTS carried no parsable XML; the stored schedule stands")
     return
   end
+  local hadEvents = #SCHEDULE > 0
   SCHEDULE = {}
   if xml.ChildNodes ~= nil then
     for _, node in pairs(xml.ChildNodes) do
@@ -1779,8 +1780,8 @@ function RFP.SET_EVENTS(idBinding, strCommand, tParams)
   end
   log:info("Schedule updated: %d event(s)", #SCHEDULE)
 
-  -- With no events, forget the scheduled preset and release any hold but Permanent.
-  if #SCHEDULE == 0 then
+  -- An empty frame arrives on every client connection, so only losing the last event counts.
+  if #SCHEDULE == 0 and hadEvents then
     if SCHEDULED_PRESET ~= nil then
       log:info("Schedule emptied; '%s' is no longer the scheduled preset", SCHEDULED_PRESET)
       SCHEDULED_PRESET = nil

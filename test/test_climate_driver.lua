@@ -2617,6 +2617,23 @@ test("A boundary the proxy delivered is not applied a second time by the poll", 
   T.eq("and the poll leaves that minute alone", lastCommandBody(), nil)
 end)
 
+test("A preset chosen with no schedule survives the proxy's empty event frames", function()
+  -- SET_EVENTS with zero events arrives on every client connection, so a device
+  -- with presets and no schedule gets one within a second of any choice.
+  package.loaded["lib.persist"] = nil
+  dofile(DRIVER)
+  disconnect()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 })
+  setPresets({ { name = "Comfort", fields = { single_setpoint_c = "22" } } })
+  RFP.SET_PRESET(PROXY, "SET_PRESET", { NAME = "Comfort" })
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = "<events></events>" })
+
+  resetSent()
+  setPresets({ { name = "Comfort", fields = { single_setpoint_c = "26" } } })
+  local body = lastCommandBody()
+  T.eq("editing the preset still reaches the device", body and body.target_temperature, 26)
+end)
+
 ---------------------------------------------------------------------------
 
 SendToProxy = originalSendToProxy
