@@ -1677,8 +1677,10 @@ local function runScheduledEvent()
   EVENT_PENDING = false
   HOLD_PRESET = nil
   USER_HOLD = false
+  -- A command that changes nothing draws an identical report, which the match digest skips.
+  local unchanged = matchPreset(name)
   -- Suppress a report only when a command actually went out.
-  AWAITING_SCHEDULED = applyPreset(name)
+  AWAITING_SCHEDULED = applyPreset(name) and not unchanged
   setHoldMode("Off")
   persist:set("ScheduledPreset", { preset = name })
   return true

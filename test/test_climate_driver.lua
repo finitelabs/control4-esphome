@@ -2634,6 +2634,19 @@ test("A preset chosen with no schedule survives the proxy's empty event frames",
   T.eq("editing the preset still reaches the device", body and body.target_temperature, 26)
 end)
 
+test("Re-applying the preset already in force does not swallow the next divergence", function()
+  -- The confirming report of an unchanged re-apply is identical to the one
+  -- before it, so the match digest never opens to consume the suppression.
+  boundaryFixture()
+  tickAt(2, 6, 0)
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 25 })
+  local held = lastSent("HOLD_MODE_CHANGED")
+  T.eq("the first real divergence raises the hold", held and held.params.MODE, "Until Next")
+end)
+
 ---------------------------------------------------------------------------
 
 SendToProxy = originalSendToProxy
