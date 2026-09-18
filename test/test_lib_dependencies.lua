@@ -4,8 +4,7 @@
 -- Run from the driver root:
 --   make test
 -- or:
---   LUA_PATH="$PWD/test/?.lua;$PWD/src/?.lua;$PWD/src/?/init.lua;$PWD/vendor/?.lua;$PWD/vendor/?/init.lua;;" \
---     luajit -e "require('c4_shim')" test/test_lib_dependencies.lua
+--   ./test/run_test.sh test_lib_dependencies.lua
 --
 -- tools/gen-squishy.lua bundles from package.loaded, so a module nothing
 -- requires is absent from the .c4z and fails as a nil-call in the field.
@@ -16,16 +15,7 @@
 -- check alone passes on a missing declaration; the source check is what holds each
 -- module to declaring what it uses itself.
 
-local pass, fail = 0, 0
-local function check(name, ok, detail)
-  if ok then
-    pass = pass + 1
-    print(string.format("  ok   %s", name))
-  else
-    fail = fail + 1
-    print(string.format("  FAIL %s%s", name, detail and ("  -> " .. tostring(detail)) or ""))
-  end
-end
+local T = require("testlib")
 
 local function dirOf(module)
   local path = package.searchpath(module, package.path)
@@ -76,8 +66,8 @@ end
 local libDir = dirOf("lib.logging")
 local dcpDir = dirOf("drivers-common-public.global.lib")
 
-check("src/lib is on package.path", libDir ~= nil, "cannot locate lib.logging")
-check("drivers-common-public is on package.path", dcpDir ~= nil, "cannot locate the global modules")
+T.check("src/lib is on package.path", libDir ~= nil, "cannot locate lib.logging")
+T.check("drivers-common-public is on package.path", dcpDir ~= nil, "cannot locate the global modules")
 
 if libDir and dcpDir then
   -- global name -> the drivers-common-public module that defines it
@@ -93,7 +83,7 @@ if libDir and dcpDir then
       end
     end
   end
-  check("the global modules define globals to check for", next(owner) ~= nil)
+  T.check("the global modules define globals to check for", next(owner) ~= nil)
 
   -- src/lib modules define globals too (utils.lua's IsEmpty, InRange, ...) that
   -- siblings call. Map those the same way, so an intra-lib missing require is
@@ -127,7 +117,7 @@ if libDir and dcpDir then
       table.sort(order)
 
       for _, dep in ipairs(order) do
-        check(
+        T.check(
           string.format("src/lib/%s declares require(%q)", name, dep),
           raw:find(string.format('require("%s")', dep), 1, true) ~= nil,
           string.format("calls %s but never requires the module defining it", needed[dep])
@@ -137,11 +127,7 @@ if libDir and dcpDir then
       if #order > 0 then
         -- Stand in for a driver.lua that required nothing: drop every module this
         -- one could reach so the require under test has to supply the globals.
-        for loaded in pairs(package.loaded) do
-          if loaded:match("^lib%.") or loaded:match("^drivers%-common%-public%.") then
-            package.loaded[loaded] = nil
-          end
-        end
+        T.unload("^lib%.", "^drivers%-common%-public%.")
         for fn in pairs(needed) do
           _G[fn] = nil
         end
@@ -150,12 +136,12 @@ if libDir and dcpDir then
         end
 
         local ok, err = pcall(require, "lib." .. mod)
-        check(string.format("src/lib/%s requires cleanly with no driver.lua setup", name), ok, err)
+        T.check(string.format("src/lib/%s requires cleanly with no driver.lua setup", name), ok, err)
 
         if ok then
           for _, dep in ipairs(order) do
             local fn = needed[dep]
-            check(
+            T.check(
               string.format("src/lib/%s: %s is callable after the require", name, fn),
               type(_G[fn]) == "function",
               string.format("%s is %s; the call site would fail with a nil-call", fn, type(_G[fn]))
@@ -167,7 +153,4 @@ if libDir and dcpDir then
   end
 end
 
-print(string.format("\n%d passed, %d failed", pass, fail))
-if fail > 0 then
-  os.exit(1)
-end
+T.finish()

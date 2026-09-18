@@ -3,25 +3,17 @@
 -- drivers unlock C4Z_ROOT first, and the download write unlocks for itself rather than
 -- inheriting an unlock from the version loop.
 --
--- Run from the template root:
---   LUA_PATH="$PWD/test/?.lua;$PWD/src/?.lua;$PWD/vendor/?.lua;$PWD/vendor/?/init.lua;;" \
---     luajit -e "require('c4_shim')" test/test_github_updater_alias.lua
+-- Run from the driver root:
+--   make test
+-- or:
+--   ./test/run_test.sh test_github_updater_alias.lua
 
-local pass, fail = 0, 0
-local function check(name, ok, detail)
-  if ok then
-    pass = pass + 1
-    print(string.format("  ok   %s", name))
-  else
-    fail = fail + 1
-    print(string.format("  FAIL %s%s", name, detail and ("  -> " .. tostring(detail)) or ""))
-  end
-end
+local T = require("testlib")
 
 -- tools/gen-squishy.lua bundles from package.loaded, so github-updater.lua has to require
 -- lib.utils itself rather than relying on a driver's driver.lua to have required it first.
 -- Deliberately no GetDriverVersion stub; requiring lib.github-updater must be enough.
-check(
+T.check(
   "GetDriverVersion is not defined before lib.github-updater is required",
   GetDriverVersion == nil,
   "a stub would void this check"
@@ -30,12 +22,12 @@ check(
 -- The modules return already-constructed instances, not the classes.
 local updater = require("lib.github-updater")
 
-check(
+T.check(
   "requiring lib.github-updater loads lib.utils",
   package.loaded["lib.utils"] ~= nil,
   "utils.lua is absent from package.loaded, so gen-squishy would omit it from the .c4z"
 )
-check(
+T.check(
   "GetDriverVersion is callable after requiring lib.github-updater",
   type(GetDriverVersion) == "function",
   string.format("GetDriverVersion is %s; the version loop would fail with a nil-call", type(GetDriverVersion))
@@ -109,7 +101,7 @@ end
 local http = require("lib.http")
 
 -- Guards against passing on a no-op shim.
-check("C4Z_ROOT is locked before anything runs", not pcall(function()
+T.check("C4Z_ROOT is locked before anything runs", not pcall(function()
   C4:FileSetDir("C4Z_ROOT")
 end), "shim accepted C4Z_ROOT with no unlock, so this suite cannot detect the defect")
 
@@ -120,8 +112,8 @@ end), "shim accepted C4Z_ROOT with no unlock, so this suite cannot detect the de
 resetDirCalls()
 pcall(realGetDriverVersion, RUNNING_DRIVER)
 
-check("the running driver reads through C4Z", indexOf("C4Z") ~= nil, "addressed " .. dirCallList())
-check(
+T.check("the running driver reads through C4Z", indexOf("C4Z") ~= nil, "addressed " .. dirCallList())
+T.check(
   "the running driver never unlocks C4Z_ROOT",
   indexOf(UNLOCK_KEY) == nil and indexOf("C4Z_ROOT") == nil,
   "addressed " .. dirCallList()
@@ -151,17 +143,17 @@ end, function(err)
   downloadError = err
 end)
 
-check(
+T.check(
   "the single-driver version loop leaves C4Z_ROOT locked",
   indexOf("C4Z") ~= nil and (indexOf(UNLOCK_KEY) == nil or indexOf(UNLOCK_KEY) > indexOf("C4Z")),
   "addressed " .. dirCallList()
 )
-check(
+T.check(
   "the download write unlocks C4Z_ROOT before addressing it",
   indexOf(UNLOCK_KEY) ~= nil and indexOf("C4Z_ROOT") ~= nil and indexOf(UNLOCK_KEY) < indexOf("C4Z_ROOT"),
   "addressed " .. dirCallList()
 )
-check(
+T.check(
   "the asset was written",
   type(downloaded) == "table" and downloaded[1] == RUNNING_DRIVER,
   downloadError and describeError(downloadError) or "the download chain did not resolve"
@@ -174,12 +166,12 @@ check(
 resetDirCalls()
 pcall(realGetDriverVersion, COMPANION_DRIVER)
 
-check(
+T.check(
   "a companion driver unlocks C4Z_ROOT before addressing it",
   indexOf(UNLOCK_KEY) ~= nil and indexOf("C4Z_ROOT") ~= nil and indexOf(UNLOCK_KEY) < indexOf("C4Z_ROOT"),
   "addressed " .. dirCallList()
 )
-check("a companion driver does not read through C4Z", indexOf("C4Z") == nil, "addressed " .. dirCallList())
+T.check("a companion driver does not read through C4Z", indexOf("C4Z") == nil, "addressed " .. dirCallList())
 
 ---------------------------------------------------------------------------
 -- The version loop still covers every filename
@@ -195,9 +187,9 @@ local ok, err = pcall(function()
   updater:getOutdatedDriverAssets("finitelabs/example", { RUNNING_DRIVER, COMPANION_DRIVER }, false, false)
 end)
 
-check("getOutdatedDriverAssets does not fail on the alias", ok, err)
-check("no Invalid alias error was raised", versionError == nil, versionError)
-check(
+T.check("getOutdatedDriverAssets does not fail on the alias", ok, err)
+T.check("no Invalid alias error was raised", versionError == nil, versionError)
+T.check(
   "every driver filename was resolved",
   #versionCalls == 2,
   string.format("expected 2 GetDriverVersion calls, got %d", #versionCalls)
@@ -213,16 +205,13 @@ C4.GetDriverFileName = nil
 resetDirCalls()
 pcall(realGetDriverVersion, RUNNING_DRIVER)
 
-check(
+T.check(
   "without C4:GetDriverFileName the running driver falls back to C4Z_ROOT",
   indexOf(UNLOCK_KEY) ~= nil and indexOf("C4Z_ROOT") ~= nil and indexOf(UNLOCK_KEY) < indexOf("C4Z_ROOT"),
   "addressed " .. dirCallList()
 )
-check("the fallback does not read through C4Z", indexOf("C4Z") == nil, "addressed " .. dirCallList())
+T.check("the fallback does not read through C4Z", indexOf("C4Z") == nil, "addressed " .. dirCallList())
 
 C4.GetDriverFileName = realGetDriverFileName
 
-print(string.format("\n%d passed, %d failed", pass, fail))
-if fail > 0 then
-  os.exit(1)
-end
+T.finish()

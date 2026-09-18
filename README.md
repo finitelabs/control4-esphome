@@ -487,15 +487,20 @@ the matching read-only Device Info properties.
 | Cover         | `CONTACT_SENSOR`                | Open/closed state contacts                                        |
 | Cover         | `RELAY`                         | Open/close/stop control relays                                    |
 | Button        | `BUTTON_LINK`                   | Allows other devices to trigger button                            |
+| Event         | `BUTTON_LINK`                   | One connection per event type, triggers other devices             |
 | Climate       | `ESPHOME_CLIMATE`               | Bind to ESPHome Climate sub-driver [\*\*](#climate-services-note) |
 | Fan           | `ESPHOME_FAN_N_SPEED[_REVERSE]` | Bind to ESPHome Fan sub-driver                                    |
 | Light         | `ESPHOME_LIGHT`                 | Bind to ESPHome Light sub-driver                                  |
 | Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver                                   |
 | Water Heater  | `ESPHOME_CLIMATE`               | Bind to ESPHome Climate sub-driver                                |
 
-> **Note:** Sensor, Number, Select, Text, Text Sensor, Date, Time, Datetime, and
-> Event entities do not create bindings. They expose data only through variables
-> and events.
+> **Note:** Sensor, Number, Select, Text, Text Sensor, Date, Time and Datetime
+> entities do not create bindings. They expose data only through variables and
+> events.
+
+> **Note:** The Button and Event binding classes are the same but point opposite
+> ways. A Button binding lets another device press the ESPHome button; an Event
+> binding lets the ESPHome device act as a keypad button and drive a load.
 
 > **Note:** Water Heater entities share the `ESPHOME_CLIMATE` binding class and
 > are controlled via the ESPHome Climate sub-driver. Device modes (such as Eco,
@@ -536,8 +541,9 @@ bindings are created separately from the entity bindings above:
 
 > **Note:** Event entities are stateless triggers (button presses, gestures,
 > doorbell rings). Each discovered event type creates a Control4 event that can
-> be used in programming. The `{name} Last Event` variable tracks the most
-> recent event type.
+> be used in programming, plus a `BUTTON_LINK` connection named
+> `{name} {event_type}` that can be bound straight to a load. The
+> `{name} Last Event` variable tracks the most recent event type.
 
 ### Commands
 
@@ -913,6 +919,27 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added a button connection for each event type an ESPHome event entity
+  declares, so a touch button or gesture on the device can drive a light, scene
+  or any other load directly, without Programming.
+- Added presets to the climate driver. A preset stores a setpoint, HVAC mode,
+  fan mode and vane position, and can be applied from the app or from
+  programming.
+- Added preset scheduling. Presets can be scheduled by weekday and time. The
+  schedule is kept by Control4, and the driver applies each scheduled preset as
+  it falls due, including an event that re-selects the preset already in force
+  and one that falls due while the device is unreachable.
+- Added holds. Changing the thermostat by hand, or choosing a preset by hand,
+  holds the new setting until the next scheduled event, which then releases it.
+  Clearing a held preset before then returns to the preset the schedule has in
+  force. The hold options appear once a schedule exists and are withdrawn when
+  the last scheduled event is deleted, since there is then no next event to hold
+  until.
+- Added vane control for climate devices that report swing modes, in the Extras
+  tab.
+
 ### Fixed
 
 - Fixed an automatic update sometimes leaving companion drivers on the previous
@@ -921,27 +948,56 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed thermostats and water heaters always showing Fahrenheit. They now follow
   the project's temperature scale, and the Celsius/Fahrenheit setting in
   Composer can be used to override it for an individual thermostat.
+- Fixed thermostats and water heaters keeping their own copy of the
+  Celsius/Fahrenheit choice, which could disagree with the one Control4 holds.
+  The scale is now read back from Control4 whenever it is needed, so a change
+  made in Navigator is picked up straight away.
 - Fixed thermostats and water heaters staying shown as connected after the
   ESPHome device went offline.
+- Fixed a thermostat staying on its last mode after the unit was turned off
+  outside Control4, for example with its own remote. It now shows Off, and a
+  unit that reports whether it is heating or cooling shows when that stops. The
+  same applied to switching the fan to On, and to a temperature of exactly 0°C
+  or a humidity of 0%, which are now shown too.
 - Fixed an "Error setting default color rate from driver" message in Composer
   when opening the properties of an ESPHome light.
+- Fixed a thermostat never showing whether it is heating, cooling, idle, drying
+  or running the fan only.
 - Fixed Composer's test panel greying out the dimming controls for ESPHome
   lights that do support brightness. Dimming from the Control4 app was never
   affected.
-- Fixed Bluetooth proxy scanner recovery never running on many devices. It
-  needed a button with "restart" in its name, so proxies whose restart button is
-  named in another language, or that expose no such button, silently had no
-  recovery at all. Recovery no longer needs a button and runs on any proxy that
-  reports its scanner state.
-- Fixed Bluetooth proxy scanner recovery rebooting the device, and choosing what
-  to press by name, which could press an unrelated button. It now restarts the
-  scanner itself, which is quicker and keeps existing Bluetooth connections
-  alive. (DRV-115)
+- Fixed lights, thermostats, water heaters, fans and locks still showing as
+  connected after the ESPHome driver's IP address, port or credentials were
+  changed or cleared. They now go offline with the device until it reconnects.
+- Fixed a BTHome or SwitchBot button doing nothing to a dimmer it was linked to.
+  The button sent a press, a click and a release together, and the release
+  stopped the dim the click had just started, leaving the light where it was. A
+  button now reports a press followed by a click, the same as a Control4 keypad,
+  so linked dimmers, switches and other loads all respond.
+- Fixed a SwitchBot Bot running its action twice for a single press of a linked
+  keypad button, which turned a toggle back to where it started.
+- Fixed Heat never engaging on a water heater that had not yet stored an
+  operating mode.
+- Fixed the climate driver's temperature and humidity outputs appearing as audio
+  connections in Composer instead of control connections.
+- Fixed a temperature, setpoint or humidity the device has not measured yet
+  being shown as a number near 5.1e38, which a setpoint nudge then clamped to
+  the maximum. Such a reading is now left blank until a real one arrives, and
+  sensor values are handled the same way.
+- Fixed a newly installed climate driver forwarding a bound temperature sensor's
+  readings to the device before the thermostat had enabled the remote sensor.
 
 ### Changed
 
 - Documented the `Connected` variable that every driver publishes, so it can be
   used in Programming to show whether a device is online.
+- Climate devices that report a single setpoint now show one setpoint instead of
+  a heat and cool pair. Most heat pumps and mini splits work this way: they hold
+  one target and decide internally whether to heat or cool toward it, so the
+  pair could never be honored. Auto is unaffected.
+- The climate driver's humidity output has moved to a different connection.
+  Nothing needs reconnecting: it was listed as an audio connection before, so it
+  could not be connected to anything in Composer.
 
 ## v20260816 - 2026-08-16
 

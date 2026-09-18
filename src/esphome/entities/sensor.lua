@@ -1,3 +1,4 @@
+require("lib.utils")
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local values = require("lib.values")
@@ -96,10 +97,7 @@ local function sendCachedValue(bindingId, entity, config)
   if cached == nil or cached.value == nil then
     return
   end
-  SendToProxy(bindingId, "VALUE_CHANGED", {
-    VALUE = cached.value,
-    SCALE = getScale(entity, config),
-  })
+  SendToProxy(bindingId, "VALUE_CHANGED", SensorValueParams(cached.value, getScale(entity, config)))
 end
 
 --- Handle the discovery of a sensor entity.
@@ -156,7 +154,15 @@ end
 --- @return void
 function SensorEntity:updated(entity, state)
   log:trace("SensorEntity:updated(%s, %s)", entity, state)
-  local value = round(tonumber(state.state) or 0, 1)
+  -- ESPHome reports NaN with missing_state set for any float the device has not
+  -- measured yet. Leave the variable unset rather than publishing a placeholder:
+  -- a NaN also defeats every downstream equality check, including the memo below.
+  local value = tofinite(state.state)
+  if value == nil or state.missing_state then
+    log:debug("Ignoring non-finite reading for %s", ESPHomeClient.describeEntity(entity))
+    return
+  end
+  value = round(value, 1)
   values:update(entity.name, value, "NUMBER")
 
   local config = getBindingConfig(entity)
@@ -172,10 +178,7 @@ function SensorEntity:updated(entity, state)
   local binding = bindings:getDynamicBinding(self.TYPE, bindingKey)
   if binding ~= nil then
     lastPushed[bindingKey] = value
-    SendToProxy(binding.bindingId, "VALUE_CHANGED", {
-      VALUE = value,
-      SCALE = getScale(entity, config),
-    })
+    SendToProxy(binding.bindingId, "VALUE_CHANGED", SensorValueParams(value, getScale(entity, config)))
   end
 end
 

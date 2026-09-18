@@ -64,7 +64,8 @@ then pull the change in with `copier update`.
 
 - `.gitignore`, `LICENSE`, `CONTRIBUTING.md`
 - `requirements.txt`, the build-time Python dependency list
-- `test/c4_shim.lua`, `test/run_test.sh`
+- `test/testlib.lua`, `test/c4_fixtures.lua`, `test/c4_shim.lua`,
+  `test/run_test.sh`, and the `test/test_*.lua` suites covering shared code
 - `.copier-answers.yml`, which Copier maintains; never edit it by hand
 
 ### What's Driver-Specific (Yours to Edit)
@@ -78,6 +79,8 @@ then pull the change in with `copier update`.
   that
 - Any additional `src/` modules specific to this driver
 - Any additional `vendor/` libraries specific to this driver
+- `test/` suites written for this driver, and the local support files they
+  require (`test/c4_local.lua`, `test/<prefix>_fixtures.lua`)
 
 `README.md` is in neither list: it is **generated**. `make build` rewrites it
 from the driver's `www/documentation/index.md`, so edit the source doc, not the
@@ -134,7 +137,9 @@ make init          # Install all dependencies (safe to re-run)
 make check-deps    # Install if needed, then verify .venv matches requirements.txt
 make build         # Full build, from clean through zip (see Build Pipeline)
 make build-nodocs  # Build without generating docs
+make test          # Run the Lua test suite (test/test_*.lua)
 make fmt           # Format all code (Lua, Python, Markdown)
+make check         # Assert formatting without rewriting; this is what CI runs
 make clean         # Remove build artifacts and dist/ (including driverpackager)
 make clean-all     # Remove everything (build artifacts, dist, deps, venv)
 ```
@@ -181,6 +186,91 @@ preprocessor recognizes three distributions: `drivercentral` and
 `drivercentral-dev` (which both define `DRIVERCENTRAL`, the latter also
 `DRIVERCENTRAL_DEV`) and `oss` (which defines `OSS`). Any other token in the
 answers file fails the build.
+
+## Writing Tests
+
+A test is a plain Lua script in `test/`, named `test_*.lua`, run by `make test`
+or `./test/run_test.sh test_something.lua`. There is one convention, and every
+suite in this repo follows it.
+
+```lua
+local T = require("testlib")
+
+T.section("What is under test")
+T.eq("the name of the case", got, want)
+
+T.finish()
+```
+
+Three shared modules, split by what they depend on:
+
+- **`testlib.lua`** is the harness: assertions, grouping, and the pass/fail
+  pipeline. Plain Lua, no Control4 in it. Always required.
+- **`c4_shim.lua`** mocks the Control4 `C4:*` environment. `make test` and
+  `run_test.sh` preload it, so a suite that drives driver code gets it for free.
+- **`c4_fixtures.lua`** holds the reusable C4 seams built on the shim. Require
+  it only when you need one.
+
+### Assertions
+
+Assertions accumulate rather than throw, so one run reports every failure
+instead of stopping at the first. Each takes the case name first.
+
+| Call                                     | Passes when                                           |
+| ---------------------------------------- | ----------------------------------------------------- |
+| `T.check(name, ok, detail)`              | `ok` is truthy; the base the others build on          |
+| `T.eq(name, got, want)`                  | `got` equals `want`, comparing tables by value        |
+| `T.neq(name, got, unwanted)`             | `got` differs from `unwanted`                         |
+| `T.truthy(name, v)` / `T.falsy(name, v)` | `v` is / is not truthy                                |
+| `T.contains(name, haystack, needle)`     | `needle` occurs in `haystack`                         |
+| `T.excludes(name, haystack, needle)`     | `needle` does not occur                               |
+| `T.raises(name, fn, expected)`           | `fn` throws, and the message holds `expected`         |
+| `T.raisesAt(name, fn)`                   | `fn` throws with the error blamed on the calling file |
+
+`T.excludes` is the one to reach for when the point is that a secret never
+reaches the output, because it reports the offending text on failure.
+
+Supporting calls: `T.section(name)` starts a numbered group, `T.capture(fn)`
+runs `fn` with `print` collected and returns `ok, err, output`, and
+`T.unload(pattern, ...)` drops matching `package.loaded` entries so the next
+`require` rebuilds whatever the module caches.
+
+### Ending a test
+
+`T.finish()` prints the summary and sets the exit code. Do not keep your own
+`pass`/`fail` counters, print your own summary, or call `os.exit` yourself.
+
+### C4 fixtures
+
+`c4_fixtures.lua` carries the seams that need the shim:
+
+- `F.withShim(opts, body)` reloads the shim with luasocket forced present or
+  absent and restores every global afterwards. With `{ luasocket = true }`,
+  `body` gets a clock whose `advance(seconds)` moves time forward and fires
+  whatever came due. Returns `ok, err`.
+- `F.captureTcpClient()` swaps in a `C4:CreateTCPClient` that records every
+  write and completes the connect synchronously. Read `.writes`, then
+  `.restore()`.
+
+### Driver-local test support
+
+Support code specific to this driver stays in this repo. Two files mirror the
+shared pair above, split by what the code is *about*:
+
+- **`test/c4_local.lua`** for environment seams: a `C4:*` method, or a bare
+  global the driver code calls, that the shim does not provide. Reach for this
+  instead of adding to `c4_shim.lua`, which the template owns, so anything local
+  in there becomes merge surface on every `copier update`.
+- **`test/<prefix>_fixtures.lua`** for domain fixtures: mocks shaped like this
+  driver's own protocol or API, parallel to `c4_fixtures.lua`. Use a short
+  prefix taken from the driver name.
+
+Both `require("c4_shim")` and build on the C4 environment rather than replacing
+it. Neither runner needs telling about them: `make test` collects only
+`test_*.lua`, and both put `test/` on `LUA_PATH`, so `require("c4_local")`
+resolves on its own.
+
+Promote either one into the template only once a second driver needs it.
 
 ## Preprocessor Directives
 

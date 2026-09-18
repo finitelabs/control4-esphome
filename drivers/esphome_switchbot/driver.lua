@@ -298,6 +298,8 @@ local notificationsSubscribing = false
 local DISCONNECT_DELAY_MS = 4000
 --- @type integer
 local PRESS_REVERT_DELAY_MS = 5000
+--- @type integer
+local BUTTON_LINK_COALESCE_MS = 500
 
 -- Encryption state (runtime only)
 --- @type string|nil
@@ -838,7 +840,7 @@ local function getOrCreateSensorBinding(sensorType)
       if strCommand == "GET_VALUE" then
         local cachedValue = values:getValue(config.displayName)
         if cachedValue and cachedValue.value then
-          SendToProxy(idBinding, "VALUE_CHANGED", { VALUE = cachedValue.value, SCALE = config.scale })
+          SendToProxy(idBinding, "VALUE_CHANGED", SensorValueParams(cachedValue.value, config.scale))
         end
       end
     end
@@ -857,7 +859,7 @@ local function getOrCreateSensorBinding(sensorType)
       if bIsBound then
         local cachedValue = values:getValue(config.displayName)
         if cachedValue and cachedValue.value then
-          SendToProxy(idBinding, "VALUE_CHANGED", { VALUE = cachedValue.value, SCALE = config.scale })
+          SendToProxy(idBinding, "VALUE_CHANGED", SensorValueParams(cachedValue.value, config.scale))
         end
       end
     end
@@ -881,7 +883,7 @@ local function sendSensorValue(sensorType, value)
     return
   end
 
-  SendToProxy(binding.bindingId, "VALUE_CHANGED", { VALUE = value, SCALE = config.scale })
+  SendToProxy(binding.bindingId, "VALUE_CHANGED", SensorValueParams(value, config.scale))
 end
 
 --- Get or create a contact sensor binding
@@ -966,7 +968,10 @@ local function getOrCreateButtonBinding(key, displayName)
   return binding
 end
 
---- Send button press event to bound consumers
+--- Send button press event to bound consumers.
+--- Sends DO_PUSH followed by DO_CLICK, the pair a Control4 keypad emits for a
+--- tap. DO_CLICK and DO_RELEASE are the two mutually exclusive terminations of a
+--- press, so no DO_RELEASE follows.
 --- @param key string The binding key (e.g., "contact_button")
 --- @param displayName string The display name for the binding
 local function sendButtonEvent(key, displayName)
@@ -976,10 +981,9 @@ local function sendButtonEvent(key, displayName)
     return
   end
 
-  log:debug("Sending DO_CLICK and DO_PUSH/DO_RELEASE from binding %s", binding.bindingId)
-  SendToProxy(binding.bindingId, "DO_CLICK", {}, "NOTIFY")
+  log:debug("Sending DO_PUSH then DO_CLICK from binding %s", binding.bindingId)
   SendToProxy(binding.bindingId, "DO_PUSH", {}, "NOTIFY")
-  SendToProxy(binding.bindingId, "DO_RELEASE", {}, "NOTIFY")
+  SendToProxy(binding.bindingId, "DO_CLICK", {}, "NOTIFY")
 end
 
 --------------------------------------------------------------------------------
@@ -1485,11 +1489,31 @@ local function registerBotButtonLinkHandler(binding, action)
     return
   end
 
+  local coalescing = false
+
   RFP[binding.bindingId] = function(idBinding, strCommand, _tParams, _args)
     log:trace("RFP[%s](%s, %s, %s, %s) action=%s", binding.bindingId, idBinding, strCommand, _tParams, _args, action)
     if strCommand ~= "DO_CLICK" and strCommand ~= "DO_PUSH" then
       return
     end
+
+    -- Senders disagree on which of the pair they emit: some send only DO_CLICK,
+    -- some only DO_PUSH, and a keypad tap sends DO_PUSH then DO_CLICK. Acting on
+    -- the first of a burst and ignoring the rest of the window runs the action
+    -- once per tap for all three, whichever command arrives first.
+    if coalescing then
+      log:debug(
+        "Ignoring %s within %dms of the last button action on '%s' binding",
+        strCommand,
+        BUTTON_LINK_COALESCE_MS,
+        binding.displayName
+      )
+      return
+    end
+    coalescing = true
+    SetTimer("BotButtonLinkCoalesce" .. binding.bindingId, BUTTON_LINK_COALESCE_MS, function()
+      coalescing = false
+    end)
 
     log:info("Button action %s received on '%s' binding", action, binding.displayName)
     if action == "on" or action == "press" then
