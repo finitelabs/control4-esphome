@@ -1167,10 +1167,10 @@ HOLD_UNTIL_NEXT = "Until Next"
 --- The one hold that outlives a schedule; released only by the user or programming.
 local HOLD_PERMANENT = "Permanent"
 
---- Publish the hold modes to offer; none without a schedule.
+--- Publish the hold modes to offer; only the one released at a boundary needs a schedule.
 --- @param force boolean Publish even if unchanged; a new connection may hold a stale list.
 publishHoldModes = function(force)
-  local modes = #SCHEDULE > 0 and ("Off," .. HOLD_UNTIL_NEXT) or ""
+  local modes = #SCHEDULE > 0 and ("Off," .. HOLD_UNTIL_NEXT .. "," .. HOLD_PERMANENT) or ("Off," .. HOLD_PERMANENT)
   if modes == HOLD_MODES_PUBLISHED and not force then
     return
   end
