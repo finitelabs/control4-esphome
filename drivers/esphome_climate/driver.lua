@@ -390,7 +390,7 @@ local function detectSetpointCaps(entity)
       can_auto = true
     end
   end
-  -- The entity decides. The SDK requires can_heat, can_cool and can_do_auto false with has_single_setpoint.
+  -- A single-target device may still offer HEAT and COOL, so the entity decides; Auto still reaches the UI via hvac_modes.
   local single = not entity.supports_two_point_target_temperature
   if single then
     can_heat = false
