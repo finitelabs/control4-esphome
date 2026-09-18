@@ -50,12 +50,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   release that carried a separate heat and cool value still works: the driver
   uses whichever of the two suits the mode. The preset editor no longer offers
   the second field, so re-saving such a preset keeps only the one setpoint.
-- The climate driver's humidity output has moved to a different connection. This
-  is a breaking change: if you had the humidity output connected to anything,
-  that connection is lost when you update and has to be made again. The move was
-  necessary because the position it previously occupied is the first slot the
-  driver uses for connections it creates itself, so a driver that created one
-  could remove the humidity connection without warning.
+- The climate driver's humidity output has moved to a different connection.
+  Nothing needs reconnecting: it was listed as an audio connection before, so it
+  could not be connected to anything in Composer.
 
 ### Fixed
 
