@@ -1,20 +1,12 @@
 -- Tests for BLE scanner recovery escalation in
 -- src/esphome/capabilities/bluetooth_proxy.lua.
 --
--- Run from the repo root:
---   LUA_PATH="$PWD/test/?.lua;$PWD/src/?.lua;$PWD/vendor/?.lua;$PWD/vendor/?/init.lua;;" \
---     luajit -e "require('c4_shim')" test/test_scanner_recovery.lua
+-- Run from the driver root:
+--   make test
+-- or:
+--   ./test/run_test.sh test_scanner_recovery.lua
 
-local pass, fail = 0, 0
-local function check(name, ok, detail)
-  if ok then
-    pass = pass + 1
-    print(string.format("  ok   %s", name))
-  else
-    fail = fail + 1
-    print(string.format("  FAIL %s%s", name, detail and ("  -> " .. tostring(detail)) or ""))
-  end
-end
+local T = require("testlib")
 
 require("c4_shim")
 require("lib.utils")
@@ -67,41 +59,35 @@ local function capabilityWithWatchdog()
   return capability, client
 end
 
---------------------------------------------------------------------------------
-print("\n[1] a healthy scanner is left alone")
---------------------------------------------------------------------------------
+T.section("a healthy scanner is left alone")
 do
   local capability, client = capabilityWithWatchdog()
   capability._scannerWatchdogSeen = true
   capability:_onScannerWatchdogFired()
 
-  check("no recovery attempted", #client.calls == 0, table.concat(client.calls, ","))
-  check("seen flag reset for the next interval", capability._scannerWatchdogSeen == false)
+  T.eq("no recovery attempted", #client.calls, 0)
+  T.falsy("seen flag reset for the next interval", capability._scannerWatchdogSeen)
 end
 
---------------------------------------------------------------------------------
-print("\n[2] a stalled scanner is restarted in place")
---------------------------------------------------------------------------------
+T.section("a stalled scanner is restarted in place")
 do
   local capability, client = capabilityWithWatchdog()
   capability:_onScannerWatchdogFired()
 
   -- ESPHome ignores a set-mode request for the mode it is already in, so
   -- recovery has to leave the current mode to make the firmware act.
-  check("scanner mode flipped away from active", client.calls[1] == "mode:passive", table.concat(client.calls, ","))
-  check("nothing else is touched yet", client.calls[2] == nil, table.concat(client.calls, ","))
+  T.eq("scanner mode flipped away from active", client.calls[1], "mode:passive")
+  T.eq("nothing else is touched yet", client.calls[2], nil)
 
   -- The restore runs on a timer. A silently dead restore would strand the
   -- proxy in passive mode, which is what BTHome devices cannot work with.
   ShimFireTimers()
-  check("mode restored after the restart", client.calls[2] == "mode:active", table.concat(client.calls, ","))
-  check("nothing further", client.calls[3] == nil, table.concat(client.calls, ","))
-  check("watchdog still running", capability._scannerWatchdogActive == true)
+  T.eq("mode restored after the restart", client.calls[2], "mode:active")
+  T.eq("nothing further", client.calls[3], nil)
+  T.truthy("watchdog still running", capability._scannerWatchdogActive)
 end
 
---------------------------------------------------------------------------------
-print("\n[3] recovery is bounded and never reboots the device")
---------------------------------------------------------------------------------
+T.section("recovery is bounded and never reboots the device")
 do
   local capability, client = capabilityWithWatchdog()
 
@@ -109,73 +95,76 @@ do
   ShimFireTimers()
   capability:_onScannerWatchdogFired()
   ShimFireTimers()
-  check("two restarts, each restored", #client.calls == 4, table.concat(client.calls, ","))
+  T.eq("two restarts, each restored", #client.calls, 4)
 
   -- Past the budget the driver stops acting. ESPHome reboots itself for the
   -- scanner failures it can detect, so there is nothing left to escalate to.
   capability:_onScannerWatchdogFired()
   capability:_onScannerWatchdogFired()
   ShimFireTimers()
-  check("no further action past the budget", #client.calls == 4, table.concat(client.calls, ","))
-  check("watchdog keeps watching", capability._scannerWatchdogActive == true)
-  check("only scanner mode is ever touched", not table.concat(client.calls, ","):find("press"))
+  T.eq("no further action past the budget", #client.calls, 4)
+  T.truthy("watchdog keeps watching", capability._scannerWatchdogActive)
+  T.excludes("only scanner mode is ever touched", table.concat(client.calls, ","), "press")
 end
 
---------------------------------------------------------------------------------
-print("\n[4] a scanner that is not running is not recovered")
---------------------------------------------------------------------------------
+T.section("a scanner that is not running is not recovered")
 do
   local capability, client = capabilityWithWatchdog()
   client.scannerState.state = ScannerState.BLUETOOTH_SCANNER_STATE_STOPPED
   capability:_onScannerWatchdogFired()
 
-  check("no recovery for a stopped scanner", #client.calls == 0, table.concat(client.calls, ","))
-  check("attempt counter untouched", capability._scannerRecoveryAttempts == 0)
+  T.eq("no recovery for a stopped scanner", #client.calls, 0)
+  T.eq("attempt counter untouched", capability._scannerRecoveryAttempts, 0)
 end
 
---------------------------------------------------------------------------------
-print("\n[5] returning advertisements reset the escalation")
---------------------------------------------------------------------------------
+T.section("a scanner still starting is left to finish")
+do
+  -- The firmware's stop, which the mode round trip acts through, runs only from
+  -- RUNNING. Acting here would spend the whole budget changing nothing.
+  local capability, client = capabilityWithWatchdog()
+  client.scannerState.state = ScannerState.BLUETOOTH_SCANNER_STATE_STARTING
+  capability:_onScannerWatchdogFired()
+
+  T.eq("no recovery while starting", #client.calls, 0)
+  T.eq("budget not spent", capability._scannerRecoveryAttempts, 0)
+end
+
+T.section("returning advertisements reset the escalation")
 do
   local capability, client = capabilityWithWatchdog()
   capability:_onScannerWatchdogFired()
-  check("one attempt recorded", capability._scannerRecoveryAttempts == 1)
+  T.eq("one attempt recorded", capability._scannerRecoveryAttempts, 1)
 
   capability._scannerWatchdogSeen = true
   capability:_onScannerWatchdogFired()
-  check("counter cleared once ads resume", capability._scannerRecoveryAttempts == 0)
+  T.eq("counter cleared once ads resume", capability._scannerRecoveryAttempts, 0)
 
   -- A later stall starts the ladder over rather than jumping to a reboot.
   capability:_onScannerWatchdogFired()
-  check("next stall restarts in place again", client.calls[2] == "mode:passive", table.concat(client.calls, ","))
+  T.eq("next stall restarts in place again", client.calls[2], "mode:passive")
 end
 
---------------------------------------------------------------------------------
-print("\n[6] a passive scanner is flipped the other way")
---------------------------------------------------------------------------------
+T.section("a passive scanner is flipped the other way")
 do
   local capability, client = capabilityWithWatchdog()
   client.scannerState.mode = ScannerMode.BLUETOOTH_SCANNER_MODE_PASSIVE
   capability:_onScannerWatchdogFired()
 
-  check("flipped to active from passive", client.calls[1] == "mode:active", table.concat(client.calls, ","))
+  T.eq("flipped to active from passive", client.calls[1], "mode:active")
 end
 
---------------------------------------------------------------------------------
-print("\n[7] the watchdog only starts where scanner state is reported")
---------------------------------------------------------------------------------
+T.section("the watchdog only starts where scanner state is reported")
 do
   -- Without the SCANNER_STATE flag the cached state never leaves its default,
   -- so the watchdog could only ever take its ignore branch.
   local capability = BluetoothProxyCapability:new(fakeClient())
   capability._featureFlags = 0x01 -- passive scan only
   capability:_startScannerWatchdog()
-  check("not started without scanner state support", capability._scannerWatchdogActive == false)
+  T.falsy("not started without scanner state support", capability._scannerWatchdogActive)
 
   capability._featureFlags = 0x01 + SCANNER_STATE_FLAG
   capability:_startScannerWatchdog()
-  check("started once scanner state is reported", capability._scannerWatchdogActive == true)
+  T.truthy("started once scanner state is reported", capability._scannerWatchdogActive)
 end
 
-print(string.format("\n%d passed, %d failed\n", pass, fail))
-os.exit(fail == 0 and 0 or 1)
+T.finish()

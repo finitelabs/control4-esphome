@@ -263,12 +263,10 @@ function BluetoothProxyCapability:_onScannerWatchdogFired()
     return
   end
 
-  -- No advertisements received - check if scanner should be running
+  -- RUNNING only: the mode round trip acts through the firmware's stop, which
+  -- no-ops from every other state, and FAILED is ESPHome's own to recover.
   local scannerState = self._client:getBluetoothScannerState()
-  if
-    scannerState.state ~= ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_RUNNING
-    and scannerState.state ~= ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_STARTING
-  then
+  if scannerState.state ~= ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_RUNNING then
     log:debug("Scanner watchdog: no advertisements but scanner not running (state=%s), ignoring", scannerState.state)
     return
   end
