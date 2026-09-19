@@ -31,8 +31,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Added holds, so changing the thermostat or choosing a preset by hand holds
   that setting until the next scheduled event releases it; clearing a held
   preset sooner returns to the preset the schedule has in force, and a Permanent
-  hold, which no scheduled event releases, stays until cleared by hand or from
-  Programming
+  hold, offered with or without a schedule and released by no scheduled event,
+  stays until cleared by hand or from Programming
 - Added vane control in the Extras tab for climate devices that report swing
   modes
 - Added a button connection for each event type an ESPHome event entity
