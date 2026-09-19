@@ -93,12 +93,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Changed
 
-- Climate devices that report a single setpoint now show one setpoint instead of
-  a heat and cool pair. Most heat pumps and mini splits work this way: they hold
-  one target and decide internally whether to heat or cool toward it, so the
-  pair could never be honored. Auto is unaffected.
-- The `Connected` variable that every driver publishes is now documented, so it
-  can be used in Programming to show whether a device is online.
+- Changed climate devices that report a single setpoint to show one setpoint
+  instead of a heat and cool pair. Most heat pumps and mini splits work this
+  way: they hold one target and decide internally whether to heat or cool toward
+  it, so the pair could never be honored. Auto is unaffected.
+- Changed the documentation to cover the `Connected` variable that every driver
+  publishes, so it can be used in Programming to show whether a device is
+  online.
 
 <!-- #endif -->
 
