@@ -926,6 +926,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Added a button connection for each event type an ESPHome event entity
   declares, so a touch button or gesture on the device can drive a light, scene
   or any other load without Programming
+- Added a Bluetooth Proxy Status warning when the BLE scanner has stopped
+  reporting devices and the driver has run out of ways to restart it, so a proxy
+  that needs a power cycle no longer reads as healthy
 
 ### Fixed
 

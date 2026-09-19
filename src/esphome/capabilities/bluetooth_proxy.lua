@@ -62,6 +62,18 @@ local SCANNER_STATE_SHOW_MODE = {
   [ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_STOPPING] = true,
 }
 
+--- States the mode round trip cannot act from and that ESPHome's own monitors
+--- miss: its scan timeout is gated on RUNNING and its failure handler on FAILED.
+--- @type table<ProtoBluetoothScannerState, boolean?>
+local SCANNER_STATE_NO_RECOVERY = {
+  [ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_IDLE] = true,
+  [ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_STARTING] = true,
+  [ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_STOPPING] = true,
+  [ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_STOPPED] = true,
+}
+
+local SCANNER_UNRECOVERABLE_STATUS = "Not Recovering - Power Cycle Device"
+
 --- Reverse lookup for BluetoothScannerMode enum (value -> display name)
 --- @type table<ProtoBluetoothScannerMode, string?>
 local SCANNER_MODE_NAMES = {
@@ -81,6 +93,7 @@ local SCANNER_MODE_NAMES = {
 --- @field _scannerWatchdogActive boolean Whether the scanner watchdog is active
 --- @field _scannerWatchdogSeen boolean Whether any advertisements were received since last watchdog check
 --- @field _scannerRecoveryAttempts integer Number of recovery attempts since last successful scan
+--- @field _scannerUnrecoverable boolean Whether advertisements are absent and recovery is exhausted or impossible
 local BluetoothProxyCapability = {
   TYPE = "bluetooth_proxy",
   LABEL_PROPERTY_NAME = "Bluetooth Proxy Settings",
@@ -152,6 +165,7 @@ function BluetoothProxyCapability:new(client)
   instance._scannerWatchdogActive = false
   instance._scannerWatchdogSeen = false
   instance._scannerRecoveryAttempts = 0
+  instance._scannerUnrecoverable = false
   return instance
 end
 
@@ -202,6 +216,7 @@ function BluetoothProxyCapability:_startScannerWatchdog()
   self._scannerWatchdogActive = true
   self._scannerWatchdogSeen = false
   self._scannerRecoveryAttempts = 0
+  self._scannerUnrecoverable = false
 
   -- Start recurring timer that checks if advertisements were received
   SetTimer(SCANNER_WATCHDOG_TIMER_KEY, SCANNER_WATCHDOG_TIMEOUT_SECONDS * ONE_SECOND, function()
@@ -248,6 +263,20 @@ function BluetoothProxyCapability:_restartScanner()
   end)
 end
 
+--- Record whether the driver has run out of ways to bring advertisements back.
+--- @private
+--- @param unrecoverable boolean
+function BluetoothProxyCapability:_setScannerUnrecoverable(unrecoverable)
+  if self._scannerUnrecoverable == unrecoverable then
+    return
+  end
+
+  self._scannerUnrecoverable = unrecoverable
+  -- A deaf scanner delivers no advertisements and may never change state, so
+  -- neither callback that normally refreshes the status property will fire.
+  self:_updateStatusProperty()
+end
+
 --- Called when the scanner watchdog timer fires.
 --- Checks if advertisements were received since last check; if not, attempts recovery.
 --- @private
@@ -259,6 +288,7 @@ function BluetoothProxyCapability:_onScannerWatchdogFired()
       log:info("Scanner watchdog: Advertisements resumed after %d recovery attempts", self._scannerRecoveryAttempts)
       self._scannerRecoveryAttempts = 0
     end
+    self:_setScannerUnrecoverable(false)
     self._scannerWatchdogSeen = false
     return
   end
@@ -268,6 +298,9 @@ function BluetoothProxyCapability:_onScannerWatchdogFired()
   local scannerState = self._client:getBluetoothScannerState()
   if scannerState.state ~= ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_RUNNING then
     log:debug("Scanner watchdog: no advertisements but scanner not running (state=%s), ignoring", scannerState.state)
+    if SCANNER_STATE_NO_RECOVERY[scannerState.state] then
+      self:_setScannerUnrecoverable(true)
+    end
     return
   end
 
@@ -290,6 +323,7 @@ function BluetoothProxyCapability:_onScannerWatchdogFired()
   if self._scannerRecoveryAttempts == SCANNER_RECOVERY_RESTART_ATTEMPTS + 1 then
     log:warn("Scanner watchdog: Scanner did not recover after %d restarts", SCANNER_RECOVERY_RESTART_ATTEMPTS)
   end
+  self:_setScannerUnrecoverable(true)
 end
 
 --- Update the read-only status property.
@@ -319,6 +353,10 @@ function BluetoothProxyCapability:_updateStatusProperty()
     table.insert(parts, string.format("%s (%s)", stateName, modeName))
   else
     table.insert(parts, stateName)
+  end
+
+  if self._scannerUnrecoverable then
+    table.insert(parts, SCANNER_UNRECOVERABLE_STATUS)
   end
 
   -- Build connection slots text with optional oversubscription warning

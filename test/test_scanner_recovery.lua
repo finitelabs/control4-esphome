@@ -30,10 +30,19 @@ local function fakeClient()
       mode = ScannerMode.BLUETOOTH_SCANNER_MODE_ACTIVE,
       initialized = true,
     },
+    connectionState = {
+      initialized = true,
+      free = 3,
+      limit = 3,
+    },
   }
 
   function client:getBluetoothScannerState()
     return self.scannerState
+  end
+
+  function client:getBluetoothConnectionState()
+    return self.connectionState
   end
 
   function client:setBluetoothScannerMode(active)
@@ -48,6 +57,29 @@ end
 
 --- Bluetooth proxy feature flag for scanner state reporting.
 local SCANNER_STATE_FLAG = 0x40
+
+--- How many in-place restarts the driver spends before it runs out of options.
+local RESTART_ATTEMPTS = 2
+
+local statusUpdates = {}
+function C4:UpdateProperty(name, value)
+  if name == BluetoothProxyCapability.STATUS_PROPERTY_NAME then
+    table.insert(statusUpdates, value)
+  end
+end
+
+--- Drop every status property write recorded so far.
+local function resetStatus()
+  for i = #statusUpdates, 1, -1 do
+    statusUpdates[i] = nil
+  end
+end
+
+--- The value most recently written to the status property.
+--- @return string status
+local function lastStatus()
+  return statusUpdates[#statusUpdates] or ""
+end
 
 --- Build a capability wired to a stub client, with the watchdog already armed.
 --- @return table capability, table client
@@ -165,6 +197,107 @@ do
   capability._featureFlags = 0x01 + SCANNER_STATE_FLAG
   capability:_startScannerWatchdog()
   T.truthy("started once scanner state is reported", capability._scannerWatchdogActive)
+
+  -- Timer keys are global, so a watchdog left running here would cancel the
+  -- recovery timers of every later section under the same key.
+  capability:_stopScannerWatchdog()
+end
+
+T.section("a healthy scanner reports nothing extra")
+do
+  local capability = capabilityWithWatchdog()
+  capability._scannerWatchdogSeen = true
+  capability:_onScannerWatchdogFired()
+  capability:_updateStatusProperty()
+
+  T.contains("scanner state still reported", lastStatus(), "Scanning (Active)")
+  T.excludes("no marker while advertisements arrive", lastStatus(), "Power Cycle")
+end
+
+T.section("a deaf scanner past its restart budget asks for a power cycle")
+do
+  local capability, client = capabilityWithWatchdog()
+
+  for _ = 1, RESTART_ATTEMPTS do
+    capability:_onScannerWatchdogFired()
+    ShimFireTimers()
+  end
+  T.eq("budget spent on restarts", #client.calls, RESTART_ATTEMPTS * 2)
+  T.falsy("nothing claimed while restarts remain", capability._scannerUnrecoverable)
+
+  resetStatus()
+  capability:_onScannerWatchdogFired()
+
+  T.truthy("marker raised once restarts are exhausted", capability._scannerUnrecoverable)
+  -- A deaf proxy gets no advertisement or state callbacks, so the watchdog has
+  -- to push the property itself or the condition never reaches the installer.
+  T.contains("watchdog refreshed the property unprompted", lastStatus(), "Power Cycle Device")
+  T.contains("condition named", lastStatus(), "Not Recovering")
+  T.contains("scanner state still reported", lastStatus(), "Scanning (Active)")
+  T.eq("no further recovery attempted", #client.calls, RESTART_ATTEMPTS * 2)
+end
+
+T.section("a scanner wedged where the driver cannot act asks for a power cycle")
+do
+  -- STARTING never reaches the restart budget, so an exhaustion-keyed marker
+  -- would stay silent in exactly the state that most needs surfacing.
+  for _, state in ipairs({
+    ScannerState.BLUETOOTH_SCANNER_STATE_STARTING,
+    ScannerState.BLUETOOTH_SCANNER_STATE_IDLE,
+    ScannerState.BLUETOOTH_SCANNER_STATE_STOPPING,
+    ScannerState.BLUETOOTH_SCANNER_STATE_STOPPED,
+  }) do
+    local capability, client = capabilityWithWatchdog()
+    client.scannerState.state = state
+
+    resetStatus()
+    capability:_onScannerWatchdogFired()
+
+    T.truthy("marker raised from state " .. tostring(state), capability._scannerUnrecoverable)
+    T.contains("power cycle asked for from state " .. tostring(state), lastStatus(), "Power Cycle Device")
+    T.eq("budget untouched from state " .. tostring(state), capability._scannerRecoveryAttempts, 0)
+    T.eq("nothing acted on from state " .. tostring(state), #client.calls, 0)
+  end
+end
+
+T.section("a failed scanner is left to ESPHome")
+do
+  -- ESPHome's own failure handler reboots on FAILED, so claiming the driver has
+  -- run out of options there would send an installer after a device that recovers.
+  local capability, client = capabilityWithWatchdog()
+  client.scannerState.state = ScannerState.BLUETOOTH_SCANNER_STATE_FAILED
+  capability:_onScannerWatchdogFired()
+  capability:_updateStatusProperty()
+
+  T.falsy("no marker for a failed scanner", capability._scannerUnrecoverable)
+  T.excludes("nothing asked of the installer", lastStatus(), "Power Cycle")
+end
+
+T.section("the marker clears when advertisements resume")
+do
+  for _, state in ipairs({
+    ScannerState.BLUETOOTH_SCANNER_STATE_RUNNING,
+    ScannerState.BLUETOOTH_SCANNER_STATE_STARTING,
+  }) do
+    local capability, client = capabilityWithWatchdog()
+    client.scannerState.state = state
+
+    for _ = 1, RESTART_ATTEMPTS + 1 do
+      capability:_onScannerWatchdogFired()
+      ShimFireTimers()
+    end
+    T.truthy("marker raised from state " .. tostring(state), capability._scannerUnrecoverable)
+
+    resetStatus()
+    capability._scannerWatchdogSeen = true
+    capability:_onScannerWatchdogFired()
+
+    T.falsy("marker cleared from state " .. tostring(state), capability._scannerUnrecoverable)
+    capability:_updateStatusProperty()
+    T.contains("a status is rendered to assert against", lastStatus(), "Standalone Mode")
+    T.excludes("status no longer asks for a power cycle", lastStatus(), "Power Cycle")
+    T.eq("escalation reset with it", capability._scannerRecoveryAttempts, 0)
+  end
 end
 
 T.finish()
