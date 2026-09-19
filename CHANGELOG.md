@@ -25,7 +25,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ### Added
 
 - Added presets to the climate driver. A preset stores a setpoint, HVAC mode,
-  fan mode and vane position, and can be applied from the app or from
+  fan mode and vane position, and can be applied from Navigator or from
   Programming.
 - Added preset scheduling. Presets can be scheduled by weekday and time. The
   schedule is kept by Control4, and the driver applies each scheduled preset as
@@ -75,9 +75,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   because the audio one could not be connected to anything.
 - Fixed an "Error setting default color rate from driver" message in Composer
   when opening the properties of an ESPHome light.
-- Fixed Composer's test panel greying out the dimming controls for ESPHome
-  lights that do support brightness. Dimming from the Control4 app was never
-  affected.
+- Fixed Composer's test panel graying out the dimming controls for ESPHome
+  lights that do support brightness. Dimming from Navigator was never affected.
 - Fixed a BTHome or SwitchBot button doing nothing to a dimmer it was linked to.
   The button sent a press, a click and a release together, and the release
   stopped the dim the click had just started, leaving the light where it was. A
@@ -98,8 +97,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   a heat and cool pair. Most heat pumps and mini splits work this way: they hold
   one target and decide internally whether to heat or cool toward it, so the
   pair could never be honored. Auto is unaffected.
-- Documented the `Connected` variable that every driver publishes, so it can be
-  used in Programming to show whether a device is online.
+- The `Connected` variable that every driver publishes is now documented, so it
+  can be used in Programming to show whether a device is online.
 
 <!-- #endif -->
 
