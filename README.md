@@ -21,16 +21,11 @@ monitoring and control of ESPHome devices directly from your Control4 system.
 <div style="font-size: small">
 
 - [System Requirements](#system-requirements)
-
 - [Features](#features)
-
 - [Compatibility](#compatibility)
-
   - [Verified Devices](#verified-devices)
   - [Supported ESPHome Entities](#supported-esphome-entities)
-
 - [Installer Setup](#installer-setup)
-
   - [Driver Installation](#driver-installation)
   - [Driver Setup](#driver-setup)
     - [Driver Properties](#driver-properties)
@@ -41,14 +36,10 @@ monitoring and control of ESPHome devices directly from your Control4 system.
       - [Device Info](#device-info)
     - [Driver Actions](#driver-actions)
   - [Programming Reference](#programming-reference)
-
 - [Configuration Guides](#configuration-guides)
-
   - [Garage Door Configuration Guide](#garage-door-configuration-guide)
   - [Bluetooth Proxy Configuration Guide](#bluetooth-proxy-configuration-guide)
-
 - [Support](#support)
-
 - [Changelog](#changelog)
 
 </div>
