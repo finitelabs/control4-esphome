@@ -61,6 +61,10 @@ local SCANNER_STATE_FLAG = 0x40
 --- How many in-place restarts the driver spends before it runs out of options.
 local RESTART_ATTEMPTS = 2
 
+--- How many consecutive intervals in a state the driver cannot act from are
+--- required before it reports the scanner as stuck there.
+local NO_RECOVERY_INTERVALS = 3
+
 local statusUpdates = {}
 function C4:UpdateProperty(name, value)
   if name == BluetoothProxyCapability.STATUS_PROPERTY_NAME then
@@ -250,6 +254,11 @@ do
     local capability, client = capabilityWithWatchdog()
     client.scannerState.state = state
 
+    for _ = 1, NO_RECOVERY_INTERVALS - 1 do
+      capability:_onScannerWatchdogFired()
+    end
+    T.falsy("nothing claimed before the state persists from " .. tostring(state), capability._scannerUnrecoverable)
+
     resetStatus()
     capability:_onScannerWatchdogFired()
 
@@ -260,17 +269,93 @@ do
   end
 end
 
+T.section("a healthy proxy passing through a non-actionable state is not reported")
+do
+  -- The firmware holds the scan stopped while a client is connecting,
+  -- disconnecting or discovered, so a proxy doing what a proxy exists to do sits
+  -- in IDLE and STOPPING for a while. Reporting that would cry wolf.
+  for _, state in ipairs({
+    ScannerState.BLUETOOTH_SCANNER_STATE_IDLE,
+    ScannerState.BLUETOOTH_SCANNER_STATE_STOPPING,
+  }) do
+    local capability, client = capabilityWithWatchdog()
+    client.scannerState.state = state
+
+    resetStatus()
+    capability:_onScannerWatchdogFired()
+
+    T.falsy("no marker after one interval in " .. tostring(state), capability._scannerUnrecoverable)
+    capability:_updateStatusProperty()
+    T.contains("a status is rendered to assert against", lastStatus(), "Standalone Mode")
+    T.excludes("nothing asked of the installer from " .. tostring(state), lastStatus(), "Power Cycle")
+
+    -- Connection work finished and the scan relaunched.
+    client.scannerState.state = ScannerState.BLUETOOTH_SCANNER_STATE_RUNNING
+    resetStatus()
+    capability:_onScannerWatchdogFired()
+
+    T.falsy("still no marker once running again from " .. tostring(state), capability._scannerUnrecoverable)
+    capability:_updateStatusProperty()
+    T.contains("a status is rendered to assert against", lastStatus(), "Scanning (Active)")
+    T.excludes("the marker was never carried from " .. tostring(state), lastStatus(), "Power Cycle")
+
+    ShimFireTimers()
+  end
+end
+
+T.section("an interval the scanner is not stuck in restarts the count")
+do
+  -- Without the reset, stuck intervals separated by minutes of ordinary operation
+  -- would accumulate into a power cycle request.
+  -- FAILED is ESPHome's own to recover and RUNNING is the arm the restart budget
+  -- covers, so neither counts towards being stuck.
+  local interruptions = {
+    { label = "failed", state = ScannerState.BLUETOOTH_SCANNER_STATE_FAILED },
+    { label = "running", state = ScannerState.BLUETOOTH_SCANNER_STATE_RUNNING },
+    { label = "advertisements", state = ScannerState.BLUETOOTH_SCANNER_STATE_IDLE, seen = true },
+  }
+
+  for _, interruption in ipairs(interruptions) do
+    local capability, client = capabilityWithWatchdog()
+    client.scannerState.state = ScannerState.BLUETOOTH_SCANNER_STATE_IDLE
+
+    for _ = 1, NO_RECOVERY_INTERVALS - 1 do
+      capability:_onScannerWatchdogFired()
+    end
+
+    client.scannerState.state = interruption.state
+    capability._scannerWatchdogSeen = interruption.seen or false
+    capability:_onScannerWatchdogFired()
+    ShimFireTimers()
+
+    client.scannerState.state = ScannerState.BLUETOOTH_SCANNER_STATE_IDLE
+    resetStatus()
+    capability:_onScannerWatchdogFired()
+
+    T.falsy("the run started over after " .. interruption.label, capability._scannerUnrecoverable)
+    capability:_updateStatusProperty()
+    T.contains("a status is rendered to assert against", lastStatus(), "Standalone Mode")
+    T.excludes("nothing asked of the installer after " .. interruption.label, lastStatus(), "Power Cycle")
+  end
+end
+
 T.section("a failed scanner is left to ESPHome")
 do
   -- ESPHome's own failure handler reboots on FAILED, so claiming the driver has
   -- run out of options there would send an installer after a device that recovers.
   local capability, client = capabilityWithWatchdog()
   client.scannerState.state = ScannerState.BLUETOOTH_SCANNER_STATE_FAILED
-  capability:_onScannerWatchdogFired()
+
+  -- Long enough that a FAILED counted as stuck would have been reported by now.
+  for _ = 1, NO_RECOVERY_INTERVALS do
+    capability:_onScannerWatchdogFired()
+  end
   capability:_updateStatusProperty()
 
   T.falsy("no marker for a failed scanner", capability._scannerUnrecoverable)
+  T.contains("a status is rendered to assert against", lastStatus(), "Standalone Mode")
   T.excludes("nothing asked of the installer", lastStatus(), "Power Cycle")
+  T.eq("nothing acted on", #client.calls, 0)
 end
 
 T.section("the marker clears when advertisements resume")

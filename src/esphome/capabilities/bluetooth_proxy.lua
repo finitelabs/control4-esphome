@@ -72,6 +72,12 @@ local SCANNER_STATE_NO_RECOVERY = {
   [ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_STOPPED] = true,
 }
 
+--- How many consecutive watchdog intervals the scanner must stay in a
+--- SCANNER_STATE_NO_RECOVERY state before the marker is raised. The firmware holds
+--- the scan stopped while a client is connecting, disconnecting or discovered, so a
+--- proxy establishing a connection passes through IDLE and STOPPING in normal use.
+local SCANNER_NO_RECOVERY_INTERVALS = 3
+
 local SCANNER_UNRECOVERABLE_STATUS = "Not Recovering - Power Cycle Device"
 
 --- Reverse lookup for BluetoothScannerMode enum (value -> display name)
@@ -93,6 +99,7 @@ local SCANNER_MODE_NAMES = {
 --- @field _scannerWatchdogActive boolean Whether the scanner watchdog is active
 --- @field _scannerWatchdogSeen boolean Whether any advertisements were received since last watchdog check
 --- @field _scannerRecoveryAttempts integer Number of recovery attempts since last successful scan
+--- @field _scannerNoRecoveryIntervals integer Consecutive watchdog intervals spent in a state the driver cannot act from
 --- @field _scannerUnrecoverable boolean Whether advertisements are absent and recovery is exhausted or impossible
 local BluetoothProxyCapability = {
   TYPE = "bluetooth_proxy",
@@ -165,6 +172,7 @@ function BluetoothProxyCapability:new(client)
   instance._scannerWatchdogActive = false
   instance._scannerWatchdogSeen = false
   instance._scannerRecoveryAttempts = 0
+  instance._scannerNoRecoveryIntervals = 0
   instance._scannerUnrecoverable = false
   return instance
 end
@@ -216,6 +224,7 @@ function BluetoothProxyCapability:_startScannerWatchdog()
   self._scannerWatchdogActive = true
   self._scannerWatchdogSeen = false
   self._scannerRecoveryAttempts = 0
+  self._scannerNoRecoveryIntervals = 0
   self._scannerUnrecoverable = false
 
   -- Start recurring timer that checks if advertisements were received
@@ -288,6 +297,7 @@ function BluetoothProxyCapability:_onScannerWatchdogFired()
       log:info("Scanner watchdog: Advertisements resumed after %d recovery attempts", self._scannerRecoveryAttempts)
       self._scannerRecoveryAttempts = 0
     end
+    self._scannerNoRecoveryIntervals = 0
     self:_setScannerUnrecoverable(false)
     self._scannerWatchdogSeen = false
     return
@@ -298,12 +308,31 @@ function BluetoothProxyCapability:_onScannerWatchdogFired()
   local scannerState = self._client:getBluetoothScannerState()
   if scannerState.state ~= ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_RUNNING then
     log:debug("Scanner watchdog: no advertisements but scanner not running (state=%s), ignoring", scannerState.state)
-    if SCANNER_STATE_NO_RECOVERY[scannerState.state] then
-      self:_setScannerUnrecoverable(true)
+    if not SCANNER_STATE_NO_RECOVERY[scannerState.state] then
+      self._scannerNoRecoveryIntervals = 0
+      return
     end
+
+    -- Report a scanner stuck in one of these states, not one merely observed in
+    -- one: a single interval carries less evidence than the restart budget the
+    -- other arm spends, and a false power cycle costs the marker its credibility.
+    self._scannerNoRecoveryIntervals = self._scannerNoRecoveryIntervals + 1
+    if self._scannerNoRecoveryIntervals < SCANNER_NO_RECOVERY_INTERVALS then
+      return
+    end
+
+    if self._scannerNoRecoveryIntervals == SCANNER_NO_RECOVERY_INTERVALS then
+      log:warn(
+        "Scanner watchdog: Scanner stuck in state %s across %d intervals",
+        scannerState.state,
+        SCANNER_NO_RECOVERY_INTERVALS
+      )
+    end
+    self:_setScannerUnrecoverable(true)
     return
   end
 
+  self._scannerNoRecoveryIntervals = 0
   self._scannerRecoveryAttempts = self._scannerRecoveryAttempts + 1
 
   if self._scannerRecoveryAttempts <= SCANNER_RECOVERY_RESTART_ATTEMPTS then
