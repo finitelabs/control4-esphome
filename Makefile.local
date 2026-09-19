@@ -1,10 +1,14 @@
 # Kept out of Makefile so `copier update` cannot clobber these.
 
-# `release` is the ESPHome branch tracking the latest stable release; override to pin a tag.
-ESPHOME_VERSION ?= release
+# The upstream release the committed schema was generated from. `check-proto`
+# regenerates and diffs, so this has to be a tag: against a moving branch every
+# ESPHome release reads as drift. Bump it in the same commit as a regeneration.
+ESPHOME_VERSION ?= 2026.8.2
 LUA_PROTOBUF ?= ../lua-protobuf
 ESPHOME_API := https://raw.githubusercontent.com/esphome/esphome/$(ESPHOME_VERSION)/esphome/components/api
 PROTO_SCHEMA := src/esphome/proto_schema.lua
+STYLUA_ARGS := --indent-type Spaces --column-width 120 --line-endings Unix \
+	--indent-width 2 --quote-style AutoPreferDouble
 
 .PHONY: gen-proto
 gen-proto: ## Regenerate src/esphome/proto_schema.lua from the ESPHome API protos
@@ -14,3 +18,16 @@ gen-proto: ## Regenerate src/esphome/proto_schema.lua from the ESPHome API proto
 		OUTPUT="$(CURDIR)/$(PROTO_SCHEMA)" \
 		PROTO="$(ESPHOME_API)/api.proto $(ESPHOME_API)/api_options.proto"
 	@$(MAKE) fmt-lua # normalize the generator's blank lines to the committed style
+
+.PHONY: check-proto
+check-proto: ## Assert src/esphome/proto_schema.lua still matches the generator
+	@[ -f "$(LUA_PROTOBUF)/Makefile" ] || { echo "lua-protobuf not found at $(LUA_PROTOBUF); set LUA_PROTOBUF=<path>"; exit 1; }
+	@[ -x "$(LUA_PROTOBUF)/.venv/bin/python3" ] || $(MAKE) -C "$(LUA_PROTOBUF)" setup-schema-generator
+	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
+	$(MAKE) -C "$(LUA_PROTOBUF)" gen-schema \
+		OUTPUT="$$tmp/generated.lua" \
+		PROTO="$(ESPHOME_API)/api.proto $(ESPHOME_API)/api_options.proto" \
+	&& cp "$(PROTO_SCHEMA)" "$$tmp/committed.lua" \
+	&& stylua $(STYLUA_ARGS) "$$tmp/generated.lua" "$$tmp/committed.lua" \
+	&& { diff -u "$$tmp/committed.lua" "$$tmp/generated.lua" \
+		|| { echo "$(PROTO_SCHEMA) does not match the generator at ESPHOME_VERSION=$(ESPHOME_VERSION); run 'make gen-proto'"; exit 1; }; }

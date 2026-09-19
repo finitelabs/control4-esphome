@@ -100,3 +100,37 @@ jobs:
           name: oss
           path: dist/oss/*
           if-no-files-found: error
+
+  proto-schema:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Checkout the schema generator
+        uses: actions/checkout@v6
+        with:
+          repository: finitelabs/lua-protobuf
+          ref: v0.6.9
+          path: .lua-protobuf
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Setup stylua
+        uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --version
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Check the proto schema matches its generator
+        run: make check-proto LUA_PROTOBUF=.lua-protobuf
