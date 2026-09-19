@@ -45,17 +45,18 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   version until the next update, which could make them stop responding in the
   meantime
 - Fixed lights, thermostats, water heaters, fans and locks still showing as
-  connected after the ESPHome device went offline, or after the driver's IP
-  address, port or credentials were changed or cleared; they now go offline with
-  the device until it reconnects
+  connected when they were not: after the driver's IP address, port or
+  credentials were changed or cleared, and, for thermostats and water heaters,
+  after the ESPHome device itself went offline; they now go offline with the
+  device until it reconnects
 - Fixed thermostats and water heaters always showing Fahrenheit; they now follow
   the project's temperature scale and pick up a change made in Navigator
   straight away, with the Celsius/Fahrenheit setting in Composer available to
   override it for an individual thermostat
 - Fixed a thermostat staying on its last mode after the unit was turned off
   outside Control4, for example with its own remote; it now shows Off, a unit
-  that reports whether it is heating or cooling shows when that stops, and the
-  same applied to switching the fan to On
+  that reports whether it is heating or cooling shows when that stops, and
+  switching the fan to On is now shown too
 - Fixed a thermostat never showing whether it is heating, cooling, idle, drying
   or running the fan only
 - Fixed Heat never engaging on a water heater that had not yet stored an
@@ -82,8 +83,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   loads all respond
 - Fixed a SwitchBot Bot running its action twice for a single press of a linked
   keypad button, which turned a toggle back to where it started
-- Fixed Bluetooth proxy recovery from a stalled scanner looking for a button
-  with "restart" in its name, so a proxy that names its button differently or
+- Fixed Bluetooth proxy recovery looking for a button with "restart" in its name
+  to clear a stalled scanner, so a proxy that names its button differently or
   exposes none at all had no recovery, and where a button was found the whole
   device was rebooted, dropping every Bluetooth connection it held; recovery now
   restarts the scanner itself on any proxy that reports its scanner state,
@@ -91,10 +92,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Changed
 
-- Changed climate devices that report a single setpoint to show one setpoint
-  instead of a heat and cool pair, since most heat pumps and mini splits hold
-  one target and decide internally whether to heat or cool toward it, so the
-  pair could never be honored; Auto is unaffected
+- Changed the setpoint display for climate devices that report a single target:
+  they now show one setpoint instead of a heat and cool pair, since most heat
+  pumps and mini splits hold one target and decide internally whether to heat or
+  cool toward it, so the pair could never be honored; Auto is unaffected
 - Changed the documentation to cover the `Connected` variable that every driver
   publishes, so it can be used in Programming to show whether a device is online
 
