@@ -921,82 +921,79 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
-- Added presets to the climate driver. A preset stores a setpoint, HVAC mode,
-  fan mode and vane position, and can be applied from Navigator or from
-  Programming.
-- Added preset scheduling. Presets can be scheduled by weekday and time. The
-  schedule is kept by Control4, and the driver applies each scheduled preset as
-  it falls due.
-- Added holds. Changing the thermostat by hand, or choosing a preset by hand,
-  holds the new setting until the next scheduled event, which then releases it.
-  Clearing a held preset before then returns to the preset the schedule has in
-  force. A Permanent hold can be chosen instead: no scheduled event releases it,
-  and it stays until cleared by hand or from Programming.
-- Added vane control for climate devices that report swing modes, in the Extras
-  tab.
+- Added presets to the climate driver, each storing a setpoint, HVAC mode, fan
+  mode and vane position, and applicable from Navigator or from Programming
+- Added preset scheduling by weekday and time; the schedule is kept by Control4
+  and the driver applies each preset as it falls due
+- Added holds, so changing the thermostat or choosing a preset by hand holds
+  that setting until the next scheduled event releases it; clearing a held
+  preset sooner returns to the preset the schedule has in force, and a Permanent
+  hold, which no scheduled event releases, stays until cleared by hand or from
+  Programming
+- Added vane control in the Extras tab for climate devices that report swing
+  modes
 - Added a button connection for each event type an ESPHome event entity
   declares, so a touch button or gesture on the device can drive a light, scene
-  or any other load directly, without Programming.
+  or any other load without Programming
 
 ### Fixed
 
 - Fixed an automatic update sometimes leaving companion drivers on the previous
   version until the next update, which could make them stop responding in the
-  meantime.
+  meantime
 - Fixed lights, thermostats, water heaters, fans and locks still showing as
-  connected when they were not: both after the ESPHome device itself went
-  offline, and after the driver's IP address, port or credentials were changed
-  or cleared. They now go offline with the device until it reconnects.
-- Fixed thermostats and water heaters always showing Fahrenheit. They now follow
+  connected after the ESPHome device went offline, or after the driver's IP
+  address, port or credentials were changed or cleared; they now go offline with
+  the device until it reconnects
+- Fixed thermostats and water heaters always showing Fahrenheit; they now follow
   the project's temperature scale and pick up a change made in Navigator
-  straight away, and the Celsius/Fahrenheit setting in Composer can be used to
-  override it for an individual thermostat.
+  straight away, with the Celsius/Fahrenheit setting in Composer available to
+  override it for an individual thermostat
 - Fixed a thermostat staying on its last mode after the unit was turned off
-  outside Control4, for example with its own remote. It now shows Off, and a
-  unit that reports whether it is heating or cooling shows when that stops. The
-  same applied to switching the fan to On.
+  outside Control4, for example with its own remote; it now shows Off, a unit
+  that reports whether it is heating or cooling shows when that stops, and the
+  same applied to switching the fan to On
 - Fixed a thermostat never showing whether it is heating, cooling, idle, drying
-  or running the fan only.
+  or running the fan only
 - Fixed Heat never engaging on a water heater that had not yet stored an
-  operating mode.
-- Fixed a temperature of exactly 0°C, or a humidity of 0%, not being shown.
+  operating mode
+- Fixed a temperature of exactly 0°C, or a humidity of 0%, not being shown
 - Fixed a temperature, setpoint or humidity the device has not measured yet
   being shown as a number near 5.1e38, which a setpoint nudge then clamped to
-  the maximum. Such a reading is now left blank until a real one arrives, and
-  sensor values are handled the same way.
+  the maximum; such a reading is now left blank until a real one arrives, and
+  sensor values are handled the same way
 - Fixed a newly installed climate driver forwarding a bound temperature sensor's
-  readings to the device before the thermostat had enabled the remote sensor.
+  readings to the device before the thermostat had enabled the remote sensor
 - Fixed the climate driver's temperature and humidity outputs appearing as audio
-  connections in Composer instead of control connections. The humidity output
-  moves to a different connection as a result; nothing needs reconnecting,
-  because the audio one could not be connected to anything.
+  connections in Composer instead of control connections; the humidity output
+  moves to a different connection as a result, but nothing needs reconnecting
+  because the audio one could not be connected to anything
 - Fixed an "Error setting default color rate from driver" message in Composer
-  when opening the properties of an ESPHome light.
+  when opening the properties of an ESPHome light
 - Fixed Composer's test panel graying out the dimming controls for ESPHome
-  lights that do support brightness. Dimming from Navigator was never affected.
-- Fixed a BTHome or SwitchBot button doing nothing to a dimmer it was linked to.
-  The button sent a press, a click and a release together, and the release
-  stopped the dim the click had just started, leaving the light where it was. A
-  button now reports a press followed by a click, the same as a Control4 keypad,
-  so linked dimmers, switches and other loads all respond.
+  lights that do support brightness; dimming from Navigator was never affected
+- Fixed a BTHome or SwitchBot button doing nothing to a dimmer it was linked to,
+  where sending the press, click and release together meant the release stopped
+  the dim the click had just started; a button now reports a press followed by a
+  click, the same as a Control4 keypad, so linked dimmers, switches and other
+  loads all respond
 - Fixed a SwitchBot Bot running its action twice for a single press of a linked
-  keypad button, which turned a toggle back to where it started.
-- Fixed Bluetooth proxy recovery from a stalled scanner. It looked for a button
-  with "restart" in its name, so a proxy that names its button differently, or
-  exposes none at all, had no recovery, and where a button was found the whole
-  device was rebooted, dropping every Bluetooth connection it held. Recovery now
-  restarts the scanner itself on any proxy that reports its scanner state, and
-  leaves existing connections up.
+  keypad button, which turned a toggle back to where it started
+- Fixed Bluetooth proxy recovery from a stalled scanner looking for a button
+  with "restart" in its name, so a proxy that names its button differently or
+  exposes none at all had no recovery, and where a button was found the whole
+  device was rebooted, dropping every Bluetooth connection it held; recovery now
+  restarts the scanner itself on any proxy that reports its scanner state,
+  leaving those connections up
 
 ### Changed
 
 - Changed climate devices that report a single setpoint to show one setpoint
-  instead of a heat and cool pair. Most heat pumps and mini splits work this
-  way: they hold one target and decide internally whether to heat or cool toward
-  it, so the pair could never be honored. Auto is unaffected.
+  instead of a heat and cool pair, since most heat pumps and mini splits hold
+  one target and decide internally whether to heat or cool toward it, so the
+  pair could never be honored; Auto is unaffected
 - Changed the documentation to cover the `Connected` variable that every driver
-  publishes, so it can be used in Programming to show whether a device is
-  online.
+  publishes, so it can be used in Programming to show whether a device is online
 
 ## v20260816 - 2026-08-16
 
@@ -1004,7 +1001,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 - Added the konnected Smart Garage Door Opener to the verified devices, and
   generalized the ratgdo setup into a shared Garage Door Configuration guide
-  that covers both.
+  that covers both
 
 ### Fixed
 
@@ -1072,11 +1069,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   next state change
 - Fixed all entity states appearing frozen in Control4 (covers stuck on
   "Unknown", sensor variables never updating) on ESPHome 2026.7+ firmware, which
-  no longer sends the deprecated `object_id` field. The driver no longer reads
-  `object_id`, and log messages now identify entities as `type 'Name' (key=N)`.
-- Bumped the ESPHome native API version advertised in `HelloRequest` from 1.0 to
-  1.14 so devices no longer log `using outdated API 1.0, update to 1.14+` on
-  every connection
+  no longer sends the deprecated `object_id` field; the driver no longer reads
+  `object_id`, and log messages now identify entities as `type 'Name' (key=N)`
+- Fixed devices logging `using outdated API 1.0, update to 1.14+` on every
+  connection; the ESPHome native API version advertised in `HelloRequest` is now
+  1.14 rather than 1.0
 
 ## v20260711 - 2026-07-11
 
@@ -1084,22 +1081,22 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 - Fixed Bluetooth Coordinator connections to ESPHome proxies (and other
   dynamically created connections) disappearing after a controller reboot or
-  Director restart. Dynamic bindings are now restored early enough in driver
-  startup for Director to reconnect them.
-- Declare ESPHome light hardware capabilities (dimming, color, color
-  temperature) conservatively in the static baseline and enable them at runtime
-  from the entity's discovered color modes. A full static baseline advertised
-  brightness and color for an on/off-only ESPHome light to capability consumers
-  that read the static declaration instead of the runtime-narrowed set.
+  Director restart; dynamic bindings are now restored early enough in driver
+  startup for Director to reconnect them
+- Fixed an on/off-only ESPHome light advertising brightness and color to
+  capability consumers that read the static declaration instead of the
+  runtime-narrowed set; hardware capabilities (dimming, color, color
+  temperature) are now declared conservatively in the static baseline and
+  enabled at runtime from the entity's discovered color modes
 - Fixed BOOL variables (`<Entity> State` for binary_sensor and switch, plus all
   BTHome boolean sensors) staying as `False` in the Variables Agent even when
-  the underlying state was changing. Variables now serialize as `"0"`/`"1"`
-  matching what Control4 expects.
+  the underlying state was changing; variables now serialize as `"0"`/`"1"`
+  matching what Control4 expects
 - Fixed ESPHome fan `Designate Preset` command: the handler now reads the
   correct `PRESET` param (was `SPEED`), clamps to the driver's speed count,
   persists the value across driver restarts, notifies the proxy so Composer and
   Navigator reflect the designated preset, and applies the preset when the fan
-  is turned on so `Turn On Fan` runs at the designated speed.
+  is turned on so `Turn On Fan` runs at the designated speed
 
 ## v20260512 - 2026-05-12
 
@@ -1194,7 +1191,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 - Fixed compatibility with ESPHome 2025.10.0 for devices configured without
   passwords
-- Improved password authentication failure detection and error reporting
+- Fixed password authentication failures being poorly detected and reported
 
 ## v20251022 - 2025-10-22
 
