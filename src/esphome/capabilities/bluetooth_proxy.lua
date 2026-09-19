@@ -225,7 +225,7 @@ function BluetoothProxyCapability:_startScannerWatchdog()
   self._scannerWatchdogSeen = false
   self._scannerRecoveryAttempts = 0
   self._scannerNoRecoveryIntervals = 0
-  self._scannerUnrecoverable = false
+  self:_setScannerUnrecoverable(false)
 
   -- Start recurring timer that checks if advertisements were received
   SetTimer(SCANNER_WATCHDOG_TIMER_KEY, SCANNER_WATCHDOG_TIMEOUT_SECONDS * ONE_SECOND, function()
@@ -241,6 +241,7 @@ function BluetoothProxyCapability:_stopScannerWatchdog()
   end
 
   log:debug("Stopping scanner watchdog")
+  self:_setScannerUnrecoverable(false)
   self._scannerWatchdogActive = false
   self._scannerWatchdogSeen = false
   CancelTimer(SCANNER_WATCHDOG_TIMER_KEY)

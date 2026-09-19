@@ -385,4 +385,41 @@ do
   end
 end
 
+T.section("stopping the watchdog takes the marker down with it")
+do
+  local capability, client = capabilityWithWatchdog()
+
+  for _ = 1, RESTART_ATTEMPTS + 1 do
+    capability:_onScannerWatchdogFired()
+    ShimFireTimers()
+  end
+  T.truthy("marker raised to take back down", capability._scannerUnrecoverable)
+  T.eq("raised without further recovery", #client.calls, RESTART_ATTEMPTS * 2)
+
+  resetStatus()
+  capability:_stopScannerWatchdog()
+
+  T.falsy("marker cleared when the watchdog stops", capability._scannerUnrecoverable)
+  T.contains("the stop refreshed the property", lastStatus(), "Standalone Mode")
+  T.excludes("nothing left asking for a power cycle", lastStatus(), "Power Cycle")
+  T.falsy("watchdog stopped", capability._scannerWatchdogActive)
+end
+
+T.section("starting the watchdog takes the marker down with it")
+do
+  local capability = capabilityWithWatchdog()
+  capability._scannerWatchdogActive = false
+  capability._scannerUnrecoverable = true
+
+  resetStatus()
+  capability:_startScannerWatchdog()
+
+  T.falsy("marker cleared when the watchdog starts", capability._scannerUnrecoverable)
+  T.contains("the start refreshed the property", lastStatus(), "Standalone Mode")
+  T.excludes("nothing carried in from the last run", lastStatus(), "Power Cycle")
+
+  -- Timer keys are global; a watchdog left running here outlives the file.
+  capability:_stopScannerWatchdog()
+end
+
 T.finish()
