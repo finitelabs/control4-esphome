@@ -61,9 +61,7 @@ monitoring and control of ESPHome devices directly from your Control4 system.
   - [Bluetooth Proxy Configuration Guide](#bluetooth-proxy-configuration-guide)
   <!-- #ifdef DRIVERCENTRAL -->
 - [Developer Information](#developer-information)
-
-<!-- #endif -->
-
+  <!-- #endif -->
 - [Support](#support)
 - [Changelog](#changelog)
 
