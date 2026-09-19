@@ -129,9 +129,18 @@ jobs:
           args: --version
 
       - name: Install protoc
+        env:
+          # Pinned: the generator emits message options in the order protoc
+          # serialized them, so the version changes the output. Ubuntu's stock
+          # 3.21.12 reorders base_class and reads as drift.
+          PROTOC_VERSION: '29.3'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
+          curl -sSLo /tmp/protoc.zip \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          unzip -q /tmp/protoc.zip -d /tmp/protoc
+          sudo install -m 0755 /tmp/protoc/bin/protoc /usr/local/bin/protoc
+          protoc --version | grep -qx "libprotoc ${PROTOC_VERSION}" \
+            || { echo "::error::expected libprotoc ${PROTOC_VERSION}, got $(protoc --version)"; exit 1; }
 
       - name: Check the proto schema matches its generator
         run: make check-proto LUA_PROTOBUF=.lua-protobuf
