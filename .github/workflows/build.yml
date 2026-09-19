@@ -100,3 +100,50 @@ jobs:
           name: oss
           path: dist/oss/*
           if-no-files-found: error
+
+  proto-schema:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Checkout the schema generator
+        uses: actions/checkout@v6
+        with:
+          repository: finitelabs/lua-protobuf
+          ref: v0.6.9
+          path: .lua-protobuf
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          # The generator pins protobuf 4.x, whose _upb extension cannot import on 3.14.
+          python-version: '3.13'
+
+      - name: Setup stylua
+        uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --version
+
+      - name: Install protoc
+        env:
+          # The generator emits options in protoc's serialization order, and Ubuntu's stock 3.21.12 reorders them.
+          PROTOC_VERSION: '29.3'
+        run: |
+          curl -sSLo /tmp/protoc.zip \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          unzip -q /tmp/protoc.zip -d /tmp/protoc
+          sudo install -m 0755 /tmp/protoc/bin/protoc /usr/local/bin/protoc
+          # protoc resolves the well-known types relative to its own path, so
+          # include/ has to land beside bin/ under the same prefix.
+          sudo cp -R /tmp/protoc/include/. /usr/local/include/
+          protoc --version | grep -qx "libprotoc ${PROTOC_VERSION}" \
+            || { echo "::error::expected libprotoc ${PROTOC_VERSION}, got $(protoc --version)"; exit 1; }
+          [ -f /usr/local/include/google/protobuf/descriptor.proto ] \
+            || { echo "::error::protoc include tree missing descriptor.proto"; exit 1; }
+
+      - name: Check the proto schema matches its generator
+        run: make check-proto LUA_PROTOBUF=.lua-protobuf
