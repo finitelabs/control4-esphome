@@ -89,6 +89,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   sensor values are handled the same way.
 - Fixed a newly installed climate driver forwarding a bound temperature sensor's
   readings to the device before the thermostat had enabled the remote sensor.
+- Fixed Bluetooth proxy recovery from a stalled scanner. It looked for a button
+  with "restart" in its name, so a proxy that names its button differently, or
+  exposes none at all, had no recovery, and where a button was found the whole
+  device was rebooted, dropping every Bluetooth connection it held. Recovery now
+  restarts the scanner itself on any proxy that reports its scanner state, and
+  leaves existing connections up.
 
 ### Changed
 
