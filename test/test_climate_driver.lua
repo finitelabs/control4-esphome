@@ -480,7 +480,8 @@ end)
 test("SET_EVENTS is stored, not applied (the proxy keeps time)", function()
   -- The proxy keeps the schedule clock: it announces each event through SET_EVENT
   -- and is silent at a boundary that re-selects the preset in force. The list is
-  -- kept only to know a schedule exists, which decides whether holds are offered.
+  -- kept only to know a schedule exists, which decides whether the hold released
+  -- at the next boundary is offered.
   local REAL = '<events><event preset="Cool after work" weekday="5" hour="15" minute="5"/></events>'
 
   disconnect()
@@ -496,7 +497,11 @@ test("SET_EVENTS is stored, not applied (the proxy keeps time)", function()
 
   T.check("SET_EVENTS alone sends no device command", lastCommandBody() == nil)
   local modes = lastSent("ALLOWED_HOLD_MODES_CHANGED")
-  T.check("but a schedule existing is what offers the hold modes", modes ~= nil and modes.params.MODES ~= "")
+  T.eq(
+    "but a schedule existing is what adds the hold until the next event",
+    modes and modes.params.MODES,
+    "Off,Until Next,Permanent"
+  )
 end)
 
 test("REGRESSION: the proxy's next event applies its preset and clears the hold", function()
@@ -1524,7 +1529,7 @@ end
 
 test("Deleting the schedule releases even the hold the user raised", function()
   -- An "until next" hold cannot outlive the schedule: no next event ends it and
-  -- the hold modes are withdrawn, so nothing could release it.
+  -- it is no longer among the modes offered, so nothing could release it.
   heldUnderSchedule("Until Next")
 
   resetSent()
@@ -1566,9 +1571,9 @@ test("A hold with no schedule at all is refused rather than stranded", function(
     XML = '<events><event preset="Morning" weekday="1" hour="6" minute="0"/></events>',
   })
   local offered = lastSent("ALLOWED_HOLD_MODES_CHANGED")
-  T.check("hold modes return with the schedule", offered ~= nil)
+  T.check("the hold until the next event returns with the schedule", offered ~= nil)
   if offered ~= nil then
-    T.eq("still offering the wording it had", offered.params.MODES, "Off,Until Next")
+    T.eq("still offering the wording it had", offered.params.MODES, "Off,Until Next,Permanent")
   end
   clearHold()
 end)
@@ -1669,8 +1674,9 @@ test("A water heater is offered neither a preset schedule nor hold modes", funct
   T.eq("and no hold modes are offered at all", lastSent("ALLOWED_HOLD_MODES_CHANGED"), nil)
 end)
 
-test("Hold modes are published with the schedule and withdrawn without it", function()
-  -- hold_modes in driver.xml never reaches the proxy; it must be pushed.
+test("Permanent is offered with or without a schedule, Until Next only with one", function()
+  -- thermostatV2 filters HOLD_MODE_CHANGED against this runtime list rather than
+  -- against driver.xml, so a mode missing from it can be neither set nor shown.
   disconnect()
   setPresets({ { name = "Comfort", fields = { single_setpoint_c = "22" } } })
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = "<events></events>" })
@@ -1680,15 +1686,15 @@ test("Hold modes are published with the schedule and withdrawn without it", func
   local raised = lastSent("ALLOWED_HOLD_MODES_CHANGED")
   T.check("saving a schedule publishes the hold modes", raised ~= nil)
   if raised ~= nil then
-    T.eq("as Off plus the proxy's own hold wording", raised.params.MODES, "Off,Until Next")
+    T.eq("as Off, the proxy's own hold wording, then Permanent", raised.params.MODES, "Off,Until Next,Permanent")
   end
 
   resetSent()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = "<events></events>" })
-  local withdrawn = lastSent("ALLOWED_HOLD_MODES_CHANGED")
-  T.check("deleting the last event withdraws them", withdrawn ~= nil)
-  if withdrawn ~= nil then
-    T.eq("leaving nothing to hold until", withdrawn.params.MODES, "")
+  local shortened = lastSent("ALLOWED_HOLD_MODES_CHANGED")
+  T.check("deleting the last event republishes them", shortened ~= nil)
+  if shortened ~= nil then
+    T.eq("dropping the one nothing could release, keeping Permanent", shortened.params.MODES, "Off,Permanent")
   end
 end)
 
@@ -1698,6 +1704,14 @@ test("An unchanged schedule does not re-publish the hold modes", function()
   resetSent()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Comfort" } }) })
   T.eq("the same list is published once, not again", lastSent("ALLOWED_HOLD_MODES_CHANGED"), nil)
+
+  resetSent()
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = "<events></events>" })
+  local emptied = lastSent("ALLOWED_HOLD_MODES_CHANGED")
+  T.eq("clearing it publishes the shorter list once", emptied and emptied.params.MODES, "Off,Permanent")
+  resetSent()
+  RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = "<events></events>" })
+  T.eq("and the empty frame that follows every reconnect is suppressed", lastSent("ALLOWED_HOLD_MODES_CHANGED"), nil)
 end)
 
 --- Put a schedule, two presets and an attached device in place, with "Comfort"
@@ -1806,7 +1820,7 @@ test("Clearing the applied preset writes an empty marker rather than deleting th
 end)
 
 test("With no schedule, choosing a preset raises no hold", function()
-  -- Without a schedule the hold modes are withdrawn, so no hold may be reported.
+  -- Without a schedule there is no next event to hold until, so none may be reported.
   disconnect()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 })
   setPresets({ { name = "Solo", fields = { single_setpoint_c = "19" } } })
@@ -1932,7 +1946,7 @@ test("The proxy's own hold wording survives a reload", function()
   local offered = lastSent("ALLOWED_HOLD_MODES_CHANGED")
   T.check("the hold modes are published on the connection after the reload", offered ~= nil)
   if offered ~= nil then
-    T.eq("using the wording the proxy taught it", offered.params.MODES, "Off,Next Event")
+    T.eq("using the wording the proxy taught it", offered.params.MODES, "Off,Next Event,Permanent")
   end
 end)
 
@@ -2014,13 +2028,16 @@ test("An unreadable schedule frame leaves the stored schedule alone", function()
 
   local stored = Deserialize(C4:PersistGetValue("Schedule"))
   T.check("the stored schedule survives an unreadable frame", type(stored) == "table" and #stored == 1)
-  T.eq("and the hold modes are not withdrawn", lastSent("ALLOWED_HOLD_MODES_CHANGED"), nil)
+  T.eq("and the hold modes are not republished", lastSent("ALLOWED_HOLD_MODES_CHANGED"), nil)
 
   -- The real clear still works.
   resetSent()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = "<events></events>" })
-  local withdrawn = lastSent("ALLOWED_HOLD_MODES_CHANGED")
-  T.check("an empty document still clears the schedule", withdrawn ~= nil and withdrawn.params.MODES == "")
+  local republished = lastSent("ALLOWED_HOLD_MODES_CHANGED")
+  T.check(
+    "an empty document still clears the schedule",
+    republished ~= nil and republished.params.MODES == "Off,Permanent"
+  )
 end)
 
 test("A preset chosen while the device is down changes nothing and claims nothing", function()
@@ -2117,7 +2134,7 @@ test("A water heater ignores a schedule inherited from a climate entity", functi
   local marker = stored and Deserialize(stored)
   T.check("and does not record it as applied", not (type(marker) == "table" and marker.preset == "Morning"))
   -- A schedule edit that reaches it must not offer a hold control either. The
-  -- list goes empty and back so that, ungated, it would have to be re-sent.
+  -- list changes and changes back so that, ungated, it would have to be re-sent.
   resetSent()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = "<events></events>" })
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Morning" } }) })
@@ -2263,7 +2280,7 @@ test("Only a first-party wording is learned as the until-next hold", function()
   clearSchedule()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsOn() })
   local offered = lastSent("ALLOWED_HOLD_MODES_CHANGED")
-  T.eq("but it is not learned as the wording", offered and offered.params.MODES, "Off,Until Next")
+  T.eq("but it is not learned as the wording", offered and offered.params.MODES, "Off,Until Next,Permanent")
 end)
 
 test("Next Event is learned, because the proxy really does use it", function()
@@ -2274,7 +2291,7 @@ test("Next Event is learned, because the proxy really does use it", function()
   clearSchedule()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsOn() })
   local offered = lastSent("ALLOWED_HOLD_MODES_CHANGED")
-  T.eq("the allow-listed wording is adopted", offered and offered.params.MODES, "Off,Next Event")
+  T.eq("the allow-listed wording is adopted", offered and offered.params.MODES, "Off,Next Event,Permanent")
 end)
 
 test("A persisted hold wording outside the allow-list is ignored on restore", function()
@@ -2285,7 +2302,7 @@ test("A persisted hold wording outside the allow-list is ignored on restore", fu
   resetSent()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsOn() })
   local offered = lastSent("ALLOWED_HOLD_MODES_CHANGED")
-  T.eq("the stored junk does not come back", offered and offered.params.MODES, "Off,Until Next")
+  T.eq("the stored junk does not come back", offered and offered.params.MODES, "Off,Until Next,Permanent")
 
   C4:PersistSetValue("HoldWording", { mode = "Next Event" })
   package.loaded["lib.persist"] = nil
@@ -2294,7 +2311,7 @@ test("A persisted hold wording outside the allow-list is ignored on restore", fu
   resetSent()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsOn() })
   offered = lastSent("ALLOWED_HOLD_MODES_CHANGED")
-  T.eq("while an allow-listed one is restored", offered and offered.params.MODES, "Off,Next Event")
+  T.eq("while an allow-listed one is restored", offered and offered.params.MODES, "Off,Next Event,Permanent")
   C4:PersistSetValue("HoldWording", nil)
 end)
 

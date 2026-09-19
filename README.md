@@ -934,9 +934,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Added holds. Changing the thermostat by hand, or choosing a preset by hand,
   holds the new setting until the next scheduled event, which then releases it.
   Clearing a held preset before then returns to the preset the schedule has in
-  force. The hold options appear once a schedule exists and are withdrawn when
-  the last scheduled event is deleted, since there is then no next event to hold
-  until.
+  force. A Permanent hold can be chosen instead, and no scheduled event releases
+  it: it stays until it is cleared by hand or from Programming, and it is
+  offered whether or not a schedule exists. The hold that lasts until the next
+  event is offered only once a schedule exists, since without one there is no
+  next event to hold until.
 - Added vane control for climate devices that report swing modes, in the Extras
   tab.
 
