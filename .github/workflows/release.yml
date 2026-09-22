@@ -24,27 +24,19 @@ jobs:
               --workflow build.yml \
               --commit "$GITHUB_SHA" \
               --json databaseId,status,conclusion \
-              --jq '.[] | select(.status == "completed") | .databaseId' \
+              --jq '.[] | select(.status == "completed" and .conclusion == "success") | .databaseId' \
               | head -1)
             if [ -n "$run_id" ]; then
-              echo "Build run $run_id completed"
+              echo "Build run $run_id succeeded"
               break
             fi
             if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "::error::No completed Build run for $GITHUB_SHA after $WAIT_MINUTES minutes. Check that Build was triggered for this tag and is not queued behind another run."
+              echo "::error::No successful Build run for $GITHUB_SHA after $WAIT_MINUTES minutes. Check that Build was triggered for this tag, is not queued behind another run, and is not failing."
               exit 1
             fi
             echo "Build not finished yet, waiting 30s..."
             sleep 30
           done
-
-          conclusion=$(gh run view "$run_id" \
-            --repo "$GITHUB_REPOSITORY" \
-            --json conclusion --jq '.conclusion')
-          if [ "$conclusion" != "success" ]; then
-            echo "::error::Build run $run_id finished with: $conclusion"
-            exit 1
-          fi
 
           gh run download "$run_id" \
             --repo "$GITHUB_REPOSITORY" \
@@ -58,6 +50,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          # A suffixed tag (v20260918-rc1) publishes as a pre-release, which only
+          # drivers on the Prerelease update channel pick up. The updater orders by
+          # the date alone, so the final has to be dated after its pre-releases.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             dist/oss/c4z/*.c4z
             dist/oss/docs/*.pdf

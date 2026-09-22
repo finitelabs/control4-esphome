@@ -12,6 +12,9 @@ VENV_BLACK := $(VENV)/bin/black
 VENV_STAMP := $(VENV)/.requirements-installed
 PACKAGER   := dist/driverpackager/dp3/driverpackager.py
 
+STYLUA_ARGS := --indent-type Spaces --column-width 120 --line-endings Unix \
+  --indent-width 2 --quote-style AutoPreferDouble
+
 # OpenSSL detection (cross-platform)
 OPENSSL_PREFIX := $(or \
   $(shell pkg-config --variable=prefix openssl 2>/dev/null), \
@@ -92,10 +95,7 @@ fmt-lua:
 	@dirs=""; for d in ./drivers ./src ./test ./tools ./vendor; do \
 		[ -d "$$d" ] && dirs="$$dirs $$d"; \
 	done; \
-	[ -z "$$dirs" ] || stylua \
-		--indent-type Spaces --column-width 120 --line-endings Unix \
-		--indent-width 2 --quote-style AutoPreferDouble \
-		-g '*.lua' -v $$dirs
+	[ -z "$$dirs" ] || stylua $(STYLUA_ARGS) -g '*.lua' -v $$dirs
 
 fmt-py: $(VENV_STAMP)
 	$(VENV_BLACK) tools/*.py
@@ -116,10 +116,7 @@ check-lua:
 	@dirs=""; for d in ./drivers ./src ./test ./tools ./vendor; do \
 		[ -d "$$d" ] && dirs="$$dirs $$d"; \
 	done; \
-	[ -z "$$dirs" ] || stylua --check \
-		--indent-type Spaces --column-width 120 --line-endings Unix \
-		--indent-width 2 --quote-style AutoPreferDouble \
-		-g '*.lua' $$dirs
+	[ -z "$$dirs" ] || stylua --check $(STYLUA_ARGS) -g '*.lua' $$dirs
 
 check-py: $(VENV_STAMP)
 	$(VENV_BLACK) --check tools/*.py
