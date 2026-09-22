@@ -108,5 +108,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Resolve the vendored lua-protobuf release
+        id: runtime
+        run: |
+          file=vendor/protobuf.lua
+          n=$(grep -c '^local VERSION = ".*"$' "$file" || true)
+          if [ "$n" -ne 1 ]; then
+            echo "::error file=$file::expected exactly one VERSION assignment, found $n"
+            exit 1
+          fi
+          v=$(sed -n 's/^local VERSION = "\(.*\)"$/\1/p' "$file")
+          case "$v" in
+            v[0-9]*) ;;
+            *)
+              echo "::error file=$file::VERSION '$v' is not a lua-protobuf release tag"
+              exit 1
+              ;;
+          esac
+          echo "ref=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout lua-protobuf at that release
+        uses: actions/checkout@v6
+        with:
+          repository: finitelabs/lua-protobuf
+          ref: ${{ steps.runtime.outputs.ref }}
+          path: .lua-protobuf
+
       - name: Check the proto schema provenance
-        run: make check-proto
+        run: make check-proto LUA_PROTOBUF=.lua-protobuf
