@@ -18,9 +18,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
-<!-- #ifndef DRIVERCENTRAL -->
-
-## Unreleased
+## v20260922 - 2026-09-22
 
 ### Added
 
@@ -44,9 +42,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
-- Fixed an automatic update sometimes leaving companion drivers on the previous
-  version until the next update, which could make them stop responding in the
-  meantime
 - Fixed lights, thermostats, water heaters, fans and locks still showing as
   connected when they were not: after the driver's IP address, port or
   credentials were changed or cleared, and, for thermostats and water heaters,
@@ -92,6 +87,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   device was rebooted, dropping every Bluetooth connection it held; recovery now
   restarts the scanner itself on any proxy that reports its scanner state,
   leaving those connections up
+  <!-- #ifndef DRIVERCENTRAL -->
+- Fixed an automatic update sometimes leaving companion drivers on the previous
+  version until the next update, which could make them stop responding in the
+  meantime
+  <!-- #endif -->
 
 ### Changed
 
@@ -101,8 +101,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   cool toward it, so the pair could never be honored; Auto is unaffected
 - Changed the documentation to cover the `Connected` variable that every driver
   publishes, so it can be used in Programming to show whether a device is online
-
-<!-- #endif -->
 
 ## v20260816 - 2026-08-16
 

@@ -908,7 +908,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
-## Unreleased
+## v20260922 - 2026-09-22
 
 ### Added
 
@@ -932,9 +932,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
-- Fixed an automatic update sometimes leaving companion drivers on the previous
-  version until the next update, which could make them stop responding in the
-  meantime
 - Fixed lights, thermostats, water heaters, fans and locks still showing as
   connected when they were not: after the driver's IP address, port or
   credentials were changed or cleared, and, for thermostats and water heaters,
@@ -980,6 +977,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   device was rebooted, dropping every Bluetooth connection it held; recovery now
   restarts the scanner itself on any proxy that reports its scanner state,
   leaving those connections up
+- Fixed an automatic update sometimes leaving companion drivers on the previous
+  version until the next update, which could make them stop responding in the
+  meantime
 
 ### Changed
 
