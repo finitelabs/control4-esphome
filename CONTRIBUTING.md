@@ -18,7 +18,9 @@ then pull the change in with `copier update`.
 
 - `Makefile`: build, format, docs, package, and clean targets
 - `.github/workflows/build.yml`: CI build and packaging
-- `.github/workflows/release.yml`: tagged GitHub releases
+- `.github/workflows/release.yml`: tagged GitHub releases; a suffixed tag such
+  as `v20260918-rc1` publishes as a pre-release, which only drivers on the
+  Prerelease update channel pick up
 
 **Common libraries (`src/lib/`):**
 
