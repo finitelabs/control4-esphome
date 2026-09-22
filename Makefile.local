@@ -1,8 +1,6 @@
 # Kept out of Makefile so `copier update` cannot clobber these.
 
-# The upstream release the committed schema was generated from. A git tag's
-# content is immutable, so recording the version pins the protos themselves.
-# Bump it in the same commit as a regeneration.
+# ESPHome release the committed schema was generated from; bump only together with make gen-proto
 ESPHOME_VERSION ?= 2026.8.2
 LUA_PROTOBUF ?= ../lua-protobuf
 ESPHOME_API := https://raw.githubusercontent.com/esphome/esphome/$(ESPHOME_VERSION)/esphome/components/api
