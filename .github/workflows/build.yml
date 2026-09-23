@@ -12,6 +12,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # The updater compares a .c4z's version with its release tag, so a tag build
+      # stamps the tag's date (make's DRIVER_VERSION), not the runner's UTC date.
+      - name: Driver version from tag
+        run: |
+          if [ "$GITHUB_REF_TYPE" != tag ]; then
+            echo "Not a tag build; make stamps today's date."
+            exit 0
+          fi
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v([0-9]{4}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01]))(-.+)?$ ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME is not vYYYYMMDD or vYYYYMMDD-suffix, so it cannot give the driver version."
+            exit 1
+          fi
+          echo "DRIVER_VERSION=${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+          echo "Stamping driver version ${BASH_REMATCH[1]} from tag $GITHUB_REF_NAME."
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -72,6 +87,20 @@ jobs:
               exit 1
             fi
             echo "Found $pdf_count PDF(s) in dist/$build/docs"
+          done
+
+      - name: Verify the c4z carries the tag version
+        if: github.ref_type == 'tag'
+        run: |
+          for build in drivercentral oss; do
+            for c4z in "dist/$build/c4z"/*.c4z; do
+              got=$(python3 -c 'import re, sys, zipfile; m = re.search(r"<version>(.*?)</version>", zipfile.ZipFile(sys.argv[1]).read("driver.xml").decode(), re.S); print(m.group(1) if m else "")' "$c4z")
+              if [ "$got" != "$DRIVER_VERSION" ]; then
+                echo "::error::$c4z has driver version '$got', expected '$DRIVER_VERSION' from tag $GITHUB_REF_NAME"
+                exit 1
+              fi
+              echo "$c4z: $got"
+            done
           done
 
       - name: Check for dirty tree

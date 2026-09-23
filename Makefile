@@ -150,11 +150,15 @@ gen-squishy: ## Auto-generate squishy files from .c4zproj
 .PHONY: update-xml update-xml-version update-xml-modified
 update-xml: update-xml-version update-xml-modified ## Stamp version + modified in driver.xml
 
+# build.yml passes the tag's date on a tag build: the updater compares this with
+# the release tag, and the runner's own date is UTC.
+DRIVER_VERSION ?= $(shell date +'%Y%m%d')
+
 update-xml-version: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
 			$(VENV_PY) tools/package.py xml-set \
-				"$${driver_dir}driver.xml" version "$$(date +'%Y%m%d')"; \
+				"$${driver_dir}driver.xml" version "$(DRIVER_VERSION)"; \
 		done; \
 	done
 
