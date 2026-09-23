@@ -14,14 +14,18 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      # Only the Build run this tag push started stamps the tag's date as the .c4z
+      # version; a main-push run of the same commit stamps the day it ran.
       - name: Wait for build and download oss artifacts
         run: |
-          echo "Waiting for Build workflow to complete for $GITHUB_SHA..."
+          echo "Waiting for the Build run of tag $GITHUB_REF_NAME ($GITHUB_SHA)..."
           deadline=$(( $(date +%s) + WAIT_MINUTES * 60 ))
           while true; do
             run_id=$(gh run list \
               --repo "$GITHUB_REPOSITORY" \
               --workflow build.yml \
+              --event push \
+              --branch "$GITHUB_REF_NAME" \
               --commit "$GITHUB_SHA" \
               --json databaseId,status,conclusion \
               --jq '.[] | select(.status == "completed" and .conclusion == "success") | .databaseId' \
@@ -31,7 +35,7 @@ jobs:
               break
             fi
             if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "::error::No successful Build run for $GITHUB_SHA after $WAIT_MINUTES minutes. Check that Build was triggered for this tag, is not queued behind another run, and is not failing."
+              echo "::error::No successful Build run of tag $GITHUB_REF_NAME ($GITHUB_SHA) after $WAIT_MINUTES minutes. Check that pushing the tag triggered Build, that it is not queued behind another run, and that it is not failing."
               exit 1
             fi
             echo "Build not finished yet, waiting 30s..."

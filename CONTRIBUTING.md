@@ -18,8 +18,10 @@ then pull the change in with `copier update`.
 
 - `Makefile`: build, format, docs, package, and clean targets
 - `.github/workflows/build.yml`: CI build and packaging
-- `.github/workflows/release.yml`: tagged GitHub releases; a suffixed tag such
-  as `v20260918-rc1` publishes as a pre-release, which only drivers on the
+- `.github/workflows/release.yml`: tagged GitHub releases. The updater offers a
+  release only when its tag's date is later than the installed driver's version,
+  so give each release a later date than the last. A suffixed tag such as
+  `v20260918-rc1` publishes as a pre-release, which only drivers on the
   Prerelease update channel pick up
 
 **Common libraries (`src/lib/`):**
@@ -165,6 +167,10 @@ on a clean tree until something has populated `build/`.
 1. **Generate docs**: Markdown -> HTML -> PDF, plus README
 1. **Package**: run driverpackager to create .c4z files
 1. **Zip**: bundle the c4z, docs and source folders per distribution
+
+The driver.xml step stamps today's date as the version unless `DRIVER_VERSION`
+is set. On a tag build CI sets it to the tag's date, so the tag must be
+`vYYYYMMDD` or `vYYYYMMDD-suffix` or the build fails.
 
 Each distribution's outputs are grouped by type under `dist/<distribution>/`:
 `c4z/` (packaged drivers), `docs/` (generated PDFs) and `source/` (the squished
