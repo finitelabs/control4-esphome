@@ -27,7 +27,7 @@ local function declareEvent(entity, eventType)
   local name = entity.name .. ": " .. eventType
   local description = entity.name .. " " .. eventType .. " event"
   local event = events:getOrAddEvent(namespace, eventType, name, description)
-  if event ~= nil and (event.name ~= name or event.description ~= description) then
+  if event ~= nil and event.name ~= name then
     -- lib.events only adds; AddEvent on a known id updates that event (DriverWorks usage note).
     local all = events:getEvents()
     all[namespace][eventType].name = name
