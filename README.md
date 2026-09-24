@@ -944,6 +944,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   on ESPHome 2025.8 and newer while still reporting their state; switches,
   buttons, covers, selects, numbers, text, dates and times, and lights, fans,
   locks, thermostats and water heaters on a sub-device can now be controlled
+- Fixed the Programming events of an ESPHome event entity not being declared
+  again when the driver loads, and keeping their old name after the entity was
+  renamed on the device; they now load with the driver and follow the entity's
+  name under the same event
 
 ## v20260922 - 2026-09-22
 
