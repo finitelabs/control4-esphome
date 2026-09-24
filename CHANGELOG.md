@@ -29,12 +29,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   name, as Home Assistant shows it
 - Fixed entities that share an ESPHome key, such as a sensor and a text sensor
   with the same name, the unnamed entities of one device, or entities with the
-  same name on different sub-devices: only the one ESPHome listed last was set
-  up, and it took the state of all of them, so a variable could show another
-  entity's reading and a relay could switch off on a power reading of 0; each
-  now gets its own variables and connections, those already set up keep theirs,
-  and where several would share a name, all but one are renamed as the
-  Programming Reference describes
+  same name on the main device and a sub-device: only the one ESPHome listed
+  last was set up, and it took the state of all of them, so a variable could
+  show another entity's reading and a relay could switch off on a power reading
+  of 0; each now gets its own variables and connections. What was already set up
+  stays with the entity ESPHome lists last or, when that one is on a sub-device,
+  with the entity of its type on the main device, which its commands reached;
+  where several would share a name, all but one are renamed as the Programming
+  Reference describes
 - Fixed entities on an ESPHome sub-device ignoring every command from Control4
   on ESPHome 2025.8 and newer while still reporting their state; switches,
   buttons, covers, selects, numbers, text, dates and times, and lights, fans,

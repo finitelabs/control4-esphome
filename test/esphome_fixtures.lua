@@ -59,6 +59,13 @@ function C4:SendToProxy(idBinding, command, params)
   E.sent[#E.sent + 1] = { binding = idBinding, command = command, params = params }
 end
 
+--- Every event the driver fired, by id.
+--- @type integer[]
+E.fired = {}
+function C4:FireEventByID(idEvent)
+  E.fired[#E.fired + 1] = idEvent
+end
+
 --- @param hex string
 --- @return string bytes
 function E.unhex(hex)
@@ -162,7 +169,7 @@ function E.boot(keepEvents)
     ShimResetEvents()
   end
   inbound, written = {}, {}
-  E.sent = {}
+  E.sent, E.fired = {}, {}
 
   local ESPHomeClient = require("esphome.client")
   local new = ESPHomeClient.new

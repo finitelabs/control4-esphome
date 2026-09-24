@@ -3,9 +3,10 @@
 -- ESPHome makes a key unique only within one platform on one device: it is the
 -- hash of the entity's name, so a sensor and a text sensor both named "Status",
 -- every unnamed entity of a device, and "Temperature" on two sub-devices all
--- share one. Each must keep its own state, connections and variables, and when
--- two would get the same name in Control4, the one ESPHome lists last keeps it
--- (as it did when only that one was kept) and the others are told apart.
+-- share one. Each must keep its own state, connections and variables. When two
+-- would get the same name in Control4, the one ESPHome lists last keeps it, or
+-- its type's twin on the main device, which that one's commands reached, and the
+-- others are told apart.
 --
 -- Run from the driver root:
 --   make test
@@ -20,6 +21,20 @@ local K_OFFICE = 24076872 -- fnv1_hash_object_id("Office Plug")
 local K_TEMP = 899752953 -- fnv1_hash_object_id("Temperature")
 local KITCHEN = 870733615 -- fnv1a_32bit_hash("kitchen")
 local BEDROOM = 385580919 -- fnv1a_32bit_hash("bedroom")
+
+--- The commands the driver wrote since the last call, as { message, key, device_id }.
+local function commands()
+  local got = {}
+  for _, request in ipairs(E.written()) do
+    got[#got + 1] = { request.message, request.body.key, request.body.device_id }
+  end
+  return got
+end
+
+local function writeVariable(name, value)
+  Variables[name] = value
+  OnVariableChanged(name)
+end
 
 --- The VALUE of every VALUE_CHANGED sent to a binding.
 local function valuesSentTo(binding)
@@ -127,11 +142,11 @@ do
   E.boot()
   E.refresh(TEMPERATURES)
   T.eq("no handler failed", E.errors, {})
-  T.eq("bedroom, listed last, keeps the name", Variables["Temperature"], "18")
+  T.eq("the main device keeps the name", Variables["Temperature"], "20")
   T.eq("kitchen is told apart by its sub-device", Variables["Kitchen Temperature"], "21.5")
-  T.eq("main device is told apart by its device", Variables["Multisensor Temperature"], "20")
+  T.eq("bedroom is told apart by its sub-device", Variables["Bedroom Temperature"], "18")
   local main, kitchen, bedroom =
-    E.bindingNamed("Multisensor Temperature"), E.bindingNamed("Kitchen Temperature"), E.bindingNamed("Temperature")
+    E.bindingNamed("Temperature"), E.bindingNamed("Kitchen Temperature"), E.bindingNamed("Bedroom Temperature")
   T.eq("connection ids follow the listing", { main and main.id, kitchen and kitchen.id, bedroom and bedroom.id }, {
     10,
     11,
@@ -145,7 +160,7 @@ end
 T.section("An install from before: what it had stays where it was")
 do
   -- What the driver kept for TEMPERATURES when entities were stored by key
-  -- alone: only the bedroom sensor, listed last, with a thermostat connected.
+  -- alone: one connection for all three, with a thermostat connected.
   E.wipe()
   E.boot()
   require("lib.persist"):set("ConnectionBindings", {
@@ -165,14 +180,118 @@ do
   E.boot()
   C4:Bind(C4:GetDeviceID(), 10, 999, 1, "TEMPERATURE_VALUE")
   E.refresh(TEMPERATURES)
-  local bedroom = E.bindingNamed("Temperature")
-  T.eq("bedroom keeps its connection", bedroom and bedroom.id, 10)
+  local main = E.bindingNamed("Temperature")
+  T.eq("the main device keeps the connection", main and main.id, 10)
   T.eq("and what was connected to it", #ShimConnections(), 1)
-  T.eq("bedroom keeps its variable", Variables["Temperature"], "18")
+  T.eq("the main device keeps the variable", Variables["Temperature"], "20")
   T.eq("at the same place", require("lib.values"):getValue("Temperature").index, before)
-  T.eq("the connection carries only the bedroom", valuesSentTo(bedroom), { 18 })
-  local kitchen = E.bindingNamed("Kitchen Temperature")
+  T.eq("the connection carries only the main device", valuesSentTo(main), { 20 })
+  local kitchen, bedroom = E.bindingNamed("Kitchen Temperature"), E.bindingNamed("Bedroom Temperature")
   T.check("kitchen gets a new connection", kitchen ~= nil and kitchen.id ~= 10)
+  T.check("bedroom gets a new connection", bedroom ~= nil and bedroom.id ~= 10)
+end
+
+-- A relay, a button and a doorbell on the main device and on sub-device Kitchen.
+-- A command without device_id reaches the main device.
+local function shop(mainFirst)
+  local function twins(message, key, name, extra)
+    local main, kitchen = { key = key, name = name }, { key = key, name = name, device_id = KITCHEN }
+    for field, value in pairs(extra or {}) do
+      main[field], kitchen[field] = value, value
+    end
+    local first, second = main, kitchen
+    if not mainFirst then
+      first, second = kitchen, main
+    end
+    return { message = message, body = first }, { message = message, body = second }
+  end
+  local entities = {}
+  for _, pair in ipairs({
+    { twins("ListEntitiesSwitchResponse", 500, "Relay") },
+    { twins("ListEntitiesButtonResponse", 600, "Chime") },
+    { twins("ListEntitiesEventResponse", 990, "Doorbell", { event_types = { "press" } }) },
+  }) do
+    entities[#entities + 1] = pair[1]
+    entities[#entities + 1] = pair[2]
+  end
+  return {
+    info = { name = "shop", friendly_name = "Shop", devices = { { device_id = KITCHEN, name = "Kitchen" } } },
+    entities = entities,
+    states = {
+      { message = "SwitchStateResponse", body = { key = 500, state = true } },
+      { message = "SwitchStateResponse", body = { key = 500, device_id = KITCHEN, state = false } },
+    },
+  }
+end
+
+T.section("Twins with one on the main device: what was set up still reaches the main device")
+do
+  -- What the driver kept when entities were stored by key alone: the kitchen
+  -- twins' connections, event and variable, whose commands reached the main device.
+  E.wipe()
+  E.boot()
+  require("lib.persist"):set("ConnectionBindings", {
+    switch = {
+      switch_500 = {
+        key = "switch_500",
+        bindingId = 5012,
+        type = "PROXY",
+        provider = true,
+        displayName = "Relay",
+        class = "RELAY",
+      },
+    },
+    button = {
+      button_600 = {
+        key = "button_600",
+        bindingId = 10,
+        type = "CONTROL",
+        provider = true,
+        displayName = "Chime",
+        class = "BUTTON_LINK",
+      },
+    },
+  })
+  require("lib.persist"):set("Events", {
+    event_990 = { press = { eventId = 10, name = "Doorbell: press", description = "Doorbell press event" } },
+  })
+  require("lib.values"):update("Relay State", "0", "BOOL")
+  local before = require("lib.values"):getValue("Relay State").index
+  E.boot()
+  E.refresh(shop(true))
+  T.eq("no handler failed", E.errors, {})
+  E.written()
+
+  ReceivedFromProxy(5012, "ON", {})
+  T.eq("the relay connection", commands(), { { "SwitchCommandRequest", 500 } })
+  writeVariable("Relay State", "1")
+  T.eq("the relay variable", commands(), { { "SwitchCommandRequest", 500 } })
+  T.eq("at the same place", require("lib.values"):getValue("Relay State").index, before)
+  ReceivedFromProxy(10, "DO_CLICK", {})
+  T.eq("the button connection", commands(), { { "ButtonCommandRequest", 600 } })
+  EC.Press_Button({ Button = "Chime" })
+  T.eq("Press Button", commands(), { { "ButtonCommandRequest", 600 } })
+  E.send({ { message = "EventResponse", body = { key = 990, event_type = "press" } } })
+  T.eq("the doorbell event", E.fired, { 10 })
+
+  local relay = E.bindingNamed("Kitchen Relay")
+  T.check("the kitchen relay gets a new connection", relay ~= nil and relay.id ~= 5012)
+  ReceivedFromProxy(relay and relay.id or 0, "ON", {})
+  T.eq("which reaches the kitchen", commands(), { { "SwitchCommandRequest", 500, KITCHEN } })
+  E.fired = {}
+  E.send({ { message = "EventResponse", body = { key = 990, device_id = KITCHEN, event_type = "press" } } })
+  T.check("the kitchen doorbell fires its own event", #E.fired == 1 and E.fired[1] ~= 10)
+end
+
+T.section("Twins with one on the main device: on a new install it has the name")
+for _, mainFirst in ipairs({ true, false }) do
+  local label = mainFirst and "main device listed first" or "main device listed last"
+  E.wipe()
+  E.boot()
+  E.refresh(shop(mainFirst))
+  T.eq(label .. ": main relay", Variables["Relay State"], "1")
+  T.eq(label .. ": kitchen relay", Variables["Kitchen Relay State"], "0")
+  T.eq(label .. ": events", E.eventNames(), { "Doorbell: press", "Kitchen Doorbell: press" })
 end
 
 T.section("A name, once given, stays when entities come and go")
@@ -304,6 +423,26 @@ do
   T.eq("climate is told apart", climate and climate.class, "ESPHOME_CLIMATE")
   T.eq("climate state", climate and E.sentTo(climate.id), { "UPDATE_STATE" })
   T.eq("water heater state", heater and E.sentTo(heater.id), { "UPDATE_STATE" })
+end
+
+T.section("Only a twin of its own type on the main device takes the name from the one listed last")
+do
+  -- The sensor on the main device is not the text sensor's twin, so the text sensor keeps it.
+  E.wipe()
+  E.boot()
+  E.refresh({
+    info = TEMPERATURES.info,
+    entities = {
+      STATUS.entities[2],
+      { message = "ListEntitiesTextSensorResponse", body = { key = K_STATUS, name = "Status", device_id = KITCHEN } },
+    },
+    states = {
+      { message = "SensorStateResponse", body = { key = K_STATUS, state = 1 } },
+      { message = "TextSensorStateResponse", body = { key = K_STATUS, device_id = KITCHEN, state = "OK" } },
+    },
+  })
+  T.eq("kitchen text sensor, listed last", Variables["Status"], "OK")
+  T.eq("main-device sensor is told apart", Variables["Multisensor Status"], "1")
 end
 
 T.finish()

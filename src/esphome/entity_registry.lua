@@ -79,10 +79,8 @@ function EntityRegistry:new()
   return setmetatable({}, self)
 end
 
---- Give each listed entity its Control4 name (`name`) and key part (`ref`).
---- New entities are placed last-listed first: when entities were stored by key
---- alone the driver kept the one ESPHome listed last, so that one keeps its name
---- and connections.
+--- Give each listed entity its Control4 name (`name`) and key part (`ref`). The key-only store kept
+--- the entity listed last but commanded its type's main-device twin, so that twin, else it, goes first.
 --- @param list table[] ListEntities responses in the order the device sent them.
 --- @param client ESPHomeClient For device and sub-device names.
 --- @return table[] entities The listed entities, each once, in listing order.
@@ -103,6 +101,13 @@ function EntityRegistry:assign(list, client)
     end
     byId[id] = entity
     lastWithKey[tostring(entity.key)] = id
+  end
+  -- Per key, the entity that inherits what the key-only store set up.
+  --- @type table<string, string>
+  local heirOf = {}
+  for key, id in pairs(lastWithKey) do
+    local mainTwin = ESPHomeClient.entityId(byId[id].entity_type, 0, byId[id].key)
+    heirOf[key] = byId[mainTwin] ~= nil and mainTwin or id
   end
 
   local changed = false
@@ -152,10 +157,10 @@ function EntityRegistry:assign(list, client)
 
   --- @type string[]
   local pending = {}
-  for _, lastListed in ipairs({ true, false }) do
+  for _, heirs in ipairs({ true, false }) do
     for _, id in ipairs(order) do
-      local isLast = lastWithKey[tostring(byId[id].key)] == id
-      if isLast == lastListed and (assigned[id] == nil or assigned[id].name == nil) then
+      local isHeir = heirOf[tostring(byId[id].key)] == id
+      if isHeir == heirs and (assigned[id] == nil or assigned[id].name == nil) then
         pending[#pending + 1] = id
       end
     end
