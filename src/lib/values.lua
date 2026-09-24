@@ -18,6 +18,16 @@ Values.__index = Values
 --- @type string
 local VALUES_PERSIST_KEY = "Values"
 
+--- Reserved name prefix, followed by the record's index, under which a legacy
+--- placeholder keeps its id slot.
+--- @type string
+local LEGACY_PLACEHOLDER_PREFIX = "__deleted__"
+
+--- Whether restore adds a visible variable for this record.
+local function isVariable(record)
+  return record ~= nil and record.varType ~= nil and not record.deleted
+end
+
 local function ovcKey(name)
   -- Convert the name to a valid OVC variable name by replacing spaces with underscores
   return string.gsub(name, "%s+", "_")
@@ -37,6 +47,26 @@ end
 --- @field suffix string? Optional suffix for property display (e.g., " °C", " %")
 --- @field writable boolean? Whether the variable accepts writes from programming. Persisted so restore can recreate the C4 variable with the correct readOnly flag.
 --- @field deleted boolean? If true, the value slot is reserved but the variable is hidden (preserves ID ordering)
+
+--- Deleting a value with no variable used to leave a deleted record, which restore
+--- added as a hidden STRING variable. Each such slot moves to a name built from its
+--- index, which no other record has, so a later value of the old name cannot take it.
+--- @param values table<string, Value> The values table, changed in place.
+--- @return boolean moved True if any record moved.
+local function moveLegacyPlaceholders(values)
+  local legacy = {}
+  for name, value in pairs(values) do
+    if value.deleted and value.varType == nil then
+      table.insert(legacy, name)
+    end
+  end
+  for _, name in ipairs(legacy) do
+    values[name].varType = "STRING"
+    values[string.format("%s%d", LEGACY_PLACEHOLDER_PREFIX, values[name].index)] = values[name]
+    values[name] = nil
+  end
+  return #legacy > 0
+end
 
 --- Creates a new Values instance.
 --- @return Values values A new Values instance.
@@ -153,7 +183,9 @@ function Values:update(name, value, varType, callbackOrWritable, propertySuffix)
       suffix = propertySuffix,
       writable = writable,
     }
-    self:_saveValues(values)
+    -- A change to which variables exist is written now even under write-behind, so a
+    -- restart restores this set; a lost new variable would give its id to another.
+    self:_saveValues(values, isVariable(existing) ~= (varType ~= nil))
   end
 
   -- C4 BOOL variables expect "0"/"1", not "true"/"false".
@@ -196,28 +228,34 @@ function Values:update(name, value, varType, callbackOrWritable, propertySuffix)
   return changed
 end
 
---- Deletes a value. The value is marked as deleted to preserve its index slot
---- for variable ID ordering. On next restore, a hidden placeholder will be created.
---- Trailing deleted values are trimmed since they don't affect subsequent IDs.
+--- Deletes a value. A value with a variable is marked as deleted to preserve its
+--- index slot for variable ID ordering, and restore creates a hidden placeholder
+--- for it; a value without one is removed. Trailing deleted values are trimmed
+--- since they don't affect subsequent IDs.
 --- @param name string The name of the value to delete.
 --- @return void
 function Values:delete(name)
   log:trace("Values:delete(%s)", name)
   local values = self:getValues()
   if values[name] == nil then
-    log:warn("Value %s does not exist; ignoring delete", name)
+    log:debug("Value %s does not exist; ignoring delete", name)
     return
   end
 
   log:debug("Deleting value %s at index %d", name, values[name].index)
 
-  -- Mark as deleted to preserve the index slot for variable ID ordering
-  values[name].deleted = true
-  values[name].value = nil
+  local wasVariable = isVariable(values[name])
+  if values[name].varType == nil then
+    values[name] = nil -- restore adds no variable for it, so it holds no id slot
+  else
+    -- Mark as deleted to preserve the index slot for variable ID ordering
+    values[name].deleted = true
+    values[name].value = nil
+  end
 
   -- Trim trailing deleted values (they don't need placeholders)
   values = self:_trimDeletedTail(values)
-  self:_saveValues(values)
+  self:_saveValues(values, wasVariable)
 
   -- Remove the OVC handler and delete the variable
   OVC[ovcKey(name)] = nil
@@ -234,12 +272,33 @@ function Values:delete(name)
   end
 end
 
+--- Opts the values in to write-behind (see lib.persist): an update made inside
+--- `persist:defer()` reaches storage at most once per `ms`, unless it adds or
+--- removes a variable.
+--- @param ms number The flush interval in milliseconds.
+--- @return void
+function Values:setWriteBehind(ms)
+  log:trace("Values:setWriteBehind(%s)", ms)
+  persist:setWriteBehind(VALUES_PERSIST_KEY, ms)
+end
+
+--- Writes any update still waiting under write-behind to storage now.
+--- @return void
+function Values:flush()
+  log:trace("Values:flush()")
+  persist:flush(VALUES_PERSIST_KEY)
+end
+
 --- Retrieves all values from persistent storage.
 --- @return table<string, Value> values A table of all values mapped by their name.
 --- @diagnostic disable-next-line: unused
 function Values:getValues()
   log:trace("Values:getValues()")
-  return persist:get(VALUES_PERSIST_KEY, {}) or {}
+  local values = persist:get(VALUES_PERSIST_KEY, {}) or {}
+  if moveLegacyPlaceholders(values) then
+    self:_saveValues(values)
+  end
+  return values
 end
 
 --- Retrieves a value by name.
@@ -287,10 +346,14 @@ end
 --- Saves the values to persistent storage.
 --- @private
 --- @param values table<string, Value>? The values table to save, nil clears storage.
+--- @param durable boolean? Write to storage now even under write-behind.
 --- @diagnostic disable-next-line: unused
-function Values:_saveValues(values)
-  log:trace("Values:_saveValues(%s)", values)
+function Values:_saveValues(values, durable)
+  log:trace("Values:_saveValues(%s, %s)", values, durable)
   persist:set(VALUES_PERSIST_KEY, not IsEmpty(values) and values or nil)
+  if durable then
+    persist:flush(VALUES_PERSIST_KEY)
+  end
 end
 
 --- Retrieves the next available value ID. Always returns max(existing indices) + 1
