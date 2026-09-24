@@ -214,6 +214,74 @@ do
   T.eq("select still", Variables["Status (Select)"], "a")
   -- The gone text sensor's variable stays, as variables do, and nothing writes it.
   T.eq("nobody took the freed name", Variables["Status"], "FINE")
+
+  -- A newcomer takes the free name; the text sensor, back again, is a newcomer too.
+  local number = { message = "ListEntitiesNumberResponse", body = { key = K_STATUS, name = "Status" } }
+  E.refresh({ info = STATUS.info, entities = { STATUS.entities[2], number, grown.entities[4] }, states = {} })
+  E.refresh({
+    info = STATUS.info,
+    entities = { STATUS.entities[2], STATUS.entities[3], number, grown.entities[4] },
+    states = {
+      { message = "NumberStateResponse", body = { key = K_STATUS, state = 9 } },
+      { message = "TextSensorStateResponse", body = { key = K_STATUS, state = "BACK" } },
+    },
+  })
+  T.eq("the newcomer has the name", Variables["Status"], "9")
+  T.eq("the text sensor comes back told apart", Variables["Status (Text Sensor)"], "BACK")
+end
+
+T.section("Entities with different keys keep their own names")
+do
+  -- Both were set up before: they share the value "Door Open", but renaming
+  -- either would move a named entity's variable.
+  E.wipe()
+  E.boot()
+  E.refresh({
+    info = { name = "garage" },
+    entities = {
+      { message = "ListEntitiesCoverResponse", body = { key = 1, name = "Door" } },
+      { message = "ListEntitiesSensorResponse", body = { key = 2, name = "Door Open" } },
+    },
+    states = { { message = "SensorStateResponse", body = { key = 2, state = 5 } } },
+  })
+  T.eq("sensor keeps its name", Variables["Door Open"], "5")
+  T.truthy("cover keeps its name", E.bindingNamed("Open Door"))
+
+  -- A name the driver made up is kept, even from an entity really called that.
+  E.wipe()
+  E.boot()
+  E.refresh(TEMPERATURES)
+  E.refresh({
+    info = TEMPERATURES.info,
+    entities = {
+      TEMPERATURES.entities[1],
+      TEMPERATURES.entities[2],
+      TEMPERATURES.entities[3],
+      { message = "ListEntitiesSensorResponse", body = { key = 3, name = "Kitchen Temperature" } },
+    },
+    states = {
+      { message = "SensorStateResponse", body = { key = K_TEMP, state = 21.5, device_id = KITCHEN } },
+      { message = "SensorStateResponse", body = { key = 3, state = 30 } },
+    },
+  })
+  T.eq("made-up name kept", Variables["Kitchen Temperature"], "21.5")
+  T.eq("the real one is told apart", Variables["Multisensor Kitchen Temperature"], "30")
+end
+
+T.section("A made-up name never repeats a cover's Open or Closed value")
+do
+  E.wipe()
+  E.boot()
+  E.refresh({
+    info = { name = "garage", friendly_name = "Garage", devices = { { device_id = KITCHEN, name = "Kitchen" } } },
+    entities = {
+      { message = "ListEntitiesCoverResponse", body = { key = 1, name = "Kitchen" } },
+      { message = "ListEntitiesSensorResponse", body = { key = 2, name = "Open", device_id = KITCHEN } },
+      { message = "ListEntitiesSensorResponse", body = { key = 2, name = "Open" } },
+    },
+    states = { { message = "SensorStateResponse", body = { key = 2, state = 1, device_id = KITCHEN } } },
+  })
+  T.eq("kitchen sensor", Variables["Open (Sensor)"], "1")
 end
 
 T.section("A climate and a water heater on one key: each gets its own state")

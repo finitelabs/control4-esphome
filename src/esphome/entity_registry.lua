@@ -36,15 +36,14 @@ local BARE_NAME_TYPES = {
 --- @param name string
 --- @return string[] claims
 local function claimsOf(entityType, name)
-  name = name:lower()
   if BARE_NAME_TYPES[entityType] then
     return { "value:" .. name }
   elseif entityType == "binary_sensor" or entityType == "switch" then
-    return { "value:" .. name .. " state" }
+    return { "value:" .. name .. " State" }
   elseif entityType == "cover" then
-    return { "value:" .. name .. " state", "value:" .. name .. " open", "value:" .. name .. " closed" }
+    return { "value:" .. name .. " State", "value:" .. name .. " Open", "value:" .. name .. " Closed" }
   elseif entityType == "event" then
-    return { "value:" .. name .. " last event" }
+    return { "value:" .. name .. " Last Event" }
   elseif entityType == "water_heater" then
     -- Its connection has the climate class.
     return { "climate:" .. name }
@@ -115,20 +114,24 @@ function EntityRegistry:assign(list, client)
 
   --- @type table<string, EntityRecord>
   local assigned = {}
-  --- @type table<string, string> claim -> entity id
+  --- @type table<string, { id: string, own: boolean }>
   local claimed = {}
   --- @type table<string, boolean> type:ref
   local refs = {}
 
   local function claim(id, name)
     for _, c in ipairs(claimsOf(byId[id].entity_type, name)) do
-      claimed[c] = id
+      claimed[c] = { id = id, own = name == byId[id].name }
     end
   end
+  --- Who stands in the way of `entity` being called `name`. Its own name gives way
+  --- only to one sharing its key, which the driver used to merge with it: entities
+  --- with different keys were set up side by side before, so neither is renamed.
   local function holderOf(entity, name)
     for _, c in ipairs(claimsOf(entity.entity_type, name)) do
-      if claimed[c] ~= nil then
-        return byId[claimed[c]]
+      local holder = claimed[c] and byId[claimed[c].id]
+      if holder ~= nil and (name ~= entity.name or not claimed[c].own or holder.key == entity.key) then
+        return holder
       end
     end
   end
