@@ -223,6 +223,15 @@ do
   noHandlerFailed("sub-device")
   T.eq("sub-device switch", Variables["Kitchen State"], "1")
   T.eq("unknown sub-device", Variables["Office Plug"], "3")
+
+  E.wipe()
+  E.boot()
+  E.refresh({
+    info = { name = "office-plug", friendly_name = "Office Plug", devices = { { device_id = kitchen, name = "" } } },
+    entities = { { message = "ListEntitiesSwitchResponse", body = { key = 1111, device_id = kitchen } } },
+    states = { { message = "SwitchStateResponse", body = { key = 1111, device_id = kitchen, state = true } } },
+  })
+  T.eq("a sub-device with no name", Variables["Office Plug State"], "1")
 end
 
 T.section("An unnamed entity does not take the name of a named one")
@@ -294,6 +303,16 @@ do
   local client = require("esphome.client"):new()
   T.eq("water heater", client:getEntityName({ entity_type = "water_heater", key = 7 }), "Water Heater 7")
   T.eq("date", client:getEntityName({ entity_type = "datetime_date", key = 8 }), "Date 8")
+  T.eq("date and time", client:getEntityName({ entity_type = "datetime_datetime", key = 9 }), "Date Time 9")
+
+  E.wipe()
+  E.boot()
+  E.refresh({
+    info = {},
+    entities = { { message = "ListEntitiesBinarySensorResponse", body = { key = 3333 } } },
+    states = { { message = "BinarySensorStateResponse", body = { key = 3333, state = true } } },
+  })
+  T.eq("from a listing", Variables["Binary Sensor 3333 State"], "1")
 end
 
 T.section("A connection saved with no name is renamed in place")

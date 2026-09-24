@@ -74,6 +74,14 @@ function E.unhex(hex)
   end))
 end
 
+--- @param bytes string
+--- @return string hex
+function E.hex(bytes)
+  return (bytes:gsub(".", function(byte)
+    return string.format("%02x", byte:byte())
+  end))
+end
+
 --- A message as the device sends it: `payload` is raw wire bytes when a test
 --- needs ESPHome's exact encoding, else `body` is encoded here.
 --- @param message { message: string, body: table?, payload: string? }
@@ -102,8 +110,8 @@ function socket:Write(data)
   local size, pos = pb.decode_varint(data, 2)
   local id, start = pb.decode_varint(data, pos)
   local schema = schemaById(id)
-  local body = pb.decode(Schema, schema, data:sub(start, start + size - 1))
-  written[#written + 1] = { message = schema.name, body = body }
+  local payload = data:sub(start, start + size - 1)
+  written[#written + 1] = { message = schema.name, body = pb.decode(Schema, schema, payload), payload = payload }
 
   local replies = {}
   if schema.name == "DeviceInfoRequest" then
@@ -141,7 +149,7 @@ end
 
 --- Requests the driver has written since the last call, decoded.
 --- @param messageName? string Only requests of this message type.
---- @return { message: string, body: table }[]
+--- @return { message: string, body: table, payload: string }[]
 function E.written(messageName)
   local out = {}
   for _, request in ipairs(written) do
@@ -153,10 +161,11 @@ function E.written(messageName)
   return out
 end
 
---- Load the bridge as Director does after a restart: modules fresh, persisted
---- data kept, no variables, dynamic bindings or events left over, then
---- OnDriverInit and OnDriverLateInit.
---- @param keepEvents? boolean Leave Director's declared events in place.
+--- Load the bridge as after a Director restart: modules fresh, persisted data
+--- kept, no variables or dynamic bindings left over, then OnDriverInit and
+--- OnDriverLateInit. Whether Director keeps driver-added events is not known, so
+--- they are dropped unless `keepEvents`.
+--- @param keepEvents? boolean Leave the declared events in place.
 function E.boot(keepEvents)
   for name in pairs(package.loaded) do
     if name:match("^lib%.") or name:match("^esphome%.") or name == "constants" then
@@ -194,6 +203,11 @@ function E.boot(keepEvents)
   OnDriverLateInit()
 
   -- After LateInit: its Connect() finds no IP address and disconnects.
+  E.attach()
+end
+
+--- Hand the client the fake device's socket, as a connect would.
+function E.attach()
   E.client._client = socket
   E.client._connected = true
 end

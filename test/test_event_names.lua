@@ -60,6 +60,7 @@ T.eq("and they load under the new names", declared(), {
   [10] = "Front Door Bell: press",
   [11] = "Front Door Bell: double_press",
 })
+T.eq("and description", (ShimEvents()[10] or {}).description, "Front Door Bell press event")
 
 T.section("Where Director kept the events, the rename lands the same")
 E.boot(true)

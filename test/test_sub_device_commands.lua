@@ -148,4 +148,32 @@ do
   sent("light driver", { { "LightCommandRequest", 210 } })
 end
 
+T.section("On the wire, as api.proto encodes it")
+do
+  local RELAY = 3551080420 -- fnv1_hash_object_id("Relay")
+  E.wipe()
+  E.boot()
+  E.refresh({
+    info = { name = "multi", friendly_name = "Multi", devices = { { device_id = KITCHEN, name = "Kitchen" } } },
+    entities = {
+      entity("ListEntitiesSwitchResponse", RELAY, "Relay"),
+      entity("ListEntitiesSwitchResponse", RELAY, "Relay", KITCHEN),
+    },
+    states = {},
+  })
+  E.written()
+  local function payloads()
+    local got = {}
+    for _, request in ipairs(E.written()) do
+      got[#got + 1] = E.hex(request.payload)
+    end
+    return got
+  end
+  -- From protoc --encode=SwitchCommandRequest with ESPHome 2026.9.0's api.proto.
+  ReceivedFromProxy((E.bindingNamed("Kitchen Relay") or {}).id or 0, "ON", {})
+  T.eq("sub-device", payloads(), { "0de42fa9d3100118afae999f03" })
+  ReceivedFromProxy((E.bindingNamed("Relay") or {}).id or 0, "ON", {})
+  T.eq("main device", payloads(), { "0de42fa9d31001" })
+end
+
 T.finish()

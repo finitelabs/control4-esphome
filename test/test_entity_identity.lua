@@ -19,6 +19,8 @@ local E = require("esphome_fixtures")
 local K_STATUS = 939730931 -- fnv1_hash_object_id("Status")
 local K_OFFICE = 24076872 -- fnv1_hash_object_id("Office Plug")
 local K_TEMP = 899752953 -- fnv1_hash_object_id("Temperature")
+local K_BUTTON = 977454165 -- fnv1_hash_object_id("Button")
+local K_KITCHEN_TEMP = 4203696312 -- fnv1_hash_object_id("Kitchen Temperature")
 local KITCHEN = 870733615 -- fnv1a_32bit_hash("kitchen")
 local BEDROOM = 385580919 -- fnv1a_32bit_hash("bedroom")
 
@@ -103,7 +105,7 @@ do
 
   -- A float 0 is left off the wire; the relay used to take that for "off".
   E.sent = {}
-  E.send({ { message = "SensorStateResponse", body = { key = K_OFFICE, state = 0 } } })
+  E.send({ { message = "SensorStateResponse", payload = E.unhex("0d48626f01") } })
   T.eq("a power reading does not reach the relay", E.sentTo(relay.id), {})
   T.eq("switch state unchanged", Variables["Office Plug State"], "1")
 end
@@ -443,6 +445,154 @@ do
   })
   T.eq("kitchen text sensor, listed last", Variables["Status"], "OK")
   T.eq("main-device sensor is told apart", Variables["Multisensor Status"], "1")
+end
+
+T.section("Event twins on two sub-devices: each has its own events")
+do
+  E.wipe()
+  E.boot()
+  local function button(deviceId)
+    return {
+      message = "ListEntitiesEventResponse",
+      body = { key = K_BUTTON, name = "Button", device_id = deviceId, event_types = { "press" } },
+    }
+  end
+  E.refresh({
+    info = {
+      name = "remote",
+      devices = { { device_id = KITCHEN, name = "Kitchen" }, { device_id = BEDROOM, name = "Bedroom" } },
+    },
+    entities = { button(KITCHEN), button(BEDROOM) },
+    states = {},
+  })
+  T.eq("no handler failed", E.errors, {})
+  T.eq("events", E.eventNames(), { "Button: press", "Kitchen Button: press" })
+  local ids = {}
+  for id, event in pairs(ShimEvents()) do
+    ids[event.name] = id
+  end
+  E.send({ { message = "EventResponse", body = { key = K_BUTTON, device_id = KITCHEN, event_type = "press" } } })
+  T.eq("a kitchen press fires the kitchen event only", E.fired, { ids["Kitchen Button: press"] })
+  T.eq("kitchen last event", Variables["Kitchen Button Last Event"], "press")
+  T.eq("bedroom last event untouched", Variables["Button Last Event"], "")
+end
+
+T.section("A twin that arrives later does not take a key part in use")
+do
+  E.wipe()
+  E.boot()
+  local function temperature(deviceId)
+    return {
+      message = "ListEntitiesSensorResponse",
+      body = { key = K_TEMP, name = "Temperature", device_class = "temperature", device_id = deviceId },
+    }
+  end
+  E.refresh({ info = TEMPERATURES.info, entities = { temperature(KITCHEN) }, states = {} })
+  E.boot()
+  E.refresh({
+    info = TEMPERATURES.info,
+    entities = { temperature(KITCHEN), temperature(BEDROOM) },
+    states = {
+      { message = "SensorStateResponse", body = { key = K_TEMP, device_id = KITCHEN, state = 21 } },
+      { message = "SensorStateResponse", body = { key = K_TEMP, device_id = BEDROOM, state = 17 } },
+    },
+  })
+  local kitchen, bedroom = E.bindingNamed("Temperature"), E.bindingNamed("Bedroom Temperature")
+  T.check("two connections", kitchen ~= nil and bedroom ~= nil and kitchen.id ~= bedroom.id)
+  T.eq("kitchen keeps its name", Variables["Temperature"], "21")
+  T.eq("bedroom is told apart", Variables["Bedroom Temperature"], "17")
+end
+
+T.section("Reset Driver chooses the names again")
+do
+  E.wipe()
+  E.boot()
+  E.refresh(STATUS)
+  local grown = {
+    info = STATUS.info,
+    entities = {
+      STATUS.entities[2],
+      STATUS.entities[3],
+      { message = "ListEntitiesSelectResponse", body = { key = K_STATUS, name = "Status", options = { "a" } } },
+    },
+    states = {
+      { message = "TextSensorStateResponse", body = { key = K_STATUS, state = "T" } },
+      { message = "SelectStateResponse", body = { key = K_STATUS, state = "a" } },
+    },
+  }
+  E.refresh(grown)
+  T.eq("before, the text sensor keeps the name", Variables["Status"], "T")
+  EC.Reset_Driver({ ["Are You Sure?"] = "Yes" })
+  E.attach()
+  E.refresh(grown)
+  T.eq("after, the select, listed last, has it", Variables["Status"], "a")
+  T.eq("and the text sensor is told apart", Variables["Status (Text Sensor)"], "T")
+end
+
+T.section("A name that starts with its sub-device's name gets no second prefix")
+do
+  E.wipe()
+  E.boot()
+  E.refresh({
+    info = TEMPERATURES.info,
+    entities = {
+      { message = "ListEntitiesSensorResponse", body = { key = K_KITCHEN_TEMP, name = "Kitchen Temperature" } },
+      {
+        message = "ListEntitiesSensorResponse",
+        body = { key = K_KITCHEN_TEMP, name = "Kitchen Temperature", device_id = KITCHEN },
+      },
+    },
+    states = {
+      { message = "SensorStateResponse", body = { key = K_KITCHEN_TEMP, state = 2 } },
+      { message = "SensorStateResponse", body = { key = K_KITCHEN_TEMP, device_id = KITCHEN, state = 3 } },
+    },
+  })
+  T.eq("main device", Variables["Kitchen Temperature"], "2")
+  T.eq("kitchen is told apart by its type", Variables["Kitchen Temperature (Sensor)"], "3")
+end
+
+T.section("Text and date entities share a sensor's variable names")
+do
+  local cases = {
+    {
+      list = "ListEntitiesDateResponse",
+      state = { message = "DateStateResponse", body = { key = K_STATUS, year = 2026, month = 9, day = 24 } },
+      value = "2026-09-24",
+    },
+    {
+      list = "ListEntitiesTextResponse",
+      state = { message = "TextStateResponse", body = { key = K_STATUS, state = "hello" } },
+      value = "hello",
+    },
+  }
+  for _, case in ipairs(cases) do
+    E.wipe()
+    E.boot()
+    E.refresh({
+      info = STATUS.info,
+      entities = { STATUS.entities[2], { message = case.list, body = { key = K_STATUS, name = "Status" } } },
+      states = { { message = "SensorStateResponse", body = { key = K_STATUS, state = 7 } }, case.state },
+    })
+    T.eq(case.list .. ": listed last, keeps the name", Variables["Status"], case.value)
+    T.eq(case.list .. ": the sensor is told apart", Variables["Status (Sensor)"], "7")
+  end
+end
+
+T.section("When every other name is taken, a number")
+do
+  E.wipe()
+  E.boot()
+  E.refresh({
+    info = { name = "dev", friendly_name = "Dev" },
+    entities = {
+      { message = "ListEntitiesSensorResponse", body = { key = 1, name = "Status (Sensor)" } },
+      { message = "ListEntitiesSensorResponse", body = { key = 2, name = "Dev Status (Sensor)" } },
+      STATUS.entities[2],
+      STATUS.entities[3],
+    },
+    states = { { message = "SensorStateResponse", body = { key = K_STATUS, state = 5 } } },
+  })
+  T.eq("the sensor", Variables["Status (Sensor) 2"], "5")
 end
 
 T.finish()
