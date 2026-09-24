@@ -25,8 +25,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed an ESPHome entity with no name of its own, such as a smart plug's relay
   configured with `name: None`: on ESPHome 2026.3 and older it got no variables,
   events or Press Button and Set Select entries, and on 2026.4 and newer its
-  variables were missing the name, as in " State"; it now takes its device's
-  name, as Home Assistant shows it
+  variables were missing the name, as in " State"; it now takes the name of its
+  sub-device or device, as Home Assistant shows it, with its entity type after
+  it when an entity with a name of its own already has that name
 - Fixed entities that share an ESPHome key, such as a sensor and a text sensor
   with the same name, the unnamed entities of one device, or entities with the
   same name on the main device and a sub-device: only the one ESPHome listed

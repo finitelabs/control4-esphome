@@ -576,10 +576,13 @@ the matching read-only Device Info properties.
 > **Note:** `{name}` is replaced with the entity's display name from ESPHome
 > (e.g., a sensor named "Temperature" creates a variable called "Temperature").
 > An entity with no name of its own, such as a smart plug's relay configured
-> with `name: None`, takes the name of its device, as Home Assistant shows it:
-> the ESPHome sub-device it belongs to, otherwise the device's friendly name,
-> otherwise its node name. The unnamed relay of a plug called "Office Plug"
-> creates the variable "Office Plug State" and the connection "Office Plug".
+> with `name: None`, takes the name of the ESPHome sub-device it belongs to,
+> otherwise the device's friendly name, as Home Assistant shows it. A device
+> with no friendly name gives its node name as ESPHome reports it. The unnamed
+> relay of a plug called "Office Plug" creates the variable "Office Plug State"
+> and the connection "Office Plug". If an entity with a name of its own already
+> has that name, the unnamed one gets its entity type after it, as in "Office
+> Plug (Switch)".
 
 > **Note:** Two entities can have the same name, for example a sensor and a text
 > sensor both called "Status", or a "Temperature" sensor on the main device and

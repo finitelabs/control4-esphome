@@ -126,16 +126,18 @@ function EntityRegistry:assign(list, client)
 
   local function claim(id, name)
     for _, c in ipairs(claimsOf(byId[id].entity_type, name)) do
-      claimed[c] = { id = id, own = name == byId[id].name }
+      claimed[c] = { id = id, own = name == byId[id].name and not byId[id].unnamed }
     end
   end
-  --- Who stands in the way of `entity` being called `name`. Its own name gives way
-  --- only to one sharing its key, which the driver used to merge with it: entities
-  --- with different keys were set up side by side before, so neither is renamed.
+  --- Who stands in the way of `entity` being called `name`. A name of its own yields only to
+  --- a same-key entity: named entities with different keys were set up side by side before.
   local function holderOf(entity, name)
     for _, c in ipairs(claimsOf(entity.entity_type, name)) do
       local holder = claimed[c] and byId[claimed[c].id]
-      if holder ~= nil and (name ~= entity.name or not claimed[c].own or holder.key == entity.key) then
+      if
+        holder ~= nil
+        and (entity.unnamed or name ~= entity.name or not claimed[c].own or holder.key == entity.key)
+      then
         return holder
       end
     end
@@ -180,14 +182,19 @@ function EntityRegistry:assign(list, client)
     changed = true
   end
 
-  -- Own names first, so a name an entity really has beats a made-up one.
+  -- Own names first, then device names, so a name an entity really has beats a made-up one.
   local toldApart = {}
-  for _, id in ipairs(pending) do
-    if holderOf(byId[id], byId[id].name) == nil then
-      assigned[id].name = byId[id].name
-      claim(id, byId[id].name)
-    else
-      toldApart[#toldApart + 1] = id
+  for _, unnamed in ipairs({ false, true }) do
+    for _, id in ipairs(pending) do
+      local entity = byId[id]
+      if (entity.unnamed == true) == unnamed then
+        if holderOf(entity, entity.name) == nil then
+          assigned[id].name = entity.name
+          claim(id, entity.name)
+        else
+          toldApart[#toldApart + 1] = id
+        end
+      end
     end
   end
   for _, id in ipairs(toldApart) do

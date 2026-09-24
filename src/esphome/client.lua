@@ -698,6 +698,7 @@ function ESPHomeClient:listEntities()
           local handle = self:_registerCallback(self:_makeMessageCallbackKey(schema), function(message)
             log:trace("Received %s entity: %s", entityType, message)
             message.entity_type = entityType
+            message.unnamed = IsEmpty(message.name) or nil
             message.name = self:getEntityName(message)
             table.insert(entities, message)
           end)

@@ -225,6 +225,58 @@ do
   T.eq("unknown sub-device", Variables["Office Plug"], "3")
 end
 
+T.section("An unnamed entity does not take the name of a named one")
+do
+  -- ESPHome 2025.7.5's listing: before 2026.1 an unnamed sub-device entity's key
+  -- is the hash of the sub-device's YAML id (kitchen_dev), not of its name.
+  local SUB = 662577719
+  local NAMED, UNNAMED = 1586158131, 3641885443
+  local named = { message = "ListEntitiesSwitchResponse", body = { key = NAMED, name = "Kitchen" } }
+  local unnamed = { message = "ListEntitiesSwitchResponse", body = { key = UNNAMED, device_id = SUB } }
+  local function device(entities)
+    return {
+      info = { name = "rp-collide", friendly_name = "RP Collide", devices = { { device_id = SUB, name = "Kitchen" } } },
+      entities = entities,
+      states = {
+        { message = "SwitchStateResponse", body = { key = NAMED, state = true } },
+        { message = "SwitchStateResponse", body = { key = UNNAMED, device_id = SUB, state = false } },
+      },
+    }
+  end
+  local function commanded(variable)
+    E.written()
+    Variables[variable] = "1"
+    OnVariableChanged(variable)
+    local got = {}
+    for _, request in ipairs(E.written("SwitchCommandRequest")) do
+      got[#got + 1] = { request.body.key, request.body.device_id }
+    end
+    return got
+  end
+
+  for _, order in ipairs({ { "named first", { named, unnamed } }, { "unnamed first", { unnamed, named } } }) do
+    local label = order[1]
+    E.wipe()
+    E.boot()
+    E.refresh(device(order[2]))
+    noHandlerFailed(label)
+    T.eq(label .. ": the named switch keeps its variable", Variables["Kitchen State"], "1")
+    T.eq(label .. ": the unnamed switch is told apart", Variables["Kitchen (Switch) State"], "0")
+    T.eq(label .. ": named connection", (E.bindingNamed("Kitchen") or {}).class, "RELAY")
+    T.eq(label .. ": unnamed connection", (E.bindingNamed("Kitchen (Switch)") or {}).class, "RELAY")
+    T.eq(label .. ": the named switch's variable commands it", commanded("Kitchen State"), { { NAMED } })
+  end
+
+  -- An unnamed entity keeps a name it was given before a named one arrived.
+  E.wipe()
+  E.boot()
+  E.refresh(device({ unnamed }))
+  E.refresh(device({ named, unnamed }))
+  T.eq("the unnamed switch keeps its variable", Variables["Kitchen State"], "0")
+  T.eq("and what it commands", commanded("Kitchen State"), { { UNNAMED, SUB } })
+  T.eq("the newcomer is told apart", Variables["RP Collide Kitchen State"], "1")
+end
+
 T.section("Without a friendly name, the entity takes the node name")
 do
   E.wipe()
