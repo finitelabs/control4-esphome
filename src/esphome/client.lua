@@ -552,14 +552,62 @@ end
 --- The device's display name from the most recent device info response.
 --- @return string|nil name The friendly name, or nil if not yet known.
 function ESPHomeClient:getDeviceName()
-  -- Unset proto string fields decode as "" (truthy in Lua), so fall back with
-  -- IsEmpty rather than `or`.
+  -- A string field arrives as nil when left off the wire and "" when sent empty.
   local name = Select(self._deviceInfo, "friendly_name")
   if IsEmpty(name) then
     name = Select(self._deviceInfo, "name")
   end
   if IsEmpty(name) then
     return nil
+  end
+  return name
+end
+
+--- The name of a sub-device from the most recent device info response.
+--- @param deviceId integer|nil An entity's device_id; 0 or nil is the main device.
+--- @return string|nil name The sub-device's name, or nil for the main device or an unknown id.
+function ESPHomeClient:getSubDeviceName(deviceId)
+  if deviceId == nil or deviceId == 0 then
+    return nil
+  end
+  for _, device in ipairs(Select(self._deviceInfo, "devices") or {}) do
+    if device.device_id == deviceId and not IsEmpty(device.name) then
+      return device.name
+    end
+  end
+  return nil
+end
+
+--- Types whose label is not their name title-cased.
+--- @type table<string, string>
+local ENTITY_TYPE_LABELS = {
+  datetime_date = "Date",
+  datetime_time = "Time",
+  datetime_datetime = "Date Time",
+}
+
+--- A readable label for an entity type, such as "Binary Sensor".
+--- @param entityType string
+--- @return string label
+function ESPHomeClient.entityTypeLabel(entityType)
+  return ENTITY_TYPE_LABELS[entityType]
+    or (entityType:gsub("_", " "):gsub("(%a)(%w*)", function(first, rest)
+      return first:upper() .. rest
+    end))
+end
+
+--- The name to show an entity under. An entity with no name of its own takes its
+--- device's, as Home Assistant shows it: the sub-device's, else the device's.
+--- @param entity table<string, any> A ListEntities*Response message with its entity_type.
+--- @return string name
+function ESPHomeClient:getEntityName(entity)
+  -- ESPHome leaves an unnamed entity's name off the wire before 2026.4.0 and sends "" since.
+  local name = Select(entity, "name")
+  if IsEmpty(name) then
+    name = self:getSubDeviceName(Select(entity, "device_id")) or self:getDeviceName()
+  end
+  if IsEmpty(name) then
+    name = ESPHomeClient.entityTypeLabel(Select(entity, "entity_type") or "entity") .. " " .. tostring(entity.key)
   end
   return name
 end
@@ -615,6 +663,7 @@ function ESPHomeClient:listEntities()
           local handle = self:_registerCallback(self:_makeMessageCallbackKey(schema), function(message)
             log:trace("Received %s entity: %s", entityType, message)
             message.entity_type = entityType
+            message.name = self:getEntityName(message)
             entities[tostring(message.key)] = message
           end)
           table.insert(addedCallbackHandles, handle)

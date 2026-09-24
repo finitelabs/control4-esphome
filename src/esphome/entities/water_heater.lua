@@ -33,22 +33,13 @@ end
 function WaterHeaterEntity:discovered(entity)
   log:trace("WaterHeaterEntity:discovered(%s)", entity)
   entity.is_water_heater = true
-  local displayName = entity.name
-  if IsEmpty(displayName) then
-    -- An empty name marks the device's main entity; show it under the device
-    -- name, the way Home Assistant does.
-    displayName = self.client:getDeviceName()
-  end
-  if IsEmpty(displayName) then
-    displayName = "Water Heater " .. entity.key
-  end
   local bindingId = assert(
     bindings:getOrAddDynamicBinding(
       self.TYPE,
       "water_heater_" .. entity.key,
       "PROXY",
       true,
-      displayName,
+      entity.name,
       "ESPHOME_CLIMATE"
     )
   ).bindingId

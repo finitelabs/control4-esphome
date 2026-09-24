@@ -468,6 +468,11 @@ the matching read-only Device Info properties.
 
 > **Note:** `{name}` is replaced with the entity's display name from ESPHome
 > (e.g., a sensor named "Temperature" creates a variable called "Temperature").
+> An entity with no name of its own, such as a smart plug's relay configured
+> with `name: None`, takes the name of its device, as Home Assistant shows it:
+> the ESPHome sub-device it belongs to, otherwise the device's friendly name,
+> otherwise its node name. The unnamed relay of a plug called "Office Plug"
+> creates the variable "Office Plug State" and the connection "Office Plug".
 
 ### Bindings by Entity Type
 
@@ -907,6 +912,16 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ### Removed
 - Removed
 -->
+
+## Unreleased
+
+### Fixed
+
+- Fixed an ESPHome entity with no name of its own, such as a smart plug's relay
+  configured with `name: None`: on ESPHome 2026.3 and older it got no variables,
+  events or Press Button and Set Select entries, and on 2026.4 and newer its
+  variables were missing the name, as in " State"; it now takes its device's
+  name, as Home Assistant shows it
 
 ## v20260922 - 2026-09-22
 

@@ -18,6 +18,16 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed an ESPHome entity with no name of its own, such as a smart plug's relay
+  configured with `name: None`: on ESPHome 2026.3 and older it got no variables,
+  events or Press Button and Set Select entries, and on 2026.4 and newer its
+  variables were missing the name, as in " State"; it now takes its device's
+  name, as Home Assistant shows it
+
 ## v20260922 - 2026-09-22
 
 ### Added
