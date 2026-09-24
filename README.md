@@ -473,9 +473,9 @@ the matching read-only Device Info properties.
 > otherwise the device's friendly name, as Home Assistant shows it. A device
 > with no friendly name gives its node name as ESPHome reports it. The unnamed
 > relay of a plug called "Office Plug" creates the variable "Office Plug State"
-> and the connection "Office Plug". If an entity with a name of its own already
-> has that name, the unnamed one gets its entity type after it, as in "Office
-> Plug (Switch)".
+> and the connection "Office Plug". Where an entity with a name of its own has
+> that name too, the next note says which one keeps it; an unnamed entity that
+> gives way gets its entity type after the name, as in "Office Plug (Switch)".
 
 > **Note:** Two entities can have the same name, for example a sensor and a text
 > sensor both called "Status", or a "Temperature" sensor on the main device and
@@ -484,7 +484,7 @@ the matching read-only Device Info properties.
 > name, one of them keeps the name and each other one is renamed: with its
 > device's or sub-device's name in front when it is on another device ("Kitchen
 > Temperature"), otherwise with its entity type after it ("Status (Sensor)").
-> The entity ESPHome lists last keeps the name or, when that one is on a
+> Usually the entity ESPHome lists last keeps the name or, when that one is on a
 > sub-device, the entity of its type on the main device does. Connections of
 > different kinds, such as a light and a switch both called "Lamp", keep the
 > same name. An entity keeps the name it was given for as long as the device
@@ -939,7 +939,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   events or Press Button and Set Select entries, and on 2026.4 and newer its
   variables were missing the name, as in " State"; it now takes the name of its
   sub-device or device, as Home Assistant shows it, with its entity type after
-  it when an entity with a name of its own already has that name
+  it where another entity keeps that name
 - Fixed entities that share an ESPHome key, such as a sensor and a text sensor
   with the same name, the unnamed entities of one device, or entities with the
   same name on the main device and a sub-device: only the one ESPHome listed

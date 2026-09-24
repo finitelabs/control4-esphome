@@ -227,9 +227,10 @@ local function shop(mainFirst)
 end
 
 T.section("Twins with one on the main device: what was set up still reaches the main device")
-do
-  -- What the driver kept when entities were stored by key alone: the kitchen
-  -- twins' connections, event and variable, whose commands reached the main device.
+for _, mainFirst in ipairs({ true, false }) do
+  local label = mainFirst and "main device listed first" or "main device listed last"
+  -- What the driver kept when entities were stored by key alone: one connection,
+  -- event and variable per key, whose commands reached the main device.
   E.wipe()
   E.boot()
   require("lib.persist"):set("ConnectionBindings", {
@@ -260,29 +261,29 @@ do
   require("lib.values"):update("Relay State", "0", "BOOL")
   local before = require("lib.values"):getValue("Relay State").index
   E.boot()
-  E.refresh(shop(true))
-  T.eq("no handler failed", E.errors, {})
+  E.refresh(shop(mainFirst))
+  T.eq(label .. ": no handler failed", E.errors, {})
   E.written()
 
   ReceivedFromProxy(5012, "ON", {})
-  T.eq("the relay connection", commands(), { { "SwitchCommandRequest", 500 } })
+  T.eq(label .. ": the relay connection", commands(), { { "SwitchCommandRequest", 500 } })
   writeVariable("Relay State", "1")
-  T.eq("the relay variable", commands(), { { "SwitchCommandRequest", 500 } })
-  T.eq("at the same place", require("lib.values"):getValue("Relay State").index, before)
+  T.eq(label .. ": the relay variable", commands(), { { "SwitchCommandRequest", 500 } })
+  T.eq(label .. ": at the same place", require("lib.values"):getValue("Relay State").index, before)
   ReceivedFromProxy(10, "DO_CLICK", {})
-  T.eq("the button connection", commands(), { { "ButtonCommandRequest", 600 } })
+  T.eq(label .. ": the button connection", commands(), { { "ButtonCommandRequest", 600 } })
   EC.Press_Button({ Button = "Chime" })
-  T.eq("Press Button", commands(), { { "ButtonCommandRequest", 600 } })
+  T.eq(label .. ": Press Button", commands(), { { "ButtonCommandRequest", 600 } })
   E.send({ { message = "EventResponse", body = { key = 990, event_type = "press" } } })
-  T.eq("the doorbell event", E.fired, { 10 })
+  T.eq(label .. ": the doorbell event", E.fired, { 10 })
 
   local relay = E.bindingNamed("Kitchen Relay")
-  T.check("the kitchen relay gets a new connection", relay ~= nil and relay.id ~= 5012)
+  T.check(label .. ": the kitchen relay gets a new connection", relay ~= nil and relay.id ~= 5012)
   ReceivedFromProxy(relay and relay.id or 0, "ON", {})
-  T.eq("which reaches the kitchen", commands(), { { "SwitchCommandRequest", 500, KITCHEN } })
+  T.eq(label .. ": which reaches the kitchen", commands(), { { "SwitchCommandRequest", 500, KITCHEN } })
   E.fired = {}
   E.send({ { message = "EventResponse", body = { key = 990, device_id = KITCHEN, event_type = "press" } } })
-  T.check("the kitchen doorbell fires its own event", #E.fired == 1 and E.fired[1] ~= 10)
+  T.check(label .. ": the kitchen doorbell fires its own event", #E.fired == 1 and E.fired[1] ~= 10)
 end
 
 T.section("Twins with one on the main device: on a new install it has the name")

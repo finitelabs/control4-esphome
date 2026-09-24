@@ -27,7 +27,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   events or Press Button and Set Select entries, and on 2026.4 and newer its
   variables were missing the name, as in " State"; it now takes the name of its
   sub-device or device, as Home Assistant shows it, with its entity type after
-  it when an entity with a name of its own already has that name
+  it where another entity keeps that name
 - Fixed entities that share an ESPHome key, such as a sensor and a text sensor
   with the same name, the unnamed entities of one device, or entities with the
   same name on the main device and a sub-device: only the one ESPHome listed

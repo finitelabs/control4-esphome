@@ -21,6 +21,18 @@ local INFO = { name = "office-plug", friendly_name = "Office Plug" }
 local UPTIME = { message = "ListEntitiesSensorResponse", body = { key = 1718212937, name = "Uptime" } }
 local UPTIME_STATE = { message = "SensorStateResponse", body = { key = 1718212937, state = 42 } }
 
+--- Set a variable as programming would, and return the switch commands it sent as { key, device_id }.
+local function commanded(variable)
+  E.written()
+  Variables[variable] = "1"
+  OnVariableChanged(variable)
+  local got = {}
+  for _, request in ipairs(E.written("SwitchCommandRequest")) do
+    got[#got + 1] = { request.body.key, request.body.device_id }
+  end
+  return got
+end
+
 local function noHandlerFailed(label)
   T.eq(label .. ": no handler failed", E.errors, {})
 end
@@ -252,17 +264,6 @@ do
       },
     }
   end
-  local function commanded(variable)
-    E.written()
-    Variables[variable] = "1"
-    OnVariableChanged(variable)
-    local got = {}
-    for _, request in ipairs(E.written("SwitchCommandRequest")) do
-      got[#got + 1] = { request.body.key, request.body.device_id }
-    end
-    return got
-  end
-
   for _, order in ipairs({ { "named first", { named, unnamed } }, { "unnamed first", { unnamed, named } } }) do
     local label = order[1]
     E.wipe()
@@ -284,6 +285,31 @@ do
   T.eq("the unnamed switch keeps its variable", Variables["Kitchen State"], "0")
   T.eq("and what it commands", commanded("Kitchen State"), { { UNNAMED, SUB } })
   T.eq("the newcomer is told apart", Variables["RP Collide Kitchen State"], "1")
+end
+
+T.section("An unnamed entity keeps the name over its named twin on a sub-device")
+do
+  -- Named like the main device, the sub-device switch shares the unnamed one's key, and
+  -- the key-only store's "Shop State" commanded the main device's switch.
+  local GARAGE, SHOP = 12345, 251412225 -- fnv1_hash_object_id("Shop")
+  local unnamed = { message = "ListEntitiesSwitchResponse", body = { key = SHOP } }
+  local named = { message = "ListEntitiesSwitchResponse", body = { key = SHOP, name = "Shop", device_id = GARAGE } }
+  for _, order in ipairs({ { "named listed last", { unnamed, named } }, { "named listed first", { named, unnamed } } }) do
+    local label = order[1]
+    E.wipe()
+    E.boot()
+    E.refresh({
+      info = { name = "shop", friendly_name = "Shop", devices = { { device_id = GARAGE, name = "Garage" } } },
+      entities = order[2],
+      states = {
+        { message = "SwitchStateResponse", body = { key = SHOP, state = true } },
+        { message = "SwitchStateResponse", body = { key = SHOP, device_id = GARAGE, state = false } },
+      },
+    })
+    T.eq(label .. ": the main-device switch", Variables["Shop State"], "1")
+    T.eq(label .. ": the garage switch is told apart", Variables["Garage Shop State"], "0")
+    T.eq(label .. ": its variable commands the main device", commanded("Shop State"), { { SHOP } })
+  end
 end
 
 T.section("Without a friendly name, the entity takes the node name")

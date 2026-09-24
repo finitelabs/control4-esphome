@@ -107,6 +107,9 @@ function EntityRegistry:assign(list, client)
     local mainTwin = ESPHomeClient.entityId(byId[id].entity_type, 0, byId[id].key)
     heirOf[key] = byId[mainTwin] ~= nil and mainTwin or id
   end
+  local function isHeir(id)
+    return heirOf[tostring(byId[id].key)] == id
+  end
 
   local changed = false
   for id in pairs(records) do
@@ -159,8 +162,7 @@ function EntityRegistry:assign(list, client)
   local pending = {}
   for _, heirs in ipairs({ true, false }) do
     for _, id in ipairs(order) do
-      local isHeir = heirOf[tostring(byId[id].key)] == id
-      if isHeir == heirs and (assigned[id] == nil or assigned[id].name == nil) then
+      if isHeir(id) == heirs and (assigned[id] == nil or assigned[id].name == nil) then
         pending[#pending + 1] = id
       end
     end
@@ -180,12 +182,13 @@ function EntityRegistry:assign(list, client)
     changed = true
   end
 
-  -- Own names first, then device names, so a name an entity really has beats a made-up one.
+  -- Heirs first, then the rest, each with own names before device names, so a name
+  -- an entity really has beats a made-up one and an heir keeps what it inherits.
   local toldApart = {}
-  for _, unnamed in ipairs({ false, true }) do
+  for _, pass in ipairs({ { true, false }, { true, true }, { false, false }, { false, true } }) do
     for _, id in ipairs(pending) do
       local entity = byId[id]
-      if (entity.unnamed == true) == unnamed then
+      if isHeir(id) == pass[1] and (entity.unnamed == true) == pass[2] then
         if holderOf(entity, entity.name) == nil then
           assigned[id].name = entity.name
           claim(id, entity.name)
