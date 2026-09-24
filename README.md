@@ -955,9 +955,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   buttons, covers, selects, numbers, text, dates and times, and lights, fans,
   locks, thermostats and water heaters on a sub-device can now be controlled
 - Fixed the Programming events of an ESPHome event entity not being declared
-  again when the driver loads, and keeping their old name after the entity was
-  renamed on the device; they now load with the driver and follow the entity's
-  name under the same event
+  again when the driver loads, and keeping their old name after a rename on the
+  device that keeps the entity's ESPHome key, such as a change of capitals or of
+  spaces for underscores; they now load with the driver and follow such a rename
+  under the same event
 
 ## v20260922 - 2026-09-22
 
