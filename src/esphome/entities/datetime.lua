@@ -56,10 +56,10 @@ function DateTimeEntity:updated(entity, state)
       sec = tonumber(second),
     })
     self.client
-      :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.datetime_command, {
-        key = entity.key,
-        epoch_seconds = epoch,
-      })
+      :callServiceMethod(
+        ESPHomeProtoSchema.RPC.APIConnection.datetime_command,
+        ESPHomeClient.commandBody(entity, { epoch_seconds = epoch })
+      )
       :next(function()
         log:info("Datetime updated to %s for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)

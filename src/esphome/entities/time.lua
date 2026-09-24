@@ -42,12 +42,13 @@ function TimeEntity:updated(entity, state)
       return
     end
     self.client
-      :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.time_command, {
-        key = entity.key,
-        hour = tonumber(hour),
-        minute = tonumber(minute),
-        second = tonumber(second),
-      })
+      :callServiceMethod(
+        ESPHomeProtoSchema.RPC.APIConnection.time_command,
+        ESPHomeClient.commandBody(
+          entity,
+          { hour = tonumber(hour), minute = tonumber(minute), second = tonumber(second) }
+        )
+      )
       :next(function()
         log:info("Time updated to %s for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)

@@ -135,15 +135,17 @@ function CoverEntity:discovered(entity)
     -- We only trigger when the relays are turned on
     if strCommand == "ON" or strCommand == "CLOSE" or strCommand == "TOGGLE" or strCommand == "TRIGGER" then
       self.client
-        :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.cover_command, {
-          key = entity.key,
-          has_legacy_command = legacyCommand ~= nil,
-          legacy_command = legacyCommand,
-          has_position = positionCommand ~= nil,
-          position = positionCommand,
-          has_tilt = false,
-          stop = stopCommand,
-        })
+        :callServiceMethod(
+          ESPHomeProtoSchema.RPC.APIConnection.cover_command,
+          ESPHomeClient.commandBody(entity, {
+            has_legacy_command = legacyCommand ~= nil,
+            legacy_command = legacyCommand,
+            has_position = positionCommand ~= nil,
+            position = positionCommand,
+            has_tilt = false,
+            stop = stopCommand,
+          })
+        )
         :next(function()
           log:debug("Command %s sent to %s", coverCommand, ESPHomeClient.describeEntity(entity))
         end, function(error)

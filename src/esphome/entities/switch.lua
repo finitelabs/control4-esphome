@@ -52,10 +52,10 @@ function SwitchEntity:discovered(entity)
     end
 
     response = self.client
-      :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
-        key = entity.key,
-        state = state,
-      })
+      :callServiceMethod(
+        ESPHomeProtoSchema.RPC.APIConnection.switch_command,
+        ESPHomeClient.commandBody(entity, { state = state })
+      )
       :next(function()
         log:debug("Command %s sent to %s", state and "on" or "off", ESPHomeClient.describeEntity(entity))
       end, function(error)
@@ -70,10 +70,10 @@ function SwitchEntity:discovered(entity)
       SetTimer("FinishPulse", pulseTime, function()
         log:debug("Turning off %s after pulse time of %dms", ESPHomeClient.describeEntity(entity), pulseTime)
         self.client
-          :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
-            key = entity.key,
-            state = false,
-          })
+          :callServiceMethod(
+            ESPHomeProtoSchema.RPC.APIConnection.switch_command,
+            ESPHomeClient.commandBody(entity, { state = false })
+          )
           :next(function()
             log:debug("Command off sent to %s", ESPHomeClient.describeEntity(entity))
           end, function(error)
@@ -97,10 +97,10 @@ function SwitchEntity:updated(entity, state)
     -- Convert the Control4 value (0/1 string) to a boolean for ESPHome
     local boolValue = toboolean(newValue)
     self.client
-      :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
-        key = entity.key,
-        state = boolValue,
-      })
+      :callServiceMethod(
+        ESPHomeProtoSchema.RPC.APIConnection.switch_command,
+        ESPHomeClient.commandBody(entity, { state = boolValue })
+      )
       :next(function()
         log:info("Commanded %s to %s", ESPHomeClient.describeEntity(entity), boolValue and "on" or "off")
       end, function(error)

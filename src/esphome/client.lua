@@ -170,6 +170,24 @@ function ESPHomeClient.entityRef(entity)
   return entity.ref or tostring(entity.key)
 end
 
+--- The body of a command to an entity, addressed by its key and, on a sub-device,
+--- its device_id: ESPHome 2025.8+ drops a command whose device_id matches no entity.
+--- A main-device command stays without one, as the encoder would send an explicit 0.
+--- @param entity table<string, any>
+--- @param body? table<string, any> The command's other fields, and a key if it targets another entity.
+--- @return table<string, any> body
+function ESPHomeClient.commandBody(entity, body)
+  body = body or {}
+  if body.key == nil then
+    body.key = entity.key
+  end
+  local deviceId = Select(entity, "device_id")
+  if body.key == entity.key and body.device_id == nil and deviceId ~= nil and deviceId ~= 0 then
+    body.device_id = deviceId
+  end
+  return body
+end
+
 --- Human-readable entity identity for log messages: `type 'Name' (key=N)`.
 --- Names are display strings (spaces, capitalization, possible duplicates), so
 --- the key is included to keep log lines unambiguous.
@@ -636,14 +654,6 @@ function ESPHomeClient:getEntityName(entity)
     name = ESPHomeClient.entityTypeLabel(Select(entity, "entity_type") or "entity") .. " " .. tostring(entity.key)
   end
   return name
-end
-
---- Press a button entity by its key.
---- @param key number The button entity key
---- @return Deferred<nil, string> result A promise that resolves when the button is pressed.
-function ESPHomeClient:pressButton(key)
-  log:trace("ESPHomeClient:pressButton(%s)", key)
-  return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.button_command, { key = key })
 end
 
 --- List entities from the ESPHome device.

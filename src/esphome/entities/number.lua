@@ -33,10 +33,10 @@ function NumberEntity:updated(entity, state)
     -- Convert the Control4 value (string or number) to a number for ESPHome
     local numValue = tonumber(newValue) or 0
     self.client
-      :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.number_command, {
-        key = entity.key,
-        state = numValue,
-      })
+      :callServiceMethod(
+        ESPHomeProtoSchema.RPC.APIConnection.number_command,
+        ESPHomeClient.commandBody(entity, { state = numValue })
+      )
       :next(function()
         log:info("Number value updated to %s for %s", numValue, ESPHomeClient.describeEntity(entity))
       end, function(error)

@@ -60,8 +60,7 @@ function WaterHeaterEntity:discovered(entity)
     elseif strCommand == "ENTITY_COMMAND" then
       local command = ESPHomeProtoSchema.RPC.APIConnection[Select(tParams, "command")]
         or ESPHomeProtoSchema.RPC.APIConnection.water_heater_command
-      local body = DeserializeSafe(Select(tParams, "body")) or {}
-      body.key = body.key or entity.key
+      local body = ESPHomeClient.commandBody(entity, DeserializeSafe(Select(tParams, "body")))
       self.client:callServiceMethod(command, body):next(function()
         log:debug(
           "Method %s.%s(%s) called by entity %s",

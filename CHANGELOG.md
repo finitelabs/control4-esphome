@@ -35,6 +35,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   now gets its own variables and connections, those already set up keep theirs,
   and where several would share a name, all but one are renamed as the
   Programming Reference describes
+- Fixed entities on an ESPHome sub-device ignoring every command from Control4
+  on ESPHome 2025.8 and newer while still reporting their state; switches,
+  buttons, covers, selects, numbers, text, dates and times, and lights, fans,
+  locks, thermostats and water heaters on a sub-device can now be controlled
 
 ## v20260922 - 2026-09-22
 

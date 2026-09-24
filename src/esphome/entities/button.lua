@@ -41,14 +41,17 @@ function ButtonEntity:discovered(entity)
 
   -- Register button for programming commands
   buttonRegistry[entity.name] = function()
-    return self.client:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.button_command, { key = entity.key })
+    return self.client:callServiceMethod(
+      ESPHomeProtoSchema.RPC.APIConnection.button_command,
+      ESPHomeClient.commandBody(entity)
+    )
   end
 
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
     if strCommand == "DO_CLICK" then
       self.client
-        :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.button_command, { key = entity.key })
+        :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.button_command, ESPHomeClient.commandBody(entity))
         :next(function()
           log:debug("Command press sent to %s", ESPHomeClient.describeEntity(entity))
         end, function(error)
