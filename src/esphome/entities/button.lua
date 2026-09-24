@@ -29,7 +29,14 @@ end
 function ButtonEntity:discovered(entity)
   log:trace("ButtonEntity:discovered(%s)", entity)
   local bindingId = assert(
-    bindings:getOrAddDynamicBinding(self.TYPE, "button_" .. entity.key, "CONTROL", true, entity.name, "BUTTON_LINK")
+    bindings:getOrAddDynamicBinding(
+      self.TYPE,
+      "button_" .. ESPHomeClient.entityRef(entity),
+      "CONTROL",
+      true,
+      entity.name,
+      "BUTTON_LINK"
+    )
   ).bindingId
 
   -- Register button for programming commands

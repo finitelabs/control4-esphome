@@ -27,6 +27,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   events or Press Button and Set Select entries, and on 2026.4 and newer its
   variables were missing the name, as in " State"; it now takes its device's
   name, as Home Assistant shows it
+- Fixed entities that share an ESPHome key, such as a sensor and a text sensor
+  with the same name, the unnamed entities of one device, or entities with the
+  same name on different sub-devices: only the one ESPHome listed last was set
+  up, and it took the state of all of them, so a variable could show another
+  entity's reading and a relay could switch off on a power reading of 0; each
+  now gets its own variables and connections, those already set up keep theirs,
+  and where several would share a name, all but one are renamed as the
+  Programming Reference describes
 
 ## v20260922 - 2026-09-22
 

@@ -144,6 +144,32 @@ ESPHomeClient.EntityType = {
   WATER_HEATER = "water_heater",
 }
 
+--- The entity type a ListEntities or state response carries.
+--- @param schema ProtoMessageSchema|nil
+--- @return EntityType|nil entityType
+function ESPHomeClient.entityTypeOf(schema)
+  -- HACK: No reliable way to identify entity types from proto definition.
+  return Select(ESPHomeClient.EntityType, (Select(schema, "options", "ifdef") or ""):match("^USE_(.+)$"))
+end
+
+--- Identifies one entity of a device. ESPHome makes a key unique only within one
+--- type on one device (sub-device), as it is the hash of the entity's name.
+--- @param entityType string|nil
+--- @param deviceId integer|nil The entity's device_id; nil is the main device.
+--- @param key integer
+--- @return string id
+function ESPHomeClient.entityId(entityType, deviceId, key)
+  return string.format("%s:%s:%s", tostring(entityType), tostring(deviceId or 0), tostring(key))
+end
+
+--- The part of an entity's connection, event and other keys that tells it apart
+--- from the others of its type; see esphome/entity_registry.lua.
+--- @param entity table<string, any>
+--- @return string ref
+function ESPHomeClient.entityRef(entity)
+  return entity.ref or tostring(entity.key)
+end
+
 --- Human-readable entity identity for log messages: `type 'Name' (key=N)`.
 --- Names are display strings (spaces, capitalization, possible duplicates), so
 --- the key is included to keep log lines unambiguous.
@@ -621,13 +647,13 @@ function ESPHomeClient:pressButton(key)
 end
 
 --- List entities from the ESPHome device.
---- @return Deferred<table<string, table?>, string> result A promise that resolves with a table of entities.
+--- @return Deferred<table[], string> result A promise that resolves with the entities in the order the device lists them.
 function ESPHomeClient:listEntities()
   log:trace("ESPHomeClient:listEntities()")
-  --- @type Deferred<table<string, table?>, string>
+  --- @type Deferred<table[], string>
   local d = deferred.new()
 
-  --- @type table<string, table?>
+  --- @type table[]
   local entities = {}
 
   -- Track the callbacks that are added so they can be removed once we receive the done message
@@ -643,7 +669,7 @@ function ESPHomeClient:listEntities()
         local handle = self:_registerCallback(
           self:_makeMessageCallbackKey(schema),
           function(_)
-            log:debug("Received %d entities: %s", TableLength(entities), entities)
+            log:debug("Received %d entities: %s", #entities, entities)
             self:_unregisterCallbacks(addedCallbackHandles)
             d:resolve(entities)
           end,
@@ -655,8 +681,7 @@ function ESPHomeClient:listEntities()
         )
         table.insert(addedCallbackHandles, handle)
       else
-        -- HACK: No reliable way to identify entity types from proto definition.
-        local entityType = Select(self.EntityType, (Select(schema, "options", "ifdef") or ""):match("^USE_(.+)$"))
+        local entityType = ESPHomeClient.entityTypeOf(schema)
         if not IsEmpty(entityType) then
           log:trace("Registering %s entity callback", name)
 
@@ -664,7 +689,7 @@ function ESPHomeClient:listEntities()
             log:trace("Received %s entity: %s", entityType, message)
             message.entity_type = entityType
             message.name = self:getEntityName(message)
-            entities[tostring(message.key)] = message
+            table.insert(entities, message)
           end)
           table.insert(addedCallbackHandles, handle)
         elseif schema.name == "ListEntitiesServicesResponse" then

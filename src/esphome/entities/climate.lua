@@ -24,7 +24,14 @@ end
 function ClimateEntity:discovered(entity)
   log:trace("ClimateEntity:discovered(%s)", entity)
   local bindingId = assert(
-    bindings:getOrAddDynamicBinding(self.TYPE, "climate_" .. entity.key, "PROXY", true, entity.name, "ESPHOME_CLIMATE")
+    bindings:getOrAddDynamicBinding(
+      self.TYPE,
+      "climate_" .. ESPHomeClient.entityRef(entity),
+      "PROXY",
+      true,
+      entity.name,
+      "ESPHOME_CLIMATE"
+    )
   ).bindingId
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
@@ -102,7 +109,7 @@ end
 --- @return void
 function ClimateEntity:updated(entity, state)
   log:trace("ClimateEntity:updated(%s, %s)", entity, state)
-  local binding = bindings:getDynamicBinding(self.TYPE, "climate_" .. entity.key)
+  local binding = bindings:getDynamicBinding(self.TYPE, "climate_" .. ESPHomeClient.entityRef(entity))
   if binding ~= nil then
     SendToProxy(binding.bindingId, "UPDATE_STATE", {
       entity = SerializeSafe(entity),

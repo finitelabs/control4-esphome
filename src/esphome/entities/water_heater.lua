@@ -36,7 +36,7 @@ function WaterHeaterEntity:discovered(entity)
   local bindingId = assert(
     bindings:getOrAddDynamicBinding(
       self.TYPE,
-      "water_heater_" .. entity.key,
+      "water_heater_" .. ESPHomeClient.entityRef(entity),
       "PROXY",
       true,
       entity.name,
@@ -108,17 +108,8 @@ end
 --- thermostatV2 sub-driver can process it without water-heater-specific logic.
 --- @param entity table<string, any> The entity data.
 --- @param state table<string, any> The state data from WaterHeaterStateResponse.
---- @param messageSchema table<string, any>|nil The proto message schema (used to filter stale ClimateStateResponse in dual-platform case).
-function WaterHeaterEntity:updated(entity, state, messageSchema)
+function WaterHeaterEntity:updated(entity, state)
   log:trace("WaterHeaterEntity:updated(%s, %s)", entity, state)
-  -- Dual-platform case: third-party ESPHome components may register both climate
-  -- and water_heater platforms for the same entity key. If the water_heater entity
-  -- overwrites the climate entity during discovery (same key), ClimateStateResponse
-  -- will route here with stale data. Ignore it.
-  if messageSchema and messageSchema.name ~= "WaterHeaterStateResponse" then
-    log:debug("Ignoring %s for %s", messageSchema.name, ESPHomeClient.describeEntity(entity))
-    return
-  end
   -- Translate WaterHeaterMode to ClimateMode + custom_preset
   local WaterHeaterMode = ESPHomeProtoSchema.Enum.WaterHeaterMode
   local ClimateMode = ESPHomeProtoSchema.Enum.ClimateMode
@@ -143,7 +134,7 @@ function WaterHeaterEntity:updated(entity, state, messageSchema)
   if targetLow == nil or targetLow > 1e10 then
     state.target_temperature_low = nil
   end
-  local binding = bindings:getDynamicBinding(self.TYPE, "water_heater_" .. entity.key)
+  local binding = bindings:getDynamicBinding(self.TYPE, "water_heater_" .. ESPHomeClient.entityRef(entity))
   if binding ~= nil then
     SendToProxy(binding.bindingId, "UPDATE_STATE", {
       entity = SerializeSafe(entity),

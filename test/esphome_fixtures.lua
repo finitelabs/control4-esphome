@@ -52,6 +52,13 @@ package.preload["cloud-client-byte"] = function()
 end
 Properties["Driver Status"] = ""
 
+--- Every SendToProxy the driver makes, below lib.utils' wrapper.
+--- @type { binding: integer, command: string, params: table? }[]
+E.sent = {}
+function C4:SendToProxy(idBinding, command, params)
+  E.sent[#E.sent + 1] = { binding = idBinding, command = command, params = params }
+end
+
 --- @param hex string
 --- @return string bytes
 function E.unhex(hex)
@@ -155,6 +162,7 @@ function E.boot(keepEvents)
     ShimResetEvents()
   end
   inbound, written = {}, {}
+  E.sent = {}
 
   local ESPHomeClient = require("esphome.client")
   local new = ESPHomeClient.new
@@ -216,6 +224,19 @@ function E.bindingNamed(name)
       return binding
     end
   end
+end
+
+--- The commands sent to one binding, in order.
+--- @param bindingId integer
+--- @return string[]
+function E.sentTo(bindingId)
+  local commands = {}
+  for _, send in ipairs(E.sent) do
+    if send.binding == bindingId then
+      commands[#commands + 1] = send.command
+    end
+  end
+  return commands
 end
 
 --- Declared event names, sorted.

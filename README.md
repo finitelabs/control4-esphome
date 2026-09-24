@@ -474,6 +474,16 @@ the matching read-only Device Info properties.
 > otherwise its node name. The unnamed relay of a plug called "Office Plug"
 > creates the variable "Office Plug State" and the connection "Office Plug".
 
+> **Note:** Two entities can have the same name, for example a sensor and a text
+> sensor both called "Status", or a "Temperature" sensor on each of two ESPHome
+> sub-devices. Where they would create the same variable, connection or command
+> entry, the entity ESPHome lists last keeps the name and each other one is
+> renamed: with its device's or sub-device's name in front when it is on another
+> device ("Kitchen Temperature"), otherwise with its entity type after it
+> ("Status (Sensor)"). An entity keeps the name it was given for as long as the
+> device lists it, even when another entity with the same name is added later.
+> Reset Driver chooses the names again.
+
 ### Bindings by Entity Type
 
 | Entity Type   | Binding Class                   | Purpose                                                           |
@@ -922,6 +932,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   events or Press Button and Set Select entries, and on 2026.4 and newer its
   variables were missing the name, as in " State"; it now takes its device's
   name, as Home Assistant shows it
+- Fixed entities that share an ESPHome key, such as a sensor and a text sensor
+  with the same name, the unnamed entities of one device, or entities with the
+  same name on different sub-devices: only the one ESPHome listed last was set
+  up, and it took the state of all of them, so a variable could show another
+  entity's reading and a relay could switch off on a power reading of 0; each
+  now gets its own variables and connections, those already set up keep theirs,
+  and where several would share a name, all but one are renamed as the
+  Programming Reference describes
 
 ## v20260922 - 2026-09-22
 

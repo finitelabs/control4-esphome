@@ -54,6 +54,7 @@ end
 --- @return void
 function CoverEntity:discovered(entity)
   log:trace("CoverEntity:discovered(%s)", entity)
+  local ref = ESPHomeClient.entityRef(entity)
   local supportsStop = toboolean(entity.supports_stop)
   local supportsPosition = toboolean(entity.supports_position)
 
@@ -61,7 +62,7 @@ function CoverEntity:discovered(entity)
   local coverClosedContactId = assert(
     bindings:getOrAddDynamicBinding(
       self.TYPE,
-      "cover_closed_" .. entity.key,
+      "cover_closed_" .. ref,
       "PROXY",
       true,
       entity.name .. " Closed",
@@ -71,7 +72,7 @@ function CoverEntity:discovered(entity)
   local coverOpenContactId = assert(
     bindings:getOrAddDynamicBinding(
       self.TYPE,
-      "cover_open_" .. entity.key,
+      "cover_open_" .. ref,
       "PROXY",
       true,
       entity.name .. " Open",
@@ -83,36 +84,15 @@ function CoverEntity:discovered(entity)
 
   -- Relays
   local openCoverBindingId = assert(
-    bindings:getOrAddDynamicBinding(
-      self.TYPE,
-      "open_cover_" .. entity.key,
-      "PROXY",
-      true,
-      "Open " .. entity.name,
-      "RELAY"
-    )
+    bindings:getOrAddDynamicBinding(self.TYPE, "open_cover_" .. ref, "PROXY", true, "Open " .. entity.name, "RELAY")
   ).bindingId
   local closeCoverBindingId = assert(
-    bindings:getOrAddDynamicBinding(
-      self.TYPE,
-      "close_cover_" .. entity.key,
-      "PROXY",
-      true,
-      "Close " .. entity.name,
-      "RELAY"
-    )
+    bindings:getOrAddDynamicBinding(self.TYPE, "close_cover_" .. ref, "PROXY", true, "Close " .. entity.name, "RELAY")
   ).bindingId
   local stopCoverBindingId
   if supportsStop then
     stopCoverBindingId = assert(
-      bindings:getOrAddDynamicBinding(
-        self.TYPE,
-        "stop_cover_" .. entity.key,
-        "PROXY",
-        true,
-        "Stop " .. entity.name,
-        "RELAY"
-      )
+      bindings:getOrAddDynamicBinding(self.TYPE, "stop_cover_" .. ref, "PROXY", true, "Stop " .. entity.name, "RELAY")
     ).bindingId
   end
 
@@ -193,6 +173,7 @@ end
 --- @return void
 function CoverEntity:updated(entity, state)
   log:trace("CoverEntity:updated(%s, %s)", entity, state)
+  local ref = ESPHomeClient.entityRef(entity)
   local stateString = "unknown"
   local coverOpen = true -- When both open and closed, relay controller drivers will report "unknown"
   local coverClosed = true
@@ -237,35 +218,35 @@ function CoverEntity:updated(entity, state)
   values:update(entity.name .. " State", stateString, "STRING")
 
   -- Update the cover state contacts (only notify when state changes)
-  local coverOpenBinding = bindings:getDynamicBinding(self.TYPE, "cover_open_" .. entity.key)
+  local coverOpenBinding = bindings:getDynamicBinding(self.TYPE, "cover_open_" .. ref)
   if coverOpenBinding ~= nil then
     local coverOpenState = coverOpen and "CLOSED" or "OPENED"
     values:update(entity.name .. " Open", coverOpenState)
-    if lastNotified["open_" .. entity.key] ~= coverOpenState then
-      lastNotified["open_" .. entity.key] = coverOpenState
+    if lastNotified["open_" .. ref] ~= coverOpenState then
+      lastNotified["open_" .. ref] = coverOpenState
       SendToProxy(coverOpenBinding.bindingId, coverOpenState, {}, "NOTIFY")
     end
   end
-  local coverClosedBinding = bindings:getDynamicBinding(self.TYPE, "cover_closed_" .. entity.key)
+  local coverClosedBinding = bindings:getDynamicBinding(self.TYPE, "cover_closed_" .. ref)
   if coverClosedBinding ~= nil then
     local coverClosedState = coverClosed and "CLOSED" or "OPENED"
     values:update(entity.name .. " Closed", coverClosedState)
-    if lastNotified["closed_" .. entity.key] ~= coverClosedState then
-      lastNotified["closed_" .. entity.key] = coverClosedState
+    if lastNotified["closed_" .. ref] ~= coverClosedState then
+      lastNotified["closed_" .. ref] = coverClosedState
       SendToProxy(coverClosedBinding.bindingId, coverClosedState, {}, "NOTIFY")
     end
   end
 
   -- Always open the relays since its just used to trigger the cover
-  local openCoverBinding = bindings:getDynamicBinding(self.TYPE, "open_cover_" .. entity.key)
+  local openCoverBinding = bindings:getDynamicBinding(self.TYPE, "open_cover_" .. ref)
   if openCoverBinding ~= nil then
     SendToProxy(openCoverBinding.bindingId, "OPENED", {}, "NOTIFY")
   end
-  local closeCoverBinding = bindings:getDynamicBinding(self.TYPE, "close_cover_" .. entity.key)
+  local closeCoverBinding = bindings:getDynamicBinding(self.TYPE, "close_cover_" .. ref)
   if closeCoverBinding ~= nil then
     SendToProxy(closeCoverBinding.bindingId, "OPENED", {}, "NOTIFY")
   end
-  local stopCoverBinding = bindings:getDynamicBinding(self.TYPE, "stop_cover_" .. entity.key)
+  local stopCoverBinding = bindings:getDynamicBinding(self.TYPE, "stop_cover_" .. ref)
   if stopCoverBinding ~= nil then
     SendToProxy(stopCoverBinding.bindingId, "OPENED", {}, "NOTIFY")
   end

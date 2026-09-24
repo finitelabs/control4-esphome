@@ -25,7 +25,14 @@ end
 function SwitchEntity:discovered(entity)
   log:trace("SwitchEntity:discovered(%s)", entity)
   local bindingId = assert(
-    bindings:getOrAddDynamicBinding(self.TYPE, "switch_" .. entity.key, "PROXY", true, entity.name, "RELAY")
+    bindings:getOrAddDynamicBinding(
+      self.TYPE,
+      "switch_" .. ESPHomeClient.entityRef(entity),
+      "PROXY",
+      true,
+      entity.name,
+      "RELAY"
+    )
   ).bindingId
 
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
@@ -107,7 +114,7 @@ function SwitchEntity:updated(entity, state)
   end)
 
   -- Update the relay proxy
-  local relayBinding = bindings:getDynamicBinding(self.TYPE, "switch_" .. entity.key)
+  local relayBinding = bindings:getDynamicBinding(self.TYPE, "switch_" .. ESPHomeClient.entityRef(entity))
   if relayBinding ~= nil then
     SendToProxy(relayBinding.bindingId, value and "CLOSED" or "OPENED", {}, "NOTIFY")
   end

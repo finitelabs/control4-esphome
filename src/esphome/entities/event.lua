@@ -15,7 +15,7 @@ EventEntity.__index = EventEntity
 --- @param eventType string The event type name declared by the entity.
 --- @return string key
 local function bindingKey(entity, eventType)
-  return "event_" .. entity.key .. ":" .. eventType
+  return "event_" .. ESPHomeClient.entityRef(entity) .. ":" .. eventType
 end
 
 --- Create a new instance of the event entity.
@@ -36,7 +36,7 @@ function EventEntity:discovered(entity)
   local eventTypes = entity.event_types or {}
   for _, eventType in ipairs(eventTypes) do
     events:getOrAddEvent(
-      "event_" .. entity.key,
+      "event_" .. ESPHomeClient.entityRef(entity),
       eventType,
       entity.name .. ": " .. eventType,
       entity.name .. " " .. eventType .. " event"
@@ -74,7 +74,7 @@ function EventEntity:updated(entity, state)
 
   values:update(entity.name .. " Last Event", eventType, "STRING")
 
-  events:fire("event_" .. entity.key, eventType)
+  events:fire("event_" .. ESPHomeClient.entityRef(entity), eventType)
   log:info("Fired event %s for %s", eventType, ESPHomeClient.describeEntity(entity))
 
   local binding = bindings:getDynamicBinding(self.TYPE, bindingKey(entity, eventType))
