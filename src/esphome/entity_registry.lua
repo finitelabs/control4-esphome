@@ -1,7 +1,5 @@
---- The Control4 identity of each ESPHome entity: the name it is shown under and
---- the part of its connection and event keys that tells it apart from the others
---- of its type. An entity keeps both for as long as the device lists it, so they
---- do not move when other entities come and go.
+--- Each ESPHome entity's Control4 name and connection key part, kept for as long
+--- as the device lists it so they do not move when other entities come and go.
 
 local persist = require("lib.persist")
 local ESPHomeClient = require("esphome.client")

@@ -170,19 +170,16 @@ function ESPHomeClient.entityRef(entity)
   return entity.ref or tostring(entity.key)
 end
 
---- The body of a command to an entity, addressed by its key and, on a sub-device,
---- its device_id: ESPHome 2025.8+ drops a command whose device_id matches no entity.
---- A main-device command stays without one, as the encoder would send an explicit 0.
+--- The body of a command to an entity. ESPHome 2025.8+ finds a sub-device entity only by its
+--- device_id; a main-device command is left without one, as it was.
 --- @param entity table<string, any>
---- @param body? table<string, any> The command's other fields, and a key if it targets another entity.
+--- @param body? table<string, any> The command's other fields.
 --- @return table<string, any> body
 function ESPHomeClient.commandBody(entity, body)
   body = body or {}
-  if body.key == nil then
-    body.key = entity.key
-  end
+  body.key = entity.key
   local deviceId = Select(entity, "device_id")
-  if body.key == entity.key and body.device_id == nil and deviceId ~= nil and deviceId ~= 0 then
+  if deviceId ~= nil and deviceId ~= 0 then
     body.device_id = deviceId
   end
   return body
@@ -596,7 +593,6 @@ end
 --- The device's display name from the most recent device info response.
 --- @return string|nil name The friendly name, or nil if not yet known.
 function ESPHomeClient:getDeviceName()
-  -- A string field arrives as nil when left off the wire and "" when sent empty.
   local name = Select(self._deviceInfo, "friendly_name")
   if IsEmpty(name) then
     name = Select(self._deviceInfo, "name")
