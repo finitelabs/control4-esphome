@@ -25,6 +25,7 @@ require("drivers-common-public.global.timer")
 
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
+local events = require("lib.events")
 --#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
 --#endif
@@ -140,6 +141,10 @@ function OnDriverLateInit()
   if not CheckMinimumVersion("Driver Status") then
     return
   end
+
+  -- Restore persisted events (C4:AddEvent is unavailable before OnDriverLateInit)
+  events:restoreEvents()
+
   -- Firmware version is usually an entity and will be picked up by state updates
   C4:SetPropertyAttribs("Firmware Version", constants.HIDE_PROPERTY)
 
