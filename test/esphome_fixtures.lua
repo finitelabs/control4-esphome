@@ -1,13 +1,5 @@
--- A fake ESPHome device for the bridge driver (drivers/esphome/driver.lua).
---
--- The driver runs its own RefreshStatus chain and only the socket is replaced:
--- every reply goes through the client's framing and the vendored protobuf
--- decoder, and every request the driver writes is decoded back for assertions.
---
--- Usage:
---   local E = require("esphome_fixtures")
---   E.boot()
---   E.refresh({ info = { name = "office-plug" }, entities = { ... }, states = { ... } })
+-- A fake ESPHome device for the bridge driver. Only the socket is replaced, so replies go
+-- through the client's framing and protobuf decoder, and written requests are decoded back.
 
 require("c4_shim")
 require("lib.utils")
@@ -22,8 +14,7 @@ local E = {}
 local HERE = debug.getinfo(1, "S").source:match("^@(.*)/") or "."
 local DRIVER = HERE .. "/../drivers/esphome/driver.lua"
 
---- The controller's persistent storage. It survives E.boot(), as PersistData
---- survives a Director restart; E.wipe() empties it.
+--- The controller's PersistData: it survives E.boot(), and E.wipe() empties it.
 E.store = {}
 function C4:PersistGetValue(key)
   return E.store[key]
@@ -82,8 +73,7 @@ function E.hex(bytes)
   end))
 end
 
---- A message as the device sends it: `payload` is raw wire bytes when a test
---- needs ESPHome's exact encoding, else `body` is encoded here.
+--- A message as the device sends it: raw `payload` bytes when given, else `body` encoded here.
 --- @param message { message: string, body: table?, payload: string? }
 --- @return string frame A plaintext API frame.
 local function frame(message)
@@ -161,10 +151,8 @@ function E.written(messageName)
   return out
 end
 
---- Load the bridge as after a Director restart: modules fresh, persisted data
---- kept, no variables or dynamic bindings left over, then OnDriverInit and
---- OnDriverLateInit. Whether Director keeps driver-added events is not known, so
---- they are dropped unless `keepEvents`.
+--- Load the bridge as after a Director restart: fresh modules, variables and bindings, persisted data kept.
+--- Events are dropped unless `keepEvents`, as whether Director keeps driver-added ones is not known.
 --- @param keepEvents? boolean Leave the declared events in place.
 function E.boot(keepEvents)
   for name in pairs(package.loaded) do
@@ -237,7 +225,6 @@ function E.variableNames()
   return names
 end
 
---- The dynamic binding with this display name, or nil.
 --- @return { id: integer, name: string, class: string }|nil
 function E.bindingNamed(name)
   for _, binding in pairs(ShimDynamicBindings()) do
@@ -247,7 +234,6 @@ function E.bindingNamed(name)
   end
 end
 
---- The commands sent to one binding, in order.
 --- @param bindingId integer
 --- @return string[]
 function E.sentTo(bindingId)

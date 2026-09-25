@@ -1,17 +1,5 @@
--- Tests that entities sharing an ESPHome key stay apart.
---
--- ESPHome makes a key unique only within one platform on one device: it is the
--- hash of the entity's name, so a sensor and a text sensor both named "Status",
--- every unnamed entity of a device, and "Temperature" on two sub-devices all
--- share one. Each must keep its own state, connections and variables. When two
--- would get the same name in Control4, the one ESPHome lists last keeps it, or
--- its type's twin on the main device, which that one's commands reached, and the
--- others are told apart.
---
--- Run from the driver root:
---   make test
--- or:
---   ./test/run_test.sh test_entity_identity.lua
+-- Entities sharing an ESPHome key stay apart. A key is a hash of the name, unique only per
+-- platform per device, so a sensor and a text sensor both named "Status" share one.
 
 local T = require("testlib")
 local E = require("esphome_fixtures")
@@ -103,7 +91,7 @@ do
   T.eq("relay connection", relay and relay.class, "RELAY")
   T.eq("contact connection", (E.bindingNamed("Office Plug (Binary Sensor)") or {}).class, "CONTACT_SENSOR")
 
-  -- A float 0 is left off the wire; the relay used to take that for "off".
+  -- Key only: ESPHome leaves a float 0 off the wire.
   E.sent = {}
   E.send({ { message = "SensorStateResponse", payload = E.unhex("0d48626f01") } })
   T.eq("a power reading does not reach the relay", E.sentTo(relay.id), {})
@@ -161,8 +149,7 @@ end
 
 T.section("An install from before: what it had stays where it was")
 do
-  -- What the driver kept for TEMPERATURES when entities were stored by key
-  -- alone: one connection for all three, with a thermostat connected.
+  -- The key-only store's setup for TEMPERATURES: one connection for all three, with a thermostat bound.
   E.wipe()
   E.boot()
   require("lib.persist"):set("ConnectionBindings", {
@@ -229,8 +216,7 @@ end
 T.section("Twins with one on the main device: what was set up still reaches the main device")
 for _, mainFirst in ipairs({ true, false }) do
   local label = mainFirst and "main device listed first" or "main device listed last"
-  -- What the driver kept when entities were stored by key alone: one connection,
-  -- event and variable per key, whose commands reached the main device.
+  -- The key-only store's setup: one connection, event and variable per key, commanding the main device.
   E.wipe()
   E.boot()
   require("lib.persist"):set("ConnectionBindings", {
@@ -322,7 +308,6 @@ do
   T.eq("sensor keeps its name", Variables["Status (Sensor)"], "3")
   T.eq("the newcomer is told apart", Variables["Status (Select)"], "a")
 
-  -- The text sensor goes; the others keep what they have across a restart.
   E.boot()
   E.refresh({
     info = STATUS.info,
@@ -337,7 +322,6 @@ do
   -- The gone text sensor's variable stays, as variables do, and nothing writes it.
   T.eq("nobody took the freed name", Variables["Status"], "FINE")
 
-  -- A newcomer takes the free name; the text sensor, back again, is a newcomer too.
   local number = { message = "ListEntitiesNumberResponse", body = { key = K_STATUS, name = "Status" } }
   E.refresh({ info = STATUS.info, entities = { STATUS.entities[2], number, grown.entities[4] }, states = {} })
   E.refresh({
@@ -354,8 +338,7 @@ end
 
 T.section("Entities with different keys keep their own names")
 do
-  -- Both were set up before: they share the value "Door Open", but renaming
-  -- either would move a named entity's variable.
+  -- They share the value "Door Open", but renaming either would move a named entity's variable.
   E.wipe()
   E.boot()
   E.refresh({
@@ -369,7 +352,6 @@ do
   T.eq("sensor keeps its name", Variables["Door Open"], "5")
   T.truthy("cover keeps its name", E.bindingNamed("Open Door"))
 
-  -- A name the driver made up is kept, even from an entity really called that.
   E.wipe()
   E.boot()
   E.refresh(TEMPERATURES)
@@ -430,7 +412,6 @@ end
 
 T.section("Only a twin of its own type on the main device takes the name from the one listed last")
 do
-  -- The sensor on the main device is not the text sensor's twin, so the text sensor keeps it.
   E.wipe()
   E.boot()
   E.refresh({

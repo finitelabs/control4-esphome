@@ -1,5 +1,4 @@
---- Each ESPHome entity's Control4 name and connection key part, kept for as long
---- as the device lists it so they do not move when other entities come and go.
+--- Each ESPHome entity's Control4 name and binding key part, kept while the device lists it.
 
 local persist = require("lib.persist")
 local ESPHomeClient = require("esphome.client")
@@ -28,8 +27,7 @@ local BARE_NAME_TYPES = {
   datetime_datetime = true,
 }
 
---- The Control4 names an entity called `name` takes, which no other entity may
---- share. lib.values keys variables and plain values alike by name.
+--- The Control4 names an entity called `name` claims; lib.values keys variables and values alike by name.
 --- @param entityType string
 --- @param name string
 --- @return string[] claims
@@ -71,14 +69,12 @@ local function alternativesFor(entity, holder, client)
   return names
 end
 
---- Creates a new EntityRegistry instance.
 --- @return EntityRegistry registry
 function EntityRegistry:new()
   return setmetatable({}, self)
 end
 
---- Give each listed entity its Control4 name (`name`) and key part (`ref`). The key-only store kept
---- the entity listed last but commanded its type's main-device twin, so that twin, else it, goes first.
+--- Give each listed entity its Control4 name (`name`) and key part (`ref`).
 --- @param list table[] ListEntities responses in the order the device sent them.
 --- @param client ESPHomeClient For device and sub-device names.
 --- @return table[] entities The listed entities, each once, in listing order.
@@ -100,7 +96,7 @@ function EntityRegistry:assign(list, client)
     byId[id] = entity
     lastWithKey[tostring(entity.key)] = id
   end
-  -- Per key, the entity that inherits what the key-only store set up.
+  -- Per key, the heir to the old key-only setup: it kept the last listed but commanded its main-device twin.
   --- @type table<string, string>
   local heirOf = {}
   for key, id in pairs(lastWithKey) do
@@ -130,8 +126,7 @@ function EntityRegistry:assign(list, client)
       claimed[c] = { id = id, own = name == byId[id].name and not byId[id].unnamed }
     end
   end
-  --- Who stands in the way of `entity` being called `name`. A name of its own yields only to
-  --- a same-key entity: named entities with different keys were set up side by side before.
+  --- A name of its own yields only to a same-key entity; named entities with different keys already coexisted.
   local function holderOf(entity, name)
     for _, c in ipairs(claimsOf(entity.entity_type, name)) do
       local holder = claimed[c] and byId[claimed[c].id]
@@ -144,7 +139,6 @@ function EntityRegistry:assign(list, client)
     end
   end
 
-  -- Entities seen before keep their key part, and their name unless renamed since.
   for _, id in ipairs(order) do
     local entity, record = byId[id], records[id]
     if record ~= nil then
@@ -182,8 +176,7 @@ function EntityRegistry:assign(list, client)
     changed = true
   end
 
-  -- Heirs first, then the rest, each with own names before device names, so a name
-  -- an entity really has beats a made-up one and an heir keeps what it inherits.
+  -- Passes are {heir, unnamed}: a real name beats a made-up one, and an heir keeps what it inherits.
   local toldApart = {}
   for _, pass in ipairs({ { true, false }, { true, true }, { false, false }, { false, true } }) do
     for _, id in ipairs(pending) do
