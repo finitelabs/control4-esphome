@@ -617,8 +617,8 @@ local function sendButtonEvent(reading)
   end
 
   log:debug("Sending DO_PUSH then DO_CLICK from binding %s", binding.bindingId)
-  SendToProxy(binding.bindingId, "DO_PUSH", {}, "NOTIFY")
-  SendToProxy(binding.bindingId, "DO_CLICK", {}, "NOTIFY")
+  SendToProxy(binding.bindingId, "DO_PUSH", {}, "COMMAND")
+  SendToProxy(binding.bindingId, "DO_CLICK", {}, "COMMAND")
 end
 
 --------------------------------------------------------------------------------

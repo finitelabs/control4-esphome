@@ -88,9 +88,9 @@ function EventEntity:updated(entity, state)
   end
 
   -- The pair a keypad sends for a tap. DO_RELEASE ends a hold instead of a click,
-  -- so it does not follow.
-  SendToProxy(binding.bindingId, "DO_PUSH", {}, "NOTIFY")
-  SendToProxy(binding.bindingId, "DO_CLICK", {}, "NOTIFY")
+  -- so it does not follow. Advanced Lighting scenes ignore these as NOTIFY.
+  SendToProxy(binding.bindingId, "DO_PUSH", {}, "COMMAND")
+  SendToProxy(binding.bindingId, "DO_CLICK", {}, "COMMAND")
 end
 
 return EventEntity
