@@ -225,7 +225,6 @@ function E.variableNames()
   return names
 end
 
---- The dynamic binding with this display name, or nil.
 --- @return { id: integer, name: string, class: string }|nil
 function E.bindingNamed(name)
   for _, binding in pairs(ShimDynamicBindings()) do
@@ -235,7 +234,6 @@ function E.bindingNamed(name)
   end
 end
 
---- The commands sent to one binding, in order.
 --- @param bindingId integer
 --- @return string[]
 function E.sentTo(bindingId)

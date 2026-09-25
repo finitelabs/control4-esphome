@@ -308,7 +308,6 @@ do
   T.eq("sensor keeps its name", Variables["Status (Sensor)"], "3")
   T.eq("the newcomer is told apart", Variables["Status (Select)"], "a")
 
-  -- The text sensor goes; the others keep what they have across a restart.
   E.boot()
   E.refresh({
     info = STATUS.info,
@@ -323,7 +322,6 @@ do
   -- The gone text sensor's variable stays, as variables do, and nothing writes it.
   T.eq("nobody took the freed name", Variables["Status"], "FINE")
 
-  -- A newcomer takes the free name; the text sensor, back again, is a newcomer too.
   local number = { message = "ListEntitiesNumberResponse", body = { key = K_STATUS, name = "Status" } }
   E.refresh({ info = STATUS.info, entities = { STATUS.entities[2], number, grown.entities[4] }, states = {} })
   E.refresh({
@@ -354,7 +352,6 @@ do
   T.eq("sensor keeps its name", Variables["Door Open"], "5")
   T.truthy("cover keeps its name", E.bindingNamed("Open Door"))
 
-  -- A name the driver made up is kept, even from an entity really called that.
   E.wipe()
   E.boot()
   E.refresh(TEMPERATURES)
@@ -415,7 +412,6 @@ end
 
 T.section("Only a twin of its own type on the main device takes the name from the one listed last")
 do
-  -- The sensor on the main device is not the text sensor's twin, so the text sensor keeps it.
   E.wipe()
   E.boot()
   E.refresh({

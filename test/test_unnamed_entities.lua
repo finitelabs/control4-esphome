@@ -7,7 +7,6 @@ local E = require("esphome_fixtures")
 -- fnv1_hash_object_id("Office Plug"): an unnamed entity's key is its device name's.
 local KEY = 24076872
 local INFO = { name = "office-plug", friendly_name = "Office Plug" }
--- A named entity, which must keep its name.
 local UPTIME = { message = "ListEntitiesSensorResponse", body = { key = 1718212937, name = "Uptime" } }
 local UPTIME_STATE = { message = "SensorStateResponse", body = { key = 1718212937, state = 42 } }
 
@@ -266,7 +265,6 @@ do
     T.eq(label .. ": the named switch's variable commands it", commanded("Kitchen State"), { { NAMED } })
   end
 
-  -- An unnamed entity keeps a name it was given before a named one arrived.
   E.wipe()
   E.boot()
   E.refresh(device({ unnamed }))

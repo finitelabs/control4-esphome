@@ -126,8 +126,7 @@ function EntityRegistry:assign(list, client)
       claimed[c] = { id = id, own = name == byId[id].name and not byId[id].unnamed }
     end
   end
-  --- Who stands in the way of `entity` being called `name`. A name of its own yields only to
-  --- a same-key entity: named entities with different keys were set up side by side before.
+  --- A name of its own yields only to a same-key entity; named entities with different keys already coexisted.
   local function holderOf(entity, name)
     for _, c in ipairs(claimsOf(entity.entity_type, name)) do
       local holder = claimed[c] and byId[claimed[c].id]
@@ -140,7 +139,6 @@ function EntityRegistry:assign(list, client)
     end
   end
 
-  -- Entities seen before keep their key part, and their name unless renamed since.
   for _, id in ipairs(order) do
     local entity, record = byId[id], records[id]
     if record ~= nil then
@@ -178,8 +176,7 @@ function EntityRegistry:assign(list, client)
     changed = true
   end
 
-  -- Heirs first, then the rest, each with own names before device names, so a name
-  -- an entity really has beats a made-up one and an heir keeps what it inherits.
+  -- Passes are {heir, unnamed}: a real name beats a made-up one, and an heir keeps what it inherits.
   local toldApart = {}
   for _, pass in ipairs({ { true, false }, { true, true }, { false, false }, { false, true } }) do
     for _, id in ipairs(pending) do
