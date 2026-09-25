@@ -27,10 +27,10 @@ function TextEntity:updated(entity, state)
   values:update(entity.name, state.state or "", "STRING", function(newValue)
     -- Convert the Control4 value (string or number) to a number for ESPHome
     self.client
-      :callServiceMethod(
-        ESPHomeProtoSchema.RPC.APIConnection.text_command,
-        ESPHomeClient.commandBody(entity, { state = newValue or "" })
-      )
+      :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.text_command, {
+        key = entity.key,
+        state = newValue or "",
+      })
       :next(function()
         log:info("Text value updated to %s for %s", newValue or "", ESPHomeClient.describeEntity(entity))
       end, function(error)

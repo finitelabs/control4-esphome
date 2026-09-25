@@ -24,14 +24,7 @@ end
 function LightEntity:discovered(entity)
   log:trace("LightEntity:discovered(%s)", entity)
   local bindingId = assert(
-    bindings:getOrAddDynamicBinding(
-      self.TYPE,
-      "light_" .. ESPHomeClient.entityRef(entity),
-      "PROXY",
-      true,
-      entity.name,
-      "ESPHOME_LIGHT"
-    )
+    bindings:getOrAddDynamicBinding(self.TYPE, "light_" .. entity.key, "PROXY", true, entity.name, "ESPHOME_LIGHT")
   ).bindingId
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
@@ -41,7 +34,8 @@ function LightEntity:discovered(entity)
     elseif strCommand == "ENTITY_COMMAND" then
       local command = ESPHomeProtoSchema.RPC.APIConnection[Select(tParams, "command")]
         or ESPHomeProtoSchema.RPC.APIConnection.light_command
-      local body = ESPHomeClient.commandBody(entity, DeserializeSafe(Select(tParams, "body")))
+      local body = DeserializeSafe(Select(tParams, "body")) or {}
+      body.key = body.key or entity.key
       self.client:callServiceMethod(command, body):next(function()
         log:debug(
           "Method %s.%s(%s) called by entity %s",
@@ -80,7 +74,7 @@ end
 --- @return void
 function LightEntity:updated(entity, state)
   log:trace("LightEntity:updated(%s, %s)", entity, state)
-  local binding = bindings:getDynamicBinding(self.TYPE, "light_" .. ESPHomeClient.entityRef(entity))
+  local binding = bindings:getDynamicBinding(self.TYPE, "light_" .. entity.key)
   if binding ~= nil then
     SendToProxy(binding.bindingId, "UPDATE_STATE", {
       entity = SerializeSafe(entity),

@@ -144,44 +144,6 @@ ESPHomeClient.EntityType = {
   WATER_HEATER = "water_heater",
 }
 
---- The entity type a ListEntities or state response carries.
---- @param schema ProtoMessageSchema|nil
---- @return EntityType|nil entityType
-function ESPHomeClient.entityTypeOf(schema)
-  -- HACK: No reliable way to identify entity types from proto definition.
-  return Select(ESPHomeClient.EntityType, (Select(schema, "options", "ifdef") or ""):match("^USE_(.+)$"))
-end
-
---- A device-wide entity id: ESPHome keys are name hashes, unique only per type per (sub-)device.
---- @param entityType string|nil
---- @param deviceId integer|nil The entity's device_id; nil is the main device.
---- @param key integer
---- @return string id
-function ESPHomeClient.entityId(entityType, deviceId, key)
-  return string.format("%s:%s:%s", tostring(entityType), tostring(deviceId or 0), tostring(key))
-end
-
---- The entity's part of its binding and event keys, assigned by esphome/entity_registry.lua.
---- @param entity table<string, any>
---- @return string ref
-function ESPHomeClient.entityRef(entity)
-  return entity.ref or tostring(entity.key)
-end
-
---- A command body for `entity`; ESPHome 2025.8+ reaches a sub-device entity only by its device_id.
---- @param entity table<string, any>
---- @param body? table<string, any> The command's other fields.
---- @return table<string, any> body
-function ESPHomeClient.commandBody(entity, body)
-  body = body or {}
-  body.key = entity.key
-  local deviceId = Select(entity, "device_id")
-  if deviceId ~= nil and deviceId ~= 0 then
-    body.device_id = deviceId
-  end
-  return body
-end
-
 --- Human-readable entity identity for log messages: `type 'Name' (key=N)`.
 --- Names are display strings (spaces, capitalization, possible duplicates), so
 --- the key is included to keep log lines unambiguous.
@@ -590,6 +552,8 @@ end
 --- The device's display name from the most recent device info response.
 --- @return string|nil name The friendly name, or nil if not yet known.
 function ESPHomeClient:getDeviceName()
+  -- Unset proto string fields decode as "" (truthy in Lua), so fall back with
+  -- IsEmpty rather than `or`.
   local name = Select(self._deviceInfo, "friendly_name")
   if IsEmpty(name) then
     name = Select(self._deviceInfo, "name")
@@ -600,62 +564,22 @@ function ESPHomeClient:getDeviceName()
   return name
 end
 
---- The name of a sub-device from the most recent device info response.
---- @param deviceId integer|nil An entity's device_id; 0 or nil is the main device.
---- @return string|nil name The sub-device's name, or nil for the main device or an unknown id.
-function ESPHomeClient:getSubDeviceName(deviceId)
-  if deviceId == nil or deviceId == 0 then
-    return nil
-  end
-  for _, device in ipairs(Select(self._deviceInfo, "devices") or {}) do
-    if device.device_id == deviceId and not IsEmpty(device.name) then
-      return device.name
-    end
-  end
-  return nil
-end
-
---- Types whose label is not their name title-cased.
---- @type table<string, string>
-local ENTITY_TYPE_LABELS = {
-  datetime_date = "Date",
-  datetime_time = "Time",
-  datetime_datetime = "Date Time",
-}
-
---- A readable label for an entity type, such as "Binary Sensor".
---- @param entityType string
---- @return string label
-function ESPHomeClient.entityTypeLabel(entityType)
-  return ENTITY_TYPE_LABELS[entityType]
-    or (entityType:gsub("_", " "):gsub("(%a)(%w*)", function(first, rest)
-      return first:upper() .. rest
-    end))
-end
-
---- The entity's display name; an unnamed one takes its sub-device's, else its device's, as Home Assistant does.
---- @param entity table<string, any> A ListEntities*Response message with its entity_type.
---- @return string name
-function ESPHomeClient:getEntityName(entity)
-  -- ESPHome leaves an unnamed entity's name off the wire before 2026.4.0 and sends "" since.
-  local name = Select(entity, "name")
-  if IsEmpty(name) then
-    name = self:getSubDeviceName(Select(entity, "device_id")) or self:getDeviceName()
-  end
-  if IsEmpty(name) then
-    name = ESPHomeClient.entityTypeLabel(Select(entity, "entity_type") or "entity") .. " " .. tostring(entity.key)
-  end
-  return name
+--- Press a button entity by its key.
+--- @param key number The button entity key
+--- @return Deferred<nil, string> result A promise that resolves when the button is pressed.
+function ESPHomeClient:pressButton(key)
+  log:trace("ESPHomeClient:pressButton(%s)", key)
+  return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.button_command, { key = key })
 end
 
 --- List entities from the ESPHome device.
---- @return Deferred<table[], string> result Resolves with the entities in listing order.
+--- @return Deferred<table<string, table?>, string> result A promise that resolves with a table of entities.
 function ESPHomeClient:listEntities()
   log:trace("ESPHomeClient:listEntities()")
-  --- @type Deferred<table[], string>
+  --- @type Deferred<table<string, table?>, string>
   local d = deferred.new()
 
-  --- @type table[]
+  --- @type table<string, table?>
   local entities = {}
 
   -- Track the callbacks that are added so they can be removed once we receive the done message
@@ -671,7 +595,7 @@ function ESPHomeClient:listEntities()
         local handle = self:_registerCallback(
           self:_makeMessageCallbackKey(schema),
           function(_)
-            log:debug("Received %d entities: %s", #entities, entities)
+            log:debug("Received %d entities: %s", TableLength(entities), entities)
             self:_unregisterCallbacks(addedCallbackHandles)
             d:resolve(entities)
           end,
@@ -683,16 +607,15 @@ function ESPHomeClient:listEntities()
         )
         table.insert(addedCallbackHandles, handle)
       else
-        local entityType = ESPHomeClient.entityTypeOf(schema)
+        -- HACK: No reliable way to identify entity types from proto definition.
+        local entityType = Select(self.EntityType, (Select(schema, "options", "ifdef") or ""):match("^USE_(.+)$"))
         if not IsEmpty(entityType) then
           log:trace("Registering %s entity callback", name)
 
           local handle = self:_registerCallback(self:_makeMessageCallbackKey(schema), function(message)
             log:trace("Received %s entity: %s", entityType, message)
             message.entity_type = entityType
-            message.unnamed = IsEmpty(message.name) or nil
-            message.name = self:getEntityName(message)
-            table.insert(entities, message)
+            entities[tostring(message.key)] = message
           end)
           table.insert(addedCallbackHandles, handle)
         elseif schema.name == "ListEntitiesServicesResponse" then

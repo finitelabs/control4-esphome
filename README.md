@@ -468,22 +468,6 @@ the matching read-only Device Info properties.
 
 > **Note:** `{name}` is replaced with the entity's display name from ESPHome
 > (e.g., a sensor named "Temperature" creates a variable called "Temperature").
-> An entity with no name of its own, such as a relay configured with
-> `name: None`, takes its ESPHome sub-device's name, otherwise the device's
-> friendly name or node name, as Home Assistant shows it: the unnamed relay of
-> "Office Plug" creates the variable "Office Plug State" and the connection
-> "Office Plug".
-
-> **Note:** When two entities would create the same variable, Press Button or
-> Set Select entry, or two connections of the same kind with one name (for
-> example a sensor and a text sensor both called "Status", or "Temperature" on
-> the main device and on a sub-device), one keeps the name and each other one is
-> renamed: with its sub-device's or device's name in front when it is on another
-> device ("Kitchen Temperature"), otherwise, or when it has no name of its own,
-> with its entity type after it ("Status (Sensor)", "Office Plug (Switch)").
-> Usually the entity ESPHome lists last keeps the name, or the main device's
-> entity of that type when the last one is on a sub-device. A name, once given,
-> stays while the device lists the entity; Reset Driver chooses the names again.
 
 ### Bindings by Entity Type
 
@@ -923,28 +907,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ### Removed
 - Removed
 -->
-
-## Unreleased
-
-### Fixed
-
-- Fixed ESPHome entities with no name of their own, such as a relay configured
-  with `name: None`, being left out of variables, events and commands or given a
-  blank name such as " State"; they now take their sub-device's or device's
-  name, as Home Assistant shows them
-- Fixed entities that share an ESPHome key, such as a sensor and a text sensor
-  with the same name or a plug's unnamed relay and power sensor, being set up as
-  one entity that took the state of all of them, so the relay could switch off
-  on a power reading of 0. Each now gets its own variables and connections;
-  existing ones stay with the entity ESPHome lists last, or its main-device twin
-  when that one is on a sub-device, and clashing names are resolved as the
-  Programming Reference describes
-- Fixed entities on an ESPHome sub-device ignoring every command from Control4
-  on ESPHome 2025.8 and newer
-- Fixed an event entity's Programming events not being declared when the driver
-  loads, and keeping their old name after a rename on the device that keeps its
-  ESPHome key, such as a change of capitals; they now load with the driver and
-  follow the rename
 
 ## v20260922 - 2026-09-22
 

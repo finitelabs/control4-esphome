@@ -18,28 +18,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
-## Unreleased
-
-### Fixed
-
-- Fixed ESPHome entities with no name of their own, such as a relay configured
-  with `name: None`, being left out of variables, events and commands or given a
-  blank name such as " State"; they now take their sub-device's or device's
-  name, as Home Assistant shows them
-- Fixed entities that share an ESPHome key, such as a sensor and a text sensor
-  with the same name or a plug's unnamed relay and power sensor, being set up as
-  one entity that took the state of all of them, so the relay could switch off
-  on a power reading of 0. Each now gets its own variables and connections;
-  existing ones stay with the entity ESPHome lists last, or its main-device twin
-  when that one is on a sub-device, and clashing names are resolved as the
-  Programming Reference describes
-- Fixed entities on an ESPHome sub-device ignoring every command from Control4
-  on ESPHome 2025.8 and newer
-- Fixed an event entity's Programming events not being declared when the driver
-  loads, and keeping their old name after a rename on the device that keeps its
-  ESPHome key, such as a change of capitals; they now load with the driver and
-  follow the rename
-
 ## v20260922 - 2026-09-22
 
 ### Added

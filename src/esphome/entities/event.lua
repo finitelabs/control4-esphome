@@ -15,25 +15,7 @@ EventEntity.__index = EventEntity
 --- @param eventType string The event type name declared by the entity.
 --- @return string key
 local function bindingKey(entity, eventType)
-  return "event_" .. ESPHomeClient.entityRef(entity) .. ":" .. eventType
-end
-
---- Declare one of an entity's events, renaming it in place after a rename on the device.
---- @param entity table<string, any> The entity data received from the ESPHome client.
---- @param eventType string The event type name declared by the entity.
-local function declareEvent(entity, eventType)
-  local namespace = "event_" .. ESPHomeClient.entityRef(entity)
-  local name = entity.name .. ": " .. eventType
-  local description = entity.name .. " " .. eventType .. " event"
-  local event = events:getOrAddEvent(namespace, eventType, name, description)
-  if event ~= nil and event.name ~= name then
-    -- lib.events only adds; C4:AddEvent on a known id updates that event.
-    local all = events:getEvents()
-    all[namespace][eventType].name = name
-    all[namespace][eventType].description = description
-    events:_saveEvents(all)
-    C4:AddEvent(event.eventId, name, description)
-  end
+  return "event_" .. entity.key .. ":" .. eventType
 end
 
 --- Create a new instance of the event entity.
@@ -53,7 +35,12 @@ function EventEntity:discovered(entity)
 
   local eventTypes = entity.event_types or {}
   for _, eventType in ipairs(eventTypes) do
-    declareEvent(entity, eventType)
+    events:getOrAddEvent(
+      "event_" .. entity.key,
+      eventType,
+      entity.name .. ": " .. eventType,
+      entity.name .. " " .. eventType .. " event"
+    )
 
     -- provider=false is the keypad side: this driver sends button events rather
     -- than receiving them, and each event type drives its own load.
@@ -87,7 +74,7 @@ function EventEntity:updated(entity, state)
 
   values:update(entity.name .. " Last Event", eventType, "STRING")
 
-  events:fire("event_" .. ESPHomeClient.entityRef(entity), eventType)
+  events:fire("event_" .. entity.key, eventType)
   log:info("Fired event %s for %s", eventType, ESPHomeClient.describeEntity(entity))
 
   local binding = bindings:getDynamicBinding(self.TYPE, bindingKey(entity, eventType))

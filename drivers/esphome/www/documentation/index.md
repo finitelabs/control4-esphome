@@ -575,22 +575,6 @@ the matching read-only Device Info properties.
 
 > **Note:** `{name}` is replaced with the entity's display name from ESPHome
 > (e.g., a sensor named "Temperature" creates a variable called "Temperature").
-> An entity with no name of its own, such as a relay configured with
-> `name: None`, takes its ESPHome sub-device's name, otherwise the device's
-> friendly name or node name, as Home Assistant shows it: the unnamed relay of
-> "Office Plug" creates the variable "Office Plug State" and the connection
-> "Office Plug".
-
-> **Note:** When two entities would create the same variable, Press Button or
-> Set Select entry, or two connections of the same kind with one name (for
-> example a sensor and a text sensor both called "Status", or "Temperature" on
-> the main device and on a sub-device), one keeps the name and each other one is
-> renamed: with its sub-device's or device's name in front when it is on another
-> device ("Kitchen Temperature"), otherwise, or when it has no name of its own,
-> with its entity type after it ("Status (Sensor)", "Office Plug (Switch)").
-> Usually the entity ESPHome lists last keeps the name, or the main device's
-> entity of that type when the last one is on a sub-device. A name, once given,
-> stays while the device lists the entity; Reset Driver chooses the names again.
 
 ### Bindings by Entity Type
 
