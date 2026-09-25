@@ -26,7 +26,7 @@ function BinarySensorEntity:discovered(entity)
   assert(
     bindings:getOrAddDynamicBinding(
       self.TYPE,
-      "binary_sensor_" .. entity.key,
+      "binary_sensor_" .. ESPHomeClient.entityRef(entity),
       "PROXY",
       true,
       entity.name,
@@ -44,7 +44,7 @@ function BinarySensorEntity:updated(entity, state)
   local value = toboolean(state.state)
   values:update(entity.name .. " State", value and "1" or "0", "BOOL")
 
-  local binding = bindings:getDynamicBinding(self.TYPE, "binary_sensor_" .. entity.key)
+  local binding = bindings:getDynamicBinding(self.TYPE, "binary_sensor_" .. ESPHomeClient.entityRef(entity))
   if binding ~= nil then
     SendToProxy(binding.bindingId, value and "CLOSED" or "OPENED", {}, "NOTIFY")
   end

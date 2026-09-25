@@ -25,7 +25,14 @@ end
 function SwitchEntity:discovered(entity)
   log:trace("SwitchEntity:discovered(%s)", entity)
   local bindingId = assert(
-    bindings:getOrAddDynamicBinding(self.TYPE, "switch_" .. entity.key, "PROXY", true, entity.name, "RELAY")
+    bindings:getOrAddDynamicBinding(
+      self.TYPE,
+      "switch_" .. ESPHomeClient.entityRef(entity),
+      "PROXY",
+      true,
+      entity.name,
+      "RELAY"
+    )
   ).bindingId
 
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
@@ -45,10 +52,10 @@ function SwitchEntity:discovered(entity)
     end
 
     response = self.client
-      :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
-        key = entity.key,
-        state = state,
-      })
+      :callServiceMethod(
+        ESPHomeProtoSchema.RPC.APIConnection.switch_command,
+        ESPHomeClient.commandBody(entity, { state = state })
+      )
       :next(function()
         log:debug("Command %s sent to %s", state and "on" or "off", ESPHomeClient.describeEntity(entity))
       end, function(error)
@@ -63,10 +70,10 @@ function SwitchEntity:discovered(entity)
       SetTimer("FinishPulse", pulseTime, function()
         log:debug("Turning off %s after pulse time of %dms", ESPHomeClient.describeEntity(entity), pulseTime)
         self.client
-          :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
-            key = entity.key,
-            state = false,
-          })
+          :callServiceMethod(
+            ESPHomeProtoSchema.RPC.APIConnection.switch_command,
+            ESPHomeClient.commandBody(entity, { state = false })
+          )
           :next(function()
             log:debug("Command off sent to %s", ESPHomeClient.describeEntity(entity))
           end, function(error)
@@ -90,10 +97,10 @@ function SwitchEntity:updated(entity, state)
     -- Convert the Control4 value (0/1 string) to a boolean for ESPHome
     local boolValue = toboolean(newValue)
     self.client
-      :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
-        key = entity.key,
-        state = boolValue,
-      })
+      :callServiceMethod(
+        ESPHomeProtoSchema.RPC.APIConnection.switch_command,
+        ESPHomeClient.commandBody(entity, { state = boolValue })
+      )
       :next(function()
         log:info("Commanded %s to %s", ESPHomeClient.describeEntity(entity), boolValue and "on" or "off")
       end, function(error)
@@ -107,7 +114,7 @@ function SwitchEntity:updated(entity, state)
   end)
 
   -- Update the relay proxy
-  local relayBinding = bindings:getDynamicBinding(self.TYPE, "switch_" .. entity.key)
+  local relayBinding = bindings:getDynamicBinding(self.TYPE, "switch_" .. ESPHomeClient.entityRef(entity))
   if relayBinding ~= nil then
     SendToProxy(relayBinding.bindingId, value and "CLOSED" or "OPENED", {}, "NOTIFY")
   end

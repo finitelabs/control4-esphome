@@ -29,19 +29,29 @@ end
 function ButtonEntity:discovered(entity)
   log:trace("ButtonEntity:discovered(%s)", entity)
   local bindingId = assert(
-    bindings:getOrAddDynamicBinding(self.TYPE, "button_" .. entity.key, "CONTROL", true, entity.name, "BUTTON_LINK")
+    bindings:getOrAddDynamicBinding(
+      self.TYPE,
+      "button_" .. ESPHomeClient.entityRef(entity),
+      "CONTROL",
+      true,
+      entity.name,
+      "BUTTON_LINK"
+    )
   ).bindingId
 
   -- Register button for programming commands
   buttonRegistry[entity.name] = function()
-    return self.client:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.button_command, { key = entity.key })
+    return self.client:callServiceMethod(
+      ESPHomeProtoSchema.RPC.APIConnection.button_command,
+      ESPHomeClient.commandBody(entity)
+    )
   end
 
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
     if strCommand == "DO_CLICK" then
       self.client
-        :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.button_command, { key = entity.key })
+        :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.button_command, ESPHomeClient.commandBody(entity))
         :next(function()
           log:debug("Command press sent to %s", ESPHomeClient.describeEntity(entity))
         end, function(error)
