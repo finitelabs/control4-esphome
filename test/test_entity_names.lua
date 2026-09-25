@@ -87,8 +87,8 @@ do
     { "ListEntitiesSensorResponse", { key = 9, name = "Status" } },
     { "ListEntitiesTextSensorResponse", { key = 9, name = "Status" } },
   })
-  T.eq("the one listed last keeps the name, the others are told apart by type", listed, {
-    ["binary_sensor:0:9"] = "Status (Binary Sensor) [9]",
+  T.eq("the one listed last keeps the name, one sharing its variable is told apart by type", listed, {
+    ["binary_sensor:0:9"] = "Status [9]",
     ["sensor:0:9"] = "Status (Sensor) [9]",
     ["text_sensor:0:9"] = "Status [9]",
   })
@@ -101,7 +101,7 @@ do
   })
   T.eq("unnamed entities of one device", listed, {
     ["binary_sensor:0:7"] = "Office Plug (Binary Sensor) [7]",
-    ["sensor:0:7"] = "Office Plug (Sensor) [7]",
+    ["sensor:0:7"] = "Office Plug [7]",
     ["switch:0:7"] = "Office Plug [7]",
   })
 end
@@ -216,6 +216,29 @@ do
     ["sensor:870733615:4"] = "State (Sensor) [4@870733615]",
     ["sensor:0:4"] = "State [4]",
     ["switch:0:3"] = "Kitchen [3]",
+  })
+end
+
+T.section("A same-named entity of another type keeps its name")
+do
+  -- Their variables, "Temperature" and "Temperature State", never collided.
+  local listed = list(PLUG, {
+    { "ListEntitiesSensorResponse", { key = 1, name = "Temperature" } },
+    { "ListEntitiesBinarySensorResponse", { key = 2, name = "Temperature" } },
+  })
+  T.eq("a sensor and a binary sensor", listed, {
+    ["sensor:0:1"] = "Temperature [1]",
+    ["binary_sensor:0:2"] = "Temperature [2]",
+  })
+
+  -- A button writes no variable, and Press Button looks up buttons alone.
+  listed = list(PLUG, {
+    { "ListEntitiesButtonResponse", { key = 3, name = "Doorbell" } },
+    { "ListEntitiesEventResponse", { key = 4, name = "Doorbell" } },
+  })
+  T.eq("a button and an event", listed, {
+    ["button:0:3"] = "Doorbell [3]",
+    ["event:0:4"] = "Doorbell [4]",
   })
 end
 

@@ -616,11 +616,28 @@ function ESPHomeClient:_nameEntities(listed)
     table.insert(order[rank], entity)
   end
 
-  -- Handlers name an entity's variables after it with one of these suffixes.
-  local suffixes = { "", " State", " Open", " Closed", " Last Event" }
+  -- The variables each type's handler names after an entity; other types write none.
+  local suffixes = {
+    binary_sensor = { " State" },
+    cover = { " State", " Open", " Closed" },
+    datetime_date = { "" },
+    datetime_datetime = { "" },
+    datetime_time = { "" },
+    event = { " Last Event" },
+    number = { "" },
+    select = { "" },
+    sensor = { "" },
+    switch = { " State" },
+    text = { "" },
+    text_sensor = { "" },
+  }
   local names, variables, refs = {}, {}, {}
-  local function isTaken(name)
-    for _, suffix in ipairs(suffixes) do
+  -- A name is taken for an entity when its type has it, or when one of its variables is claimed.
+  local function isTaken(entityType, name)
+    if names[entityType .. ":" .. name] then
+      return true
+    end
+    for _, suffix in ipairs(suffixes[entityType] or {}) do
       if variables[name .. suffix] then
         return true
       end
@@ -645,18 +662,18 @@ function ESPHomeClient:_nameEntities(listed)
     if name == nil then
       return
     end
-    if names[name] then
+    if isTaken(entity.entity_type, name) then
       if (entity.device_id or 0) ~= 0 and device ~= nil and name:sub(1, #device) ~= device then
         name = device .. " " .. name
       end
-      if isTaken(name) then
+      if isTaken(entity.entity_type, name) then
         local label =
           entity.entity_type:gsub("^datetime_", ""):gsub("_", " "):gsub("^%l", string.upper):gsub(" %l", string.upper)
         name = string.format("%s (%s)", entity.name, label)
       end
     end
-    names[name] = true
-    for _, suffix in ipairs(suffixes) do
+    names[entity.entity_type .. ":" .. name] = true
+    for _, suffix in ipairs(suffixes[entity.entity_type] or {}) do
       variables[name .. suffix] = true
     end
     entity.name = name
