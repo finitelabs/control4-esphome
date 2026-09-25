@@ -1,5 +1,16 @@
--- A sub-device entity's commands carry its device_id, which ESPHome 2025.8+ needs to find it;
--- a main-device command carries none.
+-- Tests that a command to an entity on an ESPHome sub-device carries its
+-- device_id.
+--
+-- ESPHome 2025.8.0 and later, built with sub-devices, looks a commanded entity
+-- up by key and device_id, and drops a command whose device_id matches no
+-- entity. device_id defaults to 0, the main device, so a command without it
+-- never reaches a sub-device entity. A main-device command must stay as it was,
+-- with no device_id on the wire.
+--
+-- Run from the driver root:
+--   make test
+-- or:
+--   ./test/run_test.sh test_sub_device_commands.lua
 
 local T = require("testlib")
 local E = require("esphome_fixtures")

@@ -18,7 +18,8 @@ local function bindingKey(entity, eventType)
   return "event_" .. ESPHomeClient.entityRef(entity) .. ":" .. eventType
 end
 
---- Declare one of an entity's events, renaming it in place after a rename on the device.
+--- Declare one of an entity's events, or rename it in place if the entity was
+--- renamed on the device.
 --- @param entity table<string, any> The entity data received from the ESPHome client.
 --- @param eventType string The event type name declared by the entity.
 local function declareEvent(entity, eventType)
@@ -27,7 +28,7 @@ local function declareEvent(entity, eventType)
   local description = entity.name .. " " .. eventType .. " event"
   local event = events:getOrAddEvent(namespace, eventType, name, description)
   if event ~= nil and event.name ~= name then
-    -- lib.events only adds; C4:AddEvent on a known id updates that event.
+    -- lib.events only adds; AddEvent on a known id updates that event (DriverWorks usage note).
     local all = events:getEvents()
     all[namespace][eventType].name = name
     all[namespace][eventType].description = description

@@ -1,5 +1,15 @@
--- An event entity's Programming events are declared again on load and follow a rename that
--- keeps the key (capitals, spaces for underscores), keeping their ids.
+-- Tests the Programming events an ESPHome event entity declares: they are
+-- declared again when the driver loads, and they follow the entity's name,
+-- keeping their ids so programming stays attached.
+--
+-- ESPHome derives the key from the name, so a rename that keeps the key
+-- (capitals, spaces for underscores) reaches the driver as the same entity
+-- under a new name.
+--
+-- Run from the driver root:
+--   make test
+-- or:
+--   ./test/run_test.sh test_event_names.lua
 
 local T = require("testlib")
 local E = require("esphome_fixtures")

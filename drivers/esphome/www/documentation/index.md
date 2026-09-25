@@ -575,22 +575,28 @@ the matching read-only Device Info properties.
 
 > **Note:** `{name}` is replaced with the entity's display name from ESPHome
 > (e.g., a sensor named "Temperature" creates a variable called "Temperature").
-> An entity with no name of its own, such as a relay configured with
-> `name: None`, takes its ESPHome sub-device's name, otherwise the device's
-> friendly name or node name, as Home Assistant shows it: the unnamed relay of
-> "Office Plug" creates the variable "Office Plug State" and the connection
-> "Office Plug".
+> An entity with no name of its own, such as a smart plug's relay configured
+> with `name: None`, takes the name of the ESPHome sub-device it belongs to,
+> otherwise the device's friendly name, as Home Assistant shows it. A device
+> with no friendly name gives its node name as ESPHome reports it. The unnamed
+> relay of a plug called "Office Plug" creates the variable "Office Plug State"
+> and the connection "Office Plug". Where an entity with a name of its own has
+> that name too, the next note says which one keeps it; an unnamed entity that
+> gives way gets its entity type after the name, as in "Office Plug (Switch)".
 
-> **Note:** When two entities would create the same variable, Press Button or
-> Set Select entry, or two connections of the same kind with one name (for
-> example a sensor and a text sensor both called "Status", or "Temperature" on
-> the main device and on a sub-device), one keeps the name and each other one is
-> renamed: with its sub-device's or device's name in front when it is on another
-> device ("Kitchen Temperature"), otherwise, or when it has no name of its own,
-> with its entity type after it ("Status (Sensor)", "Office Plug (Switch)").
-> Usually the entity ESPHome lists last keeps the name, or the main device's
-> entity of that type when the last one is on a sub-device. A name, once given,
-> stays while the device lists the entity; Reset Driver chooses the names again.
+> **Note:** Two entities can have the same name, for example a sensor and a text
+> sensor both called "Status", or a "Temperature" sensor on the main device and
+> on an ESPHome sub-device. Where they would create the same variable, the same
+> Press Button or Set Select entry, or two connections of the same kind with one
+> name, one of them keeps the name and each other one is renamed: with its
+> device's or sub-device's name in front when it is on another device ("Kitchen
+> Temperature"), otherwise with its entity type after it ("Status (Sensor)").
+> Usually the entity ESPHome lists last keeps the name or, when that one is on a
+> sub-device, the entity of its type on the main device does. Connections of
+> different kinds, such as a light and a switch both called "Lamp", keep the
+> same name. An entity keeps the name it was given for as long as the device
+> lists it, even when another entity with the same name is added later. Reset
+> Driver chooses the names again.
 
 ### Bindings by Entity Type
 
