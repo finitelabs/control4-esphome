@@ -35,6 +35,7 @@ function NumberEntity:updated(entity, state)
     self.client
       :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.number_command, {
         key = entity.key,
+        device_id = entity.device_id,
         state = numValue,
       })
       :next(function()

@@ -47,6 +47,7 @@ function SwitchEntity:discovered(entity)
     response = self.client
       :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
         key = entity.key,
+        device_id = entity.device_id,
         state = state,
       })
       :next(function()
@@ -65,6 +66,7 @@ function SwitchEntity:discovered(entity)
         self.client
           :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
             key = entity.key,
+            device_id = entity.device_id,
             state = false,
           })
           :next(function()
@@ -92,6 +94,7 @@ function SwitchEntity:updated(entity, state)
     self.client
       :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
         key = entity.key,
+        device_id = entity.device_id,
         state = boolValue,
       })
       :next(function()

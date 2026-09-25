@@ -591,14 +591,6 @@ function ESPHomeClient:getDeviceName(deviceId)
   return name
 end
 
---- Press a button entity by its key.
---- @param key number The button entity key
---- @return Deferred<nil, string> result A promise that resolves when the button is pressed.
-function ESPHomeClient:pressButton(key)
-  log:trace("ESPHomeClient:pressButton(%s)", key)
-  return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.button_command, { key = key })
-end
-
 --- Give each entity a name no other entity has, and the `ref` its connections and
 --- events are keyed by. The entity the driver kept when it stored entities by key
 --- alone keeps its name and its key as `ref`, so existing installs stay wired to it.

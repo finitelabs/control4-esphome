@@ -157,6 +157,7 @@ function CoverEntity:discovered(entity)
       self.client
         :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.cover_command, {
           key = entity.key,
+          device_id = entity.device_id,
           has_legacy_command = legacyCommand ~= nil,
           legacy_command = legacyCommand,
           has_position = positionCommand ~= nil,

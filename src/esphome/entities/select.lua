@@ -4,8 +4,8 @@ local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 
 --- Registry of discovered select entities for programming commands.
---- Maps display name to { key = number, options = string[], client = ESPHomeClient }
---- @type table<string, { key: integer, options: string[], client: ESPHomeClient }>
+--- Maps display name to { key = number, device_id = number, options = string[], client = ESPHomeClient }
+--- @type table<string, { key: integer, device_id: integer?, options: string[], client: ESPHomeClient }>
 local selectRegistry = {}
 
 --- @class SelectEntity:Entity
@@ -32,6 +32,7 @@ function SelectEntity:discovered(entity)
   -- Register select for programming commands
   selectRegistry[entity.name] = {
     key = entity.key,
+    device_id = entity.device_id,
     options = entity.options or {},
     client = self.client,
   }
@@ -67,6 +68,7 @@ function SelectEntity:updated(entity, state)
     self.client
       :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.select_command, {
         key = entity.key,
+        device_id = entity.device_id,
         state = newValue,
       })
       :next(function()
@@ -154,6 +156,7 @@ function EC.Set_Select(params)
   entry.client
     :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.select_command, {
       key = entry.key,
+      device_id = entry.device_id,
       state = optionValue,
     })
     :next(function()

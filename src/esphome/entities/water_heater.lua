@@ -62,6 +62,7 @@ function WaterHeaterEntity:discovered(entity)
         or ESPHomeProtoSchema.RPC.APIConnection.water_heater_command
       local body = DeserializeSafe(Select(tParams, "body")) or {}
       body.key = body.key or entity.key
+      body.device_id = body.device_id or entity.device_id
       self.client:callServiceMethod(command, body):next(function()
         log:debug(
           "Method %s.%s(%s) called by entity %s",

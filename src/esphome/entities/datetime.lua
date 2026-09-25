@@ -58,6 +58,7 @@ function DateTimeEntity:updated(entity, state)
     self.client
       :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.datetime_command, {
         key = entity.key,
+        device_id = entity.device_id,
         epoch_seconds = epoch,
       })
       :next(function()
