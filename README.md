@@ -915,6 +915,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed event, BTHome and SwitchBot button links not activating Advanced
+  Lighting scenes; loads bound to them already worked
 - Fixed entities with no name of their own, such as a relay configured with
   `name: None`, being left out or given a blank name; they now take their
   device's name
