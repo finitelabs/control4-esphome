@@ -573,8 +573,10 @@ the matching read-only Device Info properties.
 | Time          | `{name}`            | STRING | Writable, formatted as HH:MM:SS            |
 | Water Heater  | (none)              | -      | State via Thermostat proxy                 |
 
-> **Note:** `{name}` is replaced with the entity's display name from ESPHome
-> (e.g., a sensor named "Temperature" creates a variable called "Temperature").
+> **Note:** `{name}` is the entity's ESPHome name. An entity with no name uses
+> its device's name. When two entities would get the same name, the others are
+> told apart by their sub-device or their type (e.g., "Kitchen Temperature" or
+> "Status (Sensor)").
 
 ### Bindings by Entity Type
 
