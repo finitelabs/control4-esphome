@@ -152,8 +152,7 @@ function ESPHomeClient.entityTypeOf(schema)
   return Select(ESPHomeClient.EntityType, (Select(schema, "options", "ifdef") or ""):match("^USE_(.+)$"))
 end
 
---- Identifies one entity of a device. ESPHome makes a key unique only within one
---- type on one device (sub-device), as it is the hash of the entity's name.
+--- A device-wide entity id: ESPHome keys are name hashes, unique only per type per (sub-)device.
 --- @param entityType string|nil
 --- @param deviceId integer|nil The entity's device_id; nil is the main device.
 --- @param key integer
@@ -162,16 +161,14 @@ function ESPHomeClient.entityId(entityType, deviceId, key)
   return string.format("%s:%s:%s", tostring(entityType), tostring(deviceId or 0), tostring(key))
 end
 
---- The part of an entity's connection, event and other keys that tells it apart
---- from the others of its type; see esphome/entity_registry.lua.
+--- The entity's part of its binding and event keys, assigned by esphome/entity_registry.lua.
 --- @param entity table<string, any>
 --- @return string ref
 function ESPHomeClient.entityRef(entity)
   return entity.ref or tostring(entity.key)
 end
 
---- The body of a command to an entity. ESPHome 2025.8+ finds a sub-device entity only by its
---- device_id; a main-device command is left without one, as it was.
+--- A command body for `entity`; ESPHome 2025.8+ reaches a sub-device entity only by its device_id.
 --- @param entity table<string, any>
 --- @param body? table<string, any> The command's other fields.
 --- @return table<string, any> body
@@ -636,8 +633,7 @@ function ESPHomeClient.entityTypeLabel(entityType)
     end))
 end
 
---- The name to show an entity under. An entity with no name of its own takes its
---- device's, as Home Assistant shows it: the sub-device's, else the device's.
+--- The entity's display name; an unnamed one takes its sub-device's, else its device's, as Home Assistant does.
 --- @param entity table<string, any> A ListEntities*Response message with its entity_type.
 --- @return string name
 function ESPHomeClient:getEntityName(entity)
@@ -653,7 +649,7 @@ function ESPHomeClient:getEntityName(entity)
 end
 
 --- List entities from the ESPHome device.
---- @return Deferred<table[], string> result A promise that resolves with the entities in the order the device lists them.
+--- @return Deferred<table[], string> result Resolves with the entities in listing order.
 function ESPHomeClient:listEntities()
   log:trace("ESPHomeClient:listEntities()")
   --- @type Deferred<table[], string>

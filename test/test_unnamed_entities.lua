@@ -1,15 +1,5 @@
--- Tests that an ESPHome entity with no name of its own is named after its
--- device, as Home Assistant names it.
---
--- ESPHome sends such an entity with the name field left off (2026.3.x and
--- older) or empty (2026.4.0 on). The decoder fills no proto3 defaults, so the
--- first arrives as nil; every handler must still create its variables,
--- connections, events and command entries.
---
--- Run from the driver root:
---   make test
--- or:
---   ./test/run_test.sh test_unnamed_entities.lua
+-- An entity with no name of its own is named after its device, as Home Assistant does. ESPHome
+-- leaves the name off up to 2026.3.x (decoded as nil) and sends it empty from 2026.4.0.
 
 local T = require("testlib")
 local E = require("esphome_fixtures")
@@ -49,8 +39,7 @@ end
 
 T.section("ESPHome's own bytes for an unnamed switch, before and after 2026.4.0")
 do
-  -- api_pb2.cpp encodes ListEntitiesSwitchResponse without field 3 up to 2026.3.3
-  -- and with an empty field 3 (and field 1) from 2026.4.0.
+  -- api_pb2.cpp: no field 3 up to 2026.3.3; empty fields 1 and 3 from 2026.4.0.
   local wire = {
     ["2026.3.3"] = "15 48626f01",
     ["2026.4.0"] = "0a00 15 48626f01 1a00",
@@ -343,7 +332,7 @@ end
 
 T.section("A connection saved with no name is renamed in place")
 do
-  -- What the driver saved for this switch on 2026.3.x firmware before the fix.
+  -- A binding saved for this switch from 2026.3.x firmware, with no display name.
   E.wipe()
   E.boot()
   require("lib.persist"):set("ConnectionBindings", {

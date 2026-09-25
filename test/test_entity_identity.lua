@@ -1,17 +1,5 @@
--- Tests that entities sharing an ESPHome key stay apart.
---
--- ESPHome makes a key unique only within one platform on one device: it is the
--- hash of the entity's name, so a sensor and a text sensor both named "Status",
--- every unnamed entity of a device, and "Temperature" on two sub-devices all
--- share one. Each must keep its own state, connections and variables. When two
--- would get the same name in Control4, the one ESPHome lists last keeps it, or
--- its type's twin on the main device, which that one's commands reached, and the
--- others are told apart.
---
--- Run from the driver root:
---   make test
--- or:
---   ./test/run_test.sh test_entity_identity.lua
+-- Entities sharing an ESPHome key stay apart. A key is a hash of the name, unique only per
+-- platform per device, so a sensor and a text sensor both named "Status" share one.
 
 local T = require("testlib")
 local E = require("esphome_fixtures")
@@ -103,7 +91,7 @@ do
   T.eq("relay connection", relay and relay.class, "RELAY")
   T.eq("contact connection", (E.bindingNamed("Office Plug (Binary Sensor)") or {}).class, "CONTACT_SENSOR")
 
-  -- A float 0 is left off the wire; the relay used to take that for "off".
+  -- Key only: ESPHome leaves a float 0 off the wire.
   E.sent = {}
   E.send({ { message = "SensorStateResponse", payload = E.unhex("0d48626f01") } })
   T.eq("a power reading does not reach the relay", E.sentTo(relay.id), {})
@@ -161,8 +149,7 @@ end
 
 T.section("An install from before: what it had stays where it was")
 do
-  -- What the driver kept for TEMPERATURES when entities were stored by key
-  -- alone: one connection for all three, with a thermostat connected.
+  -- The key-only store's setup for TEMPERATURES: one connection for all three, with a thermostat bound.
   E.wipe()
   E.boot()
   require("lib.persist"):set("ConnectionBindings", {
@@ -229,8 +216,7 @@ end
 T.section("Twins with one on the main device: what was set up still reaches the main device")
 for _, mainFirst in ipairs({ true, false }) do
   local label = mainFirst and "main device listed first" or "main device listed last"
-  -- What the driver kept when entities were stored by key alone: one connection,
-  -- event and variable per key, whose commands reached the main device.
+  -- The key-only store's setup: one connection, event and variable per key, commanding the main device.
   E.wipe()
   E.boot()
   require("lib.persist"):set("ConnectionBindings", {
@@ -354,8 +340,7 @@ end
 
 T.section("Entities with different keys keep their own names")
 do
-  -- Both were set up before: they share the value "Door Open", but renaming
-  -- either would move a named entity's variable.
+  -- They share the value "Door Open", but renaming either would move a named entity's variable.
   E.wipe()
   E.boot()
   E.refresh({

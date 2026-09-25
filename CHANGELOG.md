@@ -22,31 +22,22 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
-- Fixed an ESPHome entity with no name of its own, such as a smart plug's relay
-  configured with `name: None`: on ESPHome 2026.3 and older it got no variables,
-  events or Press Button and Set Select entries, and on 2026.4 and newer its
-  variables were missing the name, as in " State"; it now takes the name of its
-  sub-device or device, as Home Assistant shows it, with its entity type after
-  it where another entity keeps that name
+- Fixed ESPHome entities with no name of their own, such as a relay configured
+  with `name: None`, being left out of variables, events and commands or given a
+  blank name such as " State"; they now take their sub-device's or device's
+  name, as Home Assistant shows them
 - Fixed entities that share an ESPHome key, such as a sensor and a text sensor
-  with the same name, the unnamed entities of one device, or entities with the
-  same name on the main device and a sub-device: only the one ESPHome listed
-  last was set up, and it took the state of all of them, so a variable could
-  show another entity's reading and a relay could switch off on a power reading
-  of 0; each now gets its own variables and connections. What was already set up
-  stays with the entity ESPHome lists last or, when that one is on a sub-device,
-  with the entity of its type on the main device, which its commands reached;
-  where several would share a name, all but one are renamed as the Programming
-  Reference describes
+  with the same name, being set up as one entity that took the state of all of
+  them, so a relay could switch off on a power reading of 0. Each now gets its
+  own variables and connections; existing ones stay with the entity their
+  commands reached, and clashing names are resolved as the Programming Reference
+  describes
 - Fixed entities on an ESPHome sub-device ignoring every command from Control4
-  on ESPHome 2025.8 and newer while still reporting their state; switches,
-  buttons, covers, selects, numbers, text, dates and times, and lights, fans,
-  locks, thermostats and water heaters on a sub-device can now be controlled
-- Fixed the Programming events of an ESPHome event entity not being declared
-  again when the driver loads, and keeping their old name after a rename on the
-  device that keeps the entity's ESPHome key, such as a change of capitals or of
-  spaces for underscores; they now load with the driver and follow such a rename
-  under the same event
+  on ESPHome 2025.8 and newer
+- Fixed an event entity's Programming events not being declared when the driver
+  loads, and keeping their old name after a rename on the device that keeps its
+  ESPHome key, such as a change of capitals; they now load with the driver and
+  follow the rename
 
 ## v20260922 - 2026-09-22
 
