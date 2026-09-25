@@ -154,9 +154,9 @@ local nextKey = 7700
 --- @return table|nil state, boolean sent
 local function drive(Entity, state)
   nextKey = nextKey + 1
-  local entity = { key = nextKey, is_water_heater = true, name = "WH" }
+  local entity = { key = nextKey, ref = tostring(nextKey), is_water_heater = true, name = "WH" }
   assert(
-    bindings:getOrAddDynamicBinding(Entity.TYPE, "water_heater_" .. entity.key, "PROXY", true, "WH", "ESPHOME_CLIMATE")
+    bindings:getOrAddDynamicBinding(Entity.TYPE, "water_heater_" .. entity.ref, "PROXY", true, "WH", "ESPHOME_CLIMATE")
   )
   state.key = entity.key
   sends = {}
@@ -164,7 +164,7 @@ local function drive(Entity, state)
     getDeviceName = function()
       return "dev"
     end,
-  }):updated(entity, state, { name = "WaterHeaterStateResponse" })
+  }):updated(entity, state)
   for i = #sends, 1, -1 do
     if sends[i].command == "UPDATE_STATE" then
       return DeserializeSafe(Select(sends[i].params, "state")), true

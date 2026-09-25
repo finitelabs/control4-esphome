@@ -50,6 +50,7 @@ local function stateFor(item, position)
   nextKey = nextKey + 1
   local entity = {
     key = nextKey,
+    ref = tostring(nextKey),
     name = "Garage Door " .. nextKey,
     supports_position = true,
   }

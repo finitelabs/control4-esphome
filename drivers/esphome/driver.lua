@@ -625,7 +625,7 @@ function RefreshStatus()
             return
           end
 
-          local entity = Select(entities, tostring(key))
+          local entity = Select(entities, ESPHomeClient.getEntityId(messageSchema, state))
           if IsEmpty(Select(entity, "entity_type")) then
             log:warn("Received state update for unknown entity with key %s", state.key)
             return
@@ -639,7 +639,7 @@ function RefreshStatus()
           if Entities[entity.entity_type] ~= nil and type(Entities[entity.entity_type].updated) == "function" then
             log:debug("Calling Entities['%s']:updated(%s, %s) handler", entity.entity_type, entity, state)
             local success, ret = xpcall(function()
-              Entities[entity.entity_type]:updated(entity, state, messageSchema)
+              Entities[entity.entity_type]:updated(entity, state)
             end, debug.traceback)
             local errMessage = ""
             if not success then
