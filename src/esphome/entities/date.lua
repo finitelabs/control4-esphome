@@ -42,10 +42,12 @@ function DateEntity:updated(entity, state)
       return
     end
     self.client
-      :callServiceMethod(
-        ESPHomeProtoSchema.RPC.APIConnection.date_command,
-        ESPHomeClient.commandBody(entity, { year = tonumber(year), month = tonumber(month), day = tonumber(day) })
-      )
+      :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.date_command, {
+        key = entity.key,
+        year = tonumber(year),
+        month = tonumber(month),
+        day = tonumber(day),
+      })
       :next(function()
         log:info("Date updated to %s for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)

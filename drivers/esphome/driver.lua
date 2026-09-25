@@ -25,7 +25,6 @@ require("drivers-common-public.global.timer")
 
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
-local events = require("lib.events")
 --#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
 --#endif
@@ -33,7 +32,6 @@ local values = require("lib.values")
 
 local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
-local entityRegistry = require("esphome.entity_registry")
 local LocalScannerNode = require("esphome.ble.local_scanner_node")
 
 local bleScanner = require("esphome.ble.scanner")
@@ -142,9 +140,6 @@ function OnDriverLateInit()
   if not CheckMinimumVersion("Driver Status") then
     return
   end
-  -- Restore persisted events (C4:AddEvent is unavailable before OnDriverLateInit)
-  events:restoreEvents()
-
   -- Firmware version is usually an entity and will be picked up by state updates
   C4:SetPropertyAttribs("Firmware Version", constants.HIDE_PROPERTY)
 
@@ -596,10 +591,9 @@ function RefreshStatus()
       :next(function()
         return esphome:listEntities()
       end)
-      :next(function(list)
-        local entities, byId = entityRegistry:assign(list, esphome)
+      :next(function(entities)
         -- Call registered handler for each entity type
-        for _, entity in ipairs(entities) do
+        for _, entity in pairs(entities) do
           if Entities[entity.entity_type] ~= nil and type(Entities[entity.entity_type].discovered) == "function" then
             log:debug("Calling Entities['%s']:discovered(%s) handler", entity.entity_type, entity)
             local success, ret = xpcall(function()
@@ -617,7 +611,7 @@ function RefreshStatus()
           end
         end
 
-        return byId
+        return entities
       end)
       :next(function(entities)
         return esphome:subscribeStates(function(state, messageSchema)
@@ -631,10 +625,9 @@ function RefreshStatus()
             return
           end
 
-          local entityType = ESPHomeClient.entityTypeOf(messageSchema)
-          local entity = Select(entities, ESPHomeClient.entityId(entityType, Select(state, "device_id"), key))
+          local entity = Select(entities, tostring(key))
           if IsEmpty(Select(entity, "entity_type")) then
-            log:warn("Received %s state update for unknown entity with key %s", entityType, state.key)
+            log:warn("Received state update for unknown entity with key %s", state.key)
             return
           end
           --- @cast entity -nil
@@ -646,7 +639,7 @@ function RefreshStatus()
           if Entities[entity.entity_type] ~= nil and type(Entities[entity.entity_type].updated) == "function" then
             log:debug("Calling Entities['%s']:updated(%s, %s) handler", entity.entity_type, entity, state)
             local success, ret = xpcall(function()
-              Entities[entity.entity_type]:updated(entity, state)
+              Entities[entity.entity_type]:updated(entity, state, messageSchema)
             end, debug.traceback)
             local errMessage = ""
             if not success then
@@ -722,9 +715,6 @@ function EC.Reset_Driver(params)
 
   -- Reset all values (variables and properties)
   values:reset()
-
-  -- Let the next listing choose every entity's name afresh
-  entityRegistry:reset()
 
   -- Clear in-memory notify memos so recreated bindings receive the next state
   CoverEntity.clearNotifiedState()
