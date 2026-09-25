@@ -242,6 +242,43 @@ do
   })
 end
 
+T.section("Twins that write no variable are told apart too")
+do
+  -- Press Button finds a button by its name alone.
+  local listed = list({
+    name = "multisensor",
+    devices = { { device_id = KITCHEN, name = "Kitchen" }, { device_id = BEDROOM, name = "Bedroom" } },
+  }, {
+    { "ListEntitiesButtonResponse", { key = 11, name = "Restart", device_id = BEDROOM } },
+    { "ListEntitiesButtonResponse", { key = 11, name = "Restart", device_id = KITCHEN } },
+  })
+  T.eq("buttons on sub-devices", listed, {
+    ["button:870733615:11"] = "Restart [11]",
+    ["button:385580919:11"] = "Bedroom Restart [11@385580919]",
+  })
+
+  listed = list(PLUG, {
+    { "ListEntitiesLightResponse", { key = 12, name = "Lamp" } },
+    { "ListEntitiesLightResponse", { key = 13, name = "Lamp" } },
+  })
+  T.eq("lights on the main device", listed, {
+    ["light:0:12"] = "Lamp [12]",
+    ["light:0:13"] = "Lamp (Light) [13]",
+  })
+end
+
+T.section("A name is told apart when another entity already writes its variable")
+do
+  local listed = list(PLUG, {
+    { "ListEntitiesSensorResponse", { key = 14, name = "Doorbell Last Event" } },
+    { "ListEntitiesEventResponse", { key = 15, name = "Doorbell" } },
+  })
+  T.eq("an event's Last Event", listed, {
+    ["sensor:0:14"] = "Doorbell Last Event [14]",
+    ["event:0:15"] = "Doorbell (Event) [15]",
+  })
+end
+
 T.section("A state response finds its own entity")
 do
   local _, entities = list(PLUG, {
