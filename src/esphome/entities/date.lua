@@ -44,6 +44,7 @@ function DateEntity:updated(entity, state)
     self.client
       :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.date_command, {
         key = entity.key,
+        device_id = entity.device_id,
         year = tonumber(year),
         month = tonumber(month),
         day = tonumber(day),

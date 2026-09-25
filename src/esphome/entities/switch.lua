@@ -25,7 +25,7 @@ end
 function SwitchEntity:discovered(entity)
   log:trace("SwitchEntity:discovered(%s)", entity)
   local bindingId = assert(
-    bindings:getOrAddDynamicBinding(self.TYPE, "switch_" .. entity.key, "PROXY", true, entity.name, "RELAY")
+    bindings:getOrAddDynamicBinding(self.TYPE, "switch_" .. entity.ref, "PROXY", true, entity.name, "RELAY")
   ).bindingId
 
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
@@ -47,6 +47,7 @@ function SwitchEntity:discovered(entity)
     response = self.client
       :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
         key = entity.key,
+        device_id = entity.device_id,
         state = state,
       })
       :next(function()
@@ -65,6 +66,7 @@ function SwitchEntity:discovered(entity)
         self.client
           :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
             key = entity.key,
+            device_id = entity.device_id,
             state = false,
           })
           :next(function()
@@ -92,6 +94,7 @@ function SwitchEntity:updated(entity, state)
     self.client
       :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
         key = entity.key,
+        device_id = entity.device_id,
         state = boolValue,
       })
       :next(function()
@@ -107,7 +110,7 @@ function SwitchEntity:updated(entity, state)
   end)
 
   -- Update the relay proxy
-  local relayBinding = bindings:getDynamicBinding(self.TYPE, "switch_" .. entity.key)
+  local relayBinding = bindings:getDynamicBinding(self.TYPE, "switch_" .. entity.ref)
   if relayBinding ~= nil then
     SendToProxy(relayBinding.bindingId, value and "CLOSED" or "OPENED", {}, "NOTIFY")
   end

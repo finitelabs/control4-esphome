@@ -29,6 +29,7 @@ function TextEntity:updated(entity, state)
     self.client
       :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.text_command, {
         key = entity.key,
+        device_id = entity.device_id,
         state = newValue or "",
       })
       :next(function()

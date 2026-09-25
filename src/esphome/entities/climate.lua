@@ -23,17 +23,8 @@ end
 --- @return void
 function ClimateEntity:discovered(entity)
   log:trace("ClimateEntity:discovered(%s)", entity)
-  local displayName = entity.name
-  if IsEmpty(displayName) then
-    -- An empty name marks the device's main entity; show it under the device
-    -- name, the way Home Assistant does.
-    displayName = self.client:getDeviceName()
-  end
-  if IsEmpty(displayName) then
-    displayName = (entity.entity_type or "climate"):gsub("^%l", string.upper) .. " " .. entity.key
-  end
   local bindingId = assert(
-    bindings:getOrAddDynamicBinding(self.TYPE, "climate_" .. entity.key, "PROXY", true, displayName, "ESPHOME_CLIMATE")
+    bindings:getOrAddDynamicBinding(self.TYPE, "climate_" .. entity.ref, "PROXY", true, entity.name, "ESPHOME_CLIMATE")
   ).bindingId
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
@@ -54,6 +45,7 @@ function ClimateEntity:discovered(entity)
         or ESPHomeProtoSchema.RPC.APIConnection.climate_command
       local body = DeserializeSafe(Select(tParams, "body")) or {}
       body.key = body.key or entity.key
+      body.device_id = body.device_id or entity.device_id
       self.client:callServiceMethod(command, body):next(function()
         log:debug(
           "Method %s.%s(%s) called by entity %s",
@@ -111,7 +103,7 @@ end
 --- @return void
 function ClimateEntity:updated(entity, state)
   log:trace("ClimateEntity:updated(%s, %s)", entity, state)
-  local binding = bindings:getDynamicBinding(self.TYPE, "climate_" .. entity.key)
+  local binding = bindings:getDynamicBinding(self.TYPE, "climate_" .. entity.ref)
   if binding ~= nil then
     SendToProxy(binding.bindingId, "UPDATE_STATE", {
       entity = SerializeSafe(entity),

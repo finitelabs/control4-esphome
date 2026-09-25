@@ -77,7 +77,7 @@ end
 --- @param entity table<string, any> The entity data received from the ESPHome client.
 --- @return string key The dynamic binding key.
 local function getBindingKey(entity)
-  return "sensor_" .. entity.key
+  return "sensor_" .. entity.ref
 end
 
 --- Look up the binding configuration for a sensor entity.

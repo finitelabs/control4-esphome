@@ -55,6 +55,7 @@ local function sensorEntity(name, overrides)
   nextKey = nextKey + 1
   local entity = {
     key = nextKey,
+    ref = tostring(nextKey),
     name = name,
     device_class = "temperature",
     unit_of_measurement = "°C",

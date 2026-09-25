@@ -24,7 +24,7 @@ end
 function LockEntity:discovered(entity)
   log:trace("LockEntity:discovered(%s)", entity)
   local bindingId = assert(
-    bindings:getOrAddDynamicBinding(self.TYPE, "lock_" .. entity.key, "PROXY", true, entity.name, "ESPHOME_LOCK")
+    bindings:getOrAddDynamicBinding(self.TYPE, "lock_" .. entity.ref, "PROXY", true, entity.name, "ESPHOME_LOCK")
   ).bindingId
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
@@ -36,6 +36,7 @@ function LockEntity:discovered(entity)
         or ESPHomeProtoSchema.RPC.APIConnection.lock_command
       local body = DeserializeSafe(Select(tParams, "body")) or {}
       body.key = body.key or entity.key
+      body.device_id = body.device_id or entity.device_id
       self.client:callServiceMethod(command, body):next(function()
         log:debug(
           "Method %s.%s(%s) called by entity %s",
@@ -74,7 +75,7 @@ end
 --- @return void
 function LockEntity:updated(entity, state)
   log:trace("LockEntity:updated(%s, %s)", entity, state)
-  local binding = bindings:getDynamicBinding(self.TYPE, "lock_" .. entity.key)
+  local binding = bindings:getDynamicBinding(self.TYPE, "lock_" .. entity.ref)
   if binding ~= nil then
     SendToProxy(binding.bindingId, "UPDATE_STATE", {
       entity = SerializeSafe(entity),

@@ -23,7 +23,7 @@ function C4:SendToProxy(idBinding, strCommand)
   sent[#sent + 1] = tostring(idBinding) .. ":" .. tostring(strCommand)
 end
 
-local entity = { key = 42, name = "Touch", event_types = { "press", "long_press" } }
+local entity = { key = 42, ref = "42", name = "Touch", event_types = { "press", "long_press" } }
 local instance = EventEntity:new({})
 instance:discovered(entity)
 

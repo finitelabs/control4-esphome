@@ -466,8 +466,11 @@ the matching read-only Device Info properties.
 | Time          | `{name}`            | STRING | Writable, formatted as HH:MM:SS            |
 | Water Heater  | (none)              | -      | State via Thermostat proxy                 |
 
-> **Note:** `{name}` is replaced with the entity's display name from ESPHome
-> (e.g., a sensor named "Temperature" creates a variable called "Temperature").
+> **Note:** `{name}` is the entity's ESPHome name. An entity with no name uses
+> its device's name. Entities of different types may share a name. When two of
+> one type share a name, or two would write the same variable, the others are
+> told apart by their sub-device or their type (e.g., "Kitchen Temperature" or
+> "Status (Sensor)").
 
 ### Bindings by Entity Type
 
@@ -907,6 +910,21 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ### Removed
 - Removed
 -->
+
+## Unreleased
+
+### Fixed
+
+- Fixed entities with no name of their own, such as a relay configured with
+  `name: None`, being left out or given a blank name; they now take their
+  device's name
+- Fixed entities that share an ESPHome key, such as a sensor and a text sensor
+  with the same name, being set up as one entity; each now gets its own
+  variables and connections
+- Fixed commands to entities on an ESPHome sub-device being ignored on ESPHome
+  2025.8 and newer
+- Fixed an event entity's Programming events not being declared when the driver
+  loads, or keeping their old name after a rename
 
 ## v20260922 - 2026-09-22
 

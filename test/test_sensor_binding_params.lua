@@ -68,6 +68,7 @@ T.section("a temperature sensor reports every key convention")
 
 local celsiusEntity = {
   key = 1,
+  ref = "1",
   name = "Hall Temp",
   device_class = "temperature",
   unit_of_measurement = "°C",
@@ -94,6 +95,7 @@ T.section("an entity reporting Fahrenheit keeps VALUE in its own scale")
 -- the number every already-bound consumer reads, so CELSIUS is added alongside.
 local fahrenheitEntity = {
   key = 2,
+  ref = "2",
   name = "Attic Temp",
   device_class = "temperature",
   unit_of_measurement = "°F",
@@ -114,6 +116,7 @@ T.section("a Kelvin entity is converted too")
 
 local kelvinEntity = {
   key = 3,
+  ref = "3",
   name = "Probe Temp",
   device_class = "temperature",
   unit_of_measurement = "K",
@@ -136,6 +139,7 @@ T.section("humidity carries no temperature keys")
 -- humidity reading: a number a bound thermostat would happily act on.
 local humidityEntity = {
   key = 4,
+  ref = "4",
   name = "Hall Humidity",
   device_class = "humidity",
   unit_of_measurement = "%",
