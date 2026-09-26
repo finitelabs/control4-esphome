@@ -1,10 +1,10 @@
--- Copyright 2025 Snap One, LLC. All rights reserved.
+-- Copyright 2026 Snap One, LLC. All rights reserved.
 --
--- LOCAL FORK of Snap One's drivers-common-public websocket module, upstream v14.
--- Re-vendoring from upstream silently drops everything listed here, across every
--- repo carrying drivers-common-public in vendor_modules. Keep this list current.
+-- LOCAL FORK of Snap One's drivers-common-public websocket module, upstream v15.
+-- Re-vendoring from upstream silently drops everything listed here, in every repo the
+-- template renders. Keep this list current.
 --
--- Deltas against upstream v14:
+-- Deltas against upstream v15:
 --   1. setupC4Connection reuses one network binding per protocol://host:port
 --      rather than allocating a fresh one on every WebSocket:new(), which leaked
 --      a slot from the 6100-6199 pool on each reconnect until the pool ran out.
@@ -16,10 +16,21 @@
 --   4. The 64-bit extended-length field is built with %016X rather than %16X.
 --      %16X is space padded, not zero padded, so tohex left the spaces in and
 --      emitted a malformed 14-byte field for payloads over 65535 bytes.
+--   5. delete() takes an optional onComplete, run after the close timer releases the
+--      binding; a second delete() chains its callback. home-connect and hatch
+--      reconnect from it.
+--   6. When it must allocate, setupC4Connection scans on from the last binding it
+--      took and asserts once the pool is full. Upstream takes the lowest free slot.
+--   7. The close timer skips NetDisconnect and SetBindingAddress without a binding
+--      and pcall-wraps them.
+--   8. parseWSPacket waits for the rest of a frame header that arrived split, where
+--      upstream threw on the missing bytes.
+--   9. Metrics are removed, and the module prints only when DEBUG_WEBSOCKET is set.
+--  10. The class is named WebSocket (upstream: wsObject) and carries LuaDoc.
 --
--- test/test_websocket.lua covers all four.
+-- test/test_websocket.lua covers 1 to 5, and each place v15 stops a timer.
 
-COMMON_WEBSOCKET_VER = 14
+COMMON_WEBSOCKET_VER = 15
 
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.timer")
@@ -121,6 +132,8 @@ function WebSocket:new(url, additionalHeaders, wssOptions)
       wssOptions = wssOptions,
     }
 
+    ws.timerPrefix = "WS_" .. url .. "_Timer_"
+
     setmetatable(ws, self)
     self.__index = self
 
@@ -210,11 +223,10 @@ function WebSocket:Close()
     end
   end
 
-  self.PingTimer = CancelTimer(self.PingTimer)
-  self.PongResponseTimer = CancelTimer(self.PongResponseTimer)
+  CancelTimer(self.timerPrefix .. "Ping")
+  CancelTimer(self.timerPrefix .. "PongResponse")
 
-  local timerId = "Websocket:" .. self.url .. ":Closing"
-  SetTimer(timerId, 3 * ONE_SECOND, _timer)
+  SetTimer(self.timerPrefix .. "Closing", 3 * ONE_SECOND, _timer)
 
   return self
 end
@@ -548,7 +560,7 @@ function WebSocket:parseWSPacket()
       if DEBUG_WEBSOCKET then
         print("RX PONG")
       end
-      self.PongResponseTimer = CancelTimer(self.PongResponseTimer)
+      CancelTimer(self.timerPrefix .. "PongResponse")
     elseif opcode == 0x00 then -- continuation frame
       if not self.fragment then
         print("error: received continuation frame before start frame")
@@ -631,8 +643,7 @@ function WebSocket:Ping()
       print("WS " .. self.url .. " appears disconnected - timed out waiting for PONG")
       self:Close()
     end
-    local timerId = "Websocket:" .. self.url .. ":PongResponse"
-    self.PongResponseTimer = SetTimer(timerId, self.pong_response_interval * ONE_SECOND, _timer)
+    SetTimer(self.timerPrefix .. "PongResponse", self.pong_response_interval * ONE_SECOND, _timer)
 
     self:sendToNetwork(pkt)
   end
@@ -651,8 +662,8 @@ end
 function WebSocket:ConnectionChanged(strStatus)
   self.connected = (strStatus == "ONLINE")
 
-  self.PingTimer = CancelTimer(self.PingTimer)
-  self.PongResponseTimer = CancelTimer(self.PongResponseTimer)
+  CancelTimer(self.timerPrefix .. "Ping")
+  CancelTimer(self.timerPrefix .. "PongResponse")
 
   if self.connected then
     local pkt = self:MakeHeaders()
@@ -661,8 +672,7 @@ function WebSocket:ConnectionChanged(strStatus)
     local _timer = function(timer)
       self:Ping()
     end
-    local timerId = "Websocket:" .. self.url .. ":Ping"
-    self.PingTimer = SetTimer(timerId, self.ping_interval * ONE_SECOND, _timer, true)
+    SetTimer(self.timerPrefix .. "Ping", self.ping_interval * ONE_SECOND, _timer, true)
     print("WS " .. self.url .. " connected")
   else
     if self.running then

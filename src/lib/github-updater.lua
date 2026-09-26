@@ -117,7 +117,7 @@ end
 --- @param driverFilenames string[] List of driver filenames to update.
 --- @param includePrereleases? boolean If true, includes pre-releases (optional).
 --- @param forceUpdate? boolean Optional. If true, downloads all drivers regardless of version (optional).
---- @return Deferred<string[], table<number, string>> outdatedDrivers Deferred resolving to a list of successfully downloaded driver filenames, or rejected with a table of error messages indexed by number.
+--- @return Deferred<string[], string|table<number, string>> outdatedDrivers Deferred resolving to a list of successfully downloaded driver filenames, or rejected with an error message or a table of them indexed by number.
 function GitHubUpdater:downloadOutdatedDrivers(dir, repo, driverFilenames, includePrereleases, forceUpdate)
   log:trace(
     "GitHubUpdater:downloadOutdatedDrivers(%s, %s, %s, %s, %s)",
@@ -128,40 +128,51 @@ function GitHubUpdater:downloadOutdatedDrivers(dir, repo, driverFilenames, inclu
     forceUpdate
   )
   return self:getOutdatedDriverAssets(repo, driverFilenames, includePrereleases, forceUpdate):next(function(assets)
-    --- @type Deferred<string, string>[]
+    --- @type Deferred<table, string>[]
     local downloads = {}
     for _, asset in pairs(assets) do
       if IsEmpty(asset.browser_download_url) then
         return reject(string.format("repo %s latest release asset %s download is unavailable", repo, asset.name))
       end
 
-      --- @type Deferred<string, string>
+      --- @type Deferred<table, string>
       local download = http:get(asset.browser_download_url, DEFAULT_HEADERS):next(function(response)
         local downloadSize = string.len(response.body)
         if downloadSize < 1 then
           return reject(string.format("asset %s download is empty", asset.name))
         end
-        -- GetDriverVersion only unlocks C4Z_ROOT for companion drivers, so a project running
-        -- one driver from this repo reaches the write with the alias still locked.
-        UnlockC4ZRoot()
-        C4:FileSetDir(dir)
-        local currentContents = C4:FileExists(asset.name) and FileRead(asset.name) or nil
-        if FileWrite(asset.name, response.body, true) == -1 then
-          -- Restore the previous contents if the write failed
-          if currentContents ~= nil then
-            FileWrite(asset.name, currentContents, true)
-          end
-          return reject(string.format("failed to download asset %s", asset.name))
-        end
         log:info("Downloaded asset %s (%d bytes)", asset.name, downloadSize)
-        return asset.name
+        return { name = asset.name, body = response.body }
       end, function(response)
         return reject(response.error)
       end)
 
       table.insert(downloads, download)
     end
-    return deferred.all(downloads)
+    -- Nothing is written until every asset has downloaded, so a failed download leaves
+    -- every installed file as it was.
+    return deferred.all(downloads):next(function(downloaded)
+      --- @type string[]
+      local written = {}
+      for _, download in ipairs(downloaded) do
+        -- GetDriverVersion only unlocks C4Z_ROOT for companion drivers, so a project running
+        -- one driver from this repo reaches the write with the alias still locked.
+        UnlockC4ZRoot()
+        C4:FileSetDir(dir)
+        local currentContents = C4:FileExists(download.name) and FileRead(download.name) or nil
+        FileWrite(download.name, download.body, true)
+        -- The vendored FileWrite returns nothing, so only reading the file back shows a failed write.
+        if FileRead(download.name) ~= download.body then
+          -- Restore the previous contents if the write failed
+          if currentContents ~= nil then
+            FileWrite(download.name, currentContents, true)
+          end
+          return reject(string.format("failed to write asset %s", download.name))
+        end
+        table.insert(written, download.name)
+      end
+      return written
+    end)
   end)
 end
 
@@ -171,7 +182,7 @@ end
 --- @param driverFilenames string[] List of driver filenames to update.
 --- @param includePrereleases? boolean If true, includes pre-releases (optional).
 --- @param forceUpdate? boolean If true, runs update even if drivers are up to date (optional).
---- @return Deferred<string[], table<number, string>> updatedDrivers Deferred resolving to a list of updated driver filenames, or rejected with an error table.
+--- @return Deferred<string[], string|table<number, string>> updatedDrivers Deferred resolving to a list of updated driver filenames, or rejected with an error message or table.
 function GitHubUpdater:updateAll(repo, driverFilenames, includePrereleases, forceUpdate)
   log:trace("GitHubUpdater:updateAll(%s, %s, %s, %s)", repo, driverFilenames, includePrereleases, forceUpdate)
   -- Only update drivers that are already installed.
@@ -185,7 +196,7 @@ function GitHubUpdater:updateAll(repo, driverFilenames, includePrereleases, forc
   return self
     :downloadOutdatedDrivers("C4Z_ROOT", repo, installedDriverFilenames, includePrereleases, forceUpdate)
     :next(function(downloadedDriverFilenames)
-      --- @type Deferred<string[], table<number, string>>
+      --- @type Deferred<string[], string|table<number, string>>
       local d = deferred.new()
       if IsEmpty(downloadedDriverFilenames) then
         return d:resolve(downloadedDriverFilenames)

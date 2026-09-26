@@ -292,16 +292,20 @@ function Bindings:restoreBindings()
   for _, keys in pairs(self:getBindings()) do
     for _, binding in pairs(keys) do
       deviceBindings[binding.bindingId] = nil
-      log:debug("Restoring %s binding %s", binding.class, binding.displayName)
-      C4:AddDynamicBinding(
-        binding.bindingId,
-        binding.type,
-        binding.provider,
-        binding.displayName,
-        binding.class,
-        false,
-        false
-      )
+      -- AddDynamicBinding raises on a nil name, which an older driver build could save; the
+      -- record keeps its id, and the driver's next getOrAddDynamicBinding for it adds it named.
+      if binding.displayName ~= nil then
+        log:debug("Restoring %s binding %s", binding.class, binding.displayName)
+        C4:AddDynamicBinding(
+          binding.bindingId,
+          binding.type,
+          binding.provider,
+          binding.displayName,
+          binding.class,
+          false,
+          false
+        )
+      end
     end
   end
   -- Delete unknown bindings inside our managed ranges, but never the driver's own

@@ -1,6 +1,24 @@
--- Copyright 2025 Snap One, LLC. All rights reserved.
+-- Copyright 2026 Snap One, LLC. All rights reserved.
+--
+-- LOCAL FORK of Snap One's drivers-common-public lib module, upstream LIB 58.
+-- Re-vendoring from upstream silently drops everything listed here, in every repo the
+-- template renders. Keep this list current.
+--
+-- Deltas against upstream LIB 58:
+--   1. JSON is vendor/JSON.lua rather than upstream's module/json.lua, which is not
+--      vendored.
+--   2. Deserialize pcall-wraps its Base64 and JSON decodes. JSON.lua raises on input
+--      it cannot parse, where upstream's json returned nil. It returns what the JSON
+--      decodes to, false or nil included, where upstream returned the input.
+--   3. The room variable keys CURRENT_MEDIA_INFO and AUDIO_LATENCY_PROFILE use "_"
+--      where upstream has spaces.
+--   4. ConstructJWT drops an unused local.
+--   5. GetDeviceDisplayNameOrId is added, for delta 5 in handlers.lua.
+--
+-- test/test_persist_undecodable.lua and test/test_persist_reload.lua cover 2;
+-- test/test_watched_variable.lua covers 5.
 
-COMMON_LIB_VER = 56
+COMMON_LIB_VER = 58
 
 JSON = require("JSON")
 
@@ -1110,6 +1128,105 @@ function GetPathToDevice(deviceId, project)
   return path
 end
 
+function BuildRoomHierarchy()
+  local projectInfo = C4:GetProjectItems("LOCATIONS", "NO_ROOT_TAGS", "LIMIT_DEVICE_DATA")
+
+  local sites = {}
+  local buildings = {}
+  local floors = {}
+  local rooms = {}
+
+  local sitesById = {}
+  local buildingsById = {}
+  local floorsById = {}
+  local roomsById = {}
+
+  local lastSiteId, lastSiteName, lastBuildingId, lastBuildingName, lastFloorId, lastFloorName
+  for item in string.gmatch(projectInfo, "<item>.-</type>") do
+    local id, name, itemType = string.match(item, "<id>(.-)</id><name>(.-)</name><type>(.-)</type>")
+    id = tonumber(id)
+    itemType = tonumber(itemType)
+    if id then
+      if itemType == PROJECT_ITEM_TYPES.SITE then
+        lastSiteId = id
+        lastSiteName = name
+        local siteInfo = {
+          id = id,
+          name = name,
+          siteId = id,
+          siteName = name,
+        }
+        table.insert(sites, siteInfo)
+        siteInfo.index = #sites
+        sitesById[id] = siteInfo
+      elseif itemType == PROJECT_ITEM_TYPES.BUILDING then
+        lastBuildingId = id
+        lastBuildingName = name
+        local buildingInfo = {
+          id = id,
+          name = name,
+          buildingId = id,
+          buildingName = name,
+          siteId = lastSiteId,
+          siteName = lastSiteName,
+          siteData = sitesById[lastSiteId],
+        }
+        table.insert(buildings, buildingInfo)
+        buildingInfo.index = #buildings
+        buildingsById[id] = buildingInfo
+      elseif itemType == PROJECT_ITEM_TYPES.FLOOR then
+        lastFloorId = id
+        lastFloorName = name
+        local floorInfo = {
+          id = id,
+          name = name,
+          floorId = id,
+          floorName = name,
+          buildingId = lastBuildingId,
+          buildingName = lastBuildingName,
+          buildingData = buildingsById[lastBuildingId],
+          siteId = lastSiteId,
+          siteName = lastSiteName,
+          siteData = sitesById[lastSiteId],
+        }
+        table.insert(floors, floorInfo)
+        floorInfo.index = #floors
+        floorsById[id] = floorInfo
+      elseif itemType == PROJECT_ITEM_TYPES.ROOM_DEVICE then
+        local roomInfo = {
+          id = id,
+          name = name,
+          roomId = id,
+          roomName = name,
+          floorId = lastFloorId,
+          floorName = lastFloorName,
+          floorData = floorsById[lastFloorId],
+          buildingId = lastBuildingId,
+          buildingName = lastBuildingName,
+          buildingData = buildingsById[lastBuildingId],
+          siteId = lastSiteId,
+          siteName = lastSiteName,
+          siteData = sitesById[lastSiteId],
+        }
+        table.insert(rooms, roomInfo)
+        roomInfo.index = #rooms
+        roomsById[id] = roomInfo
+      end
+    end
+  end
+
+  ProjectLayout = {
+    sites = sites,
+    buildings = buildings,
+    floors = floors,
+    rooms = rooms,
+    sitesById = sitesById,
+    buildingsById = buildingsById,
+    floorsById = floorsById,
+    roomsById = roomsById,
+  }
+end
+
 function GetLocals(depth)
   local vars = {}
   local i = 1
@@ -1244,18 +1361,27 @@ function Select(data, ...)
     return nil
   end
 
-  local args = { ... }
-  local n = select("#", ...)
+  local tablePack = function(...)
+    return {
+      n = select("#", ...),
+      ...,
+    }
+  end
+
+  local args = tablePack(...)
 
   local ret = data
 
-  local i = 1
-  while ret ~= nil and i <= n do
-    if args[i] == nil then
+  for i = 1, args.n do
+    local index = args[i]
+    if index == next then
+      local _
+      _, ret = next(ret)
+    elseif index == nil or ret[index] == nil then
       return nil
+    else
+      ret = ret[index]
     end
-    ret = ret[args[i]]
-    i = i + 1
   end
   return ret
 end
@@ -1490,4 +1616,40 @@ function MakeAscii(taggedString)
   end
   local asciiString = string.gsub(taggedString, "([%z\1-\127\194-\244][\128-\191]*)", subFun)
   return asciiString
+end
+
+function IsDayTime()
+  local currentHour = os.date("*t").hour
+  local currentMinute = os.date("*t").min
+
+  local currentDay = os.date("*t").day
+  local currentMonth = os.date("*t").month
+  local currentYear = os.date("*t").year
+
+  local params = {
+    day = currentDay,
+    month = currentMonth,
+    year = currentYear,
+  }
+
+  local schedulerAgent = next(C4:GetDevicesByC4iName("control4_agent_scheduler.c4i")) -- 100100
+  if schedulerAgent then
+    local sunInfo = C4:SendUIRequest(schedulerAgent, "GET_SUNRISE_SUNSET", params)
+    if sunInfo then
+      local sunsetInfo = XMLCapture(sunInfo, "sunset")
+      local sunriseInfo = XMLCapture(sunInfo, "sunrise")
+      local sunriseHour = tonumber(XMLCapture(sunriseInfo, "hour"))
+      local sunriseMinute = tonumber(XMLCapture(sunriseInfo, "minute"))
+      local sunsetHour = tonumber(XMLCapture(sunsetInfo, "hour"))
+      local sunsetMinute = tonumber(XMLCapture(sunsetInfo, "minute"))
+
+      if currentHour < sunriseHour or (currentHour == sunriseHour and currentMinute < sunriseMinute) then
+        return false
+      elseif currentHour > sunsetHour or (currentHour == sunsetHour and currentMinute >= sunsetMinute) then
+        return false
+      else
+        return true
+      end
+    end
+  end
 end

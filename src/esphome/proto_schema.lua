@@ -1,9 +1,9 @@
 -- Generated Lua schema from protobuf descriptor set
 -- Do not edit manually
 --
--- generator: v0.6.10
+-- generator: v0.6.11
 -- esphome: 2026.8.2
--- body-sha256: 7b363c22ecbeb0c31b59eb6af83e322f4fd7a8dea7a2daca122d70131dcc50dc
+-- body-sha256: 4e50c6b9289841a34971d89d79b4a0384a6a29942bff49048fafc7d1fa661f3b
 -- provenance-boundary: every line below is covered by body-sha256
 
 --- @class ProtoSchema
@@ -1691,7 +1691,7 @@ ProtoSchema.Message.HelloRequest = {
   options = {
     id = 1,
     source = 2,
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {
     [1] = {
@@ -1718,7 +1718,7 @@ ProtoSchema.Message.HelloResponse = {
   options = {
     id = 2,
     source = 1,
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {
     [1] = {
@@ -1750,7 +1750,7 @@ ProtoSchema.Message.AuthenticationRequest = {
   options = {
     id = 3,
     source = 2,
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {
     [1] = {
@@ -1767,7 +1767,7 @@ ProtoSchema.Message.AuthenticationResponse = {
   options = {
     id = 4,
     source = 1,
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {
     [1] = {
@@ -1784,7 +1784,7 @@ ProtoSchema.Message.DisconnectRequest = {
   options = {
     id = 5,
     source = 0,
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {
     [1] = {
@@ -1801,7 +1801,7 @@ ProtoSchema.Message.DisconnectResponse = {
   options = {
     id = 6,
     source = 0,
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {},
 }
@@ -2154,7 +2154,7 @@ ProtoSchema.Message.ListEntitiesDoneResponse = {
   options = {
     id = 19,
     source = 1,
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {},
 }
@@ -2234,7 +2234,7 @@ ProtoSchema.Message.BinarySensorStateResponse = {
     id = 21,
     source = 1,
     ifdef = "USE_BINARY_SENSOR",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -2341,7 +2341,7 @@ ProtoSchema.Message.CoverStateResponse = {
     id = 22,
     source = 1,
     ifdef = "USE_COVER",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -2385,7 +2385,7 @@ ProtoSchema.Message.CoverCommandRequest = {
     id = 30,
     source = 2,
     ifdef = "USE_COVER",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -2518,7 +2518,7 @@ ProtoSchema.Message.FanStateResponse = {
     id = 23,
     source = 1,
     ifdef = "USE_FAN",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -2572,7 +2572,7 @@ ProtoSchema.Message.FanCommandRequest = {
     id = 31,
     source = 2,
     ifdef = "USE_FAN",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -2746,7 +2746,7 @@ ProtoSchema.Message.LightStateResponse = {
     id = 24,
     source = 1,
     ifdef = "USE_LIGHT",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -2830,7 +2830,7 @@ ProtoSchema.Message.LightCommandRequest = {
     id = 32,
     source = 2,
     ifdef = "USE_LIGHT",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -3062,9 +3062,9 @@ ProtoSchema.Message.SensorStateResponse = {
     id = 25,
     source = 1,
     ifdef = "USE_SENSOR",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
-    speed_optimized = 1,
+    speed_optimized = true,
   },
   fields = {
     [1] = {
@@ -3155,7 +3155,7 @@ ProtoSchema.Message.SwitchStateResponse = {
     id = 26,
     source = 1,
     ifdef = "USE_SWITCH",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -3184,7 +3184,7 @@ ProtoSchema.Message.SwitchCommandRequest = {
     id = 33,
     source = 2,
     ifdef = "USE_SWITCH",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -3266,7 +3266,7 @@ ProtoSchema.Message.TextSensorStateResponse = {
     id = 27,
     source = 1,
     ifdef = "USE_TEXT_SENSOR",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -3320,9 +3320,9 @@ ProtoSchema.Message.SubscribeLogsResponse = {
   options = {
     id = 29,
     source = 1,
-    log = 0,
-    no_delay = 0,
-    speed_optimized = 1,
+    log = false,
+    no_delay = false,
+    speed_optimized = true,
   },
   fields = {
     [1] = {
@@ -3408,7 +3408,7 @@ ProtoSchema.Message.HomeassistantActionRequest = {
     id = 35,
     source = 1,
     ifdef = "USE_API_HOMEASSISTANT_SERVICES",
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {
     [1] = {
@@ -3467,7 +3467,7 @@ ProtoSchema.Message.HomeassistantActionResponse = {
     id = 130,
     source = 2,
     ifdef = "USE_API_HOMEASSISTANT_ACTION_RESPONSES",
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {
     [1] = {
@@ -3538,7 +3538,7 @@ ProtoSchema.Message.HomeAssistantStateResponse = {
     id = 40,
     source = 2,
     ifdef = "USE_API_HOMEASSISTANT_STATES",
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {
     [1] = {
@@ -3647,7 +3647,7 @@ ProtoSchema.Message.GetTimeResponse = {
   options = {
     id = 37,
     source = 2,
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {
     [1] = {
@@ -3789,7 +3789,7 @@ ProtoSchema.Message.ExecuteServiceRequest = {
     id = 42,
     source = 2,
     ifdef = "USE_API_USER_DEFINED_ACTIONS",
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {
     [1] = {
@@ -3824,7 +3824,7 @@ ProtoSchema.Message.ExecuteServiceResponse = {
     id = 131,
     source = 1,
     ifdef = "USE_API_USER_DEFINED_ACTION_RESPONSES",
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {
     [1] = {
@@ -3938,7 +3938,7 @@ ProtoSchema.Message.CameraImageRequest = {
     id = 45,
     source = 2,
     ifdef = "USE_CAMERA",
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {
     [1] = {
@@ -4115,7 +4115,7 @@ ProtoSchema.Message.ClimateStateResponse = {
     id = 47,
     source = 1,
     ifdef = "USE_CLIMATE",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -4209,7 +4209,7 @@ ProtoSchema.Message.ClimateCommandRequest = {
     id = 48,
     source = 2,
     ifdef = "USE_CLIMATE",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -4422,7 +4422,7 @@ ProtoSchema.Message.WaterHeaterStateResponse = {
     id = 133,
     source = 1,
     ifdef = "USE_WATER_HEATER",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -4476,7 +4476,7 @@ ProtoSchema.Message.WaterHeaterCommandRequest = {
     id = 134,
     source = 2,
     ifdef = "USE_WATER_HEATER",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -4608,7 +4608,7 @@ ProtoSchema.Message.NumberStateResponse = {
     id = 50,
     source = 1,
     ifdef = "USE_NUMBER",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -4642,7 +4642,7 @@ ProtoSchema.Message.NumberCommandRequest = {
     id = 51,
     source = 2,
     ifdef = "USE_NUMBER",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -4725,7 +4725,7 @@ ProtoSchema.Message.SelectStateResponse = {
     id = 53,
     source = 1,
     ifdef = "USE_SELECT",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -4759,7 +4759,7 @@ ProtoSchema.Message.SelectCommandRequest = {
     id = 54,
     source = 2,
     ifdef = "USE_SELECT",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -4852,7 +4852,7 @@ ProtoSchema.Message.SirenStateResponse = {
     id = 56,
     source = 1,
     ifdef = "USE_SIREN",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -4881,7 +4881,7 @@ ProtoSchema.Message.SirenCommandRequest = {
     id = 57,
     source = 2,
     ifdef = "USE_SIREN",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -5013,7 +5013,7 @@ ProtoSchema.Message.LockStateResponse = {
     id = 59,
     source = 1,
     ifdef = "USE_LOCK",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -5042,7 +5042,7 @@ ProtoSchema.Message.LockCommandRequest = {
     id = 60,
     source = 2,
     ifdef = "USE_LOCK",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -5134,7 +5134,7 @@ ProtoSchema.Message.ButtonCommandRequest = {
     id = 62,
     source = 2,
     ifdef = "USE_BUTTON",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -5258,7 +5258,7 @@ ProtoSchema.Message.MediaPlayerStateResponse = {
     id = 64,
     source = 1,
     ifdef = "USE_MEDIA_PLAYER",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -5297,7 +5297,7 @@ ProtoSchema.Message.MediaPlayerCommandRequest = {
     id = 65,
     source = 2,
     ifdef = "USE_MEDIA_PLAYER",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -5402,7 +5402,7 @@ ProtoSchema.Message.BluetoothLEAdvertisementResponse = {
     id = 67,
     source = 1,
     ifdef = "USE_BLUETOOTH_PROXY",
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {
     [1] = {
@@ -5452,7 +5452,7 @@ ProtoSchema.Message.BluetoothLEAdvertisementResponse = {
 ProtoSchema.Message.BluetoothLERawAdvertisement = {
   name = "BluetoothLERawAdvertisement",
   options = {
-    inline_encode = 1,
+    inline_encode = true,
   },
   fields = {
     [1] = {
@@ -5485,8 +5485,8 @@ ProtoSchema.Message.BluetoothLERawAdvertisementsResponse = {
     id = 93,
     source = 1,
     ifdef = "USE_BLUETOOTH_PROXY",
-    no_delay = 1,
-    speed_optimized = 1,
+    no_delay = true,
+    speed_optimized = true,
   },
   fields = {
     [1] = {
@@ -6612,7 +6612,7 @@ ProtoSchema.Message.AlarmControlPanelStateResponse = {
     id = 95,
     source = 1,
     ifdef = "USE_ALARM_CONTROL_PANEL",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -6641,7 +6641,7 @@ ProtoSchema.Message.AlarmControlPanelCommandRequest = {
     id = 96,
     source = 2,
     ifdef = "USE_ALARM_CONTROL_PANEL",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -6743,7 +6743,7 @@ ProtoSchema.Message.TextStateResponse = {
     id = 98,
     source = 1,
     ifdef = "USE_TEXT",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -6777,7 +6777,7 @@ ProtoSchema.Message.TextCommandRequest = {
     id = 99,
     source = 2,
     ifdef = "USE_TEXT",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -6854,7 +6854,7 @@ ProtoSchema.Message.DateStateResponse = {
     id = 101,
     source = 1,
     ifdef = "USE_DATETIME_DATE",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -6898,7 +6898,7 @@ ProtoSchema.Message.DateCommandRequest = {
     id = 102,
     source = 2,
     ifdef = "USE_DATETIME_DATE",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -6985,7 +6985,7 @@ ProtoSchema.Message.TimeStateResponse = {
     id = 104,
     source = 1,
     ifdef = "USE_DATETIME_TIME",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -7029,7 +7029,7 @@ ProtoSchema.Message.TimeCommandRequest = {
     id = 105,
     source = 2,
     ifdef = "USE_DATETIME_TIME",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -7223,7 +7223,7 @@ ProtoSchema.Message.ValveStateResponse = {
     id = 110,
     source = 1,
     ifdef = "USE_VALVE",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -7257,7 +7257,7 @@ ProtoSchema.Message.ValveCommandRequest = {
     id = 111,
     source = 2,
     ifdef = "USE_VALVE",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -7344,7 +7344,7 @@ ProtoSchema.Message.DateTimeStateResponse = {
     id = 113,
     source = 1,
     ifdef = "USE_DATETIME_DATETIME",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -7378,7 +7378,7 @@ ProtoSchema.Message.DateTimeCommandRequest = {
     id = 114,
     source = 2,
     ifdef = "USE_DATETIME_DATETIME",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -7460,7 +7460,7 @@ ProtoSchema.Message.UpdateStateResponse = {
     id = 117,
     source = 1,
     ifdef = "USE_UPDATE",
-    no_delay = 1,
+    no_delay = true,
     base_class = "StateResponseProtoMessage",
   },
   fields = {
@@ -7529,7 +7529,7 @@ ProtoSchema.Message.UpdateCommandRequest = {
     id = 118,
     source = 2,
     ifdef = "USE_UPDATE",
-    no_delay = 1,
+    no_delay = true,
     base_class = "CommandProtoMessage",
   },
   fields = {
@@ -7558,8 +7558,8 @@ ProtoSchema.Message.ZWaveProxyFrame = {
     id = 128,
     source = 0,
     ifdef = "USE_ZWAVE_PROXY",
-    no_delay = 1,
-    speed_optimized = 1,
+    no_delay = true,
+    speed_optimized = true,
   },
   fields = {
     [1] = {
@@ -7700,8 +7700,8 @@ ProtoSchema.Message.InfraredRFReceiveEvent = {
     id = 137,
     source = 1,
     ifdef = "USE_IR_RF || USE_RADIO_FREQUENCY",
-    no_delay = 1,
-    speed_optimized = 1,
+    no_delay = true,
+    speed_optimized = true,
   },
   fields = {
     [1] = {
@@ -7840,8 +7840,8 @@ ProtoSchema.Message.SerialProxyDataReceived = {
     id = 139,
     source = 1,
     ifdef = "USE_SERIAL_PROXY",
-    no_delay = 1,
-    speed_optimized = 1,
+    no_delay = true,
+    speed_optimized = true,
   },
   fields = {
     [1] = {
@@ -7864,7 +7864,7 @@ ProtoSchema.Message.SerialProxyWriteRequest = {
     id = 140,
     source = 2,
     ifdef = "USE_SERIAL_PROXY",
-    no_delay = 1,
+    no_delay = true,
   },
   fields = {
     [1] = {
