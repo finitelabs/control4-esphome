@@ -18,7 +18,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
-## Unreleased
+## v20260926 - 2026-09-26
 
 ### Fixed
 
@@ -32,8 +32,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   variables and connections
 - Fixed commands to entities on an ESPHome sub-device being ignored on ESPHome
   2025.8 and newer
-- Fixed an event entity's Programming events not being declared when the driver
-  loads, or keeping their old name after a rename
+- Fixed an event entity's Programming events disappearing after a controller
+  reboot, or keeping their old name after a rename
 
 ## v20260922 - 2026-09-22
 
