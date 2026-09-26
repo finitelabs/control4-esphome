@@ -160,7 +160,7 @@ for _, case in ipairs(SENDERS) do
 
     for _, send in ipairs(sends) do
       T.eq(case.what .. ": " .. send.command .. " goes to the button binding", send.idBinding, BINDING_ID)
-      T.eq(case.what .. ": " .. send.command .. " is a NOTIFY", send.message, "NOTIFY")
+      T.eq(case.what .. ": " .. send.command .. " is a COMMAND", send.message, "COMMAND")
     end
 
     -- A sender that finds no binding must not send at all.

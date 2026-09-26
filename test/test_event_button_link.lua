@@ -19,8 +19,10 @@ local EventEntity = require("esphome.entities.event")
 -- Captured below lib.utils' SendToProxy wrapper rather than in place of it, so
 -- the wrapper stays in the path under test.
 local sent = {}
-function C4:SendToProxy(idBinding, strCommand)
+local messages = {}
+function C4:SendToProxy(idBinding, strCommand, _, strMessage)
   sent[#sent + 1] = tostring(idBinding) .. ":" .. tostring(strCommand)
+  messages[#messages + 1] = tostring(strMessage)
 end
 
 local entity = { key = 42, ref = "42", name = "Touch", event_types = { "press", "long_press" } }
@@ -52,8 +54,10 @@ T.eq("programming event for long_press", declared["Touch: long_press"], true)
 T.section("An event sends DO_PUSH then DO_CLICK, on its own type's binding")
 
 sent = {}
+messages = {}
 instance:updated(entity, { event_type = "press" })
 T.eq("press", table.concat(sent, ","), press.bindingId .. ":DO_PUSH," .. press.bindingId .. ":DO_CLICK")
+T.eq("press is sent as COMMAND", table.concat(messages, ","), "COMMAND,COMMAND")
 
 sent = {}
 instance:updated(entity, { event_type = "long_press" })
