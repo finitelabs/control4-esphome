@@ -1,8 +1,34 @@
--- Copyright 2024 Snap One, LLC. All rights reserved.
+-- Copyright 2026 Snap One, LLC. All rights reserved.
+--
+-- LOCAL FORK of Snap One's drivers-common-public handlers module, upstream Handlers 37.
+-- Re-vendoring from upstream silently drops everything listed here, in every repo the
+-- template renders. Keep this list current.
+--
+-- Deltas against upstream Handlers 37:
+--   1. Metrics are removed.
+--   2. Every dispatcher calls its handler through xpcall with debug.traceback and
+--      reports a failure to ON_HANDLER_ERROR when a driver sets it.
+--   3. OnPropertyChanged turns each run of non-alphanumerics in the name into one "_"
+--      and trims the ends, before the debug line. Upstream only replaces whitespace;
+--      handlers such as OPC.Scan_Duration_seconds depend on this.
+--   4. OnWatchedVariableChanged returns quietly when no listener is registered, where
+--      upstream prints an error for every change; a listener that is not a function
+--      reports "Callback failed" rather than "Callback not available".
+--   5. OnDeviceEvent and OnWatchedVariableChanged name the device with
+--      GetDeviceDisplayNameOrId (lib.lua). C4:GetDeviceDisplayName returns nothing for
+--      Director's agents, and concatenating that threw before the handler ran.
+--   6. UpdateProperty parses driver.xml's properties into PropertyConfig once per load,
+--      where upstream rescans GetDriverConfigInfo("config") on every call.
+--   7. UpdateProperty skips DYNAMIC_LIST validation while PropertyLists is unset.
+--      Upstream indexes it unguarded, so such an update threw before any
+--      UpdatePropertyList call.
+--
+-- test/test_dispatch.lua covers 2 and 3; test/test_watched_variable.lua covers 5;
+-- test/test_update_property.lua covers 6 and 7.
 
 require("drivers-common-public.global.lib")
 
-COMMON_HANDLERS_VER = 32
+COMMON_HANDLERS_VER = 37
 
 do -- define globals
   DEBUG_RFN = false
@@ -450,8 +476,6 @@ function UnregisterDeviceEvent(firingDeviceId, eventId)
 end
 
 function OnDeviceEvent(firingDeviceId, eventId)
-  Print(firingDeviceId)
-  Print(eventId)
   local suppressDebug = Select(ODE, "suppressDebug", firingDeviceId, eventId)
 
   if not suppressDebug then
@@ -505,8 +529,180 @@ function UpdateProperty(strProperty, strValue, notifyChange)
     strValue = tostring(strValue)
   end
 
+  -- Scanning the config on every call cost about 4 ms on a large driver.xml, which
+  -- cannot change during a load, so parse its properties the first time it reads back.
+  if PropertyConfig == nil then
+    local configXML = C4:GetDriverConfigInfo("config")
+    if type(configXML) == "string" then
+      PropertyConfig = {}
+      for propertyXML in XMLgCapture(configXML, "property") do
+        local propertyName = XMLCapture(propertyXML, "name")
+        if propertyName and PropertyConfig[propertyName] == nil then
+          local propertyInfo = { type = XMLCapture(propertyXML, "type"), items = {} }
+          if propertyInfo.type == "LIST" then
+            for listItem in XMLgCapture(propertyXML, "item") do
+              table.insert(propertyInfo.items, listItem)
+            end
+          elseif propertyInfo.type == "RANGED_INTEGER" or propertyInfo.type == "RANGED_FLOAT" then
+            propertyInfo.minimum = tonumber(XMLCapture(propertyXML, "minimum"))
+            propertyInfo.maximum = tonumber(XMLCapture(propertyXML, "maximum"))
+          end
+          PropertyConfig[propertyName] = propertyInfo
+        end
+      end
+    end
+  end
+
+  local propertyInfo = PropertyConfig and PropertyConfig[strProperty]
+  if propertyInfo then
+    local propertyType = propertyInfo.type
+    if propertyType == "LIST" then
+      local valueFound = false
+      for _, listItem in ipairs(propertyInfo.items) do
+        if listItem == strValue then
+          valueFound = true
+          break
+        end
+      end
+      if not valueFound then
+        print("UpdateProperty error (Value not in list): ", tostring(strProperty), tostring(strValue))
+        return
+      end
+    elseif propertyType == "DYNAMIC_LIST" then
+      -- PropertyLists stays nil until the first UpdatePropertyList call.
+      if PropertyLists and PropertyLists[strProperty] then
+        local valueFound = false
+        for listItem in string.gmatch(PropertyLists[strProperty] .. ",", "(.-),") do
+          if listItem == strValue then
+            valueFound = true
+            break
+          end
+        end
+        if not valueFound then
+          print("UpdateProperty error (Value not in dynamic list): ", tostring(strProperty), tostring(strValue))
+          return
+        end
+      end
+    elseif propertyType == "RANGED_INTEGER" then
+      local minValue = propertyInfo.minimum
+      local maxValue = propertyInfo.maximum
+      local numValue = tonumber(strValue)
+      if type(numValue) ~= "number" then
+        print("UpdateProperty error (Value not a number): ", tostring(strProperty), tostring(strValue))
+        return
+      end
+      if math.floor(numValue) ~= numValue then
+        print("UpdateProperty error (Value not an integer): ", tostring(strProperty), tostring(strValue))
+        return
+      end
+      if numValue == nil or numValue < minValue or numValue > maxValue then
+        print(
+          "UpdateProperty error (Value out of range): ",
+          tostring(strProperty),
+          tostring(strValue),
+          "Range: [" .. tostring(minValue) .. ", " .. tostring(maxValue) .. "]"
+        )
+        return
+      end
+    elseif propertyType == "RANGED_FLOAT" then
+      local minValue = propertyInfo.minimum
+      local maxValue = propertyInfo.maximum
+      local numValue = tonumber(strValue)
+      if type(numValue) ~= "number" then
+        print("UpdateProperty error (Value not a number): ", tostring(strProperty), tostring(strValue))
+        return
+      end
+      if numValue == nil or numValue < minValue or numValue > maxValue then
+        print(
+          "UpdateProperty error (Value out of range): ",
+          tostring(strProperty),
+          tostring(strValue),
+          "Range: [" .. tostring(minValue) .. ", " .. tostring(maxValue) .. "]"
+        )
+        return
+      end
+    elseif propertyType == "COLOR_SELECTOR" then
+      local red, green, blue = string.match(strValue, "(%d+),(%d+),(%d+)")
+      red = tonumber(red)
+      green = tonumber(green)
+      blue = tonumber(blue)
+      if type(red) ~= "number" or type(green) ~= "number" or type(blue) ~= "number" then
+        print("UpdateProperty error (Value not an RGB triplet): ", tostring(strProperty), tostring(strValue))
+        return
+      end
+      if red < 0 or red > 255 or green < 0 or green > 255 or blue < 0 or blue > 255 then
+        print("UpdateProperty error (RGB value out of range): ", tostring(strProperty), tostring(strValue))
+        return
+      end
+    end
+  end
+
   if Properties[strProperty] ~= strValue then
     C4:UpdateProperty(strProperty, strValue)
+  end
+  if notifyChange == true then
+    OnPropertyChanged(strProperty)
+  end
+end
+
+function SetPropertyVisible(property, visible)
+  if type(property) ~= "string" then
+    print("SetPropertyVisible error (property not string): ", tostring(property), tostring(visible))
+    return
+  end
+
+  if Properties[property] == nil then
+    print(
+      "SetPropertyVisible error (Property not present in Properties table): ",
+      tostring(property),
+      tostring(visible)
+    )
+    return
+  end
+
+  visible = GetTruthy(visible)
+
+  if PropertyVisibility == nil then
+    PropertyVisibility = {}
+  end
+
+  if PropertyVisibility[property] ~= visible then
+    C4:SetPropertyAttribs(property, visible and 0 or 1)
+    PropertyVisibility[property] = visible
+  end
+end
+
+function UpdatePropertyList(strProperty, strValue, notifyChange)
+  if type(strProperty) ~= "string" then
+    print("UpdatePropertyList error (strProperty not string): ", tostring(strProperty), tostring(strValue))
+    return
+  end
+
+  if Properties[strProperty] == nil then
+    print(
+      "UpdatePropertyList error (Property not present in Properties table): ",
+      tostring(strProperty),
+      tostring(strValue)
+    )
+    return
+  end
+
+  if strValue == nil then
+    strValue = ""
+  elseif type(strValue) == "table" then
+    table.sort(strValue)
+    strValue = table.concat(strValue, ",")
+  elseif type(strValue) ~= "string" then
+    strValue = tostring(strValue)
+  end
+
+  if PropertyLists == nil then
+    PropertyLists = {}
+  end
+
+  if PropertyLists[strProperty] ~= strValue then
+    C4:UpdatePropertyList(strProperty, strValue)
+    PropertyLists[strProperty] = strValue
   end
   if notifyChange == true then
     OnPropertyChanged(strProperty)
@@ -947,7 +1143,14 @@ function UIRequest(strCommand, tParams)
   end
 
   if success == true then
-    return ret
+    -- The return value from UIRequest has to be valid XML for it not to trigger
+    -- a potential automatic fallthrough to ExecuteCommand
+    if type(ret) == "string" then
+      -- let's hope this this is XML!
+      return ret
+    else
+      return XMLTag("result", "success")
+    end
   elseif success == false then
     print("UIRequest Lua error: ", strCommand, ret)
     if ON_HANDLER_ERROR then

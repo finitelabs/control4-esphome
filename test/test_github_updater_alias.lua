@@ -71,7 +71,7 @@ local function dirCallList()
   return table.concat(dirCalls, ", ")
 end
 
---- downloadOutdatedDrivers rejects with a table of messages indexed by number.
+--- downloadOutdatedDrivers rejects with a message or a table of them indexed by number.
 local function describeError(err)
   if type(err) ~= "table" then
     return tostring(err)

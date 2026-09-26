@@ -239,9 +239,7 @@ T.check(
 C4:AddVariable("Temp", "1", "STRING", true, false)
 T.check("the name is reusable after a delete", Variables["Temp"] == "1")
 
--- Ids come from a counter that a delete does not rewind. This is the behaviour
--- lib/values.lua works around: it restores hidden placeholders for deleted
--- values so the surviving ones keep their ids across a reset.
+-- Ids come from a counter that a delete does not rewind within a driver load.
 local _, reusedId = variableByName("Temp")
 T.check("a re-added name gets a fresh id", reusedId ~= deletedId, reusedId)
 T.check("ids only ever increase", tonumber(reusedId) > tonumber(deletedId))
@@ -276,6 +274,65 @@ for _ in pairs(Variables) do
   tracked = tracked + 1
 end
 T.check("every variable has a distinct id", reported == tracked, reported .. " reported, " .. tracked .. " added")
+
+--------------------------------------------------------------------------------
+T.section("variable ids across driver loads")
+--------------------------------------------------------------------------------
+
+-- As on OS 4.3.0.
+ShimRestartDirector()
+local function idOf(name)
+  return tonumber((select(2, variableByName(name))))
+end
+
+T.eq("a by-name add returns true and its id", { C4:AddVariable("A", "", "STRING") }, { true, 1001 })
+C4:AddVariable("B", "", "STRING")
+C4:AddVariable("C", "", "STRING")
+C4:DeleteVariable("B")
+T.eq("a freed id is not handed out again in that load", select(2, C4:AddVariable("D", "", "STRING")), 1004)
+T.eq("an add by id takes exactly that id", { C4:AddVariable(1012, "", "STRING") }, { true, 1012 })
+T.eq("named after it", idOf("1012"), 1012)
+T.eq("and leaves the counter alone", select(2, C4:AddVariable("E", "", "STRING")), 1005)
+T.eq("an add at a taken id fails", C4:AddVariable(1001, "", "STRING"), false)
+C4:AddVariable("1013", "", "STRING")
+T.eq("a name that reads as a number is that id", idOf("1013"), 1013)
+C4:SetVariable("1013", "x")
+T.eq("and a set by it reaches that id", Variables["1013"], "x")
+T.raises("an id below 1 raises", function()
+  C4:AddVariable("-5", "", "STRING")
+end, "id must be greater than zero")
+
+ShimUpdateDriver()
+T.eq("a driver update keeps every variable", idOf("E"), 1005)
+T.eq("and the new load's counter fills the gaps", select(2, C4:AddVariable("F", "", "STRING")), 1002)
+
+ShimRestartDirector()
+T.eq("a Director restart keeps no variable", next(C4:GetDeviceVariables(C4:GetDeviceID())), nil)
+T.eq("and Variables is empty", next(Variables), nil)
+T.eq("its counter starts at 1001", select(2, C4:AddVariable("G", "", "STRING")), 1001)
+
+--------------------------------------------------------------------------------
+T.section("C4.SetVariableName")
+--------------------------------------------------------------------------------
+
+C4:AddVariable(1010, "ten", "STRING")
+T.eq("renames in place", C4:SetVariableName(1010, "Ten"), true)
+T.eq("keeping the id", idOf("Ten"), 1010)
+T.eq("Variables follows the new name", { Variables["Ten"], Variables["1010"] }, { "ten" })
+C4:SetVariable(1010, "x")
+T.eq("a set by id reaches it", Variables["Ten"], "x")
+T.eq("onto a name another variable has it returns false", C4:SetVariableName(1010, "G"), false)
+T.eq("so it does onto its own", C4:SetVariableName(1010, "Ten"), false)
+T.eq("and for a missing id", C4:SetVariableName(1011, "Eleven"), false)
+C4:AddVariable(1011, "", "STRING")
+T.eq('a rename to "" returns true', C4:SetVariableName(1011, ""), true)
+T.eq("but the variable keeps its number as its name", idOf("1011"), 1011)
+C4:DeleteVariable(1010)
+T.eq("a delete by id deletes it", Variables["Ten"], nil)
+ShimVariableRename(false)
+T.eq("switched off, as on an OS without it", C4.SetVariableName, nil)
+ShimVariableRename(true)
+ShimRestartDirector()
 
 --------------------------------------------------------------------------------
 T.section("lib/values.lua under the shim")
@@ -760,6 +817,54 @@ local zero = C4:ParseXml("<v>&#0;</v>")
 T.eq("&#0; is dropped", zero.Value, "")
 
 T.eq("a malformed reference stays literal", C4:ParseXml("<v>&#;</v>").Value, "&#;")
+
+--------------------------------------------------------------------------------
+T.section("C4:Base64Decode")
+--------------------------------------------------------------------------------
+
+-- Measured on 4.3.0. Deserialize reads every stored string through this, so a
+-- lenient decode would hide a string lib/persist.lua cannot read back.
+T.eq("decodes base64", C4:Base64Decode("eyJhIjoxfQ=="), '{"a":1}')
+T.eq('a character outside the alphabet gives ""', C4:Base64Decode("Living Room"), "")
+T.eq("so does a string shorter than one group", C4:Base64Decode("Den"), "")
+T.eq("a trailing partial group is dropped", C4:Base64Decode("MTIzN"), "123")
+T.eq("the input is trimmed", C4:Base64Decode(" MTIz "), "123")
+T.eq("and cut at its first NUL", C4:Base64Decode("MTIz\0MTIz"), "123")
+
+--------------------------------------------------------------------------------
+T.section("C4:PersistSetValue")
+--------------------------------------------------------------------------------
+
+-- Measured on 4.3.0.
+C4:PersistSetValue("Nul", "a\0b")
+T.eq("a string is cut at its first NUL", C4:PersistGetValue("Nul"), "a")
+C4:PersistSetValue("NaN", 0 / 0)
+T.eq("a NaN is stored as Director's text for it", C4:PersistGetValue("NaN"), '{":number:":null}')
+C4:PersistSetValue("Plain", "x")
+C4:PersistSetValue("Plain", "")
+T.eq('"" deletes a plain key', C4:PersistGetValue("Plain"), nil)
+C4:PersistSetValue("Secret", "x", true)
+C4:PersistSetValue("Secret", "", true)
+T.eq("and leaves an encrypted one as it was", C4:PersistGetValue("Secret", true), "x")
+
+--------------------------------------------------------------------------------
+T.section("C4:FileOpen / C4:FileWrite / C4:FileDelete")
+--------------------------------------------------------------------------------
+
+-- Measured on 4.3.0. FileOpen never truncates, which is why the vendored FileWrite
+-- deletes a file before it overwrites it.
+local fh = C4:FileOpen("shim.bin")
+C4:FileWrite(fh, 6, "hello!")
+C4:FileClose(fh)
+fh = C4:FileOpen("shim.bin")
+T.eq("a reopened file reads nothing from the end", C4:FileRead(fh, 100), "")
+C4:FileSetPos(fh, 0)
+C4:FileWrite(fh, 2, "XY")
+C4:FileSetPos(fh, 0)
+T.eq("a write lands at the position, over what is there", C4:FileRead(fh, 100), "XYllo!")
+C4:FileClose(fh)
+T.eq("FileDelete returns true when it deletes", C4:FileDelete("shim.bin"), true)
+T.eq("the file is gone", C4:FileExists("shim.bin"), false)
 
 --------------------------------------------------------------------------------
 

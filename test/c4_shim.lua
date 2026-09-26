@@ -155,6 +155,7 @@ function C4:GetDeviceData(deviceId, key)
 end
 function C4:AllowExecute() end
 function C4:UpdateProperty() end
+function C4:UpdatePropertyList() end
 function C4:SetPropertyAttribs() end
 -- url.lua parses .version at load time; a non-numeric stub selects the pre-OS-3.0 path.
 function C4:GetVersionInfo()
@@ -163,17 +164,6 @@ end
 -- Returns the running driver's filename, extension included.
 function C4:GetDriverFileName()
   return "example.c4z"
-end
--- Mirrors the controller: C4Z_ROOT errors until unlocked with the key below, and
--- every other argument is a no-op.
-local FILE_SET_DIR_UNLOCK_KEY = "c29tZXNwZWNpYWxrZXk=++11"
-local c4zRootUnlocked = false
-function C4:FileSetDir(dir)
-  if dir == FILE_SET_DIR_UNLOCK_KEY then
-    c4zRootUnlocked = true
-  elseif dir == "C4Z_ROOT" and not c4zRootUnlocked then
-    error("Invalid alias: C4Z_ROOT", 2)
-  end
 end
 function C4:SendToDevice() end
 function C4:SendToProxy() end
@@ -269,7 +259,11 @@ local connections = {}
 
 local BINDING_TYPE_IDS = { CONTROL = 1, PROXY = 2 }
 
+--- A nil name raises, as on 4.3.0.
 function C4:AddDynamicBinding(idBinding, strType, bIsProvider, strName, strClass, bHidden, bAutoBind)
+  if strName == nil then
+    error("strName should be a string", 2)
+  end
   dynamic_bindings[idBinding] = {
     id = idBinding,
     type = strType,
@@ -425,6 +419,11 @@ end
 --- @param section string A driver.xml section. Only "connections" is modelled.
 --- @return string|nil xml The section as XML.
 function C4:GetDriverConfigInfo(section)
+  -- Empty, not nil, so UpdateProperty validates nothing rather than printing an XMLCapture
+  -- error. Every repo shares this shim, so a canned config would be the wrong driver.xml.
+  if section == "config" then
+    return ""
+  end
   if section ~= "connections" then
     return nil
   end
@@ -486,23 +485,97 @@ function C4:UnregisterVariableListener() end
 function C4:UnregisterAllVariableListeners() end
 function C4:RegisterDeviceEvent() end
 function C4:UnregisterDeviceEvent() end
-function C4:FileExists()
-  return false
+
+---------------------------------------------------------------------------
+-- Files
+-- Kept in memory per FileSetDir target, so a driver reads back what it wrote.
+-- Opening, positioning and writing follow a controller (OS 4.3.0).
+---------------------------------------------------------------------------
+
+-- Mirrors the controller: C4Z_ROOT errors until unlocked with the key below.
+local FILE_SET_DIR_UNLOCK_KEY = "c29tZXNwZWNpYWxrZXk=++11"
+local c4zRootUnlocked = false
+local files = {}
+-- A driver starts in its sandbox.
+local file_dir = "SANDBOX"
+local open_files = {}
+local file_handle_count = 0
+
+--- The files in one FileSetDir target, keyed by name. Live, so a test can seed or inspect them.
+--- @param dir string "C4Z_ROOT", or "C4Z_ROOT/example" after C4:FileSetDir("C4Z_ROOT", "example").
+--- @return table<string, string> files
+function ShimFiles(dir)
+  files[dir] = files[dir] or {}
+  return files[dir]
 end
-function C4:FileOpen()
-  return nil
+
+function C4:FileSetDir(dir, subdir)
+  if dir == FILE_SET_DIR_UNLOCK_KEY then
+    c4zRootUnlocked = true
+    return
+  elseif dir == "C4Z_ROOT" and not c4zRootUnlocked then
+    error("Invalid alias: C4Z_ROOT", 2)
+  end
+  file_dir = subdir and (dir .. "/" .. subdir) or dir
 end
-function C4:FileGetSize()
-  return 0
+
+function C4:FileExists(name)
+  return ShimFiles(file_dir)[name] ~= nil
 end
-function C4:FileSetPos() end
-function C4:FileRead()
-  return ""
+
+-- Creates a missing file and never truncates; the position starts at the end.
+function C4:FileOpen(name)
+  local dir = ShimFiles(file_dir)
+  dir[name] = dir[name] or ""
+  file_handle_count = file_handle_count + 1
+  open_files[file_handle_count] = { dir = dir, name = name, pos = #dir[name] }
+  return file_handle_count
 end
-function C4:FileClose() end
-function C4:FileDelete() end
-function C4:FileWrite()
-  return 0
+
+function C4:FileGetSize(fh)
+  local file = open_files[fh]
+  return file and #(file.dir[file.name] or "") or -1
+end
+
+function C4:FileSetPos(fh, pos)
+  local file = open_files[fh]
+  if file then
+    file.pos = pos
+  end
+  return file ~= nil
+end
+
+function C4:FileRead(fh, count)
+  local file = open_files[fh]
+  if file == nil then
+    return ""
+  end
+  local data = (file.dir[file.name] or ""):sub(file.pos + 1, file.pos + count)
+  file.pos = file.pos + #data
+  return data
+end
+
+-- Writes at the position, over what is there. A count of 0 returns -1, as on the controller.
+function C4:FileWrite(fh, count, data)
+  local file = open_files[fh]
+  if file == nil or count <= 0 then
+    return -1
+  end
+  local old = file.dir[file.name] or ""
+  file.dir[file.name] = old:sub(1, file.pos) .. data:sub(1, count) .. old:sub(file.pos + count + 1)
+  file.pos = file.pos + count
+  return count
+end
+
+function C4:FileClose(fh)
+  open_files[fh] = nil
+end
+
+function C4:FileDelete(name)
+  local dir = ShimFiles(file_dir)
+  local existed = dir[name] ~= nil
+  dir[name] = nil
+  return existed
 end
 
 --- Logging functions for C4 compatibility
@@ -542,34 +615,31 @@ local function base64_encode_impl(data)
   )
 end
 
+local base64_values = { ["="] = 0 }
+for i = 1, #base64_chars do
+  base64_values[base64_chars:sub(i, i)] = i - 1
+end
+
+-- As 4.3.0 decodes one line: cut at its first NUL and trimmed, a trailing partial group dropped,
+-- and "" when a whole group holds a character outside the alphabet.
 local function base64_decode_impl(data)
   if type(data) ~= "string" then
     error("Invalid base64 data type")
   end
-  data = string.gsub(data, "[^" .. base64_chars .. "=]", "")
-  return (
-    data
-      :gsub(".", function(x)
-        if x == "=" then
-          return ""
-        end
-        local r, f = "", (base64_chars:find(x) - 1)
-        for i = 6, 1, -1 do
-          r = r .. (f % 2 ^ i - f % 2 ^ (i - 1) > 0 and "1" or "0")
-        end
-        return r
-      end)
-      :gsub("%d%d%d?%d?%d?%d?%d?%d?", function(x)
-        if #x ~= 8 then
-          return ""
-        end
-        local c = 0
-        for i = 1, 8 do
-          c = c + (x:sub(i, i) == "1" and 2 ^ (8 - i) or 0)
-        end
-        return string.char(c)
-      end)
-  )
+  data = data:match("^[^%z]*"):match("^%s*(.-)%s*$")
+  data = data:sub(1, #data - #data % 4)
+  if data:find("[^A-Za-z0-9+/=]") then
+    return ""
+  end
+  local out = {}
+  for i = 1, #data, 4 do
+    local n = 0
+    for j = i, i + 3 do
+      n = n * 64 + base64_values[data:sub(j, j)]
+    end
+    out[#out + 1] = string.char(math.floor(n / 65536), math.floor(n / 256) % 256, n % 256)
+  end
+  return table.concat(out):sub(1, #data / 4 * 3 - math.min(#data:match("=*$"), 2))
 end
 
 -- Handle both C4:Base64Encode() and C4.Base64Encode(C4, ...) calling styles
@@ -914,14 +984,13 @@ local var_type_codes = {
   DEVICE = 14,
 }
 
--- Director numbers each device's variables from 1001 and never reuses an id, so
--- a deleted name returns at the end of the range. lib/values.lua restores hidden
--- placeholders to keep that range stable, which is what makes ids worth modelling.
+-- A variable added by name takes the first free id at or after a counter that
+-- starts at 1001 in each driver load, so a load fills the gaps a delete left.
 local next_variable_id = 1001
 
---- Id and attributes per variable name, behind C4:GetDeviceVariables. The value
+--- Name and attributes per variable id, behind C4:GetDeviceVariables. The value
 --- is read from Variables at call time so a SetVariable needs no bookkeeping here.
---- @type table<string, { id: string, type: string, readonly: string, hidden: string }>
+--- @type table<integer, { name: string, type: string, readonly: string, hidden: string }>
 local variable_meta = {}
 
 -- Strings and numbers only; nil means the controller would reject the value.
@@ -933,10 +1002,24 @@ local function var_value(value)
   end
 end
 
+-- The id a Set or Delete reaches. Director reads a number, or a string that
+-- reads as one, as an id rather than a name.
+local function var_id(identifier)
+  local id = tonumber(identifier)
+  if id ~= nil then
+    return id
+  end
+  for candidate, meta in pairs(variable_meta) do
+    if meta.name == identifier then
+      return candidate
+    end
+  end
+end
+
 -- Checks run in the controller's order: the value, then that varType is a
 -- string, then the existing-name return, and only then whether varType names a
 -- real type. An existing name returns false without ever validating varType.
-function C4:AddVariable(name, value, varType, readOnly, hidden)
+function C4:AddVariable(identifier, value, varType, readOnly, hidden)
   local strValue = var_value(value)
   if strValue == nil then
     error("strValue should be a string", 2)
@@ -945,10 +1028,15 @@ function C4:AddVariable(name, value, varType, readOnly, hidden)
     error("strVarType should be a string", 2)
   end
 
-  name = tostring(name)
+  -- Added by id, a variable takes exactly that id, named after it, and leaves the counter alone.
+  local id = tonumber(identifier)
+  if id ~= nil and id < 1 then
+    error("id must be greater than zero (unsigned)", 2)
+  end
+  local name = tostring(id or identifier)
 
   -- Already present: the controller keeps the existing value and type
-  if Variables[name] ~= nil then
+  if Variables[name] ~= nil or variable_meta[id] ~= nil then
     return false
   end
 
@@ -956,38 +1044,84 @@ function C4:AddVariable(name, value, varType, readOnly, hidden)
     error("Invalid variable type.  Valid types include: BOOL, LEVEL, NUMBER, STRING.", 2)
   end
 
+  if id == nil then
+    id = next_variable_id
+    while variable_meta[id] ~= nil do
+      id = id + 1
+    end
+    next_variable_id = id + 1
+  end
   Variables[name] = strValue
-  variable_meta[name] = {
-    id = tostring(next_variable_id),
+  variable_meta[id] = {
+    name = name,
     type = tostring(var_type_codes[varType]),
     readonly = readOnly == true and "True" or "False",
     hidden = hidden == true and "True" or "False",
   }
-  next_variable_id = next_variable_id + 1
-  return true
+  return true, id
 end
 
 -- The value is checked before the name is looked up, so a bad value raises even
 -- on a name that was never added.
-function C4:SetVariable(name, value)
+function C4:SetVariable(identifier, value)
   local strValue = var_value(value)
   if strValue == nil then
     error("strValue should be a string", 2)
   end
-  name = tostring(name)
+  local meta = variable_meta[var_id(identifier)]
 
   -- Never added: silently does nothing, and does not create it
-  if Variables[name] == nil then
+  if meta == nil then
     return
   end
 
-  Variables[name] = strValue
+  Variables[meta.name] = strValue
 end
 
-function C4:DeleteVariable(name)
+function C4:DeleteVariable(identifier)
+  local id = var_id(identifier)
+  if variable_meta[id] ~= nil then
+    Variables[variable_meta[id].name] = nil
+    variable_meta[id] = nil
+  end
+end
+
+-- Undocumented; first-party drivers call it unguarded from OS 4.0.0. It keeps
+-- the id, and returns false for a missing id or a name any variable has.
+local function set_variable_name(_, id, name)
+  local meta = variable_meta[tonumber(id)]
   name = tostring(name)
-  Variables[name] = nil
-  variable_meta[name] = nil
+  if meta == nil or Variables[name] ~= nil then
+    return false
+  elseif name == "" then
+    return true -- but Director keeps the number as the name
+  end
+  Variables[name] = Variables[meta.name]
+  Variables[meta.name] = nil
+  meta.name = name
+  return true
+end
+C4.SetVariableName = set_variable_name
+
+--- Harness: whether C4.SetVariableName exists, as it does from OS 4.0.0 (the
+--- default). Without it lib/values adds variables by name.
+function ShimVariableRename(enabled)
+  C4.SetVariableName = enabled and set_variable_name or nil
+end
+
+--- Harness: a driver update. Director keeps every variable, and the new load's
+--- counter starts again at 1001.
+function ShimUpdateDriver()
+  next_variable_id = 1001
+end
+
+--- Harness: a Director restart or controller boot. No driver variable survives it.
+function ShimRestartDirector()
+  for _, meta in pairs(variable_meta) do
+    Variables[meta.name] = nil
+  end
+  variable_meta = {}
+  next_variable_id = 1001
 end
 
 -- Keyed by id as a string, with every field a string: `type` is a numeric code,
@@ -1132,11 +1266,11 @@ function C4:GetDeviceVariables(deviceId)
   -- The running driver's own variables, as created through C4:AddVariable.
   local variables = {}
   if tonumber(deviceId) == tonumber(C4:GetDeviceID()) then
-    for name, meta in pairs(variable_meta) do
-      variables[meta.id] = {
-        name = name,
+    for id, meta in pairs(variable_meta) do
+      variables[tostring(id)] = {
+        name = meta.name,
         description = "",
-        value = Variables[name],
+        value = Variables[meta.name],
         type = meta.type,
         readonly = meta.readonly,
         hidden = meta.hidden,
@@ -1156,8 +1290,19 @@ function C4:PersistGetValue(key, encrypted)
   return persist_store[key]
 end
 
+-- As on 4.3.0: a string is cut at its first NUL and a NaN is stored as Director's text for it.
+-- "" deletes a plain key and leaves an encrypted one as it was.
 function C4:PersistSetValue(key, value, encrypted)
-  persist_store[key] = value
+  if type(value) == "string" then
+    value = value:match("^[^%z]*")
+  elseif value ~= value then
+    value = '{":number:":null}'
+  end
+  if value ~= "" then
+    persist_store[key] = value
+  elseif not encrypted then
+    persist_store[key] = nil
+  end
 end
 
 function C4:PersistDeleteValue(key)

@@ -131,7 +131,7 @@ local function is_list(t)
 end
 
 -- Version
-local VERSION = "v0.6.10"
+local VERSION = "v0.6.11"
 
 --- Returns the library version.
 --- @return string version The version string.

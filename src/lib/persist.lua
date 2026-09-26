@@ -57,6 +57,11 @@ Persist.__index = Persist
 --- @type table
 local EMPTY = {}
 
+--- What Director stores for a NaN: it keeps a number as {":number:":<n>}, and JSON has no NaN.
+--- An older build's stored NaN reads as the default, not as this text.
+--- @type string
+local STORED_NAN = '{":number:":null}'
+
 --- Migration functions loaded from the driver's `migrations.lua` module.
 --- Populated lazily on first get() call. Each entry maps a persist key to a function that
 --- transforms the old value format into the new format.
@@ -99,7 +104,8 @@ end
 --- Retrieves a value from the persistence store.
 --- On first call, loads any driver-specific migrations from `migrations.lua`.
 --- If a migration exists for the requested key, it runs once, persists the transformed value,
---- and removes itself.
+--- and removes itself. A table holding a string that is not UTF-8 text reads back with each
+--- byte JSON:decode rejects as its Latin-1 character.
 --- @param key string The key to retrieve the value for.
 --- @param default? any The default value to return if the key doesn't exist (optional).
 --- @param encrypted? boolean Whether the value is encrypted (optional).
@@ -118,6 +124,39 @@ function Persist:get(key, default, encrypted)
   return value
 end
 
+--- JSON text with each byte that is not part of a UTF-8 character written as \u00XX, which
+--- reads back as its Latin-1 character.
+--- @private
+local function escapeUndecodable(text)
+  return (
+    text:gsub("[\128-\255][\128-\191]*", function(run)
+      local c = run:byte()
+      local len = c >= 0xC2 and c <= 0xDF and 2 or c >= 0xE0 and c <= 0xEF and 3 or c >= 0xF0 and c <= 0xF4 and 4 or 0
+      local keep = #run >= len and len or 0
+      local escaped = run:sub(keep + 1):gsub(".", function(char)
+        return string.format("\\u%04X", char:byte())
+      end)
+      return run:sub(1, keep) .. escaped
+    end)
+  )
+end
+
+--- A stored table that JSON:decode rejects for text that is not UTF-8, read with those
+--- bytes escaped, or nil if it still does not read as a table.
+--- @private
+local function salvage(key, stored)
+  local ok, text = pcall(C4.Base64Decode, C4, stored)
+  if not ok or type(text) ~= "string" then
+    return nil
+  end
+  local decoded, value = pcall(JSON.decode, JSON, escapeUndecodable(text))
+  if decoded and type(value) == "table" then
+    log:warn("Stored %s has text that is not UTF-8; its bad bytes read as Latin-1", key)
+    return value
+  end
+  return nil
+end
+
 --- Internal get implementation with caching.
 --- @private
 --- @param key string The key to retrieve.
@@ -132,7 +171,16 @@ function Persist:_get(key, default, encrypted)
   local value = self._persist[key]
 
   if value == nil then
-    value = Deserialize(PersistGetValue(key, encrypted))
+    local stored = PersistGetValue(key, encrypted)
+    value = Deserialize(stored)
+    -- A string is stored raw, and C4:Base64Decode reads one under four characters or with a space or
+    -- punctuation as "", which Deserialize reads as nil.
+    if value == nil and type(stored) == "string" and stored ~= STORED_NAN then
+      value = stored
+    elseif value == stored and type(stored) == "string" then
+      -- Deserialize hands back what it cannot read, such as a table with text that is not UTF-8
+      value = salvage(key, stored) or value
+    end
     if value == nil then
       value = default
     end
@@ -151,12 +199,13 @@ end
 --- Sets a value in the persistence store. Inside `defer()`, a write-behind key's
 --- value is cached at once and written at its next flush.
 --- @param key string The key to set the value for.
---- @param value any The value to store. If nil, the key will be deleted.
+--- @param value any The value to store. If nil, "" or NaN, the key will be deleted.
 --- @param encrypted? boolean Whether to encrypt the value (optional).
 --- @return void
 function Persist:set(key, value, encrypted)
   log:trace("Persist:set(%s, %s, %s)", key, value, encrypted)
-  if value == nil then
+  -- Director ignores an encrypted "", which would leave the old value, and stores a NaN as STORED_NAN.
+  if value == nil or value == "" or value ~= value then
     self._persist[key] = EMPTY
     self._pending[key] = nil -- a later flush must not bring the key back
     PersistDeleteValue(key)
