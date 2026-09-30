@@ -294,8 +294,21 @@ local awaitingCommandResponse = false
 local notificationsSubscribed = false
 --- @type boolean
 local notificationsSubscribing = false
+--- Whether the connect timeout gave up and released the link. Until the next
+--- CONNECTED there is no link to lose, so a DISCONNECTED in between is the parent
+--- answering that DISCONNECT (the coordinator always does) and must neither hide
+--- the failure behind "Listening" nor reset a newer press.
+--- @type boolean
+local linkAbandoned = false
 --- @type integer
 local DISCONNECT_DELAY_MS = 4000
+--- Give up on a CONNECT that gets neither CONNECTED nor CONNECTION_FAILED back (a
+--- lost message, or the parent restarted mid-connect). The parent reports a failed
+--- connect itself (the proxy allows 30s to connect, and the coordinator fails over
+--- across up to three proxies), so this sits well past that and only catches an
+--- answer that never comes.
+--- @type integer
+local CONNECT_TIMEOUT_MS = 120000
 --- @type integer
 local PRESS_REVERT_DELAY_MS = 5000
 --- @type integer
@@ -419,6 +432,7 @@ end
 local function resetConnectionState(clearHandles)
   log:trace("resetConnectionState(%s)", clearHandles)
   -- Connection state
+  CancelTimer("ConnectionTimeout")
   pendingCommand = nil
   awaitingCommandResponse = false
   notificationsSubscribed = false
@@ -441,6 +455,14 @@ end
 local function requestConnection()
   log:trace("requestConnection()")
   SendToProxy(ESPHOME_BINDING, "CONNECT", {}, "NOTIFY")
+  SetTimer("ConnectionTimeout", CONNECT_TIMEOUT_MS, function()
+    log:error("Connection failed: no answer to CONNECT after %dms", CONNECT_TIMEOUT_MS)
+    linkAbandoned = true
+    resetConnectionState()
+    -- Free any half-open slot the parent is still holding for us
+    SendToProxy(ESPHOME_BINDING, "DISCONNECT", {}, "NOTIFY")
+    updateStatus("Connection Failed: timeout", false)
+  end)
 end
 
 --- Actually perform the GATT disconnection
@@ -2342,6 +2364,7 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
 
   log:info("Connected to %s device: %s", devType or "unknown", mac or "unknown")
   CancelTimer("ConnectionTimeout")
+  linkAbandoned = false
 
   -- Active GATT connection means this is not a passive device
   isPassive = false
@@ -2507,6 +2530,12 @@ function RFP.DISCONNECTED(idBinding, strCommand, tParams, args)
 
   local reason = Select(tParams, "reason") or "unknown"
   log:info("Disconnected from device: %s", reason)
+
+  -- The answer to the connect timeout's DISCONNECT: keep its failure status
+  if linkAbandoned then
+    log:debug("Ignoring DISCONNECTED - connection already abandoned")
+    return
+  end
 
   resetConnectionState()
 
