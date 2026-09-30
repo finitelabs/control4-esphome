@@ -63,6 +63,13 @@ local JAM_CHECK_DELAY_MS = 10000
 --- Handshake timeout (ms) - abort and retry if lock doesn't respond
 local HANDSHAKE_TIMEOUT_MS = 10000
 
+--- Connect timeout (ms) - give up on a CONNECT that gets neither CONNECTED nor
+--- CONNECTION_FAILED back (a lost message, or the parent restarted mid-connect).
+--- The parent reports a failed connect itself (the proxy allows 30s to connect,
+--- and the coordinator fails over across up to three proxies), so this sits well
+--- past that and only catches an answer that never comes.
+local CONNECT_TIMEOUT_MS = 120000 -- 2 minutes
+
 --- Minimum delay between GATT writes (ms) per Yale BLE protocol
 local GATT_WRITE_COOLDOWN_MS = 250
 
@@ -161,6 +168,14 @@ local initialStatusTriggered = false
 --- @type boolean
 local expectedDisconnect = false
 
+--- Whether a failed attempt released the link and already scheduled recovery.
+--- Until the next CONNECTED there is no link to lose, so a DISCONNECTED in
+--- between is the parent answering that DISCONNECT (the coordinator always
+--- does, the proxy does when it held a connection) and must not schedule
+--- recovery a second time.
+--- @type boolean
+local linkAbandoned = false
+
 --- August cloud session token (for key fetching)
 --- @type string|nil
 local augustSessionToken = nil
@@ -202,6 +217,7 @@ local function resetConnectionState(clearHandles)
   pendingCommand = nil
   awaitingResponse = nil
   gattWriteQueue = {}
+  CancelTimer("ConnectionTimeout")
   CancelTimer("GattWriteDrain")
   CancelTimer("HandshakeTimeout")
   CancelTimer("Keepalive")
@@ -265,17 +281,35 @@ end
 -- Connection Management
 --------------------------------------------------------------------------------
 
---- Request GATT connection from parent driver
-local function requestConnection()
-  log:trace("requestConnection()")
-  SendToProxy(ESPHOME_BINDING, "CONNECT", {}, "NOTIFY")
-end
+--- Defined with the recovery logic below; abandonAttempt needs it first.
+local scheduleRecovery
 
 --- Actually perform the GATT disconnection
 local function doDisconnect()
   log:trace("doDisconnect()")
   resetConnectionState()
   SendToProxy(ESPHOME_BINDING, "DISCONNECT", {}, "NOTIFY")
+end
+
+--- Give up on a failed attempt: release the link, freeing any half-open slot the
+--- parent still holds, and schedule recovery once, retrying the queued command.
+--- @param status string Driver status message for scheduleRecovery
+local function abandonAttempt(status)
+  log:trace("abandonAttempt(%s)", status)
+  local savedCommand = pendingCommand
+  linkAbandoned = true
+  doDisconnect()
+  scheduleRecovery(status, savedCommand)
+end
+
+--- Request GATT connection from parent driver
+local function requestConnection()
+  log:trace("requestConnection()")
+  SendToProxy(ESPHOME_BINDING, "CONNECT", {}, "NOTIFY")
+  SetTimer("ConnectionTimeout", CONNECT_TIMEOUT_MS, function()
+    log:warn("Connection timeout - no answer to CONNECT after %dms", CONNECT_TIMEOUT_MS)
+    abandonAttempt("Connection failed: timeout")
+  end)
 end
 
 --- Send a clean disconnect command via secure session before GATT disconnect
@@ -471,10 +505,10 @@ local function isAuthConfigured()
 end
 
 --- Schedule reconnect or poll after a connection/handshake failure.
---- Centralizes recovery logic used by DISCONNECTED, CONNECTION_FAILED, and handshake errors.
+--- Centralizes recovery logic used by DISCONNECTED, CONNECTION_FAILED, the connect timeout, and handshake errors.
 --- @param status string Driver status message to display
 --- @param savedCommand string|nil Command to retry on reconnect (e.g. "lock", "unlock", "status")
-local function scheduleRecovery(status, savedCommand)
+scheduleRecovery = function(status, savedCommand)
   if connectionMode == CONNECTION_MODE.PERSISTENT then
     if not isAuthConfigured() then
       updateStatus("Listening", false)
@@ -676,9 +710,7 @@ local function startHandshake()
   SetTimer("HandshakeTimeout", HANDSHAKE_TIMEOUT_MS, function()
     if handshakeState ~= HANDSHAKE_STATE.IDLE and handshakeState ~= HANDSHAKE_STATE.COMPLETE then
       log:warn("Handshake timeout - no response after %dms", HANDSHAKE_TIMEOUT_MS)
-      local savedCommand = pendingCommand
-      doDisconnect()
-      scheduleRecovery("Error: Handshake timeout", savedCommand)
+      abandonAttempt("Error: Handshake timeout")
     end
   end)
 end
@@ -1448,6 +1480,7 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
 
   log:info("Connected to Yale lock: %s", mac or "unknown")
   CancelTimer("ConnectionTimeout")
+  linkAbandoned = false
 
   if not IsEmpty(name) then
     values:update("Name", name, "STRING")
@@ -1589,6 +1622,13 @@ function RFP.DISCONNECTED(idBinding, strCommand, tParams, args)
   local reason = Select(tParams, "reason") or "unknown"
   log:info("Disconnected from Yale lock: %s", reason)
 
+  -- The answer to the DISCONNECT a failed attempt sent: that failure already
+  -- scheduled recovery, and resetting here would cancel it.
+  if linkAbandoned then
+    log:debug("Ignoring DISCONNECTED - recovery already scheduled")
+    return
+  end
+
   -- Preserve user-initiated commands (lock/unlock) so they can be retried
   local savedCommand = pendingCommand
   if savedCommand ~= "lock" and savedCommand ~= "unlock" then
@@ -1641,10 +1681,10 @@ function RFP.GATT_WRITE_RESPONSE(idBinding, strCommand, tParams, args)
     updateLastSeen()
   else
     log:error("Write command failed: error=%s", errorCode)
-    if handshakeState ~= HANDSHAKE_STATE.COMPLETE then
+    -- IDLE means the attempt is already over; its late write answers are stale
+    if handshakeState ~= HANDSHAKE_STATE.IDLE and handshakeState ~= HANDSHAKE_STATE.COMPLETE then
       log:error("Handshake write failed, disconnecting")
-      doDisconnect()
-      scheduleRecovery("Error: Handshake failed")
+      abandonAttempt("Error: Handshake failed")
     end
   end
 end
