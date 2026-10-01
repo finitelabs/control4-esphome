@@ -20,6 +20,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added the ESPHome SereneScent sub-driver for Homedics SereneScent BLE
+  diffusers, with power, mist intensity and light color control, keypad button
+  links and a power relay
+
 ### Fixed
 
 - Fixed the SwitchBot and Yale drivers waiting indefinitely when the Bluetooth

@@ -78,12 +78,13 @@ If you try this driver on a product listed above, and it works, let us know!
 When used as a Bluetooth proxy, this driver supports the following BLE device
 types through sub-drivers:
 
-| Protocol    | Sub-Driver        | Example Devices                                      |
-| ----------- | ----------------- | ---------------------------------------------------- |
-| SwitchBot   | ESPHome SwitchBot | Bot, Plug Mini, Relay Switch, Meter, Motion, Contact |
-| BTHome      | ESPHome BTHome    | Shelly BLU Button/Door/Motion/H&T, DIY sensors       |
-| Govee       | ESPHome Govee     | Temperature/humidity monitors, meat thermometers     |
-| Yale/August | ESPHome Yale      | Yale and August smart locks                          |
+| Protocol    | Sub-Driver          | Example Devices                                      |
+| ----------- | ------------------- | ---------------------------------------------------- |
+| SwitchBot   | ESPHome SwitchBot   | Bot, Plug Mini, Relay Switch, Meter, Motion, Contact |
+| BTHome      | ESPHome BTHome      | Shelly BLU Button/Door/Motion/H&T, DIY sensors       |
+| Govee       | ESPHome Govee       | Temperature/humidity monitors, meat thermometers     |
+| Yale/August | ESPHome Yale        | Yale and August smart locks                          |
+| SereneScent | ESPHome SereneScent | Homedics SereneScent Diffuser                        |
 
 See the individual sub-driver documentation for device-specific details.
 
@@ -514,13 +515,14 @@ the matching read-only Device Info properties.
 When the connected ESPHome device exposes a Bluetooth proxy, additional dynamic
 bindings are created separately from the entity bindings above:
 
-| Source                     | Binding Class       | Purpose                                                  |
-| -------------------------- | ------------------- | -------------------------------------------------------- |
-| Bluetooth Coordinator link | `ESPHOME_BLUETOOTH` | Connects the ESPHome driver to the Bluetooth Coordinator |
-| Selected BTHome device     | `ESPHOME_BTHOME`    | Bind to ESPHome BTHome sub-driver                        |
-| Selected Govee device      | `ESPHOME_GOVEE`     | Bind to ESPHome Govee sub-driver                         |
-| Selected SwitchBot device  | `ESPHOME_SWITCHBOT` | Bind to ESPHome SwitchBot sub-driver                     |
-| Selected Yale/August lock  | `ESPHOME_YALE`      | Bind to ESPHome Yale sub-driver                          |
+| Source                      | Binding Class         | Purpose                                                  |
+| --------------------------- | --------------------- | -------------------------------------------------------- |
+| Bluetooth Coordinator link  | `ESPHOME_BLUETOOTH`   | Connects the ESPHome driver to the Bluetooth Coordinator |
+| Selected BTHome device      | `ESPHOME_BTHOME`      | Bind to ESPHome BTHome sub-driver                        |
+| Selected Govee device       | `ESPHOME_GOVEE`       | Bind to ESPHome Govee sub-driver                         |
+| Selected SereneScent device | `ESPHOME_SERENESCENT` | Bind to ESPHome SereneScent sub-driver                   |
+| Selected SwitchBot device   | `ESPHOME_SWITCHBOT`   | Bind to ESPHome SwitchBot sub-driver                     |
+| Selected Yale/August lock   | `ESPHOME_YALE`        | Bind to ESPHome Yale sub-driver                          |
 
 > **Note:** Per-device Bluetooth bindings are created automatically when a
 > device is chosen via the `Select Bluetooth Devices` property (standalone mode)
@@ -727,6 +729,7 @@ connection slots (typically 3-4). These devices include:
 - **SwitchBot Bot** - Requires connection to send press/on/off commands
 - **SwitchBot Switch** - Plug Mini, Relay switches (encrypted commands)
 - **Yale/August Locks** - Requires connection for encrypted lock/unlock commands
+- **Homedics SereneScent** - Requires connection for commands and status reads
 
 ### Oversubscription
 
@@ -769,12 +772,13 @@ and retry until a slot becomes available.
 
 ## Supported Device Types
 
-| Device Protocol | Sub-Driver        | Connection     |
-| --------------- | ----------------- | -------------- |
-| BTHome          | ESPHome BTHome    | Passive        |
-| Govee           | ESPHome Govee     | Passive        |
-| SwitchBot       | ESPHome SwitchBot | Active/Passive |
-| Yale/August     | ESPHome Yale      | Active         |
+| Device Protocol | Sub-Driver          | Connection     |
+| --------------- | ------------------- | -------------- |
+| BTHome          | ESPHome BTHome      | Passive        |
+| Govee           | ESPHome Govee       | Passive        |
+| SwitchBot       | ESPHome SwitchBot   | Active/Passive |
+| Yale/August     | ESPHome Yale        | Active         |
+| SereneScent     | ESPHome SereneScent | Active         |
 
 ## Performance Considerations
 
@@ -912,6 +916,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 -->
 
 ## Unreleased
+
+### Added
+
+- Added the ESPHome SereneScent sub-driver for Homedics SereneScent BLE
+  diffusers, with power, mist intensity and light color control, keypad button
+  links and a power relay
 
 ### Fixed
 

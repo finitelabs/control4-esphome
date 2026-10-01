@@ -13,6 +13,7 @@ DRIVER_FILENAMES = {
   "esphome_climate.c4z",
   "esphome_light.c4z",
   "esphome_lock.c4z",
+  "esphome_serenescent.c4z",
   "esphome_switchbot.c4z",
   "esphome_yale.c4z",
 }
