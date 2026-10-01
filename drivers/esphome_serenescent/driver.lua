@@ -1,7 +1,7 @@
---- ESPHome Homedics SereneScent BLE Diffuser Driver
---- Active GATT device. Requires one ESP32 connection slot.
---- Protocol reverse-engineered from:
----   https://github.com/john-k-mcdowell/Homedics-SereneScent
+--- ESPHome Homedics SereneScent BLE diffuser driver.
+--- Connects for each command or poll, reads the status frame and disconnects:
+--- the diffuser serves one client at a time and each connection holds one of the
+--- proxy's few GATT slots.
 --#ifdef DRIVERCENTRAL
 DC_PID = 819
 DC_X = nil
@@ -11,559 +11,509 @@ require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
-require("drivers-common-public.global.url")
+
+JSON = require("JSON")
 
 local log = require("lib.logging")
-local constants = require("constants")
-local bindings = require("lib.bindings")
-local values = require("lib.values")
 local persist = require("lib.persist")
+local values = require("lib.values")
 local UUID = require("esphome.ble.uuid")
+local protocol = require("esphome.ble.serenescent_protocol")
+
+--- Update the Driver Status property and the Connected variable so
+--- Programming can react to connect/disconnect.
+--- @param status string The human-readable connection status.
+--- @param connected boolean Whether this status represents a live connection;
+--- callers pass it explicitly so rewording a status can never silently flip
+--- the Connected variable.
+local function updateStatus(status, connected)
+  log:trace("updateStatus(%s, %s)", status, connected)
+  if type(connected) ~= "boolean" then
+    error(string.format("updateStatus(%s): connected must be an explicit boolean", tostring(status)), 2)
+  end
+  UpdateProperty("Driver Status", status)
+  values:update("Connected", connected, "BOOL")
+end
 
 --------------------------------------------------------------------------------
 -- Constants
 --------------------------------------------------------------------------------
 
---- Binding IDs
-local ESPHOME_BINDING = 5002 -- ESPHome BLE connection binding
+--- @type integer
+local ESPHOME_BINDING = 5002
+--- @type integer
+local RELAY_BINDING = 308
 
---- Dynamic bindings namespace
-local BINDINGS_NAMESPACE = "SereneScent"
-
---- Capability group definitions: maps capability name to binding definitions
-local CAPABILITY_BINDINGS = {
-  power = {
-    { key = "on", class = "BUTTON_LINK", name = "On Button Link" },
-    { key = "off", class = "BUTTON_LINK", name = "Off Button Link" },
-    { key = "toggle", class = "BUTTON_LINK", name = "Toggle Button Link" },
-    { key = "relay", class = "RELAY", name = "Power Relay" },
-  },
-  intensity = {
-    { key = "intensity_up", class = "BUTTON_LINK", name = "Intensity Up Button Link" },
-    { key = "intensity_down", class = "BUTTON_LINK", name = "Intensity Down Button Link" },
-    { key = "set_low", class = "BUTTON_LINK", name = "Set Low Intensity Button Link" },
-    { key = "set_medium", class = "BUTTON_LINK", name = "Set Medium Intensity Button Link" },
-    { key = "set_high", class = "BUTTON_LINK", name = "Set High Intensity Button Link" },
-  },
+--- Static BUTTON_LINK connections from driver.xml and the action each runs.
+--- @type table<integer, string>
+local BUTTON_LINK_ACTIONS = {
+  [300] = "on",
+  [301] = "off",
+  [302] = "toggle",
+  [303] = "intensity_up",
+  [304] = "intensity_down",
+  [305] = "intensity_low",
+  [306] = "intensity_medium",
+  [307] = "intensity_high",
 }
 
---- GATT UUIDs (from const.py)
-local SERVICE_UUID = "53527aa4-29f7-ae11-4e74-997334782568"
-local CHAR_TX_UUID = "ee684b1a-1e9b-ed3e-ee55-f894667e92ac" -- write TO device
-local CHAR_RX_UUID = "654b749c-e37f-ae1f-ebab-40ca133e3690" -- notify FROM device
-
---- Protocol framing
-local CMD_HEADER = string.char(0xFF, 0xFA)
-local RESP_HEADER = string.char(0xFF, 0xFB)
-
---- Power commands
-local CMD_POWER_ON = string.char(0xFF, 0xFA, 0x10, 0x04)
-local CMD_POWER_OFF = string.char(0xFF, 0xFA, 0x11, 0x04)
-
---- Intensity commands
-local CMD_INTENSITY = {
-  low = string.char(0xFF, 0xFA, 0x17, 0x08, 0x00, 0x0A, 0x00, 0xF0),
-  medium = string.char(0xFF, 0xFA, 0x17, 0x08, 0x00, 0x14, 0x00, 0x82),
-  high = string.char(0xFF, 0xFA, 0x17, 0x08, 0x00, 0x1E, 0x00, 0x3C),
-}
-
---- Color commands
-local CMD_COLOR = {
-  off = string.char(0xFF, 0xFA, 0x16, 0x05, 0x00),
-  rotating = string.char(0xFF, 0xFA, 0x16, 0x05, 0x01),
-  white = string.char(0xFF, 0xFA, 0x16, 0x05, 0x02),
-  red = string.char(0xFF, 0xFA, 0x16, 0x05, 0x03),
-  blue = string.char(0xFF, 0xFA, 0x16, 0x05, 0x04),
-  violet = string.char(0xFF, 0xFA, 0x16, 0x05, 0x05),
-  green = string.char(0xFF, 0xFA, 0x16, 0x05, 0x06),
-  orange = string.char(0xFF, 0xFA, 0x16, 0x05, 0x07),
-}
-
---- Status query commands
-local CMD_STATUS_HOME = string.char(0xFF, 0xFA, 0x40, 0x05, 0x00)
-local CMD_MODE_HOME = string.char(0xFF, 0xFA, 0x43, 0x05, 0x00)
-
---- Status response byte positions (16-byte response, 0-indexed from byte 1 in Lua)
-local STATUS_BYTE_INTENSITY = 9 -- byte index 9 (0-indexed: 8) -> 10=low, 20=med, 30=high
-local STATUS_BYTE_COLOR = 13 -- byte index 13 (0-indexed: 12) -> 0-7
-local STATUS_BYTE_POWER = 15 -- byte index 15 (0-indexed: 14) -> 0=off, 1=on
-
---- Intensity byte value -> name
-local INTENSITY_MAP = { [10] = "low", [20] = "medium", [30] = "high" }
-
---- Color byte value -> name
-local COLOR_MAP = {
-  [0] = "off",
-  [1] = "rotating",
-  [2] = "white",
-  [3] = "red",
-  [4] = "blue",
-  [5] = "violet",
-  [6] = "green",
-  [7] = "orange",
-}
-
---- Post-command delay before status poll (ms)
-local STATUS_POLL_DELAY_MS = 800
-
---- Disconnect delay after command completion (ms)
+--- @type integer
+local BUTTON_LINK_COALESCE_MS = 500
+--- Settle time after a write nothing answers (the HOME mode switch), per upstream.
+--- @type integer
+local COMMAND_DELAY_MS = 200
+--- How long upstream waits for an ack or a status reply before moving on.
+--- @type integer
+local RESPONSE_TIMEOUT_MS = 2000
+--- Linger after the last reply so presses in quick succession share a connection.
+--- @type integer
 local DISCONNECT_DELAY_MS = 3000
+--- Covers both connecting and subscribing to notifications.
+--- @type integer
+local CONNECT_TIMEOUT_MS = 30000
+--- How long to wait for the proxy to answer our DISCONNECT before connecting
+--- again. The standalone proxy only answers when the slot was allocated.
+--- @type integer
+local DISCONNECT_SETTLE_MS = 3000
+--- @type integer
+local ADVERTISEMENT_THROTTLE_S = 30
 
 --------------------------------------------------------------------------------
 -- State
 --------------------------------------------------------------------------------
 
---- GATT handle cache
+--- Last status the device reported. Nil fields have never been read.
+--- @class SereneScentState
+--- @field power boolean|nil
+--- @field intensity string|nil
+--- @field color string|nil
+--- @field mode integer|nil
+--- @type SereneScentState
+local state = {}
+
+--- @alias SereneScentLink "idle"|"connecting"|"subscribing"|"ready"|"disconnecting"
+--- @type SereneScentLink
+local link = "idle"
+
+--- @type integer|nil
 local txHandle = nil
+--- @type integer|nil
 local rxHandle = nil
 
---- Connection state
-local isConnected = false
+--- Operations waiting for the connection, in the order they were asked for.
+--- @class SereneScentOp
+--- @field kind "power"|"intensity"|"color"|"status"
+--- @field value boolean|string|nil
+--- @type SereneScentOp[]
+local queue = {}
 
---- Last BLE advertisement timestamp (for throttling RSSI updates)
-local lastAdvTime = 0
+--- The opcode of the write awaiting its reply, or nil when nothing is in flight.
+--- @type integer|nil
+local awaitingOpcode = nil
 
---- Pending command to send once connected ("power_on","power_off","intensity","color","status")
-local pendingCommand = nil
-local pendingParam = nil -- "low"/"medium"/"high" or color name
+--- A control write went out since the last status reply, so the cycle must end
+--- with a status query: state is only ever taken from the device's own reply.
+--- @type boolean
+local needsStatus = false
 
---- Current device state (for variables and toggle logic)
-local state = {
-  power = false,
-  intensity = "low",
-  color = "white",
-}
+--- Power and intensity written since the last status reply, so a toggle or
+--- step pressed before that reply builds on what was sent, not on stale state.
+--- @type { power: boolean|nil, intensity: string|nil }
+local written = {}
 
---- Ordered intensity levels for cycling
-local INTENSITY_CYCLE = { "low", "medium", "high" }
+--- @type boolean
+local initialStatusTriggered = false
 
---- Whether capability detection is in progress
-local detectingCapabilities = false
+--- @type integer
+local lastAdvProcessedAt = 0
 
---- Whether we powered on the device during detection (to restore state after)
-local detectionPoweredOn = false
-
---- Forward declaration (defined after schedulePoll)
-local initiateCommand
+--- Last power state sent to the relay this session. In-memory on purpose: a
+--- driver restart clears it, so the bound consumer is re-notified.
+--- @type boolean|nil
+local lastNotifiedPower = nil
 
 --------------------------------------------------------------------------------
--- Helpers
+-- Device State
 --------------------------------------------------------------------------------
 
-local findCharacteristicHandle = UUID.findCharacteristicHandle
-
-local function updateLastSeen()
-  values:update("Last Seen", tostring(os.date("%Y-%m-%d %H:%M:%S")), "STRING")
+local function loadState()
+  local saved = persist:get("deviceState", {})
+  state = {
+    power = Select(saved, "power"),
+    intensity = Select(saved, "intensity"),
+    color = Select(saved, "color"),
+    mode = Select(saved, "mode"),
+  }
 end
 
-local function updateRSSI(rssi)
-  local n = tonumber(rssi) or -999
-  if n > -999 then
-    values:update("RSSI", n, "NUMBER", nil, " dBm")
-  end
-end
-
---- Push current state into driver variables and properties
-local function pushState()
-  local caps = persist:get("detectedCapabilities")
-  local intensityDisplay = (not caps and "Undetected")
-    or (not caps.intensity and "N/A")
-    or (not state.power and "Off")
-    or state.intensity
-  local colorDisplay = (not caps and "Undetected")
-    or (not caps.color and "N/A")
-    or (not state.power and "Off")
-    or state.color
-
-  local savedState = persist:get("deviceState")
-  local powerDisplay = savedState and (state.power and "On" or "Off") or "N/A"
-
-  UpdateProperty("Power", powerDisplay)
-  UpdateProperty("Intensity", intensityDisplay)
-  UpdateProperty("Color", colorDisplay)
-  values:update("Power", powerDisplay, "STRING")
-  values:update("Intensity", intensityDisplay, "STRING")
-  values:update("Color", colorDisplay, "STRING")
-  persist:set("deviceState", state)
-
-  -- Update relay proxy state (dynamic binding)
-  local relayBinding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "relay")
-  if relayBinding then
-    SendToProxy(relayBinding.bindingId, state.power and "CLOSED" or "OPENED", {}, "NOTIFY")
-  end
-end
-
---- Send a raw binary command via GATT write
-local function gattWrite(data)
-  if not txHandle then
-    log:warn("gattWrite: TX handle not available")
+--- Notify the relay consumer of the power state, once per change this session.
+local function notifyRelay()
+  if state.power == nil or lastNotifiedPower == state.power then
     return
   end
-  log:debug("GATT write: %d bytes to handle %d", #data, txHandle)
+  lastNotifiedPower = state.power
+  SendToProxy(RELAY_BINDING, state.power and "CLOSED" or "OPENED", {}, "NOTIFY")
+end
+
+--- Mirror the last reported status into properties, variables and the relay.
+--- Intensity and color read Off while the diffuser is off so a stale level is
+--- not mistaken for the running one.
+local function publishState()
+  local function show(value)
+    if state.power == false then
+      return "Off"
+    end
+    return value or "Unknown"
+  end
+  local power = state.power == nil and "Unknown" or (state.power and "On" or "Off")
+  values:update("Power", power, "STRING")
+  values:update("Intensity", show(state.intensity), "STRING")
+  values:update("Color", show(state.color), "STRING")
+  notifyRelay()
+end
+
+--- @param status SereneScentStatus
+local function applyStatus(status)
+  log:info(
+    "Status: power=%s intensity=%s color=%s schedule=%s mode=%s",
+    status.power,
+    status.intensity,
+    status.color,
+    status.schedule,
+    status.mode
+  )
+  state.power = status.power
+  state.mode = status.mode
+  written = {}
+  -- An unrecognised byte leaves the last known value rather than guessing one
+  if status.intensity then
+    state.intensity = status.intensity
+  else
+    log:warn("Status reported an unknown intensity; keeping %s", state.intensity)
+  end
+  if status.color then
+    state.color = status.color
+  else
+    log:warn("Status reported an unknown color; keeping %s", state.color)
+  end
+  persist:set("deviceState", state)
+  values:update("Last Seen", tostring(os.date("%Y-%m-%d %H:%M:%S")))
+  publishState()
+end
+
+--------------------------------------------------------------------------------
+-- Connection Management
+--------------------------------------------------------------------------------
+
+local runQueue
+local initiate
+
+--- Drop the connection state and every timer tied to it. Queued operations are
+--- reported and dropped, since nothing will carry them out.
+local function resetConnectionState()
+  log:trace("resetConnectionState()")
+  if #queue > 0 then
+    log:warn("Dropping %d queued operation(s): the connection ended first", #queue)
+  end
+  link = "idle"
+  txHandle = nil
+  rxHandle = nil
+  queue = {}
+  awaitingOpcode = nil
+  needsStatus = false
+  written = {}
+  CancelTimer("ConnectTimeout")
+  CancelTimer("ResponseTimeout")
+  CancelTimer("CommandDelay")
+  CancelTimer("DisconnectDelay")
+  CancelTimer("DisconnectSettle")
+end
+
+--- Arm the next poll.
+--- @param connected boolean Whether the cycle that just ended was healthy;
+--- drives the Connected variable across the wait.
+local function schedulePoll(connected)
+  local interval = tointeger(Properties["Polling Interval"]) or 5
+  log:debug("Scheduling next poll in %d minutes", interval)
+  updateStatus(string.format("Listening (next poll in %dm)", interval), connected)
+  SetTimer("PollCycle", interval * ONE_MINUTE, function()
+    log:info("Poll timer fired - requesting status")
+    initiate({ kind = "status" })
+  end)
+end
+
+local connect
+
+--- The proxy has answered our DISCONNECT, or stayed silent long enough. Run
+--- anything queued while we waited.
+local function disconnected()
+  log:trace("disconnected()")
+  CancelTimer("DisconnectSettle")
+  link = "idle"
+  if #queue > 0 then
+    connect()
+  end
+end
+
+--- Send DISCONNECT and hold new connections until the proxy answers it. Its
+--- DISCONNECTED can arrive after a new CONNECT has gone out, and would then
+--- read as the new link dropping.
+local function releaseLink()
+  link = "disconnecting"
+  SendToProxy(ESPHOME_BINDING, "DISCONNECT", {}, "NOTIFY")
+  SetTimer("DisconnectSettle", DISCONNECT_SETTLE_MS, disconnected)
+end
+
+--- Release the connection slot and wait for the next poll.
+--- @param connected boolean Whether the cycle ended healthy
+local function disconnect(connected)
+  log:trace("disconnect(%s)", connected)
+  resetConnectionState()
+  releaseLink()
+  schedulePoll(connected)
+end
+
+--- End a failed cycle.
+--- @param status string Why it failed, for the log and Driver Status
+local function fail(status)
+  log:warn("SereneScent cycle failed: %s", status)
+  disconnect(false)
+  -- The poll text replaced the reason in the same tick; keep the reason visible
+  updateStatus(status, false)
+end
+
+connect = function()
+  log:trace("connect()")
+  link = "connecting"
+  updateStatus("Connecting", Select(values:getValue("Connected"), "value") == true)
+  SendToProxy(ESPHOME_BINDING, "CONNECT", {}, "NOTIFY")
+  SetTimer("ConnectTimeout", CONNECT_TIMEOUT_MS, function()
+    fail("Connection timed out")
+  end)
+end
+
+--- @param data string
+local function gattWrite(data)
+  log:debug("GATT write: %s", C4:Encode(data, "HEX"))
   SendToProxy(ESPHOME_BINDING, "GATT_WRITE", {
     handle = tostring(txHandle),
     data = C4:Base64Encode(data),
-    response = "false", -- write without response (matches HA integration)
+    -- Write Command, as the vendor app and upstream send it
+    response = "false",
   }, "NOTIFY")
 end
 
---- Request GATT connection
-local function requestConnection()
-  log:trace("requestConnection()")
-  SendToProxy(ESPHOME_BINDING, "CONNECT", {}, "NOTIFY")
+--- The write in flight was answered, or needs no answer: move on.
+local function replyReceived()
+  CancelTimer("ResponseTimeout")
+  CancelTimer("CommandDelay")
+  awaitingOpcode = nil
+  runQueue()
 end
 
---- Request GATT disconnection
-local function requestDisconnect()
-  log:trace("requestDisconnect()")
-  isConnected = false
-  txHandle = nil
-  rxHandle = nil
-  SendToProxy(ESPHOME_BINDING, "DISCONNECT", {}, "NOTIFY")
-end
-
---- Subscribe to GATT notifications on the RX characteristic
-local function subscribeNotifications()
-  if not rxHandle then
-    log:warn("subscribeNotifications: RX handle not available")
-    return
-  end
-  log:debug("Subscribing to GATT notifications on handle %d", rxHandle)
-  SendToProxy(ESPHOME_BINDING, "GATT_NOTIFY", {
-    handle = tostring(rxHandle),
-    enable = "true",
-  }, "NOTIFY")
-end
-
---------------------------------------------------------------------------------
--- Polling
---------------------------------------------------------------------------------
-
---- Schedule next poll cycle.
---- Sets a one-shot timer that connects, queries status, then disconnects.
-local function schedulePoll()
-  local interval = tointeger(Properties["Polling Interval"]) or 5
-  log:info("Scheduling next poll in %d minutes", interval)
-  UpdateProperty("Driver Status", string.format("Listening (next poll in %dm)", interval))
-  CancelTimer("PollCycle")
-  SetTimer("PollCycle", interval * 60 * 1000, function()
-    log:info("Poll timer fired - querying status")
-    initiateCommand("status")
+--- Write a frame and wait for the reply echoing `opcode`. A missing reply is not
+--- fatal for a command, matching upstream: the status query that follows is
+--- what decides the outcome.
+--- @param data string
+--- @param opcode integer
+local function writeAndAwait(data, opcode)
+  awaitingOpcode = opcode
+  gattWrite(data)
+  SetTimer("ResponseTimeout", RESPONSE_TIMEOUT_MS, function()
+    awaitingOpcode = nil
+    if opcode == protocol.Opcode.STATUS then
+      fail("No response from device")
+    else
+      log:warn("No acknowledgement for opcode 0x%02X", opcode)
+      runQueue()
+    end
   end)
 end
 
---------------------------------------------------------------------------------
--- Command Execution
---------------------------------------------------------------------------------
-
---- Execute the pending command (called once connected and subscribed)
-local function executePendingCommand()
-  log:trace("executePendingCommand() cmd=%s param=%s", pendingCommand or "nil", pendingParam or "nil")
-
-  if not isConnected then
-    log:debug("Not connected - will execute after connection")
-    return
+--- @param op SereneScentOp
+--- @return string|nil frame, integer|nil opcode
+local function frameFor(op)
+  if op.kind == "power" then
+    return protocol.powerCommand(op.value == true), op.value and protocol.Opcode.POWER_ON or protocol.Opcode.POWER_OFF
+  elseif op.kind == "intensity" then
+    return protocol.intensityCommand(tostring(op.value)), protocol.Opcode.INTENSITY
+  elseif op.kind == "color" then
+    return protocol.colorCommand(tostring(op.value)), protocol.Opcode.COLOR
   end
-
-  local cmd = pendingCommand
-  local param = pendingParam
-  pendingCommand = nil
-  pendingParam = nil
-
-  if cmd == "power_on" then
-    log:info("Sending POWER ON")
-    gattWrite(CMD_POWER_ON)
-    state.power = true
-    pushState()
-    SetTimer("StatusPoll", STATUS_POLL_DELAY_MS, function()
-      gattWrite(CMD_STATUS_HOME)
-    end)
-  elseif cmd == "power_off" then
-    log:info("Sending POWER OFF")
-    gattWrite(CMD_POWER_OFF)
-    state.power = false
-    pushState()
-    SetTimer("StatusPoll", STATUS_POLL_DELAY_MS, function()
-      gattWrite(CMD_STATUS_HOME)
-    end)
-  elseif cmd == "intensity" and param then
-    local intensityCmd = CMD_INTENSITY[param]
-    if not intensityCmd then
-      log:warn("Unknown intensity: %s", param)
-      return
-    end
-    log:info("Sending INTENSITY %s", param)
-    gattWrite(intensityCmd)
-    state.intensity = param
-    pushState()
-    SetTimer("StatusPoll", STATUS_POLL_DELAY_MS, function()
-      gattWrite(CMD_STATUS_HOME)
-    end)
-  elseif cmd == "color" and param then
-    local colorCmd = CMD_COLOR[param]
-    if not colorCmd then
-      log:warn("Unknown color: %s", param)
-      return
-    end
-    log:info("Sending COLOR %s", param)
-    gattWrite(colorCmd)
-    state.color = param
-    pushState()
-    SetTimer("StatusPoll", STATUS_POLL_DELAY_MS, function()
-      gattWrite(CMD_STATUS_HOME)
-    end)
-  elseif cmd == "status" then
-    log:info("Sending STATUS query")
-    gattWrite(CMD_STATUS_HOME)
-  else
-    log:debug("No pending command to execute")
-    return
-  end
-
-  -- Disconnect after a short delay once the command + status poll are done
-  SetTimer("Disconnect", DISCONNECT_DELAY_MS, function()
-    log:debug("Disconnect timer fired")
-    requestDisconnect()
-  end)
 end
 
---- Initiate a command: connect if needed, then execute
-initiateCommand = function(cmd, param)
-  log:info("Initiating command: %s %s", cmd, param or "")
-  CancelTimer("Disconnect")
-  CancelTimer("StatusPoll")
+--- Send the next queued operation, or finish the cycle with a status query and
+--- a delayed disconnect once the queue is empty.
+runQueue = function()
+  if link ~= "ready" or awaitingOpcode then
+    return
+  end
+  CancelTimer("DisconnectDelay")
+
+  local op = table.remove(queue, 1)
+  if op == nil then
+    if needsStatus then
+      needsStatus = false
+      writeAndAwait(protocol.statusQuery(state.mode), protocol.Opcode.STATUS)
+      return
+    end
+    SetTimer("DisconnectDelay", DISCONNECT_DELAY_MS, function()
+      disconnect(true)
+    end)
+    return
+  end
+
+  if op.kind == "status" then
+    needsStatus = true
+    runQueue()
+    return
+  end
+
+  -- Intensity and color only take effect in HOME mode; upstream switches
+  -- whenever the last status said otherwise, which also ends any app schedule.
+  if state.mode ~= nil and state.mode ~= protocol.Mode.HOME then
+    log:info("Switching diffuser to HOME mode")
+    gattWrite(protocol.homeModeCommand())
+    state.mode = protocol.Mode.HOME
+    table.insert(queue, 1, op)
+    awaitingOpcode = protocol.Opcode.MODE
+    SetTimer("CommandDelay", COMMAND_DELAY_MS, replyReceived)
+    return
+  end
+
+  local data, opcode = frameFor(op)
+  if not data or not opcode then
+    log:warn("Ignoring invalid %s value: %s", op.kind, op.value)
+    runQueue()
+    return
+  end
+  log:info("Sending %s %s", op.kind, op.value)
+  needsStatus = true
+  if op.kind == "power" or op.kind == "intensity" then
+    written[op.kind] = op.value
+  end
+  writeAndAwait(data, opcode)
+end
+
+--- Queue an operation, connecting if needed.
+--- @param op SereneScentOp
+initiate = function(op)
+  log:trace("initiate(%s %s)", op.kind, op.value)
+  -- Any cycle reads status on its way out, so none is owed to an advertisement
+  initialStatusTriggered = true
   CancelTimer("PollCycle")
-  pendingCommand = cmd
-  pendingParam = param
-
-  if isConnected then
-    executePendingCommand()
+  table.insert(queue, op)
+  if link == "idle" then
+    connect()
   else
-    requestConnection()
+    runQueue()
   end
 end
 
 --------------------------------------------------------------------------------
--- Status Response Parser
+-- Actions
 --------------------------------------------------------------------------------
 
---- Parse the 16-byte status response from the device.
---- Response format: FF FB 40 ... (see STATUS_BYTE_* constants)
---- @param data string Raw binary response bytes
-local function parseStatusResponse(data)
-  if #data < 16 then
-    log:debug("Status response too short: %d bytes", #data)
-    return
+--- The power state the queue will leave behind, so a second toggle queued
+--- behind the first undoes it rather than repeating it.
+--- @return boolean
+local function projectedPower()
+  for i = #queue, 1, -1 do
+    if queue[i].kind == "power" then
+      return queue[i].value == true
+    end
   end
-
-  -- Validate header: FF FB and command echo 0x40
-  if string.byte(data, 1) ~= 0xFF or string.byte(data, 2) ~= 0xFB or string.byte(data, 3) ~= 0x40 then
-    log:debug("Not a status response: %02X %02X %02X", string.byte(data, 1), string.byte(data, 2), string.byte(data, 3))
-    return
+  if written.power ~= nil then
+    return written.power
   end
+  return state.power == true
+end
 
-  local intensityVal = string.byte(data, STATUS_BYTE_INTENSITY)
-  local colorVal = string.byte(data, STATUS_BYTE_COLOR)
-  local powerVal = string.byte(data, STATUS_BYTE_POWER)
+--- @return string|nil
+local function projectedIntensity()
+  for i = #queue, 1, -1 do
+    if queue[i].kind == "intensity" then
+      return tostring(queue[i].value)
+    end
+  end
+  return written.intensity or state.intensity
+end
 
-  state.power = powerVal == 1
-  state.intensity = INTENSITY_MAP[intensityVal] or "low"
-  state.color = COLOR_MAP[colorVal] or "white"
-
-  log:info("Status: power=%s intensity=%s color=%s", tostring(state.power), state.intensity, state.color)
-
-  -- Handle capability detection flow
-  if detectingCapabilities then
-    if not state.power then
-      -- Device is off; power it on to get valid capability readings
-      if not detectionPoweredOn then
-        log:info("Device is off during detection - powering on to read capabilities")
-        detectionPoweredOn = true
-        -- Reset disconnect timer to allow time for power-on + re-query
-        CancelTimer("Disconnect")
-        SetTimer("Disconnect", DISCONNECT_DELAY_MS, function()
-          log:debug("Disconnect timer fired (detection)")
-          requestDisconnect()
-        end)
-        gattWrite(CMD_POWER_ON)
-        SetTimer("StatusPoll", STATUS_POLL_DELAY_MS, function()
-          gattWrite(CMD_STATUS_HOME)
-        end)
-        return
+--- Step the intensity one level, stopping at either end.
+--- @param step integer 1 for up, -1 for down
+local function stepIntensity(step)
+  local levels = protocol.INTENSITIES
+  local current = projectedIntensity()
+  for i, level in ipairs(levels) do
+    if level == current then
+      local target = levels[math.max(1, math.min(#levels, i + step))]
+      if target ~= current then
+        initiate({ kind = "intensity", value = target })
       end
+      return
     end
-
-    -- We have a valid status response with the device on - infer capabilities
-    local caps = { power = true }
-    if INTENSITY_MAP[intensityVal] then
-      caps.intensity = true
-    end
-    if COLOR_MAP[colorVal] ~= nil then
-      caps.color = true
-    end
-
-    persist:set("detectedCapabilities", caps)
-
-    local capsStr = "Power"
-    if caps.intensity then
-      capsStr = capsStr .. ", Intensity"
-    end
-    if caps.color then
-      capsStr = capsStr .. ", Color"
-    end
-    UpdateProperty("Detected Capabilities", capsStr)
-    log:info("Detected capabilities: %s", capsStr)
-
-    -- Create dynamic bindings for discovered capabilities
-    createBindingsForCapabilities(caps)
-
-    -- Restore power state if we turned it on for detection
-    if detectionPoweredOn then
-      log:info("Restoring power off after capability detection")
-      gattWrite(CMD_POWER_OFF)
-      state.power = false
-    end
-
-    detectingCapabilities = false
-    detectionPoweredOn = false
   end
-
-  updateLastSeen()
-  pushState()
+  -- Never read: the middle level is right whichever way the user meant
+  initiate({ kind = "intensity", value = "medium" })
 end
 
---------------------------------------------------------------------------------
--- Dynamic Bindings & Capability Management
---------------------------------------------------------------------------------
-
---- Button action map: binding key -> function to execute
-local BUTTON_ACTIONS = {
+--- @type table<string, fun()>
+local ACTIONS = {
   on = function()
-    initiateCommand("power_on")
+    initiate({ kind = "power", value = true })
   end,
   off = function()
-    initiateCommand("power_off")
+    initiate({ kind = "power", value = false })
   end,
   toggle = function()
-    initiateCommand(state.power and "power_off" or "power_on")
+    initiate({ kind = "power", value = not projectedPower() })
   end,
   intensity_up = function()
-    for i, v in ipairs(INTENSITY_CYCLE) do
-      if v == state.intensity then
-        initiateCommand("intensity", INTENSITY_CYCLE[(i % #INTENSITY_CYCLE) + 1])
-        return
-      end
-    end
-    initiateCommand("intensity", "medium")
+    stepIntensity(1)
   end,
   intensity_down = function()
-    for i, v in ipairs(INTENSITY_CYCLE) do
-      if v == state.intensity then
-        initiateCommand("intensity", INTENSITY_CYCLE[((i - 2) % #INTENSITY_CYCLE) + 1])
-        return
-      end
-    end
-    initiateCommand("intensity", "medium")
+    stepIntensity(-1)
   end,
-  set_low = function()
-    initiateCommand("intensity", "low")
+  intensity_low = function()
+    initiate({ kind = "intensity", value = "low" })
   end,
-  set_medium = function()
-    initiateCommand("intensity", "medium")
+  intensity_medium = function()
+    initiate({ kind = "intensity", value = "medium" })
   end,
-  set_high = function()
-    initiateCommand("intensity", "high")
+  intensity_high = function()
+    initiate({ kind = "intensity", value = "high" })
   end,
 }
 
---- Register RFP/OBC handlers for a single dynamic binding
---- @param binding Binding The dynamic binding object
---- @param def table The binding definition ({ key, class, name })
-local function registerHandlerForBinding(binding, def)
-  if def.class == "BUTTON_LINK" then
-    local action = BUTTON_ACTIONS[def.key]
-    if action then
-      RFP[binding.bindingId] = function(idBinding, strCommand, tParams, args)
-        if strCommand == "DO_CLICK" or strCommand == "DO_PUSH" then
-          action()
-        elseif strCommand == "BUTTON_ACTION" then
-          local buttonId = tointeger(Select(tParams, "BUTTON_ID"))
-          local buttonAction = tointeger(Select(tParams, "ACTION"))
-          if buttonAction ~= constants.ButtonActions.PRESS then
-            return
-          end
-          if buttonId == constants.ButtonIds.TOP then
-            initiateCommand("power_on")
-          elseif buttonId == constants.ButtonIds.BOTTOM then
-            initiateCommand("power_off")
-          elseif buttonId == constants.ButtonIds.TOGGLE then
-            initiateCommand(state.power and "power_off" or "power_on")
-          end
-        end
-      end
+--- Register the RFP handler for a static BUTTON_LINK connection.
+--- @param bindingId integer
+--- @param action string Key into ACTIONS
+local function registerButtonLink(bindingId, action)
+  local coalescing = false
+  RFP[bindingId] = function(idBinding, strCommand, _tParams, _args)
+    log:trace("RFP[%s](%s, %s) action=%s", bindingId, idBinding, strCommand, action)
+    if strCommand ~= "DO_CLICK" and strCommand ~= "DO_PUSH" then
+      return
     end
-  elseif def.class == "RELAY" then
-    OBC[binding.bindingId] = function(idBinding, strClass, bIsBound, otherDeviceId)
-      log:trace("OBC[relay](%s, %s, %s, %s)", idBinding, strClass, bIsBound, otherDeviceId)
-      if bIsBound then
-        SendToProxy(binding.bindingId, state.power and "STATE_CLOSED" or "STATE_OPENED", {}, "NOTIFY")
-      end
+    -- Senders disagree on which of the pair they emit: some send only DO_CLICK,
+    -- some only DO_PUSH, and a keypad tap sends DO_PUSH then DO_CLICK. Acting on
+    -- the first of a burst and ignoring the rest of the window runs the action
+    -- once per tap for all three, whichever command arrives first.
+    if coalescing then
+      log:debug("Ignoring %s within %dms of the last button action", strCommand, BUTTON_LINK_COALESCE_MS)
+      return
     end
+    coalescing = true
+    SetTimer("ButtonLinkCoalesce" .. bindingId, BUTTON_LINK_COALESCE_MS, function()
+      coalescing = false
+    end)
+    log:info("Button link action %s", action)
+    ACTIONS[action]()
   end
 end
 
---- Create or remove dynamic bindings based on detected capabilities.
---- @param caps table Capabilities table: { power = bool, intensity = bool, color = bool }
-function createBindingsForCapabilities(caps)
-  log:info("Creating bindings for capabilities")
-
-  for capName, bindingDefs in pairs(CAPABILITY_BINDINGS) do
-    if caps[capName] then
-      -- Create bindings for this capability
-      for _, def in ipairs(bindingDefs) do
-        local binding =
-          bindings:getOrAddDynamicBinding(BINDINGS_NAMESPACE, def.key, "CONTROL", true, def.name, def.class)
-        if binding then
-          registerHandlerForBinding(binding, def)
-        end
-      end
-    else
-      -- Remove bindings for this capability
-      for _, def in ipairs(bindingDefs) do
-        bindings:deleteBinding(BINDINGS_NAMESPACE, def.key)
-      end
-    end
-  end
-end
-
---- Helper to check if a binding ID matches the dynamic relay binding
---- @param idBinding integer The binding ID to check
---- @return boolean
-local function isRelayBinding(idBinding)
-  local relayBinding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "relay")
-  return relayBinding ~= nil and relayBinding.bindingId == idBinding
-end
-
---------------------------------------------------------------------------------
--- Dynamic Command Parameter Lists
---------------------------------------------------------------------------------
-
---- Provides dynamic parameter lists for Set Intensity and Set Color commands.
---- Returns empty list when capability is not detected (effectively disabling the command).
-function GetCommandParamList(commandName, paramName)
-  local caps = persist:get("detectedCapabilities", {})
-  if commandName == "Set Intensity" and paramName == "Level" then
-    if caps.intensity then
-      return { "low", "medium", "high" }
-    end
-    return {}
-  elseif commandName == "Set Color" and paramName == "Color" then
-    if caps.color then
-      return { "off", "rotating", "white", "red", "blue", "violet", "green", "orange" }
-    end
-    return {}
-  end
-  return {}
+for bindingId, action in pairs(BUTTON_LINK_ACTIONS) do
+  registerButtonLink(bindingId, action)
 end
 
 --------------------------------------------------------------------------------
@@ -583,9 +533,8 @@ function OnDriverInit()
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
 
-  -- Restore persisted state and dynamic bindings
+  -- Restore persisted state
   values:restoreValues()
-  bindings:restoreBindings()
 end
 
 function OnDriverLateInit()
@@ -594,41 +543,19 @@ function OnDriverLateInit()
     return
   end
 
-  -- Restore persisted device state across reboots
-  local savedState = persist:get("deviceState")
-  if savedState then
-    state.power = savedState.power or false
-    state.intensity = savedState.intensity or "low"
-    state.color = savedState.color or "white"
-  end
-  pushState()
-
-  -- Always create power bindings; restore intensity bindings if previously detected
-  local caps = persist:get("detectedCapabilities", { power = true })
-  createBindingsForCapabilities(caps)
-
-  -- Restore Detected Capabilities property display
-  local capsStr = "Power"
-  if caps.intensity then
-    capsStr = capsStr .. ", Intensity"
-  end
-  if caps.color then
-    capsStr = capsStr .. ", Color"
-  end
-  if persist:get("detectedCapabilities") then
-    UpdateProperty("Detected Capabilities", capsStr)
-  end
+  loadState()
 
   for p, _ in pairs(Properties) do
     local status, err = pcall(OnPropertyChanged, p)
     if not status and err then
-      log:error("Error in OnPropertyChanged for '%s': %s", p, err or "unknown")
+      log:error("Error in OnPropertyChanged for property '%s': %s", p, err or "unknown error")
     end
   end
 
   gInitialized = true
-  UpdateProperty("Driver Status", "Disconnected")
+  updateStatus("Disconnected", false)
 
+  -- Request refresh from parent driver
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
 end
 
@@ -637,16 +564,19 @@ end
 --------------------------------------------------------------------------------
 
 function OPC.Driver_Status(propertyValue)
+  log:trace("OPC.Driver_Status('%s')", propertyValue)
   if not gInitialized then
     UpdateProperty("Driver Status", "Initializing", false)
   end
 end
 
-function OPC.Driver_Version()
+function OPC.Driver_Version(propertyValue)
+  log:trace("OPC.Driver_Version('%s')", propertyValue)
   C4:UpdateProperty("Driver Version", C4:GetDriverConfigInfo("version"))
 end
 
 function OPC.Log_Mode(propertyValue)
+  log:trace("OPC.Log_Mode('%s')", propertyValue)
   log:setLogMode(propertyValue)
   CancelTimer("LogMode")
   if not log:isEnabled() then
@@ -662,6 +592,7 @@ function OPC.Log_Mode(propertyValue)
 end
 
 function OPC.Log_Level(propertyValue)
+  log:trace("OPC.Log_Level('%s')", propertyValue)
   log:setLogLevel(propertyValue)
   if log:getLogLevel() >= 6 and log:isPrintEnabled() then
     DEBUGPRINT = true
@@ -680,359 +611,326 @@ end
 
 function OPC.Polling_Interval(propertyValue)
   log:trace("OPC.Polling_Interval('%s')", propertyValue)
-  if not gInitialized then
+  -- Only an armed poll is rescheduled; an active cycle arms its own when it
+  -- ends. Carry Connected across so an interval edit cannot flap it.
+  if not gInitialized or (link ~= "idle" and link ~= "disconnecting") or not Timer.PollCycle then
     return
   end
-  -- Reschedule poll timer if currently idle (not connected)
-  if not isConnected then
-    schedulePoll()
-  end
+  schedulePoll(Select(values:getValue("Connected"), "value") == true)
 end
 
 --------------------------------------------------------------------------------
--- RFP Handlers - BLE Connection (binding 5002)
+-- RFP Handlers - ESPHome BLE Connection
 --------------------------------------------------------------------------------
 
---- Called when the GATT connection is established and services are discovered
+--- Handle connection notification from main driver. Also arrives unasked when
+--- the connection is bound or the proxy restarts, and is then used to refresh
+--- status rather than left holding the slot.
 function RFP.CONNECTED(idBinding, strCommand, tParams, args)
-  log:trace("RFP.CONNECTED(%s)", idBinding)
+  log:trace("RFP.CONNECTED(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
   if idBinding ~= ESPHOME_BINDING then
     return
   end
 
   local name = Select(tParams, "name")
   local mac = Select(tParams, "mac")
-  local services = DeserializeSafe(Select(tParams, "services"))
-
   log:info("Connected to SereneScent: %s", mac or "unknown")
-
   if not IsEmpty(name) then
-    values:update("Device Name", name, "STRING")
+    values:update("Name", name, "STRING")
   end
-  if mac then
+  if not IsEmpty(mac) then
     values:update("MAC Address", mac, "STRING")
-    UpdateProperty("MAC Address", mac)
   end
 
-  -- Find GATT characteristic handles from service discovery
-  if services then
-    txHandle = findCharacteristicHandle(services, SERVICE_UUID, CHAR_TX_UUID)
-    rxHandle = findCharacteristicHandle(services, SERVICE_UUID, CHAR_RX_UUID)
+  -- Once subscribed the link is in use; while disconnecting it is on its way
+  -- out. A CONNECTED during subscribing is a fresh link and starts over.
+  if link == "ready" or link == "disconnecting" then
+    log:debug("Ignoring CONNECTED while %s", link)
+    return
+  end
 
-    if txHandle and rxHandle then
-      log:info("Found SereneScent handles: TX=%d, RX=%d", txHandle, rxHandle)
-      isConnected = true
-      UpdateProperty("Driver Status", "Connected")
-      -- Subscribe to notifications, then execute any pending command
-      subscribeNotifications()
-    else
-      log:error(
-        "Could not find SereneScent GATT characteristics (TX=%s, RX=%s)",
-        tostring(txHandle),
-        tostring(rxHandle)
-      )
-      UpdateProperty("Driver Status", "Error: Missing characteristics")
-      requestDisconnect()
+  local services = DeserializeSafe(Select(tParams, "services"))
+  txHandle = UUID.findCharacteristicHandle(services, protocol.UUID.SERVICE, protocol.UUID.TX)
+  rxHandle = UUID.findCharacteristicHandle(services, protocol.UUID.SERVICE, protocol.UUID.RX)
+  if not txHandle or not rxHandle then
+    fail("Error: Missing characteristics")
+    return
+  end
+  log:debug("Found SereneScent handles: TX=%d, RX=%d", txHandle, rxHandle)
+
+  if #queue == 0 then
+    table.insert(queue, { kind = "status" })
+  end
+  initialStatusTriggered = true
+  CancelTimer("PollCycle")
+  link = "subscribing"
+  -- Re-armed so a subscription that is never confirmed cannot hold the slot
+  SetTimer("ConnectTimeout", CONNECT_TIMEOUT_MS, function()
+    fail("Connection timed out")
+  end)
+  SendToProxy(ESPHOME_BINDING, "GATT_NOTIFY", {
+    handle = tostring(rxHandle),
+    enable = "true",
+  }, "NOTIFY")
+end
+
+--- Handle notification subscription result from main driver
+function RFP.GATT_NOTIFY_SUBSCRIBED(idBinding, strCommand, tParams, args)
+  log:trace("RFP.GATT_NOTIFY_SUBSCRIBED(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
+  if idBinding ~= ESPHOME_BINDING or link ~= "subscribing" then
+    return
+  end
+  if tointeger(Select(tParams, "handle")) ~= rxHandle then
+    return
+  end
+  if Select(tParams, "success") ~= "true" then
+    -- A second CONNECTED re-subscribes, and the proxy supersedes the first
+    -- request; the newer one still answers
+    local err = Select(tParams, "error") or ""
+    if err:find("Superseded", 1, true) then
+      log:debug("Ignoring superseded subscription")
+      return
     end
-  else
-    log:error("No services in CONNECTED message")
-    UpdateProperty("Driver Status", "Error: Missing services")
-    requestDisconnect()
+    fail("Error: Notification subscription failed")
+    return
+  end
+  CancelTimer("ConnectTimeout")
+  link = "ready"
+  updateStatus("Connected", true)
+  runQueue()
+end
+
+--- Handle a notification from the diffuser: an ack or a status frame
+function RFP.GATT_NOTIFY_DATA(idBinding, strCommand, tParams, args)
+  log:trace("RFP.GATT_NOTIFY_DATA(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
+  if idBinding ~= ESPHOME_BINDING then
+    return
+  end
+  local data = C4:Base64Decode(Select(tParams, "data") or "") or ""
+  if protocol.isFiller(data) then
+    return
+  end
+  log:debug("GATT notify: %s", C4:Encode(data, "HEX"))
+
+  local response, err = protocol.parseResponse(data)
+  if not response then
+    log:debug("Ignoring notification: %s", err)
+    return
+  end
+  if response.status then
+    applyStatus(response.status)
+  end
+  if awaitingOpcode ~= nil and response.opcode == awaitingOpcode then
+    replyReceived()
   end
 end
 
---- Handle incoming BLE advertisement (device presence detection)
+--- Handle GATT write result from main driver
+function RFP.GATT_WRITE_RESPONSE(idBinding, strCommand, tParams, args)
+  log:trace("RFP.GATT_WRITE_RESPONSE(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
+  if idBinding ~= ESPHOME_BINDING then
+    return
+  end
+  if Select(tParams, "success") ~= "true" then
+    log:warn("GATT write failed: %s", Select(tParams, "error") or "unknown")
+  end
+end
+
+--- Handle disconnection. A disconnect this driver asked for has already been
+--- accounted for; anything else ends the cycle as a failure.
+function RFP.DISCONNECTED(idBinding, strCommand, tParams, args)
+  log:trace("RFP.DISCONNECTED(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
+  if idBinding ~= ESPHOME_BINDING then
+    return
+  end
+  if link == "disconnecting" then
+    disconnected()
+    return
+  end
+  if link == "idle" then
+    return
+  end
+  fail("Disconnected: " .. (Select(tParams, "reason") or "unknown"))
+end
+
+--- Handle connection failure notification from main driver
+function RFP.CONNECTION_FAILED(idBinding, strCommand, tParams, args)
+  log:trace("RFP.CONNECTION_FAILED(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
+  if idBinding ~= ESPHOME_BINDING then
+    return
+  end
+  local err = Select(tParams, "error") or "unknown"
+  -- Only our own attempt can fail us. The standalone proxy also connects on
+  -- bind, and the attempt a later CONNECT supersedes reports failing while the
+  -- newer one carries on.
+  if link ~= "connecting" or err:find("Superseded", 1, true) then
+    log:debug("Ignoring connection failure while %s: %s", link, err)
+    return
+  end
+  fail("Connection failed: " .. err)
+end
+
+--- Handle incoming BLE advertisement from parent driver
 function RFP.BLE_ADVERTISEMENT(idBinding, strCommand, tParams, args)
   if idBinding ~= ESPHOME_BINDING then
     return
   end
 
-  local driverStatus = Properties["Driver Status"]
-  if driverStatus == "Disconnected" then
-    UpdateProperty("Driver Status", "Listening")
-    -- Start the poll cycle on first advertisement
-    schedulePoll()
+  -- The first advertisement after a start or a bind reads the status, which
+  -- also starts the poll cycle when it disconnects.
+  if not initialStatusTriggered and link == "idle" then
+    log:info("Initial status query")
+    initiate({ kind = "status" })
   end
 
-  -- Throttle RSSI / Last Seen updates to once per 30s
   local now = os.time()
-  if (now - (lastAdvTime or 0)) < 30 then
+  if now - lastAdvProcessedAt < ADVERTISEMENT_THROTTLE_S then
     return
   end
-  lastAdvTime = now
+  lastAdvProcessedAt = now
 
-  local advStr = Select(tParams, "advertisement")
-  if not advStr or advStr == "" then
-    return
+  local advertisement = DeserializeSafe(Select(tParams, "advertisement"))
+  local rssi = tofinite(Select(advertisement, "rssi"))
+  if rssi then
+    values:update("RSSI", rssi, nil, nil, " dBm")
   end
-
-  local advertisement = DeserializeSafe(advStr)
-  if not advertisement then
-    return
-  end
-
-  if advertisement.rssi then
-    updateRSSI(advertisement.rssi)
-  end
-  updateLastSeen()
-end
-
---- Handle GATT disconnection
-function RFP.DISCONNECTED(idBinding, strCommand, tParams, args)
-  log:trace("RFP.DISCONNECTED(%s)", idBinding)
-  if idBinding ~= ESPHOME_BINDING then
-    return
-  end
-
-  local reason = Select(tParams, "reason") or "unknown"
-  log:info("Disconnected: %s", reason)
-
-  isConnected = false
-  txHandle = nil
-  rxHandle = nil
-
-  CancelTimer("StatusPoll")
-  CancelTimer("Disconnect")
-
-  -- Schedule next poll cycle
-  schedulePoll()
-end
-
---- Handle connection failure
-function RFP.CONNECTION_FAILED(idBinding, strCommand, tParams, args)
-  log:trace("RFP.CONNECTION_FAILED(%s)", idBinding)
-  if idBinding ~= ESPHOME_BINDING then
-    return
-  end
-
-  local errMsg = Select(tParams, "error") or "unknown"
-  log:error("Connection failed: %s", errMsg)
-
-  isConnected = false
-  txHandle = nil
-  rxHandle = nil
-
-  UpdateProperty("Driver Status", "Connection failed: " .. errMsg)
-
-  -- Schedule next poll cycle despite the failure
-  schedulePoll()
-end
-
---- Handle GATT notification subscription confirmed
-function RFP.GATT_NOTIFY_SUBSCRIBED(idBinding, strCommand, tParams, args)
-  log:trace("RFP.GATT_NOTIFY_SUBSCRIBED(%s)", idBinding)
-  if idBinding ~= ESPHOME_BINDING then
-    return
-  end
-
-  local handle = tointeger(Select(tParams, "handle"))
-  local success = Select(tParams, "success") == "true"
-
-  if not success then
-    log:error("GATT notification subscription failed on handle %s", handle)
-    return
-  end
-
-  if handle == rxHandle then
-    log:info("RX notifications subscribed - ready for commands")
-    executePendingCommand()
-  end
-end
-
---- Handle incoming GATT notification (status response from device)
-function RFP.GATT_NOTIFY_DATA(idBinding, strCommand, tParams, args)
-  log:trace("RFP.GATT_NOTIFY_DATA(%s)", idBinding)
-  if idBinding ~= ESPHOME_BINDING then
-    return
-  end
-
-  local data = Select(tParams, "data")
-  if not data then
-    log:debug("GATT_NOTIFY_DATA: no data")
-    return
-  end
-
-  local binaryData = C4:Base64Decode(data)
-  if not binaryData or #binaryData == 0 then
-    log:debug("GATT_NOTIFY_DATA: empty after decode")
-    return
-  end
-
-  -- Ignore all-FF or all-zero filler packets (matches HA integration)
-  local allSame = true
-  local firstByte = string.byte(binaryData, 1)
-  if firstByte == 0xFF or firstByte == 0x00 then
-    for i = 2, #binaryData do
-      if string.byte(binaryData, i) ~= firstByte then
-        allSame = false
-        break
-      end
-    end
-    if allSame then
-      log:debug("GATT_NOTIFY_DATA: filler packet, ignoring")
-      return
-    end
-  end
-
-  log:debug("GATT_NOTIFY_DATA: %d bytes: %s", #binaryData, C4:Encode(binaryData, "HEX"))
-  parseStatusResponse(binaryData)
-end
-
---- Handle GATT write response
-function RFP.GATT_WRITE_RESPONSE(idBinding, strCommand, tParams, args)
-  if idBinding ~= ESPHOME_BINDING then
-    return
-  end
-  local success = Select(tParams, "success") == "true"
-  if not success then
-    log:warn("GATT write failed: %s", Select(tParams, "error") or "unknown")
-  end
+  values:update("Last Seen", tostring(os.date("%Y-%m-%d %H:%M:%S")))
 end
 
 --------------------------------------------------------------------------------
--- RFP Handlers - Control Bindings (relay commands use dynamic lookup)
--- NOTE: Button link handlers (DO_CLICK, BUTTON_ACTION) are registered
--- dynamically per-binding in registerHandlerForBinding().
+-- RFP Handlers - Power Relay
 --------------------------------------------------------------------------------
 
 function RFP.CLOSE(idBinding, strCommand, _tParams, _args)
   log:trace("RFP.CLOSE(%s, %s)", idBinding, strCommand)
-  if isRelayBinding(idBinding) then
-    initiateCommand("power_on")
+  if idBinding == RELAY_BINDING then
+    ACTIONS.on()
   end
 end
 
 function RFP.OPEN(idBinding, strCommand, _tParams, _args)
   log:trace("RFP.OPEN(%s, %s)", idBinding, strCommand)
-  if isRelayBinding(idBinding) then
-    initiateCommand("power_off")
+  if idBinding == RELAY_BINDING then
+    ACTIONS.off()
   end
 end
 
 function RFP.TOGGLE(idBinding, strCommand, _tParams, _args)
   log:trace("RFP.TOGGLE(%s, %s)", idBinding, strCommand)
-  if isRelayBinding(idBinding) then
-    initiateCommand(state.power and "power_off" or "power_on")
+  if idBinding == RELAY_BINDING then
+    ACTIONS.toggle()
   end
 end
 
 --------------------------------------------------------------------------------
--- OBC Handler - ESPHome binding changed
+-- OBC Handlers
 --------------------------------------------------------------------------------
+
+--- Seed a newly bound relay consumer with the last known power state.
+OBC[RELAY_BINDING] = function(idBinding, strClass, bIsBound, otherDeviceId)
+  log:trace("OBC[%s](%s, %s, %s, %s)", RELAY_BINDING, idBinding, strClass, bIsBound, otherDeviceId)
+  if bIsBound and state.power ~= nil then
+    SendToProxy(RELAY_BINDING, state.power and "STATE_CLOSED" or "STATE_OPENED", {}, "NOTIFY")
+  end
+end
 
 OBC[ESPHOME_BINDING] = function(idBinding, strClass, bIsBound, otherDeviceId)
-  log:trace("OBC[%s](%s, %s, %s)", ESPHOME_BINDING, idBinding, bIsBound, otherDeviceId)
-  isConnected = false
-  txHandle = nil
-  rxHandle = nil
+  log:trace("OBC[%s](%s, %s, %s, %s)", ESPHOME_BINDING, idBinding, strClass, bIsBound, otherDeviceId)
+  resetConnectionState()
   CancelTimer("PollCycle")
+  initialStatusTriggered = false
+  lastNotifiedPower = nil
 
   if bIsBound then
-    UpdateProperty("Driver Status", "Waiting for data")
+    updateStatus("Waiting for data", false)
   else
-    UpdateProperty("Driver Status", "Disconnected")
+    updateStatus("Disconnected", false)
   end
 end
 
 --------------------------------------------------------------------------------
--- EC Handlers (Programming Actions)
+-- EC Handlers (Actions and Programming Commands)
 --------------------------------------------------------------------------------
 
 function EC.Power_On()
-  log:info("EC.Power_On()")
-  initiateCommand("power_on")
+  log:trace("EC.Power_On()")
+  ACTIONS.on()
 end
 
 function EC.Power_Off()
-  log:info("EC.Power_Off()")
-  initiateCommand("power_off")
+  log:trace("EC.Power_Off()")
+  ACTIONS.off()
 end
 
 function EC.Toggle_Power()
-  log:info("EC.Toggle_Power()")
-  initiateCommand(state.power and "power_off" or "power_on")
+  log:trace("EC.Toggle_Power()")
+  ACTIONS.toggle()
 end
 
 function EC.Set_Intensity(params)
-  local caps = persist:get("detectedCapabilities", {})
-  if not caps.intensity then
-    log:warn("Intensity control not supported by this device. Run 'Detect Capabilities' action.")
+  log:trace("EC.Set_Intensity(%s)", params)
+  local level = string.lower(Select(params, "Level") or "")
+  if not protocol.intensityCommand(level) then
+    log:warn("Invalid intensity: %s", level)
     return
   end
-  local level = Select(params, "Level") or ""
-  level = level:lower()
-  log:info("EC.Set_Intensity(%s)", level)
-  if CMD_INTENSITY[level] then
-    initiateCommand("intensity", level)
-  else
-    log:warn("Invalid intensity level: %s", level)
-  end
+  initiate({ kind = "intensity", value = level })
 end
 
 function EC.Set_Color(params)
-  local caps = persist:get("detectedCapabilities", {})
-  if not caps.color then
-    log:warn("Color control not supported by this device. Run 'Detect Capabilities' action.")
+  log:trace("EC.Set_Color(%s)", params)
+  local color = string.lower(Select(params, "Color") or "")
+  if not protocol.colorCommand(color) then
+    log:warn("Invalid color: %s", color)
     return
   end
-  local color = Select(params, "Color") or ""
-  color = color:lower()
-  log:info("EC.Set_Color(%s)", color)
-  if CMD_COLOR[color] then
-    initiateCommand("color", color)
-  else
-    log:warn("Invalid color: %s", color)
-  end
-end
-
-function EC.Detect_Capabilities()
-  log:info("EC.Detect_Capabilities()")
-  detectingCapabilities = true
-  detectionPoweredOn = false
-  initiateCommand("status")
+  initiate({ kind = "color", value = color })
 end
 
 function EC.Request_Status()
-  log:info("EC.Request_Status()")
-  initiateCommand("status")
+  log:trace("EC.Request_Status()")
+  initiate({ kind = "status" })
 end
 
 function EC.Set_Polling_Interval(params)
+  log:trace("EC.Set_Polling_Interval(%s)", params)
   local interval = tointeger(Select(params, "Interval"))
-  log:info("Polling interval change requested via programming: %s", interval)
   if interval then
     UpdateProperty("Polling Interval", tostring(interval), true)
   end
 end
 
 function EC.Reset_Driver(params)
+  log:trace("EC.Reset_Driver(%s)", params)
   if Select(params, "Are You Sure?") ~= "Yes" then
     return
   end
-  log:print("Resetting SereneScent driver")
+  log:print("Resetting driver to initial state")
 
-  bindings:reset()
-  values:reset()
-  persist:set("deviceState", nil)
-  persist:set("detectedCapabilities", nil)
-  isConnected = false
-  txHandle = nil
-  rxHandle = nil
-  pendingCommand = nil
-  pendingParam = nil
-  detectingCapabilities = false
-  detectionPoweredOn = false
-  state = { power = false, intensity = "low", color = "white" }
-
-  CancelTimer("StatusPoll")
-  CancelTimer("Disconnect")
+  local previous = link
+  resetConnectionState()
+  if previous == "disconnecting" then
+    -- The answer to the DISCONNECT already sent is still owed; keep waiting
+    -- for it so it cannot fail the next cycle
+    link = "disconnecting"
+    SetTimer("DisconnectSettle", DISCONNECT_SETTLE_MS, disconnected)
+  elseif previous ~= "idle" then
+    releaseLink()
+  end
   CancelTimer("PollCycle")
+  persist:delete("deviceState")
+  state = {}
+  initialStatusTriggered = false
+  lastNotifiedPower = nil
 
-  UpdateProperty("Driver Status", "Disconnected")
-  UpdateProperty("Detected Capabilities", "Not detected")
-  UpdateProperty("Power", "Off")
-  UpdateProperty("Intensity", "low")
-  UpdateProperty("Color", "white")
+  for propName, defaultValue in pairs(GetPropertyResetValues({ "Driver Status", "Driver Version" })) do
+    UpdateProperty(propName, defaultValue, true)
+  end
+  updateStatus("Disconnected", false)
+  -- Delete the variables after the final status write so Reset Driver does not
+  -- immediately recreate the Connected variable it just removed
+  values:reset()
 
+  -- Request refresh from parent driver
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
 end

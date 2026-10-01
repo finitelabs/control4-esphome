@@ -515,13 +515,14 @@ the matching read-only Device Info properties.
 When the connected ESPHome device exposes a Bluetooth proxy, additional dynamic
 bindings are created separately from the entity bindings above:
 
-| Source                     | Binding Class       | Purpose                                                  |
-| -------------------------- | ------------------- | -------------------------------------------------------- |
-| Bluetooth Coordinator link | `ESPHOME_BLUETOOTH` | Connects the ESPHome driver to the Bluetooth Coordinator |
-| Selected BTHome device     | `ESPHOME_BTHOME`    | Bind to ESPHome BTHome sub-driver                        |
-| Selected Govee device      | `ESPHOME_GOVEE`     | Bind to ESPHome Govee sub-driver                         |
-| Selected SwitchBot device  | `ESPHOME_SWITCHBOT` | Bind to ESPHome SwitchBot sub-driver                     |
-| Selected Yale/August lock  | `ESPHOME_YALE`      | Bind to ESPHome Yale sub-driver                          |
+| Source                      | Binding Class         | Purpose                                                  |
+| --------------------------- | --------------------- | -------------------------------------------------------- |
+| Bluetooth Coordinator link  | `ESPHOME_BLUETOOTH`   | Connects the ESPHome driver to the Bluetooth Coordinator |
+| Selected BTHome device      | `ESPHOME_BTHOME`      | Bind to ESPHome BTHome sub-driver                        |
+| Selected Govee device       | `ESPHOME_GOVEE`       | Bind to ESPHome Govee sub-driver                         |
+| Selected SereneScent device | `ESPHOME_SERENESCENT` | Bind to ESPHome SereneScent sub-driver                   |
+| Selected SwitchBot device   | `ESPHOME_SWITCHBOT`   | Bind to ESPHome SwitchBot sub-driver                     |
+| Selected Yale/August lock   | `ESPHOME_YALE`        | Bind to ESPHome Yale sub-driver                          |
 
 > **Note:** Per-device Bluetooth bindings are created automatically when a
 > device is chosen via the `Select Bluetooth Devices` property (standalone mode)
@@ -728,6 +729,7 @@ connection slots (typically 3-4). These devices include:
 - **SwitchBot Bot** - Requires connection to send press/on/off commands
 - **SwitchBot Switch** - Plug Mini, Relay switches (encrypted commands)
 - **Yale/August Locks** - Requires connection for encrypted lock/unlock commands
+- **Homedics SereneScent** - Requires connection for commands and status reads
 
 ### Oversubscription
 
@@ -770,12 +772,13 @@ and retry until a slot becomes available.
 
 ## Supported Device Types
 
-| Device Protocol | Sub-Driver        | Connection     |
-| --------------- | ----------------- | -------------- |
-| BTHome          | ESPHome BTHome    | Passive        |
-| Govee           | ESPHome Govee     | Passive        |
-| SwitchBot       | ESPHome SwitchBot | Active/Passive |
-| Yale/August     | ESPHome Yale      | Active         |
+| Device Protocol | Sub-Driver          | Connection     |
+| --------------- | ------------------- | -------------- |
+| BTHome          | ESPHome BTHome      | Passive        |
+| Govee           | ESPHome Govee       | Passive        |
+| SwitchBot       | ESPHome SwitchBot   | Active/Passive |
+| Yale/August     | ESPHome Yale        | Active         |
+| SereneScent     | ESPHome SereneScent | Active         |
 
 ## Performance Considerations
 
@@ -911,6 +914,25 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ### Removed
 - Removed
 -->
+
+## Unreleased
+
+### Added
+
+- Added the ESPHome SereneScent sub-driver for Homedics SereneScent BLE
+  diffusers, with power, mist intensity and light color control, keypad button
+  links and a power relay
+
+### Fixed
+
+- Fixed the SwitchBot and Yale drivers waiting indefinitely when the Bluetooth
+  proxy or coordinator never answered a connection request, as when it restarted
+  mid-connect: a SwitchBot stayed Busy with the command queued, and a Yale lock
+  in Poll mode stopped polling; the driver now gives up after two minutes, frees
+  the proxy's connection slot and handles it as a failed connection
+- Fixed a Yale lock in Persistent mode counting a failed or timed-out handshake
+  as two failures, using up its reconnect attempts twice as fast and retrying a
+  lock or unlock that hit it as a status read instead
 
 ## v20260926 - 2026-09-26
 

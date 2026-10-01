@@ -1,4 +1,4 @@
-[copyright]: # "Copyright 2026 Finite Labs, LLC. All rights reserved."
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
 
 <style>
 @media print {
@@ -15,7 +15,7 @@
 
 <img alt="ESPHome SereneScent" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
@@ -26,15 +26,18 @@
 
 <!-- #endif -->
 
-Integrate a Homedics SereneScent BLE diffuser into Control4 through an ESPHome
-Bluetooth Proxy. This driver connects to the SereneScent via BLE to control
-power, diffuser intensity, and LED color.
+This driver integrates a Homedics SereneScent BLE diffuser with Control4 through
+an ESPHome Bluetooth proxy. It controls power, mist intensity and the light
+color, reports the diffuser's state, and offers keypad button links and a power
+relay.
 
 <!-- #ifndef DRIVERCENTRAL -->
 
 > This driver's BLE protocol implementation is based on the
-> [reverse engineering work](https://github.com/john-k-mcdowell/Homedics-SereneScent/blob/development/docs/PROTOCOL.md)
-> by [john-k-mcdowell](https://github.com/john-k-mcdowell/Homedics-SereneScent).
+> [reverse engineering work](https://github.com/john-k-mcdowell/Homedics-SereneScent/blob/main/docs/PROTOCOL.md)
+> behind the
+> [Homedics SereneScent Home Assistant integration](https://github.com/john-k-mcdowell/Homedics-SereneScent)
+> by john-k-mcdowell.
 
 <!-- #endif -->
 
@@ -47,22 +50,33 @@ power, diffuser intensity, and LED color.
 - [Compatibility](#compatibility)
   - [Supported Devices](#supported-devices)
   - [Tested Devices](#tested-devices)
+- [How It Works](#how-it-works)
+  - [Connection Cycle](#connection-cycle)
+  - [Home and Schedule Modes](#home-and-schedule-modes)
 - [Installer Setup](#installer-setup)
   <!-- #ifdef DRIVERCENTRAL -->
   - [DriverCentral Cloud Setup](#drivercentral-cloud-setup)
   <!-- #endif -->
   - [Adding the Driver](#adding-the-driver)
-  - [Binding to ESPHome Proxy](#binding-to-esphome-proxy)
-  - [Detecting Device Capabilities](#detecting-device-capabilities)
-  - [Button Links & Relay](#button-links--relay)
   - [Driver Properties](#driver-properties)
+    <!-- #ifdef DRIVERCENTRAL -->
+    - [Cloud Settings](#cloud-settings)
+    <!-- #endif -->
+    - [Driver Settings](#driver-settings)
+    - [Device State](#device-state)
+    - [Device Info](#device-info)
   - [Driver Actions](#driver-actions)
-- [Programming](#programming)
-  - [Commands](#commands)
-  - [Variables](#variables)
-  <!-- #ifdef DRIVERCENTRAL -->
+  - [Programming Commands](#programming-commands)
+  - [Programming Variables](#programming-variables)
+  - [Connections](#connections)
+- [Troubleshooting](#troubleshooting)
+
+<!-- #ifdef DRIVERCENTRAL -->
+
 - [Developer Information](#developer-information)
+
 <!-- #endif -->
+
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -73,41 +87,75 @@ power, diffuser intensity, and LED color.
 # <span style="color:#17BCF2">System Requirements</span>
 
 - Control4 OS 3.3+
-- ESPHome driver configured with Bluetooth Proxy enabled
-- ESP32 device with `bluetooth_proxy` component (active connections mode)
+- ESPHome driver configured with Bluetooth proxy capability, with active
+  connections enabled
+- Homedics SereneScent diffuser within BLE range of the ESPHome device
 
 # <span style="color:#17BCF2">Features</span>
 
-- Power on/off and toggle control
-- Diffuser intensity control (low, medium, high) — if supported by device
-- LED color control (off, rotating, white, red, blue, violet, green, orange) —
-  if supported by device
-- Automatic capability detection with dynamic control bindings
-- Real-time device state feedback via GATT notifications
-- Periodic status polling at a configurable interval
-- Signal strength and last-seen monitoring
+- Power on, off and toggle
+- Mist intensity: low, medium or high
+- Light color: off, rotating, white, red, blue, violet, green or orange
+- State read back from the diffuser after every command and on a configurable
+  polling interval
+- Keypad button links for power and intensity, and a power relay connection
+- Signal strength and last-seen reporting
 
 # <span style="color:#17BCF2">Compatibility</span>
 
 ## Supported Devices
 
-| Device               | Control | Feedback |
-| -------------------- | :-----: | :------: |
-| Homedics SereneScent |   ✅    |    ✅    |
+| Device               | Advertised Name         | Control | Feedback |
+| -------------------- | ----------------------- | :-----: | :------: |
+| Homedics SereneScent | `ARMH-xxx`, `ARPRP-xxx` |   ✅    |    ✅    |
 
-> **Note:** The SereneScent uses an active BLE GATT connection. Each command
-> connects to the device, sends the command, and disconnects automatically. This
-> consumes one active connection slot on the ESP32 Bluetooth proxy.
-
-> **Important:** The Homedics SereneScent mobile app must be closed before using
-> this driver. The app maintains an exclusive BLE connection to the device,
-> which prevents the ESP32 proxy from connecting.
+The diffuser is recognized by its advertised Bluetooth name. It also advertises
+the generic `0xFFF0` service, but so do many unrelated devices, so that alone
+does not identify it.
 
 ## Tested Devices
 
-| Model    | Notes        |
-| -------- | ------------ |
-| ARMH-972 | Fully tested |
+| Model    | Notes            |
+| -------- | ---------------- |
+| ARMH-972 | Community tested |
+
+If you try this driver on another model, and it works, let us know!
+
+# <span style="color:#17BCF2">How It Works</span>
+
+## Connection Cycle
+
+The diffuser serves one Bluetooth client at a time and each connection holds one
+of the ESP32's few connection slots, so the driver never stays connected. Each
+command or poll runs one cycle:
+
+1. Connect through the ESPHome proxy and subscribe to the diffuser's
+   notifications.
+1. Send each queued command and wait for the diffuser to acknowledge it.
+1. Query the diffuser's status. The properties, variables and power relay are
+   updated only from this reply, never from the command that was sent, so they
+   always show what the diffuser reports.
+1. Disconnect three seconds later and schedule the next poll. Commands that
+   arrive during those three seconds reuse the connection; one that arrives
+   while the proxy is still releasing it waits for that, up to three seconds.
+
+Commands sent while a connection is being made are queued and sent in order, so
+a scene that turns the diffuser on and sets a color does both. If a cycle fails,
+the commands waiting in it are dropped and have to be sent again; the next poll
+only reads the status.
+
+The first status read happens as soon as the driver is bound when the diffuser
+was selected in the ESPHome driver, or on the diffuser's first Bluetooth
+advertisement when it was selected through the Bluetooth Coordinator. Polls
+follow from there.
+
+## Home and Schedule Modes
+
+The diffuser runs either in HOME mode or in SCHEDULE mode, which follows a
+schedule set in the Homedics app. It only accepts intensity and color changes in
+HOME mode. When the last status reported SCHEDULE mode, the driver switches the
+diffuser to HOME mode before sending a command, which ends the app's schedule.
+Status requests and polls do not change the mode.
 
 <div style="page-break-after: always"></div>
 
@@ -135,254 +183,247 @@ for setting it up.
 
 1. Download the latest `control4-esphome.zip` from
    [DriverCentral](https://drivercentral.io/platforms/control4-drivers/utility/esphome).
-2. Extract and install the `esphome_serenescent.c4z` driver.
-3. Use the "Search" tab to find "ESPHome SereneScent" and add it to your
+1. Extract and install the `esphome_serenescent.c4z` driver.
+1. Close the Homedics app on every phone and tablet near the diffuser. While the
+   app is connected, the ESPHome proxy cannot connect.
+1. In the ESPHome driver, select your diffuser (listed as
+   `<MAC> - ARMH-XXX - [Homedics SereneScent / Active Connection]`) in the
+   **Select Bluetooth Devices** property. A connection is created for it.
+1. Use the "Search" tab to find "ESPHome SereneScent" and add it to your
    project.
+1. In the "Connections" tab, bind the ESPHome SereneScent connection to the
+   diffuser's connection on the ESPHome driver.
 
 <!-- #else -->
 
 1. Download the latest `control4-esphome.zip` from
    [Github](https://github.com/finitelabs/control4-esphome/releases/latest).
-2. Extract and install the `esphome_serenescent.c4z` driver.
-3. Use the "Search" tab to find "ESPHome SereneScent" and add it to your
+1. Extract and install the `esphome_serenescent.c4z` driver.
+1. Close the Homedics app on every phone and tablet near the diffuser. While the
+   app is connected, the ESPHome proxy cannot connect.
+1. In the ESPHome driver, select your diffuser (listed as
+   `<MAC> - ARMH-XXX - [Homedics SereneScent / Active Connection]`) in the
+   **Select Bluetooth Devices** property. A connection is created for it.
+1. Use the "Search" tab to find "ESPHome SereneScent" and add it to your
    project.
+1. In the "Connections" tab, bind the ESPHome SereneScent connection to the
+   diffuser's connection on the ESPHome driver.
 
 <!-- #endif -->
 
-## Binding to ESPHome Proxy
-
-1. Ensure the main ESPHome driver is connected and Bluetooth Proxy is ready.
-2. In the main ESPHome driver properties, select "Refresh List" from the "Select
-   Bluetooth Devices" dropdown.
-3. Select your SereneScent device (displayed as
-   `ARMH-XXXX - Homedics SereneScent [Active Connection]`) from the list. A
-   connection binding will be automatically created.
-4. Go to the "Connections" tab and bind the ESPHome SereneScent driver to the
-   newly created SereneScent connection.
-
-## Detecting Device Capabilities
-
-After binding the driver to the ESPHome proxy, you must run the **Detect
-Capabilities** action to discover what features the device supports.
-
-1. Go to the driver's **Actions** tab in Composer.
-2. Run the **Detect Capabilities** action.
-3. The driver connects to the device via BLE, queries its status, and determines
-   which capabilities are supported (power, intensity, color).
-4. The **Detected Capabilities** property displays the result (e.g., "Power,
-   Intensity, Color").
-5. Control bindings (button links and relay) are automatically created for the
-   detected capabilities.
-
-> **Note:** If the device is powered off during detection, the driver will
-> briefly turn it on to read its capabilities, then restore the power-off state.
-
-> **Tip:** Re-run the **Detect Capabilities** action anytime, for example after
-> replacing the device with a different model.
-
-## Button Links & Relay
-
-The driver exposes control bindings that can be connected to keypad buttons and
-relay devices in Control4. These bindings are created dynamically based on the
-detected capabilities of the device.
-
-> **Important:** Power bindings (On, Off, Toggle, and Power Relay) are always
-> available. Intensity bindings only appear if the device supports intensity
-> control. Run the **Detect Capabilities** action to discover and create the
-> appropriate bindings.
-
-### Button Links
-
-**Always available:**
-
-| Binding            | Action                  |
-| ------------------ | ----------------------- |
-| On Button Link     | Powers on the diffuser  |
-| Off Button Link    | Powers off the diffuser |
-| Toggle Button Link | Toggles diffuser power  |
-
-**Capability-dependent (created after Detect Capabilities):**
-
-| Binding                          | Requires  | Action                                      |
-| -------------------------------- | :-------: | ------------------------------------------- |
-| Intensity Up Button Link         | Intensity | Cycles intensity up (low → medium → high)   |
-| Intensity Down Button Link       | Intensity | Cycles intensity down (high → medium → low) |
-| Set Low Intensity Button Link    | Intensity | Sets intensity to `low`                     |
-| Set Medium Intensity Button Link | Intensity | Sets intensity to `medium`                  |
-| Set High Intensity Button Link   | Intensity | Sets intensity to `high`                    |
-
-Connect a keypad button or button link source to any of these bindings in the
-Connections tab. The corresponding action fires when the button is pressed.
-
-### Power Relay
-
-The `Power Relay` binding (class `RELAY`) reflects and controls the diffuser's
-power state bidirectionally:
-
-- Sending `CLOSE` (or binding a relay that closes) turns the diffuser on.
-- Sending `OPEN` (or binding a relay that opens) turns the diffuser off.
-- When the diffuser state changes via any control method, the relay binding
-  automatically reflects the updated state to the connected device.
-
 ## Driver Properties
+
+<!-- #ifdef DRIVERCENTRAL -->
+
+### Cloud Settings
+
+#### Cloud Status (read-only)
+
+Displays the DriverCentral cloud license status.
+
+#### Automatic Updates \[ Off | **_On_** \]
+
+Enables or disables automatic driver updates via DriverCentral.
+
+<!-- #endif -->
 
 ### Driver Settings
 
 #### Driver Status (read-only)
 
-Displays the current connection status of the driver. Possible values include
-`Disconnected`, `Listening`, `Connected`, and error messages.
+Displays the current driver state. Common values:
+
+- `Initializing` - Driver is starting up
+- `Disconnected` - Not bound, or no advertisement received since the driver
+  started or was reset
+- `Waiting for data` - Bound, waiting for the first advertisement
+- `Connecting` - A connection has been requested
+- `Connected` - Connected and exchanging commands or status
+- `Listening (next poll in Nm)` - Waiting for the next poll
+- `Connection failed: <reason>`, `Connection timed out`,
+  `No response from device`, `Disconnected: <reason>` or `Error: <message>` -
+  The last cycle failed and its commands were dropped; the next poll reads the
+  status again
 
 #### Driver Version (read-only)
 
-Displays the installed driver version.
+Displays the current version of the driver.
 
-#### Log Level [ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra ]
+#### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
 
 Sets the logging level. Default is `3 - Info`.
 
-#### Log Mode [ **_Off_** | Print | Log | Print and Log ]
+#### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
 
-Sets the logging mode. Default is `Off`. Active log modes expire automatically
-after 3 hours.
+Sets the logging mode. Logging automatically turns off after 3 hours to prevent
+excessive log output. Default is `Off`.
 
-#### Polling Interval [ 1 - 10, default: **_5_** ]
+#### Polling Interval \[ 1 - 10, default: **_5_** \]
 
-Sets how often (in minutes) the driver connects to query the device status.
-Default is `5` minutes.
-
-#### Detected Capabilities (read-only)
-
-Displays the capabilities detected after running the **Detect Capabilities**
-action. Shows "Not detected" until the action has been run. Example values:
-`Power`, `Power, Intensity`, `Power, Intensity, Color`.
+How often, in minutes, the driver connects to read the diffuser's status.
 
 ### Device State
 
+These show the diffuser's state as it last reported it, or `Unknown` until the
+first status is read.
+
 #### Power (read-only)
 
-Displays the current power state of the diffuser: `On` or `Off`. Shows `N/A`
-before the device has been connected for the first time.
+`On` or `Off`.
 
 #### Intensity (read-only)
 
-Displays the current diffuser intensity: `low`, `medium`, or `high`. Shows
-`Undetected` before **Detect Capabilities** has been run, `N/A` if the device
-does not support intensity control, and `Off` when the diffuser is powered off.
+`low`, `medium` or `high`, or `Off` while the diffuser is off.
 
 #### Color (read-only)
 
-Displays the current LED color: `off`, `rotating`, `white`, `red`, `blue`,
-`violet`, `green`, or `orange`. Shows `Undetected` before **Detect
-Capabilities** has been run, `N/A` if the device does not support LED color
-control, and `Off` when the diffuser is powered off.
+`off`, `rotating`, `white`, `red`, `blue`, `violet`, `green` or `orange`, or
+`Off` while the diffuser is off.
 
 ### Device Info
 
-#### Device Name (read-only)
+#### Name (read-only)
 
-Displays the Bluetooth device name of the bound SereneScent device.
+The Bluetooth name of the diffuser.
 
 #### MAC Address (read-only)
 
-Displays the Bluetooth MAC address of the bound SereneScent device.
+The Bluetooth MAC address of the diffuser.
 
 #### RSSI (read-only)
 
-Displays the signal strength of the last received BLE advertisement in dBm.
+The signal strength of the last BLE advertisement, in dBm.
 
 #### Last Seen (read-only)
 
-Displays the timestamp of the last received BLE advertisement.
+The time of the last advertisement or status reply from the diffuser.
 
 ## Driver Actions
 
 ### Power On
 
-Turns on the SereneScent diffuser.
+Turns the diffuser on.
 
 ### Power Off
 
-Turns off the SereneScent diffuser.
+Turns the diffuser off.
 
 ### Toggle Power
 
-Toggles the diffuser on or off based on its current state.
+Turns the diffuser off if it is on, and on if it is off.
 
 ### Set Intensity
 
-Sets the diffuser mist intensity.
-
-> **Note:** Requires intensity capability to be detected. Run **Detect
-> Capabilities** first. If the device does not support intensity control, this
-> action has no effect.
+Sets the mist intensity.
 
 **Parameters:**
 
-- **Level** [ low | medium | high ] - The desired intensity level.
+- **Level** [ low | medium | high ] - The intensity to set.
 
 ### Set Color
 
-Sets the LED light color.
-
-> **Note:** Requires color capability to be detected. Run **Detect
-> Capabilities** first. If the device does not support LED color control, this
-> action has no effect.
+Sets the light color.
 
 **Parameters:**
 
 - **Color** [ off | rotating | white | red | blue | violet | green | orange ] -
-  The desired LED color.
-
-### Detect Capabilities
-
-Connects to the device, queries its status, and determines which capabilities
-are supported (power, intensity, color). Creates or removes control bindings
-(button links and relay) based on the result. If the device is off, it will be
-briefly powered on to read capabilities.
+  The color to set.
 
 ### Request Status
 
-Requests an immediate status update from the diffuser. Connects via GATT,
-queries the device state, then disconnects.
+Connects to the diffuser, reads its status, then disconnects.
 
 ### Reset Driver
 
-Resets the driver state and clears all cached values.
+Resets the driver state to defaults. Clears the diffuser's last known state and
+the driver's variables. Settings such as the polling interval are kept.
 
 **Parameters:**
 
-- **Are You Sure?** [ **_No_** | Yes ] - Confirmation to reset the driver.
+- **Are You Sure?** \[ **_No_** | Yes \] - Confirmation to reset the driver.
 
-<div style="page-break-after: always"></div>
+## Programming Commands
 
-# <span style="color:#17BCF2">Programming</span>
-
-## Commands
+These commands are available in Control4 programming under the device's command
+list.
 
 | Command              | Parameter | Values                                                                 | Description                         |
 | -------------------- | --------- | ---------------------------------------------------------------------- | ----------------------------------- |
-| Power On             |           |                                                                        | Turns on the diffuser               |
-| Power Off            |           |                                                                        | Turns off the diffuser              |
+| Power On             |           |                                                                        | Turns the diffuser on               |
+| Power Off            |           |                                                                        | Turns the diffuser off              |
 | Toggle Power         |           |                                                                        | Toggles the diffuser on or off      |
-| Set Intensity        | Level     | `low`, `medium`, `high`                                                | Sets the diffuser mist intensity    |
-| Set Color            | Color     | `off`, `rotating`, `white`, `red`, `blue`, `violet`, `green`, `orange` | Sets the LED light color            |
-| Request Status       |           |                                                                        | Requests an immediate status update |
-| Set Polling Interval | Interval  | 1 - 10                                                                 | Sets the poll interval (minutes)    |
+| Set Intensity        | Level     | `low`, `medium`, `high`                                                | Sets the mist intensity             |
+| Set Color            | Color     | `off`, `rotating`, `white`, `red`, `blue`, `violet`, `green`, `orange` | Sets the light color                |
+| Request Status       |           |                                                                        | Reads the diffuser's status now     |
+| Set Polling Interval | Interval  | 1 - 10                                                                 | Sets the polling interval (minutes) |
 
-## Variables
+## Programming Variables
 
-| Variable    | Type   | Description                                                                                                              |
-| ----------- | ------ | ------------------------------------------------------------------------------------------------------------------------ |
-| Power       | STRING | Current power state: `On` or `Off`. `N/A` before first connection.                                                       |
-| Intensity   | STRING | Current intensity: `low`, `medium`, `high`. `Undetected` before detection; `N/A` if unsupported; `Off` when powered off. |
-| Color       | STRING | Current LED color name. `Undetected` before detection; `N/A` if unsupported; `Off` when powered off.                     |
-| Device Name | STRING | Bluetooth device name                                                                                                    |
-| MAC Address | STRING | Device Bluetooth MAC address                                                                                             |
-| RSSI        | NUMBER | Signal strength in dBm                                                                                                   |
-| Last Seen   | STRING | Timestamp of last BLE advertisement                                                                                      |
+The driver exposes the following variables to Control4 programming. These mirror
+the matching read-only properties and can be used in programming conditions and
+event handlers.
 
-<div style="page-break-after: always"></div>
+| Variable    | Type   | Description                                                    |
+| ----------- | ------ | -------------------------------------------------------------- |
+| Connected   | BOOL   | True while the driver is connected or its last cycle succeeded |
+| Power       | STRING | `On` or `Off`                                                  |
+| Intensity   | STRING | `low`, `medium` or `high`, or `Off` while the diffuser is off  |
+| Color       | STRING | The light color, or `Off` while the diffuser is off            |
+| Name        | STRING | Bluetooth name of the diffuser                                 |
+| MAC Address | STRING | Bluetooth MAC address of the diffuser                          |
+
+## Connections
+
+### ESPHome SereneScent (consumer)
+
+The BLE connection to the diffuser via the ESPHome driver (binding 5002). Bind
+this to the diffuser's connection on the ESPHome driver.
+
+### Button Links (provider)
+
+Bind a keypad button to any of these. A press and its click count as one tap,
+and further presses on the same connection within half a second are ignored.
+
+| Connection                   | Action                                |
+| ---------------------------- | ------------------------------------- |
+| On Button Link               | Turns the diffuser on                 |
+| Off Button Link              | Turns the diffuser off                |
+| Toggle Button Link           | Toggles the diffuser on or off        |
+| Intensity Up Button Link     | Steps intensity up, stopping at high  |
+| Intensity Down Button Link   | Steps intensity down, stopping at low |
+| Low Intensity Button Link    | Sets intensity to `low`               |
+| Medium Intensity Button Link | Sets intensity to `medium`            |
+| High Intensity Button Link   | Sets intensity to `high`              |
+
+### Power Relay (provider)
+
+A `RELAY` connection for devices that switch a relay. `CLOSE` turns the diffuser
+on, `OPEN` turns it off and `TOGGLE` toggles it. The relay reports `CLOSED` or
+`OPENED` whenever a status read shows the power changed, and a newly bound
+device is sent the last known state.
+
+# <span style="color:#17BCF2">Troubleshooting</span>
+
+**Driver Status shows "Connection failed" or "No response from device"** The
+Homedics app or another Bluetooth client is probably connected to the diffuser.
+It accepts one client at a time. Close the app on every nearby phone and tablet,
+then send the command again; a command in a failed cycle is not retried.
+
+**"Connection failed: No connection slots available"** Every connection slot on
+the ESP32 is in use. The driver releases its slot after each cycle, so this
+clears once another device's connection ends. See the ESPHome driver's
+documentation on connection slots.
+
+**The diffuser is not listed in Select Bluetooth Devices** Check that the
+diffuser is powered and within range of the ESP32, and that its Bluetooth name
+starts with `ARMH-` or `ARPRP-`. Then choose **Refresh List** in the property.
+
+**Intensity or color commands do nothing** The diffuser may be off; intensity
+and color changes do not turn it on. Turn it on first.
+
+**A schedule set in the Homedics app stopped running** Sending a command from
+Control4 switches the diffuser from SCHEDULE to HOME mode, which ends the app's
+schedule. See [Home and Schedule Modes](#home-and-schedule-modes).
 
 <!-- #ifdef DRIVERCENTRAL -->
 

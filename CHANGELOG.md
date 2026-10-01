@@ -18,6 +18,25 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Added
+
+- Added the ESPHome SereneScent sub-driver for Homedics SereneScent BLE
+  diffusers, with power, mist intensity and light color control, keypad button
+  links and a power relay
+
+### Fixed
+
+- Fixed the SwitchBot and Yale drivers waiting indefinitely when the Bluetooth
+  proxy or coordinator never answered a connection request, as when it restarted
+  mid-connect: a SwitchBot stayed Busy with the command queued, and a Yale lock
+  in Poll mode stopped polling; the driver now gives up after two minutes, frees
+  the proxy's connection slot and handles it as a failed connection
+- Fixed a Yale lock in Persistent mode counting a failed or timed-out handshake
+  as two failures, using up its reconnect attempts twice as fast and retrying a
+  lock or unlock that hit it as a status read instead
+
 ## v20260926 - 2026-09-26
 
 ### Fixed
@@ -221,13 +240,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   persists the value across driver restarts, notifies the proxy so Composer and
   Navigator reflect the designated preset, and applies the preset when the fan
   is turned on so `Turn On Fan` runs at the designated speed
-
-## Unreleased
-
-### Added
-
-- Added ESPHome SereneScent sub-driver for Homedics SereneScent BLE diffusers
-  with power, intensity, color control, and automatic status polling
 
 ## v20260512 - 2026-05-12
 

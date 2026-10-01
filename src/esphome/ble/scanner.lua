@@ -9,9 +9,9 @@ local deferred = require("deferred")
 local BLEAddress = require("esphome.ble.address")
 local BTHome = require("bthome")
 local Govee = require("esphome.ble.parsers.govee")
+local SereneScent = require("esphome.ble.parsers.serenescent")
 local SwitchBot = require("esphome.ble.parsers.switchbot")
 local Yale = require("esphome.ble.parsers.yale")
-local SereneScent = require("esphome.ble.parsers.serenescent")
 local UUID = require("esphome.ble.uuid")
 
 --- Persistence key for discovered devices
@@ -133,6 +133,7 @@ local ACTIVE_DEVICES = {
   [SwitchBot.DEVICE_NAMES[SwitchBot.DeviceTypeCode.RELAY_2PM]] = true,
   -- Yale/August locks (require GATT connection for control)
   [Yale.DEVICE_NAMES.LOCK] = true,
+  -- Homedics SereneScent diffuser (GATT connection for control and status)
   [SereneScent.DEVICE_NAMES.DIFFUSER] = true,
 }
 
@@ -318,7 +319,7 @@ local DEVICE_DERIVERS = {
   {
     name = "SereneScent",
     derive = function(message)
-      return Select(SereneScent.parse(message.serviceUuids, message.name), "deviceType")
+      return Select(SereneScent.parse(message.name), "deviceType")
     end,
   },
 }
