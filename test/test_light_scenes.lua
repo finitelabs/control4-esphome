@@ -1089,6 +1089,28 @@ do
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
     { mix(50) }
   )
+  -- A fade already heading for the level's own mix is left to run to its end.
+  settled()
+  setColor(green)
+  local back = { mix(50), DIM[2] + (ON[2] - DIM[2]) * (50 * 0.01) }
+  colorTarget(back, 4000)
+  run(1000)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq("during a color fade to the mix itself: nothing is sent", commands(), 0)
+  run(15000)
+  T.eq(
+    "and the fade ends in the mix, at its own time",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { mix(50) }
+  )
+  -- A light that cannot be sent the mix, a color-temperature light with a mix that is a color, is sent nothing.
+  light({ ColorMode.COLOR_MODE_COLOR_TEMPERATURE }, false)
+  onMode(ON, DIM)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq("a light that cannot take the mix: nothing is sent", commands(), 0)
   -- Off is not on: a light that is off, told off, is sent nothing.
   light({ ColorMode.COLOR_MODE_RGB }, false)
   onMode(ON, DIM)

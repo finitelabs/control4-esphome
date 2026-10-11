@@ -1047,15 +1047,17 @@ local function leaveBrightnessRamp()
   return ramp
 end
 
--- With Dim-To-Warm, whether a light on at `level` shows a color other than the level's own mix,
--- or is fading to one.
-local function notInFadeColor(level)
-  if level <= 0 or getColorOnModeKind() ~= COLOR_ON_MODE_FADE then
+-- Whether the light, with Dim-To-Warm, is in or on its way to a color other than the one `level` carries.
+local function awayFromFadeColor(level)
+  local fade = level > 0 and getColorOnModeKind() == COLOR_ON_MODE_FADE and computeFadeColor(level)
+  if not fade or not buildColorCmdFields(fade.x, fade.y, fade.mode) then
     return false
   end
-  local mix = computeFadeColor(level)
-  return mix ~= nil
-    and (rampingColor or not sameColor(mix.x, mix.y, mix.mode, currentColorX, currentColorY, currentColorMode))
+  local x, y, mode = currentColorX, currentColorY, currentColorMode
+  if colorRamp then
+    x, y, mode = colorRamp.targetX, colorRamp.targetY, colorRamp.targetMode
+  end
+  return not sameColor(x, y, mode, fade.x, fade.y, fade.mode)
 end
 
 --- @param replaced table|nil A ramp the caller has already ended for this one.
@@ -1077,9 +1079,9 @@ local function rampToBrightness(level, rate, presetId, replaced)
 
   local startingLevel = currentBrightness
   if level == startingLevel then
-    -- Sent where the bulb is still on its way to a replaced ramp's target, or shows a color that is
-    -- not the level's Dim-To-Warm mix: a brightness command, so the level's own color goes with it.
-    if replaced or notInFadeColor(level) then
+    -- Sent where the bulb is still on its way to a replaced ramp's target, or with Dim-To-Warm in a
+    -- color set since: a brightness command, so the level's own color goes with it.
+    if replaced or awayFromFadeColor(level) then
       setESPHomeBrightness(level, 0)
     end
     notifyBrightnessChanged(level)
