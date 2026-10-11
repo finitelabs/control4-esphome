@@ -1697,4 +1697,45 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+T.section("a stop in a scene step's fade keeps the color the step set")
+do
+  -- With Dim-To-Warm, at 100 % in a color set for it: a step to 20 % in that color over 4 s.
+  local own = { 0.3, 0.6 }
+  for _, stop in ipairs({ "SET_BRIGHTNESS_STOP", "STOP_SCENE_RAMP" }) do
+    light({ ColorMode.COLOR_MODE_RGB }, false)
+    onMode(ON, DIM)
+    proxy("ON")
+    setColor(own)
+    activate(colorStep(20, own, 4000))
+    run(1000)
+    mark()
+    proxy(stop, { SCENE_ID = 7 })
+    T.eq(stop .. " a second in: it sends the level alone", #colors(), 0)
+    run(15000)
+    T.eq(
+      stop .. ": the proxy is told where it stopped",
+      told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+      { 80 }
+    )
+    T.eq(stop .. ": and no color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), {})
+    proxy("CLEAR_ALL_SCENES")
+  end
+  -- The Dim-To-Warm color a step takes for its level is the ramp's own: with the color fade stopped,
+  -- a stop of the level takes the mix for where it stops.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  activate(levelStep(20, 4000))
+  run(1000)
+  proxy("SET_COLOR_STOP")
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "a stop of a step's Dim-To-Warm fade, its color stopped first: the mix for 80 %",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { mix(80) }
+  )
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.finish()

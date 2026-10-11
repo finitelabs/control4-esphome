@@ -1687,6 +1687,7 @@ local function applySceneStep(step)
     local x, y, mode = takenColor(step.colorX, step.colorY, step.colorMode or LIGHT_COLOR_MODE_FULL)
     color = { x = x, y = y, mode = mode }
   end
+  local ownColor = color
   -- A step that sets a level alone takes the color a level command would: the Dim-To-Warm color
   -- for the level, or the Color On Mode's when it turns the light on.
   if not color and (level or 0) > 0 then
@@ -1706,8 +1707,9 @@ local function applySceneStep(step)
     end
     local colorReplaced = rampingColor
     leaveColorRamp()
-    -- It is the light's color for a brightness ramp the step leaves running: a stop keeps it.
-    if brightnessRamp and brightnessRamp.step ~= step then
+    -- A color of the step's own is the light's for a brightness ramp in flight, the step's or one
+    -- it leaves running: a stop keeps it.
+    if ownColor and brightnessRamp then
       brightnessRamp.colorSet = true
     end
     local mode = color.mode or LIGHT_COLOR_MODE_FULL
