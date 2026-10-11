@@ -820,4 +820,33 @@ do
   T.eq("the proxy's Toggle: the light ends off", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 0 })
 end
 
+T.section("a scene step taken at once is where the step or command after it starts from")
+do
+  -- 30 % at once, then 60 % over 3 s: stopped half way through that fade, the light is at 45 %.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  activate(levelStep(30) .. levelStep(60, 3000))
+  T.eq(
+    "the proxy is told the step's level as it goes out",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 30 }
+  )
+  T.eq("and the fade after it starts there", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"), { 30 })
+  run(1500)
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq(
+    "a stop half way through that fade holds it at 45",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 30, 45 }
+  )
+  -- A rated command after the step ramps from its level, over the rate it asks.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  activate(levelStep(30))
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  T.eq("a rated command after it: from 30", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"), { 30 })
+  run(15000)
+  T.eq("to 100 at its own ramp's end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 2000 })
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.finish()

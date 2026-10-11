@@ -986,6 +986,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a button pressed, clicked or toggled while a light was ramping acting on
   the level the ramp began from: a light on its way up could be switched off and
   faded up again, or toggled the wrong way
+- Fixed a scene step with no ramp time not being shown for a light until the
+  light reported it, so the step or command after it started from the old level
 
 ### Changed
 

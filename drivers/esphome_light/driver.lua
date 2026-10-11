@@ -1682,6 +1682,13 @@ local function applySceneStep(step)
   end
   if next(cmd) ~= nil then
     sendLightCommand(cmd)
+    -- A step taken at once is where the light is: the next step or command starts from it.
+    if rate == 0 and step.levelEnabled and step.level ~= nil then
+      local level = supportsDimming and step.level or (step.level > 0 and 100 or 0)
+      if level ~= currentBrightness then
+        notifyBrightnessChanged(level)
+      end
+    end
   end
   return rate
 end
