@@ -388,6 +388,20 @@ do
   T.eq("the device is sent nothing after the Off", commands(), before)
   T.eq("and the proxy is told off alone", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 0 })
   proxy("CLEAR_ALL_SCENES")
+  -- Nor does a ramp it was itself asked for come back at its end.
+  light({ ColorMode.COLOR_MODE_ON_OFF }, false)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 3000 })
+  run(1000)
+  mark()
+  proxy("OFF")
+  before = commands()
+  run(15000)
+  T.eq("an Off during a ramp it was asked for: the device is sent nothing after it", commands(), before)
+  T.eq(
+    "and the proxy is told off, with no ramp's end to follow",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 0 }
+  )
 end
 
 T.section("a color ramp asked for during a scene's fade runs to its own end, not to the scene step's")
@@ -1322,6 +1336,92 @@ do
   T.check("a scene step's color: the proxy is told it once, as a color", toldOnce(stepX, stepY, FULL), T.show(sent))
   proxy("CLEAR_ALL_SCENES")
   C4.ColorCCTtoXY, C4.ColorXYtoCCT = toXY, toCCT
+end
+
+T.section("a scene stopped during a step's fade leaves the fade to run to its end")
+do
+  local green = { 0.3, 0.6 }
+  -- A step fading to 20 % in green over 4 s, stopped a second in. The step after it must not run.
+  for _, stop in ipairs({ "DEACTIVATE_SCENE", "CLEAR_ALL_SCENES" }) do
+    light({ ColorMode.COLOR_MODE_RGB })
+    setColor(ON)
+    activate(colorStep(20, green, 4000) .. levelStep(80, 0, 5000))
+    run(1000)
+    proxy(stop, { SCENE_ID = 7 })
+    run(15000)
+    T.eq(
+      stop .. ": the proxy is told the step's level, and no later step's",
+      told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+      { 20 }
+    )
+    T.eq(stop .. ": at the fade's end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 4000 })
+    T.eq(stop .. ": and its color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { green[1] })
+    mark()
+    proxy("SET_LEVEL", { LEVEL = 100 })
+    T.eq(stop .. ": a level set after it goes to the bulb, which is at 20", commands(), 1)
+  end
+  -- The fade is still there for a stop to hold, and for a color set after it to start from.
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  activate(colorStep(20, green, 4000))
+  run(1000)
+  proxy("DEACTIVATE_SCENE", { SCENE_ID = 7 })
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "a stop a second after Deactivate Scene holds the level the fade has got to",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 60 }
+  )
+  colorTarget(BLUE, 1000)
+  T.eq(
+    "and a color set then ramps from half way through the fade",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] + (green[1] - ON[1]) * 0.5 }
+  )
+  run(15000)
+  -- Nor is a ramp a command began forgotten: a color stop a second later holds that one half way.
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  colorTarget(green, 4000)
+  run(1000)
+  proxy("DEACTIVATE_SCENE", { SCENE_ID = 7 })
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a color stop after Deactivate Scene holds a command's ramp half way",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] + (green[1] - ON[1]) * 0.5 }
+  )
+  -- With Dim-To-Warm, Ramp Scene Up a second into a step's fade to 20 % in green carries the mix from there.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  activate(colorStep(20, green, 4000))
+  run(1000)
+  mark()
+  proxy("RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 2000 })
+  T.eq(
+    "Ramp Scene Up in a step's fade: the color ramps from a quarter of the way through it",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] + (green[1] - ON[1]) * 0.25 }
+  )
+  T.eq("to the mix for the on level", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { mix(100) })
+  run(15000)
+  proxy("CLEAR_ALL_SCENES")
+  -- Remove Scene cancels the step's timer too: the fade still ends.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  activate(levelStep(20, 4000))
+  run(1000)
+  proxy("REMOVE_SCENE", { SCENE_ID = 7 })
+  run(15000)
+  T.eq(
+    "Remove Scene during a step's fade: the proxy is told the fade's end",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 20 }
+  )
 end
 
 T.finish()

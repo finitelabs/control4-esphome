@@ -1263,6 +1263,7 @@ end
 -- An On/Off-only light switches at once, replacing a ramp a step primed.
 local function switchLight(on)
   stopSceneSteps()
+  cancelBrightnessRampTimers()
   rampingBrightness = false
   brightnessRamp = nil
   sendLightCommand({ has_state = true, state = on })
@@ -1611,13 +1612,8 @@ local function stopAllScenes()
   for sceneId, _ in pairs(scenes) do
     CancelTimer(SCENE_TIMER_PREFIX .. tostring(sceneId))
   end
-  -- Drop any ramp state primed by an in-flight scene step so future echoes
-  -- don't get suppressed forever. Notify hooks that fired CHANGING are
-  -- finalised by the bulb's own state echo when ramping flags are cleared.
-  rampingBrightness = false
-  rampingColor = false
-  brightnessRamp = nil
-  colorRamp = nil
+  -- A ramp in flight runs on, as the bulb does: a step's has a timer of its own to end it, as a
+  -- command's has.
 end
 
 local function applySceneStep(step)
@@ -1674,6 +1670,10 @@ local function applySceneStep(step)
         durationMs = rate,
       }
       notifyBrightnessChanging(step.level, rate)
+      -- Ends the ramp when the scene is stopped before the step's timer does.
+      SetTimer("BrightnessRampFinish", rate, function()
+        brightnessRampFinished(step.level)
+      end, false)
     end
   end
   local color = nil
@@ -1719,6 +1719,9 @@ local function applySceneStep(step)
         durationMs = rate,
       }
       notifyColorChanging(color.x, color.y, mode, rate)
+      SetTimer("ColorRampFinish", rate, function()
+        colorRampFinished(color.x, color.y, mode)
+      end, false)
     elseif colorChanged then
       colorAtOnce = { x = color.x, y = color.y, mode = mode }
     end
@@ -1916,11 +1919,9 @@ function RFP.RAMP_SCENE_UP(idBinding, strCommand, tParams, args)
   if scene and scene.ignoreRamp then
     return
   end
-  -- stopAllScenes drops a ramp in flight: leave it where it has got to first.
-  local replaced = leaveBrightnessRamp()
   stopAllScenes()
   if supportsDimming then
-    rampToBrightness(getOnBrightness(), rate, nil, replaced)
+    rampToBrightness(getOnBrightness(), rate)
   else
     lightOn()
   end
@@ -1938,10 +1939,9 @@ function RFP.RAMP_SCENE_DOWN(idBinding, strCommand, tParams, args)
   if scene and scene.ignoreRamp then
     return
   end
-  local replaced = leaveBrightnessRamp()
   stopAllScenes()
   if supportsDimming then
-    rampToBrightness(0, rate, nil, replaced)
+    rampToBrightness(0, rate)
   else
     lightOff()
   end
@@ -1958,7 +1958,6 @@ function RFP.STOP_SCENE_RAMP(idBinding, strCommand, tParams, args)
   if scene and scene.ignoreRamp then
     return
   end
-  -- The stops read where each ramp has got to from state stopAllScenes drops.
   brightnessRampStopped()
   colorRampStopped()
   stopAllScenes()

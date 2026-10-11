@@ -106,6 +106,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   already at
 - Fixed a ramped on of a color light with no color temperature restarting a
   moment in, when the light turns on in a color temperature preset
+- Fixed an Advanced Lighting scene that was deactivated, cleared or removed
+  while one of its steps was fading a light leaving the light shown as still
+  ramping, at the level and color it had before the fade: a command for that
+  level then did nothing, and a stop found nothing to stop; the fade now runs on
+  and shows as finished when the light gets there
 
 ### Changed
 
