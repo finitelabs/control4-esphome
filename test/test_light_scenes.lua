@@ -1152,25 +1152,29 @@ do
     return x * 10000
   end
   local CCT, FULL = 1, 0
-  --- Set the Color On Mode in kelvin: on, and for Dim-To-Warm a dim one.
-  local function onModeCCT(on, dim)
-    local onX, onY = C4:ColorCCTtoXY(on)
-    local dimX, dimY
-    if dim then
-      dimX, dimY = C4:ColorCCTtoXY(dim)
-    end
+  --- Set the Color On Mode to an xy in mode CCT, with a dim one if given.
+  local function onModeXY(onX, onY, dimX, dimY)
     proxy("UPDATE_COLOR_ON_MODE", {
       COLOR_PRESET_ID = 1,
       COLOR_PRESET_ORIGIN = 1,
       COLOR_PRESET_COLOR_X = onX,
       COLOR_PRESET_COLOR_Y = onY,
       COLOR_PRESET_COLOR_MODE = CCT,
-      COLOR_FADE_PRESET_ID = dim and 2 or 0,
-      COLOR_FADE_PRESET_ORIGIN = dim and 1 or 0,
+      COLOR_FADE_PRESET_ID = dimX and 2 or 0,
+      COLOR_FADE_PRESET_ORIGIN = dimX and 1 or 0,
       COLOR_FADE_PRESET_COLOR_X = dimX,
       COLOR_FADE_PRESET_COLOR_Y = dimY,
       COLOR_FADE_PRESET_COLOR_MODE = CCT,
     })
+  end
+  --- The same in kelvin.
+  local function onModeCCT(on, dim)
+    local onX, onY = C4:ColorCCTtoXY(on)
+    if dim then
+      onModeXY(onX, onY, C4:ColorCCTtoXY(dim))
+    else
+      onModeXY(onX, onY)
+    end
   end
   --- The device reports back the last command sent, in its color mode `kind`.
   local function echo(kind)
@@ -1229,6 +1233,68 @@ do
       name .. ", the level again: and the proxy is told no color",
       told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
       {}
+    )
+  end
+  -- After a rated on the proxy sends the color the on carried, as an xy in
+  -- mode CCT: the mix on the line, or an On color that is off the curve.
+  local lineX, lineY = (warmX + coolX) / 2, (warmY + coolY) / 2
+  --- The proxy's SET_COLOR_TARGET of an xy in mode CCT, over `rate` ms.
+  local function target(x, y, rate)
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = x,
+      LIGHT_COLOR_TARGET_Y = y,
+      LIGHT_COLOR_TARGET_MODE = CCT,
+      LIGHT_COLOR_TARGET_COLOR_RATE = rate,
+    })
+  end
+  for _, case in ipairs({
+    { "a color and color temperature light", ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE },
+    { "a color temperature light", ColorMode.COLOR_MODE_COLOR_TEMPERATURE },
+  }) do
+    local kind = case[2]
+    for _, on in ipairs({ { "Dim-To-Warm", 50 }, { "an On color off the curve", 100 } }) do
+      local name = case[1] .. ", " .. on[1]
+      light({ kind }, false)
+      if on[2] == 50 then
+        onModeCCT(6500, 2700)
+      else
+        onModeXY(lineX, lineY)
+      end
+      mark()
+      proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = on[2], RATE = 4000 })
+      run(20)
+      target(lineX, lineY, 4000)
+      run(20000)
+      T.eq(name .. ": the proxy's send of the color puts nothing more out", commands(), 3)
+      T.check(
+        name .. ": the proxy is told the color once, as the light takes it",
+        toldOnce(pointX, pointY, CCT),
+        T.show(sent)
+      )
+      T.eq(name .. ": at the on's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+    end
+    -- 0.8 of the way from 2700 K to 6500 K on the line: the point of 5740 K.
+    light({ kind })
+    mark()
+    target(warmX + (coolX - warmX) * 0.8, warmY + (coolY - warmY) * 0.8, 0)
+    echo(kind)
+    local setX, setY = C4:ColorCCTtoXY(5740)
+    T.check(
+      case[1] .. ", a color temperature set off the curve: the proxy is told its point once",
+      toldOnce(setX, setY, CCT),
+      T.show(sent)
+    )
+    proxy(
+      "UPDATE_COLOR_PRESET",
+      { COMMAND = "ADDED", ID = 5, NAME = "mix", COLOR_X = lineX, COLOR_Y = lineY, COLOR_MODE = CCT }
+    )
+    mark()
+    proxy("SET_COLOR_TARGET", { LIGHT_COLOR_TARGET_PRESET_ID = 5, LIGHT_COLOR_TARGET_COLOR_RATE = 0 })
+    echo(kind)
+    T.check(
+      case[1] .. ", a preset off the curve by its id: the proxy is told its point once",
+      toldOnce(pointX, pointY, CCT),
+      T.show(sent)
     )
   end
   -- A light with color alone takes a color temperature as a color: the On

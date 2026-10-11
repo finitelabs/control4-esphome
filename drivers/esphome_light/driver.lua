@@ -1436,7 +1436,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
       log:warn("SET_COLOR_TARGET: ColorXYtoCCT(%s, %s) returned %s", x, y, tostring(k))
       return
     end
-    targetX, targetY, targetMode = x, y, LIGHT_COLOR_MODE_CCT
+    targetX, targetY, targetMode = takenColor(x, y, LIGHT_COLOR_MODE_CCT)
   elseif x and y and supportsColor then
     targetX, targetY, targetMode = x, y, LIGHT_COLOR_MODE_FULL
   else
