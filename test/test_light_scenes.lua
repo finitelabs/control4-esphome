@@ -903,4 +903,64 @@ do
   T.eq("which the proxy is told at its ramp's end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 3000 })
 end
 
+--- The brightness and transition of the last command the device was sent since the mark.
+local function lastLevel()
+  for i = #sent, 1, -1 do
+    local s = sent[i]
+    if s.binding == ESPHOME and s.command == "ENTITY_COMMAND" then
+      local cmd = DeserializeSafe(s.params.body)
+      return { cmd.brightness, cmd.transition_length }
+    end
+  end
+end
+
+T.section("a command for the level a ramp has got to holds the bulb there")
+do
+  -- Top pressed and clicked on a light at its Default On level: the press's hold heads for full.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_PRESET_LEVEL", { LEVEL = 50 })
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(110)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_CLICK })
+  run(15000)
+  T.eq("a Top click at the on level: the bulb is last sent that level, at once", lastLevel(), { 50 / 100, 0 })
+  T.eq("and the proxy is told it", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 50 })
+  -- With Dim-To-Warm the hold carried the mix for full, so the level's own goes back with it.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(110)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_CLICK })
+  run(15000)
+  T.eq("with Dim-To-Warm: the bulb is last sent that level", lastLevel(), { 50 / 100, 0 })
+  T.eq("in the mix for it, which the proxy is told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { mix(50) })
+  -- A click that moves the light sends its ramp and nothing ahead of it.
+  proxy("SET_PRESET_LEVEL", { LEVEL = 100 })
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(110)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_CLICK })
+  T.eq("a click that moves the light sends its ramp alone", commands(), 1)
+  -- A level command, and Ramp Scene Up, for the level a ramp has reached half way from 20 to 100.
+  for _, case in ipairs({ "SET_LEVEL", "RAMP_SCENE_UP" }) do
+    light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+    proxy("SET_PRESET_LEVEL", { LEVEL = 60 })
+    proxy("SET_LEVEL", { LEVEL = 20 })
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+    run(2000)
+    mark()
+    proxy(case, { LEVEL = 60, SCENE_ID = 7, RATE = 3000 })
+    run(15000)
+    T.eq(case .. " to 60 with the ramp at 60: the bulb is held there", lastLevel(), { 60 / 100, 0 })
+    T.eq(case .. ": and the proxy is told it", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 60 })
+  end
+  proxy("SET_PRESET_LEVEL", { LEVEL = 100 })
+end
+
 T.finish()

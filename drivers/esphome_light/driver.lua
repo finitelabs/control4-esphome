@@ -1031,8 +1031,9 @@ end
 local stopSceneSteps -- defined with the scene support below
 
 -- End a brightness ramp where it has got to: what replaces it starts there, so its CHANGING
--- tracks correctly and a future STOP interpolates from the right level.
+-- tracks correctly and a future STOP interpolates from the right level. Returns the ramp it ended.
 local function leaveBrightnessRamp()
+  local ramp = rampingBrightness and brightnessRamp or nil
   if rampingBrightness then
     local at = interpolatedBrightness()
     if at == 0 and currentBrightness > 0 then
@@ -1043,9 +1044,11 @@ local function leaveBrightnessRamp()
   cancelBrightnessRampTimers()
   rampingBrightness = false
   brightnessRamp = nil
+  return ramp
 end
 
-local function rampToBrightness(level, rate, presetId)
+--- @param replaced table|nil A ramp the caller has already ended for this one.
+local function rampToBrightness(level, rate, presetId, replaced)
   level = math.max(0, math.min(100, math.floor((level or 0) + 0.5)))
   rate = math.max(0, tointeger(rate) or 0)
 
@@ -1059,10 +1062,15 @@ local function rampToBrightness(level, rate, presetId)
   -- a stale value to the Daylight Agent.
   currentBrightnessPresetId = presetId
 
-  leaveBrightnessRamp()
+  replaced = leaveBrightnessRamp() or replaced
 
   local startingLevel = currentBrightness
   if level == startingLevel then
+    -- The bulb is still on its way to the replaced ramp's target: hold it here, in the level's
+    -- own color unless one is ramping or was set since.
+    if replaced then
+      setESPHomeBrightness(level, 0, rampingColor or replaced.colorSet)
+    end
     notifyBrightnessChanged(level)
     return
   end
@@ -1873,10 +1881,10 @@ function RFP.RAMP_SCENE_UP(idBinding, strCommand, tParams, args)
     return
   end
   -- stopAllScenes drops a ramp in flight: left where it has got to first, the ramp below starts there.
-  leaveBrightnessRamp()
+  local replaced = leaveBrightnessRamp()
   stopAllScenes()
   if supportsDimming then
-    rampToBrightness(getOnBrightness(), rate)
+    rampToBrightness(getOnBrightness(), rate, nil, replaced)
   else
     lightOn()
   end
@@ -1894,10 +1902,10 @@ function RFP.RAMP_SCENE_DOWN(idBinding, strCommand, tParams, args)
   if scene and scene.ignoreRamp then
     return
   end
-  leaveBrightnessRamp()
+  local replaced = leaveBrightnessRamp()
   stopAllScenes()
   if supportsDimming then
-    rampToBrightness(0, rate)
+    rampToBrightness(0, rate, nil, replaced)
   else
     lightOff()
   end
@@ -2210,18 +2218,19 @@ end
 -- RFP: button actions (from proxy)
 ---------------------------------------------------------------------------
 
--- The level a click acts on. Its press's hold ramp is dropped, so the click's ramp starts from the
--- level the press found; a click with no press replaces the ramp it finds, as any command does.
+-- The level a click acts on, and the hold ramp of its press, which is dropped so the click's ramp
+-- starts from the level the press found. A click with no press replaces the ramp it finds itself.
 local function rewindToPrePress()
   local snapshot = prePressBrightness
   prePressBrightness = nil
   if snapshot == nil then
     return interpolatedBrightness()
   end
+  local hold = rampingBrightness and brightnessRamp or nil
   cancelBrightnessRampTimers()
   rampingBrightness = false
   brightnessRamp = nil
-  return snapshot
+  return snapshot, hold
 end
 
 -- Shared button-action implementation. Used by RFP.BUTTON_ACTION (proxy ->
@@ -2262,25 +2271,25 @@ local function handleButtonAction(buttonId, action)
     prePressBrightness = nil
     brightnessRampStopped()
   elseif action == constants.ButtonActions.RELEASE_CLICK then
-    local effective = rewindToPrePress()
+    local effective, hold = rewindToPrePress()
     if buttonId == constants.ButtonIds.TOP then
       if supportsDimming then
-        rampToBrightness(getOnBrightness(), getClickRateUp())
+        rampToBrightness(getOnBrightness(), getClickRateUp(), nil, hold)
       else
         lightOn()
       end
     elseif buttonId == constants.ButtonIds.BOTTOM then
       if supportsDimming then
-        rampToBrightness(0, getClickRateDown())
+        rampToBrightness(0, getClickRateDown(), nil, hold)
       else
         lightOff()
       end
     elseif buttonId == constants.ButtonIds.TOGGLE then
       if supportsDimming then
         if effective > 0 then
-          rampToBrightness(0, getClickRateDown())
+          rampToBrightness(0, getClickRateDown(), nil, hold)
         else
-          rampToBrightness(getOnBrightness(), getClickRateUp())
+          rampToBrightness(getOnBrightness(), getClickRateUp(), nil, hold)
         end
       else
         if effective > 0 then

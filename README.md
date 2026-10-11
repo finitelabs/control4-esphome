@@ -993,6 +993,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed Ramp Scene Up and Down, on a light already ramping, starting from the
   level that ramp began at: the light could drop to its minimum and climb, or
   not move at all
+- Fixed a light that was ramping not stopping when a command asked for the level
+  it had just reached: the light carried on to the end of its ramp while it was
+  shown at the level asked for
 
 ### Changed
 
