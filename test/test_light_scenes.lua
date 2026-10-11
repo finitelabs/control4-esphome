@@ -1845,6 +1845,31 @@ do
   run(15000)
   T.eq("and nothing after", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
   proxy("CLEAR_ALL_SCENES")
+  -- With a level too, the step leaves the on's ramp before reading its color.
+  offInBlue()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  activate(colorStep(80, BLUE, 2000))
+  T.eq(
+    "the same step with a level: the proxy is told the color at once",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { BLUE[1] }
+  )
+  run(15000)
+  T.eq("with a level: and no color after", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
+  proxy("CLEAR_ALL_SCENES")
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  proxy("RAMP_TO_LEVEL", { LEVEL = 10, TIME = 4000 })
+  activate(levelStep(100, 2000))
+  T.eq(
+    "a Dim-To-Warm step back to the level a dim began from: the proxy is told its mix at once",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { mix(100) }
+  )
+  run(15000)
+  T.eq("Dim-To-Warm: and no color after", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { mix(100) })
+  proxy("CLEAR_ALL_SCENES")
   -- Until its end a rated on tells its own color: the device's report of the color it is going to is no news.
   local onColor = offInBlue()
   mark()

@@ -1645,6 +1645,9 @@ local function applySceneStep(step)
   -- Don't send color/RGB fields in that case so the device actually turns off.
   local turningOff = step.levelEnabled and step.level == 0
   local replaced = nil
+  -- A color ramp, or the color a brightness ramp carries, that the proxy has
+  -- been told is on its way.
+  local colorInFlight = rampingColor or (brightnessRamp and brightnessRamp.mergedColor)
   local goingOn = false
   -- The level the step leaves the light at: an On/Off-only light is on or off.
   local level = nil
@@ -1705,7 +1708,6 @@ local function applySceneStep(step)
     -- The step's color replaces the on color a brightness ramp carries, which would otherwise show at
     -- its end, and a color ramp in flight, from where it has got to. A step with no color leaves that
     -- ramp running.
-    local colorReplaced = rampingColor or (brightnessRamp and brightnessRamp.mergedColor)
     leaveMergedColor()
     leaveColorRamp()
     -- A color of the step's own is the light's for a brightness ramp in flight, the step's or one
@@ -1749,7 +1751,7 @@ local function applySceneStep(step)
       SetTimer("ColorRampFinish", rate, function()
         colorRampFinished(color.x, color.y, mode)
       end, false)
-    elseif colorChanged or colorReplaced then
+    elseif colorChanged or colorInFlight then
       colorAtOnce = { x = color.x, y = color.y, mode = mode }
     end
   end
