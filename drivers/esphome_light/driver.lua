@@ -2240,15 +2240,16 @@ local function handleButtonAction(buttonId, action)
       end
       return
     end
+    -- A hold ramps toward full or off until its release stops it; a click goes to the on level.
     if buttonId == constants.ButtonIds.TOP then
-      rampToBrightness(getOnBrightness(), getHoldRateUp())
+      rampToBrightness(100, getHoldRateUp())
     elseif buttonId == constants.ButtonIds.BOTTOM then
       rampToBrightness(0, getHoldRateDown())
     elseif buttonId == constants.ButtonIds.TOGGLE then
       if currentBrightness > 0 then
         rampToBrightness(0, getHoldRateDown())
       else
-        rampToBrightness(getOnBrightness(), getHoldRateUp())
+        rampToBrightness(100, getHoldRateUp())
       end
     end
   elseif action == constants.ButtonActions.RELEASE_HOLD then

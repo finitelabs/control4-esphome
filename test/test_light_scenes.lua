@@ -754,4 +754,31 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+---------------------------------------------------------------------------
+-- Buttons
+---------------------------------------------------------------------------
+
+local TOP, TOGGLE = 0, 2
+local RELEASE_HOLD, PRESS, RELEASE_CLICK = 0, 1, 2
+
+T.section("a held Top or Toggle ramps toward full, past the Default On level, until released")
+do
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_PRESET_LEVEL", { LEVEL = 50 })
+  proxy("SET_LEVEL", { LEVEL = 80 })
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  T.eq("Top from 80: it ramps toward 100", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET"), { 100 })
+  run(1000)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_HOLD })
+  local stopped = told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT")
+  T.check("and stops above where it was", (stopped[#stopped] or 0) > 80, T.show(stopped))
+  proxy("OFF")
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS })
+  T.eq("Toggle from off: it ramps toward 100", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET"), { 100 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = RELEASE_HOLD })
+  proxy("SET_PRESET_LEVEL", { LEVEL = 100 })
+end
+
 T.finish()

@@ -84,6 +84,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed Stop Scene Ramp not stopping a light: the light carried on to the end of
   its ramp and was shown as still ramping; it now holds the light where the ramp
   has got to
+- Fixed a held Top or Toggle button ramping a light toward its Default On level,
+  which dimmed a brighter light; a hold now ramps toward full until released
 
 ### Changed
 
