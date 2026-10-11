@@ -1642,6 +1642,7 @@ local function applySceneStep(step)
   -- A level of 0 means "off"; the color block is metadata for the next on.
   -- Don't send color/RGB fields in that case so the device actually turns off.
   local turningOff = step.levelEnabled and step.level == 0
+  local replaced = nil
   if step.levelEnabled and step.level ~= nil then
     cmd.has_state = true
     cmd.state = step.level > 0
@@ -1654,10 +1655,9 @@ local function applySceneStep(step)
     -- steps don't touch this so a brightness preset can survive across them.
     currentBrightnessPresetId = nil
     -- A step that sets the level replaces a brightness ramp in flight (a prior step's or a
-    -- non-scene cmd's). One that sets a color alone leaves it running, as the bulb does.
-    cancelBrightnessRampTimers()
-    rampingBrightness = false
-    brightnessRamp = nil
+    -- non-scene cmd's), from the level it has got to. One that sets a color alone leaves it
+    -- running, as the bulb does.
+    replaced = leaveBrightnessRamp()
     -- Only prime a ramp when the level actually moves; an explicit step at
     -- the current level with rate>0 would otherwise queue a pointless picker
     -- animation and suppress the next echo for no reason.
@@ -1738,9 +1738,11 @@ local function applySceneStep(step)
   if next(cmd) ~= nil then
     sendLightCommand(cmd)
     -- A step taken at once is where the light is: what follows starts there.
-    if rate == 0 and step.levelEnabled and step.level ~= nil then
+    -- At the level a ramp it replaced has got to, at any rate, it is still that
+    -- ramp's end for the proxy.
+    if step.levelEnabled and step.level ~= nil and not rampingBrightness then
       local level = supportsDimming and step.level or (step.level > 0 and 100 or 0)
-      if level ~= currentBrightness then
+      if (rate == 0 and level ~= currentBrightness) or replaced then
         notifyBrightnessChanged(level)
       end
     end

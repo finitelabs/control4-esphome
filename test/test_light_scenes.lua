@@ -1492,4 +1492,80 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+T.section("a scene step that sets a level starts from the level a ramp in flight has got to")
+do
+  -- Half way through each the bulb is at 50 %, which the driver holds as the level the ramp began at.
+  local halfWay = {
+    {
+      "a ramp up from off",
+      0,
+      function()
+        light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+        proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 30000 })
+        run(15000)
+      end,
+    },
+    {
+      "another scene's fade to off",
+      80,
+      function()
+        light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+        proxy("PUSH_SCENE", { SCENE_ID = 8, ELEMENTS = levelStep(0, 10000) })
+        proxy("ACTIVATE_SCENE", { SCENE_ID = 8 })
+        run(5000)
+      end,
+    },
+  }
+  for _, c in ipairs(halfWay) do
+    local name = "a step to " .. c[2] .. " over 2 s in " .. c[1]
+    c[3]()
+    activate(levelStep(c[2], 2000))
+    T.eq(
+      name .. ": the proxy is told a ramp from 50",
+      told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"),
+      { 50 }
+    )
+    T.eq(name .. ": to " .. c[2], told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET"), { c[2] })
+    run(1000)
+    proxy("SET_BRIGHTNESS_STOP")
+    T.eq(
+      name .. ": a stop a second in holds it half way there",
+      told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+      { (50 + c[2]) / 2 }
+    )
+    proxy("CLEAR_ALL_SCENES")
+  end
+  -- A step back to the level a ramp began from: 2 s into a 10 s ramp from 30 to 100 the light is at 44.
+  for _, rate in ipairs({ 3000, 0 }) do
+    local name = "a step back to where a ramp began, over " .. rate .. " ms"
+    light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+    proxy("SET_LEVEL", { LEVEL = 30 })
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+    run(2000)
+    activate(levelStep(30, rate))
+    T.eq(
+      name .. ": the proxy is told a ramp from 44, or none",
+      told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"),
+      rate > 0 and { 44 } or {}
+    )
+    run(15000)
+    T.eq(name .. ": and the step's level, once", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 30 })
+    T.eq(name .. ": when the step ends", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { rate })
+    proxy("CLEAR_ALL_SCENES")
+  end
+  -- A step to the level the ramp has got to has nothing to ramp, and is still the ramp's end for the proxy:
+  -- 100 ms into a 30 s ramp up from off the light is still at 0.
+  for _, rate in ipairs({ 0, 2000 }) do
+    local name = "a step to off over " .. rate .. " ms as a ramp up begins"
+    light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 30000 })
+    run(100)
+    activate(levelStep(0, rate))
+    T.eq(name .. ": the proxy is told off at once", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 0 })
+    run(40000)
+    T.eq(name .. ": and nothing after", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 0 })
+    proxy("CLEAR_ALL_SCENES")
+  end
+end
+
 T.finish()

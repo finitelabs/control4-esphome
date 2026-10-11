@@ -1012,6 +1012,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   making the driver lose track of the ramp: a stop then did nothing, and the
   level the light ramped to was never shown; the ramp now carries on for a stop
   to hold
+- Fixed a scene step that sets a level, run while a light was ramping, starting
+  from the level that ramp began at: the step's fade was shown from the wrong
+  level and a stop held the light at the wrong one, and a step back to the level
+  the ramp began at left the light shown as still ramping
 
 ### Changed
 
