@@ -579,4 +579,29 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+T.section("a stop of a rated on leaves the color set since the on began")
+do
+  -- The light is still taken to be off, so the level the stop holds would carry the on color again.
+  for _, dim in ipairs({ false, DIM }) do
+    local name = dim and "Dim-To-Warm" or "On color"
+    light({ ColorMode.COLOR_MODE_RGB }, false)
+    onMode(ON, dim or nil)
+    setColor(BLUE)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+    run(1000)
+    colorTarget({ 0.3, 0.6 }, 0)
+    run(1000)
+    mark()
+    proxy("SET_BRIGHTNESS_STOP")
+    run(15000)
+    T.eq(name .. ": the stop sends no color", #colors(), 0)
+    T.eq(name .. ": and tells the proxy none", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), {})
+    T.eq(
+      name .. ": it is told where the level stopped",
+      told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+      { 50 }
+    )
+  end
+end
+
 T.finish()

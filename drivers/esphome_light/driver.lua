@@ -1026,11 +1026,13 @@ local function brightnessRampStopped()
     return
   end
   local stoppedAt = interpolatedBrightness()
+  -- A color still ramping, or set since the ramp began, is not the level's to replace.
+  local keepColor = rampingColor or brightnessRamp.colorSet
   rampingBrightness = false
   brightnessRamp = nil
   -- Cancel ESPHome's in-flight transition by sending a 0-transition cmd at
   -- the interpolated level. The bulb halts here.
-  setESPHomeBrightness(stoppedAt, 0, rampingColor)
+  setESPHomeBrightness(stoppedAt, 0, keepColor)
   notifyBrightnessChanged(stoppedAt)
 end
 
@@ -1184,8 +1186,10 @@ local function rampToColor(targetX, targetY, targetMode, rate)
   rate = math.max(0, tointeger(rate) or 0)
 
   -- The target replaces the on color a brightness ramp carries, which would otherwise show at its end.
+  -- It is the light's color for that ramp, carrying one of its own or not: a stop keeps it.
   if brightnessRamp then
     brightnessRamp.mergedColor = nil
+    brightnessRamp.colorSet = true
   end
   leaveColorRamp()
 

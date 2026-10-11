@@ -974,6 +974,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light that was told to stop ramping while its color was still fading
   being put in its Dim-To-Warm color, or the color it turns on in, with the fade
   cut short; the stop now holds the level and leaves the color fade to finish
+- Fixed a light that was stopped during a ramp losing a color set since the ramp
+  began
 
 ## v20260926 - 2026-09-26
 
