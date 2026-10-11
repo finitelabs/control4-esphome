@@ -1253,7 +1253,7 @@ local function lightOff(rate)
 end
 
 local function lightToggle(rate)
-  if currentBrightness > 0 then
+  if interpolatedBrightness() > 0 then
     lightOff(rate)
   else
     lightOn(rate)
@@ -2198,24 +2198,17 @@ end
 -- RFP: button actions (from proxy)
 ---------------------------------------------------------------------------
 
--- Restore brightness to the pre-press snapshot. Called when a RELEASE_CLICK
--- arrives after a brief hold-ramp has already stepped 1-2%. Cancels timers,
--- snaps device + state back to the snapshot, and returns the effective level
--- the click logic should use for direction decisions. If no snapshot exists
--- (e.g. CLICK without preceding PRESS via DO_CLICK), returns currentBrightness.
+-- The level a click acts on. Its press's hold ramp is dropped, so the click's ramp starts from the
+-- level the press found; a click with no press replaces the ramp it finds, as any command does.
 local function rewindToPrePress()
   local snapshot = prePressBrightness
   prePressBrightness = nil
+  if snapshot == nil then
+    return interpolatedBrightness()
+  end
   cancelBrightnessRampTimers()
-  if not rampingBrightness or snapshot == nil then
-    rampingBrightness = false
-    return snapshot or currentBrightness
-  end
   rampingBrightness = false
-  if currentBrightness ~= snapshot then
-    setESPHomeBrightness(snapshot, 0)
-    currentBrightness = snapshot
-  end
+  brightnessRamp = nil
   return snapshot
 end
 
@@ -2229,7 +2222,8 @@ local function handleButtonAction(buttonId, action)
     -- ramp at the persisted hold rate. If the proxy decides this was a click,
     -- a RELEASE_CLICK will arrive ~110ms later and rewindToPrePress() will
     -- undo any partial step before the click ramp runs.
-    prePressBrightness = currentBrightness
+    -- A ramp in flight leaves currentBrightness at the level it began from, so take the light's own.
+    prePressBrightness = interpolatedBrightness()
     if not supportsDimming then
       if buttonId == constants.ButtonIds.TOP then
         lightOn()
@@ -2246,7 +2240,7 @@ local function handleButtonAction(buttonId, action)
     elseif buttonId == constants.ButtonIds.BOTTOM then
       rampToBrightness(0, getHoldRateDown())
     elseif buttonId == constants.ButtonIds.TOGGLE then
-      if currentBrightness > 0 then
+      if prePressBrightness > 0 then
         rampToBrightness(0, getHoldRateDown())
       else
         rampToBrightness(100, getHoldRateUp())

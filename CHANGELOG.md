@@ -86,6 +86,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   has got to
 - Fixed a held Top or Toggle button ramping a light toward its Default On level,
   which dimmed a brighter light; a hold now ramps toward full until released
+- Fixed a button pressed, clicked or toggled while a light was ramping acting on
+  the level the ramp began from: a light on its way up could be switched off and
+  faded up again, or toggled the wrong way
 
 ### Changed
 

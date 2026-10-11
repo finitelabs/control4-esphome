@@ -781,4 +781,43 @@ do
   proxy("SET_PRESET_LEVEL", { LEVEL = 100 })
 end
 
+local TOP_LINK = 300 -- the Top Button Link binding
+
+T.section("a press, click or toggle made in a ramp acts on the level the light has got to")
+do
+  --- A light 2.5 s into a 5 s ramp up from off: at 50 %, which the driver holds as off until the ramp ends.
+  local function rising()
+    light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 5000 })
+    run(2500)
+    mark()
+  end
+  -- Top pressed and clicked: the click's ramp starts from 50, with no Off and no pre-on ahead of it.
+  rising()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(110)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_CLICK })
+  T.eq("Top click: the click sends its ramp and nothing else", commands(), 1)
+  T.eq("from the level the press found", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"), { 50 })
+  -- Toggle pressed and clicked: the light is on, so the hold ramp heads for off and the click turns it off.
+  rising()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS })
+  T.eq("Toggle press: it ramps toward off", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET"), { 0 })
+  run(110)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = RELEASE_CLICK })
+  run(15000)
+  T.eq("Toggle click: the light ends off", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 0 })
+  -- A Button Link's click with no push replaces the ramp from where it has got to.
+  rising()
+  RFP.DO_CLICK(TOP_LINK, "DO_CLICK", {})
+  T.eq("a click with no push: it sends its ramp and nothing else", commands(), 1)
+  T.eq("from where the ramp had got to", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"), { 50 })
+  -- The proxy's Toggle turns off a light on its way up.
+  rising()
+  proxy("TOGGLE")
+  run(15000)
+  T.eq("the proxy's Toggle: the light ends off", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 0 })
+end
+
 T.finish()
