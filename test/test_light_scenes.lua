@@ -1746,4 +1746,155 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+T.section("a ramp that replaces one still changing the color starts from the color the light has got to")
+do
+  local other = { 0.2, 0.5 }
+  --- The device reports itself on at `brightness`, in the color it was sent as `rgb`.
+  local function report(rgb, brightness)
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { ColorMode.COLOR_MODE_RGB } }),
+      state = SerializeSafe({
+        state = true,
+        brightness = brightness,
+        color_mode = ColorMode.COLOR_MODE_RGB,
+        red = rgb[1],
+        green = rgb[2],
+        blue = rgb[3],
+      }),
+    })
+  end
+  -- A click follows its press by about 110 ms, and the press's hold ramp heads for the On color too.
+  offInBlue()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(110)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_CLICK })
+  T.eq(
+    "a click from off: its color ramp is from the blue the press found",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { BLUE[1] }
+  )
+  T.eq("to the On color", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { ON[1] })
+  run(15000)
+  T.eq("which the proxy is then told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  -- Dim-To-Warm at 50 %: the press heads for the mix at 100 %, as the click to the on level does.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(110)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_CLICK })
+  T.eq(
+    "a click with Dim-To-Warm at 50 %: from the mix for 50 %",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { mix(50) }
+  )
+  run(15000)
+  -- Dim-To-Warm at 100 %: a ramp to 10 % over 4 s, sent back to 100 % a second in.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  proxy("RAMP_TO_LEVEL", { LEVEL = 10, TIME = 4000 })
+  run(1000)
+  mark()
+  proxy("RAMP_TO_LEVEL", { LEVEL = 100, TIME = 4000 })
+  T.eq(
+    "a dim sent back up: from a quarter of the way to the mix for 10 %",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { mix(100) + (mix(10) - mix(100)) * 0.25 }
+  )
+  T.eq("to the mix for 100 %", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { mix(100) })
+  run(20000)
+  T.eq("which the proxy is then told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { mix(100) })
+  -- A rated on from the blue to the On color, a quarter done when a color ramp, and then a scene's,
+  -- replaces its color. The proxy sends the On color after the on, which the on has carried already.
+  for _, replace in ipairs({ "SET_COLOR_TARGET", "a scene" }) do
+    offInBlue()
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+    colorTarget(ON, 4000)
+    run(1000)
+    if replace == "a scene" then
+      activate(colorStep(nil, other, 1000))
+    else
+      mark()
+      colorTarget(other, 1000)
+    end
+    T.eq(
+      replace .. " a quarter into a rated on: from a quarter of the way to the On color",
+      told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+      { BLUE[1] + (ON[1] - BLUE[1]) * 0.25 }
+    )
+    run(15000)
+    T.eq(
+      replace .. ": the proxy is then told its color, not the On color",
+      told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+      { other[1] }
+    )
+    proxy("CLEAR_ALL_SCENES")
+  end
+  -- A step in the color the light is still in, as a rated on begins to change it, ends that change for the proxy.
+  offInBlue()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  activate(colorStep(nil, BLUE, 2000))
+  T.eq(
+    "a step back to the color a rated on began from, as it begins: the proxy is told it at once",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { BLUE[1] }
+  )
+  run(15000)
+  T.eq("and nothing after", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
+  proxy("CLEAR_ALL_SCENES")
+  -- Until its end a rated on tells its own color: the device's report of the color it is going to is no news.
+  local onColor = offInBlue()
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  report(onColor, 1.0)
+  T.eq(
+    "a report during a rated on: the proxy is told no color yet",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    {}
+  )
+  run(15000)
+  T.eq("and the On color once, at the on's end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  -- A level command with no color of its own leaves the on's color where it had got to, so the
+  -- device's report of the color it goes on to is news, and ends the color fade for the proxy.
+  onColor = offInBlue()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+  run(5000)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  mark()
+  report(onColor, 0.5)
+  local x = told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")[1]
+  T.check(
+    "a rated on cut short by a level command: the device's report of the On color is told",
+    x ~= nil and math.abs(x - ON[1]) < 5e-3,
+    T.show(told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"))
+  )
+  -- A color ramp tells the proxy the mode the light is leaving: a light starts in color temperature.
+  light({ ColorMode.COLOR_MODE_RGB })
+  mark()
+  colorTarget(ON, 2000)
+  T.eq(
+    "a color ramp out of color temperature: it is leaving a color temperature",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_COLOR_MODE"),
+    { 1 }
+  )
+  run(15000)
+  T.eq("and ends on a color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE"), { 0 })
+  -- A rated on to the On color has taken the light out of color temperature by a second in.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(1000)
+  mark()
+  colorTarget(other, 1000)
+  T.eq(
+    "a color ramp a second into a rated on to a color: it is leaving a color",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_COLOR_MODE"),
+    { 0 }
+  )
+  run(15000)
+end
+
 T.finish()

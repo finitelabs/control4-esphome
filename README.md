@@ -1030,6 +1030,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a scene step with no ramp time fading a light over the device's own
   default transition time; it is now sent as an immediate change, as a level
   command with no ramp time is
+- Fixed a ramp that took over from one still changing a light's color, as a
+  button's click does from its press, showing its color fade from the color the
+  first ramp was heading for
+- Fixed a ramped On cut short by a level command leaving the light shown as
+  still changing color
 
 ### Changed
 

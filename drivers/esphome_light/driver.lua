@@ -973,11 +973,8 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
     -- ends here: its end would report, and re-send, a color it has left.
     leaveColorRamp()
     if hasRate then
-      -- CHANGING reports the color being left, so set the target after it.
+      -- The ramp's end makes the target current, so CHANGING carries the color the light is leaving.
       notifyColorChanging(mergedColor.x, mergedColor.y, mergedColor.mode, rateMs)
-      currentColorX = mergedColor.x
-      currentColorY = mergedColor.y
-      currentColorMode = mergedColor.mode
     else
       notifyColorChanged(mergedColor.x, mergedColor.y, mergedColor.mode)
     end
@@ -1051,6 +1048,18 @@ end
 
 local stopSceneSteps -- defined with the scene support below
 
+-- Leave the color a brightness ramp carries where the ramp has got to: what replaces it starts there.
+local function leaveMergedColor()
+  local merged = brightnessRamp and brightnessRamp.mergedColor
+  if merged then
+    local progress = math.min(1, (C4:GetTime() - brightnessRamp.startTime) / brightnessRamp.durationMs)
+    currentColorX = currentColorX + (merged.x - currentColorX) * progress
+    currentColorY = currentColorY + (merged.y - currentColorY) * progress
+    currentColorMode = merged.mode
+    brightnessRamp.mergedColor = nil
+  end
+end
+
 -- End a brightness ramp where it has got to, so what replaces it starts there
 -- and a later stop interpolates from the right level. Returns the ramp ended.
 local function leaveBrightnessRamp()
@@ -1061,6 +1070,7 @@ local function leaveBrightnessRamp()
       endOnCycle() -- a fade retargeted as it reaches off ends its on cycle
     end
     currentBrightness = at
+    leaveMergedColor()
   end
   cancelBrightnessRampTimers()
   rampingBrightness = false
@@ -1221,12 +1231,12 @@ local function rampToColor(targetX, targetY, targetMode, rate)
   rate = math.max(0, tointeger(rate) or 0)
 
   -- Drop the on color a brightness ramp carries, or its end would report it.
+  leaveMergedColor()
+  leaveColorRamp()
   -- A stop of that ramp keeps this color, whether or not it carried one.
   if brightnessRamp then
-    brightnessRamp.mergedColor = nil
     brightnessRamp.colorSet = true
   end
-  leaveColorRamp()
 
   if rate == 0 then
     currentColorX = targetX
@@ -1247,10 +1257,10 @@ local function rampToColor(targetX, targetY, targetMode, rate)
     targetMode = targetMode,
     durationMs = rate,
   }
-  -- Mode change is logically instantaneous; mid-ramp we're interpolating XY.
-  currentColorMode = targetMode
   sendColor(targetX, targetY, targetMode, rate)
   notifyColorChanging(targetX, targetY, targetMode, rate)
+  -- Mode change is logically instantaneous; mid-ramp we're interpolating XY.
+  currentColorMode = targetMode
   SetTimer("ColorRampFinish", rate, function()
     sendColor(targetX, targetY, targetMode, 0)
     currentColorX = targetX
@@ -1468,9 +1478,6 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   local merged = rampingBrightness and brightnessRamp and brightnessRamp.mergedColor
   if now < mergedColorUntil and merged and sameColor(merged.x, merged.y, merged.mode, targetX, targetY, targetMode) then
     log:debug("SET_COLOR_TARGET deduped (%sms remaining in merged-color window)", mergedColorUntil - now)
-    currentColorX = targetX
-    currentColorY = targetY
-    currentColorMode = targetMode
     brightnessRamp.mergedColor = { x = targetX, y = targetY, mode = targetMode }
     return
   end
@@ -1698,10 +1705,8 @@ local function applySceneStep(step)
     -- The step's color replaces the on color a brightness ramp carries, which would otherwise show at
     -- its end, and a color ramp in flight, from where it has got to. A step with no color leaves that
     -- ramp running.
-    if brightnessRamp then
-      brightnessRamp.mergedColor = nil
-    end
-    local colorReplaced = rampingColor
+    local colorReplaced = rampingColor or (brightnessRamp and brightnessRamp.mergedColor)
+    leaveMergedColor()
     leaveColorRamp()
     -- A color of the step's own is the light's for a brightness ramp in flight, the step's or one
     -- it leaves running: a stop keeps it.
@@ -2536,7 +2541,9 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- A light keeps its color while off, so read it whether or not it is lit.
-  if (supportsColor or supportsCCT) and not rampingColor then
+  -- A ramp tells its own color at its end, a brightness ramp the one it carries.
+  local merged = rampingBrightness and brightnessRamp and brightnessRamp.mergedColor
+  if (supportsColor or supportsCCT) and not rampingColor and not merged then
     local activeMode = tointeger(Select(state, "color_mode"))
     local newX, newY, newColorMode
     if activeMode and COLOR_MODES_SUPPORTING_CCT[activeMode] and Select(state, "color_temperature") then
