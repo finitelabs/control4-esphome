@@ -1633,10 +1633,6 @@ local function applySceneStep(step)
   -- picker animation, the local STOP-mid-step interpolation, and the SCENE_
   -- TIMER all agree on when the transition actually completes.
   local rate = math.max(step.brightnessRate or 0, step.colorRate or 0)
-  if rate > 0 then
-    cmd.has_transition_length = true
-    cmd.transition_length = rate
-  end
   local startTime = C4:GetTime()
   -- A level of 0 means "off"; the color block is metadata for the next on.
   -- Don't send color/RGB fields in that case so the device actually turns off.
@@ -1753,6 +1749,9 @@ local function applySceneStep(step)
     end
   end
   if next(cmd) ~= nil then
+    -- A rate of 0 is sent too, as setESPHomeBrightness sends it, so the device does not ramp at its default.
+    cmd.has_transition_length = true
+    cmd.transition_length = rate
     -- A dimmer turned on over a rate fades up from nothing, as a rated level command has it.
     if goingOn and rate > 0 and supportsDimming then
       sendPreOn()

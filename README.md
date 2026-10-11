@@ -1027,6 +1027,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   light on without its Color On Mode color
 - Fixed a light that was stopped during a scene step's fade, with Dim-To-Warm,
   losing the color the step set when the light was already in that color
+- Fixed a scene step with no ramp time fading a light over the device's own
+  default transition time; it is now sent as an immediate change, as a level
+  command with no ramp time is
 
 ### Changed
 

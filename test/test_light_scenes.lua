@@ -1738,4 +1738,12 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+T.section("a scene step with no ramp time is sent as one, not left to the device's default transition")
+do
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  activate(levelStep(30))
+  T.eq("the step's command carries a transition of 0", lastLevel(), { 30 / 100, 0 })
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.finish()
