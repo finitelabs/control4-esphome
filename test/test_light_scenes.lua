@@ -338,7 +338,7 @@ do
     { ON[1] }
   )
   T.eq("at the on's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
-  -- A color ramp asked for while on holds Dim-To-Warm off: a level set during it carries no color.
+  -- With Dim-To-Warm a color lasts until the level next changes: a level set during its ramp carries the mix.
   light({ ColorMode.COLOR_MODE_RGB }, false)
   onMode(ON, DIM)
   proxy("ON")
@@ -348,11 +348,11 @@ do
   proxy("SET_LEVEL", { LEVEL = 50 })
   run(15000)
   T.eq(
-    "a level that carries no color leaves the ramp to tell its own",
+    "a level set in the ramp: the proxy is told the mix for 50 % and nothing else",
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { 0.3 }
+    { mix(50) }
   )
-  T.eq("at its end", told("LIGHT_COLOR_CHANGED", "at"), { 3000 })
+  T.eq("when the level is set, not at the ramp's end", told("LIGHT_COLOR_CHANGED", "at"), { 500 })
 end
 
 T.section("a level ramp begun during a scene's fade runs to its own end, not to the scene step's")
@@ -602,6 +602,49 @@ do
       { 50 }
     )
   end
+end
+
+T.section("with Dim-To-Warm a color set lasts until the level next changes, when the formula colors the light again")
+do
+  local green = { 0.3, 0.6 }
+  -- A color set on a light at 100 %, then a dim.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  setColor(green)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq(
+    "a dim after a color: the proxy is told the mix for 50 %",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { mix(50) }
+  )
+  -- A color set a second into a 4 s dim stands to the dim's end, and the level set after it takes the mix.
+  proxy("ON")
+  proxy("RAMP_TO_LEVEL", { LEVEL = 10, TIME = 4000 })
+  run(1000)
+  mark()
+  colorTarget(green, 0)
+  run(15000)
+  T.eq(
+    "a color set in a dim: it stands to the dim's end",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { green[1] }
+  )
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq("and the level set after it takes the mix", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { mix(50) })
+  -- A fade to off carries no color of its own for the color set to replace: a stop still keeps it.
+  proxy("ON")
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  run(1000)
+  colorTarget(green, 0)
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  run(15000)
+  T.eq("a stop of a fade to off after a color was set sends no color", #colors(), 0)
+  T.eq("and tells the proxy none", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), {})
 end
 
 T.finish()

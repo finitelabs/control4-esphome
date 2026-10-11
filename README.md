@@ -977,6 +977,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light that was stopped during a ramp losing a color set since the ramp
   began
 
+### Changed
+
+- With Dim-To-Warm, a color set on a light now lasts until its brightness next
+  changes, when the light takes its Dim-To-Warm color again; it used to last
+  until the light was turned off
+
 ## v20260926 - 2026-09-26
 
 ### Fixed

@@ -167,12 +167,6 @@ local colorRamp = nil
 -- step never inverts the click outcome.
 local prePressBrightness = nil
 
--- Set to true once a SET_COLOR_TARGET arrives during a single on-cycle. While
--- true, color_on_mode_fade does not recompute color from the brightness
--- formula. Cleared whenever brightness reaches 0 (the next on cycle is fresh
--- and should follow the formula again).
-local fadeOverride = false
-
 -- LIGHT_BRIGHTNESS_TARGET_PRESET_ID from the proxy (Daylight Agent integration,
 -- spec _2.1). Echoed back as LIGHT_BRIGHTNESS_CURRENT_PRESET_ID on subsequent
 -- LIGHT_BRIGHTNESS_CHANGED so the proxy knows the active preset still owns the
@@ -737,7 +731,7 @@ local function resolveOnColor(brightnessLevel)
     return nil
   end
   local kind = getColorOnModeKind()
-  if kind == COLOR_ON_MODE_FADE and not fadeOverride then
+  if kind == COLOR_ON_MODE_FADE then
     return computeFadeColor(brightnessLevel)
   end
   if kind == COLOR_ON_MODE_PREVIOUS then
@@ -778,11 +772,8 @@ local function endOnCycle()
     y = currentColorY,
     mode = currentColorMode,
   })
-  -- A new on cycle is fresh: clear any prior dim-to-warm override so the
-  -- formula is re-applied next time the light turns on. Also drop any
-  -- color preset id; whatever drove the previous on-cycle's color no
-  -- longer applies after the light returns to off.
-  fadeOverride = false
+  -- Drop any color preset id: whatever drove this on-cycle's color does not
+  -- apply once the light is off.
   currentColorPresetId = nil
 end
 
@@ -902,8 +893,9 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
 
   -- Merge color into the brightness cmd so brightness+color animate as one
   -- ESPHome transition. Two scenarios:
-  --   1. Dim-to-warm during any brightness change while fade mode is active
-  --      and not overridden — recompute via the formula every step.
+  --   1. Dim-to-warm during any brightness change while fade mode is active:
+  --      recompute via the formula every step. Spec _7.2: a color set with
+  --      SET_COLOR_TARGET is taken, and lasts until the next brightness command.
   --   2. Off→on with any color on-mode (fade/previous/preset) — apply the
   --      configured on-color in the same cmd. The proxy will typically also
   --      send a SET_COLOR_TARGET right after this; mergedColorUntil makes
@@ -912,7 +904,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
   local mergedColor = nil
   -- A ramp's end and a stop hold the level alone when the color is not the level's to send again.
   if not keepColor then
-    if level > 0 and not fadeOverride and getColorOnModeKind() == COLOR_ON_MODE_FADE then
+    if level > 0 and getColorOnModeKind() == COLOR_ON_MODE_FADE then
       mergedColor = computeFadeColor(level)
     elseif goingOn then
       mergedColor = resolveOnColor(level)
@@ -1419,14 +1411,6 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
       tostring(supportsCCT)
     )
     return
-  end
-
-  -- Spec _7.2: any explicit SET_COLOR_TARGET while in fade mode disables the
-  -- formula until the next off→on cycle. We track this so subsequent
-  -- SET_BRIGHTNESS_TARGET commands during the same on cycle don't re-apply
-  -- dim-to-warm.
-  if currentBrightness > 0 then
-    fadeOverride = true
   end
 
   -- Skip the ESPHome cmd if a SET_BRIGHTNESS_TARGET right before us already
@@ -2104,9 +2088,6 @@ function RFP.SET_COLOR_ON_MODE(idBinding, strCommand, tParams, args)
   end
   local presetId = tointeger(Select(tParams, "PRESET_ID"))
   persist:set(P_COLOR_ON_MODE_PRESET, presetId)
-  -- A fresh on-mode selection clears any prior fadeOverride so the formula
-  -- runs again on the next on cycle.
-  fadeOverride = false
 end
 
 -- Click/hold rate echo notifies follow the same convention as PRESET_LEVEL:
@@ -2384,7 +2365,6 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   currentBrightness = 0
   ledState = false
   prePressBrightness = nil
-  fadeOverride = false
   mergedColorUntil = 0
   currentBrightnessPresetId = nil
   currentColorPresetId = nil
@@ -2522,7 +2502,6 @@ OBC[ESPHOME_BINDING] = function()
   brightnessRamp = nil
   colorRamp = nil
   prePressBrightness = nil
-  fadeOverride = false
   mergedColorUntil = 0
   currentBrightnessPresetId = nil
   currentColorPresetId = nil
