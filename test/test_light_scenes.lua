@@ -386,7 +386,11 @@ do
   local before = commands()
   run(15000)
   T.eq("the device is sent nothing after the Off", commands(), before)
-  T.eq("and the proxy is told off alone", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 0 })
+  T.eq(
+    "and the proxy is told the step's on, then off alone",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 100, 0 }
+  )
   proxy("CLEAR_ALL_SCENES")
   -- Nor does a ramp it was itself asked for come back at its end.
   light({ ColorMode.COLOR_MODE_ON_OFF }, false)
@@ -1618,6 +1622,31 @@ do
   )
   run(15000)
   T.eq("and nothing after", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  proxy("CLEAR_ALL_SCENES")
+end
+
+T.section("a scene step on an On/Off-only light switches it at once, whatever its level and rate")
+do
+  -- { the light on, the step's level, what the proxy is told }: a level between is on, and no ramp is told.
+  for _, c in ipairs({ { false, 50, { 100 } }, { true, 50, {} }, { true, 0, { 0 } }, { false, 100, { 100 } } }) do
+    local name = (c[1] and "on" or "off") .. ", a step to " .. c[2] .. " over 3 s"
+    light({ ColorMode.COLOR_MODE_ON_OFF }, c[1])
+    activate(levelStep(c[2], 3000))
+    T.eq(name .. ": the proxy is told no ramp", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET"), {})
+    T.eq(
+      name .. ": and where the light is, at once",
+      told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+      c[3]
+    )
+    run(20000)
+    T.eq(name .. ": and nothing after", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), c[3])
+    proxy("CLEAR_ALL_SCENES")
+  end
+  -- The step still takes its rate before the next one runs.
+  light({ ColorMode.COLOR_MODE_ON_OFF }, false)
+  activate(levelStep(50, 3000) .. levelStep(0))
+  run(20000)
+  T.eq("the step after it runs when its rate has passed", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 0, 3000 })
   proxy("CLEAR_ALL_SCENES")
 end
 

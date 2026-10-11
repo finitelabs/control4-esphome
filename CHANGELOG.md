@@ -122,6 +122,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a scene step run while a light's color was fading: a step with a color
   of its own showed its fade from the color the earlier fade began at, and a
   step that sets only a level left the earlier fade's end never shown
+- Fixed a scene step with a ramp time showing an On/Off-only light ramping to
+  the step's level, and at that level when the ramp time had passed; the light
+  switches at once and is now shown on or off as it does
 
 ### Changed
 

@@ -1260,7 +1260,7 @@ end
 -- Helpers: on / off / toggle
 ---------------------------------------------------------------------------
 
--- An On/Off-only light switches at once, replacing a ramp a step primed.
+-- An On/Off-only light switches at once, replacing a ramp in flight.
 local function switchLight(on)
   stopSceneSteps()
   cancelBrightnessRampTimers()
@@ -1638,7 +1638,10 @@ local function applySceneStep(step)
   -- Don't send color/RGB fields in that case so the device actually turns off.
   local turningOff = step.levelEnabled and step.level == 0
   local replaced = nil
+  -- The level the step leaves the light at: an On/Off-only light is on or off.
+  local level = nil
   if step.levelEnabled and step.level ~= nil then
+    level = supportsDimming and step.level or (step.level > 0 and 100 or 0)
     cmd.has_state = true
     cmd.state = step.level > 0
     if step.level > 0 and supportsDimming then
@@ -1655,20 +1658,21 @@ local function applySceneStep(step)
     replaced = leaveBrightnessRamp()
     -- Only prime a ramp when the level actually moves; an explicit step at
     -- the current level with rate>0 would otherwise queue a pointless picker
-    -- animation and suppress the next echo for no reason.
-    if rate > 0 and step.level ~= currentBrightness then
+    -- animation and suppress the next echo for no reason. An On/Off-only light
+    -- has no level to ramp through: it switches at once, whatever the rate.
+    if supportsDimming and rate > 0 and level ~= currentBrightness then
       rampingBrightness = true
       brightnessRamp = {
         startTime = startTime,
         startLevel = currentBrightness,
-        targetLevel = step.level,
+        targetLevel = level,
         durationMs = rate,
         step = step,
       }
-      notifyBrightnessChanging(step.level, rate)
+      notifyBrightnessChanging(level, rate)
       -- Ends the ramp when the scene is stopped before the step's timer does.
       SetTimer("BrightnessRampFinish", rate, function()
-        brightnessRampFinished(step.level)
+        brightnessRampFinished(level)
       end, false)
     end
   end
@@ -1740,11 +1744,8 @@ local function applySceneStep(step)
     -- A step taken at once is where the light is: what follows starts there.
     -- At the level or color a ramp it replaced has got to, at any rate, it is
     -- still that ramp's end for the proxy.
-    if step.levelEnabled and step.level ~= nil and not rampingBrightness then
-      local level = supportsDimming and step.level or (step.level > 0 and 100 or 0)
-      if (rate == 0 and level ~= currentBrightness) or replaced then
-        notifyBrightnessChanged(level)
-      end
+    if level ~= nil and not rampingBrightness and (level ~= currentBrightness or replaced) then
+      notifyBrightnessChanged(level)
     end
     if colorAtOnce then
       notifyColorChanged(colorAtOnce.x, colorAtOnce.y, colorAtOnce.mode)
