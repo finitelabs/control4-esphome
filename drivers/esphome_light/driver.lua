@@ -661,6 +661,22 @@ local function buildColorCmdFields(x, y, mode)
   return nil
 end
 
+-- A color as the light takes it, which its reports then read as: its color
+-- temperature's point, or a full color on a light with no color temperature.
+local function takenColor(x, y, mode)
+  if mode ~= LIGHT_COLOR_MODE_CCT then
+    return x, y, mode
+  end
+  if not supportsCCT then
+    return x, y, supportsColor and LIGHT_COLOR_MODE_FULL or mode
+  end
+  local k = tonumber(C4:ColorXYtoCCT(x, y))
+  if k and k > 0 then
+    x, y = C4:ColorCCTtoXY(k)
+  end
+  return x, y, mode
+end
+
 -- Apply the dim-to-warm formula from spec _7.2:
 --   colorFinal.x = colorDim.x + (colorOn.x - colorDim.x) * brightness*.01
 --   colorFinal.y = colorDim.y + (colorOn.y - colorDim.y) * brightness*.01
@@ -681,11 +697,12 @@ local function computeFadeColor(brightness)
     return nil
   end
   local b = math.max(0, math.min(100, brightness)) * 0.01
-  return {
-    x = dimPreset.x + (onPreset.x - dimPreset.x) * b,
-    y = dimPreset.y + (onPreset.y - dimPreset.y) * b,
-    mode = onPreset.mode or LIGHT_COLOR_MODE_FULL,
-  }
+  local x, y, colorMode = takenColor(
+    dimPreset.x + (onPreset.x - dimPreset.x) * b,
+    dimPreset.y + (onPreset.y - dimPreset.y) * b,
+    onPreset.mode or LIGHT_COLOR_MODE_FULL
+  )
+  return { x = x, y = y, mode = colorMode }
 end
 
 -- Determine which color on-mode is currently active. Returns one of
@@ -744,7 +761,8 @@ local function resolveOnColor(brightnessLevel)
     local mode = persist:get(P_COLOR_ON_MODE)
     local onPreset = mode and mode.onPreset
     if onPreset and onPreset.x and onPreset.y then
-      return { x = onPreset.x, y = onPreset.y, mode = onPreset.mode or LIGHT_COLOR_MODE_FULL }
+      local x, y, colorMode = takenColor(onPreset.x, onPreset.y, onPreset.mode or LIGHT_COLOR_MODE_FULL)
+      return { x = x, y = y, mode = colorMode }
     end
   end
   return nil
@@ -1658,10 +1676,11 @@ local function applySceneStep(step)
       notifyBrightnessChanging(step.level, rate)
     end
   end
-  local color = step.colorEnabled
-    and step.colorX
-    and step.colorY
-    and { x = step.colorX, y = step.colorY, mode = step.colorMode }
+  local color = nil
+  if step.colorEnabled and step.colorX and step.colorY then
+    local x, y, mode = takenColor(step.colorX, step.colorY, step.colorMode or LIGHT_COLOR_MODE_FULL)
+    color = { x = x, y = y, mode = mode }
+  end
   -- A step that sets a level alone takes the Dim-To-Warm color for it.
   if not color and step.levelEnabled and (step.level or 0) > 0 and getColorOnModeKind() == COLOR_ON_MODE_FADE then
     color = computeFadeColor(step.level)

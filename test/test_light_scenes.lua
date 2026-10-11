@@ -1139,4 +1139,123 @@ do
   end
 end
 
+T.section("a Color On Mode's color, and a scene step's, is told in the form the light takes it")
+do
+  -- Kelvin as x over a y that curves as the locus does, so the mix of two
+  -- temperatures lies off it, where no temperature a bulb reports reads.
+  local toXY, toCCT = C4.ColorCCTtoXY, C4.ColorXYtoCCT
+  function C4:ColorCCTtoXY(kelvin)
+    local x = kelvin / 10000
+    return x, 0.4 - (x - 0.45) ^ 2
+  end
+  function C4:ColorXYtoCCT(x)
+    return x * 10000
+  end
+  local CCT, FULL = 1, 0
+  --- Set the Color On Mode in kelvin: on, and for Dim-To-Warm a dim one.
+  local function onModeCCT(on, dim)
+    local onX, onY = C4:ColorCCTtoXY(on)
+    local dimX, dimY
+    if dim then
+      dimX, dimY = C4:ColorCCTtoXY(dim)
+    end
+    proxy("UPDATE_COLOR_ON_MODE", {
+      COLOR_PRESET_ID = 1,
+      COLOR_PRESET_ORIGIN = 1,
+      COLOR_PRESET_COLOR_X = onX,
+      COLOR_PRESET_COLOR_Y = onY,
+      COLOR_PRESET_COLOR_MODE = CCT,
+      COLOR_FADE_PRESET_ID = dim and 2 or 0,
+      COLOR_FADE_PRESET_ORIGIN = dim and 1 or 0,
+      COLOR_FADE_PRESET_COLOR_X = dimX,
+      COLOR_FADE_PRESET_COLOR_Y = dimY,
+      COLOR_FADE_PRESET_COLOR_MODE = CCT,
+    })
+  end
+  --- The device reports back the last command sent, in its color mode `kind`.
+  local function echo(kind)
+    local cmd
+    for i = #sent, 1, -1 do
+      if sent[i].binding == ESPHOME and sent[i].command == "ENTITY_COMMAND" then
+        cmd = DeserializeSafe(sent[i].params.body)
+        break
+      end
+    end
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { kind } }),
+      state = SerializeSafe({
+        state = true,
+        brightness = cmd.brightness,
+        color_mode = kind,
+        color_temperature = cmd.color_temperature,
+        red = cmd.red,
+        green = cmd.green,
+        blue = cmd.blue,
+      }),
+    })
+  end
+  --- Whether the proxy was told one color since the mark: `x`, `y`, `mode`.
+  local function toldOnce(x, y, mode)
+    local xs, ys =
+      told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_Y")
+    local modes = told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE")
+    return #xs == 1 and math.abs(xs[1] - x) < 1e-9 and math.abs(ys[1] - y) < 1e-9 and modes[1] == mode
+  end
+  -- Dim-To-Warm from 2700 K to 6500 K at 50 %: 4600 K to a light with a color
+  -- temperature, and the xy half way between them to one with color alone.
+  local warmX, warmY = C4:ColorCCTtoXY(2700)
+  local coolX, coolY = C4:ColorCCTtoXY(6500)
+  local pointX, pointY = C4:ColorCCTtoXY(4600)
+  for _, case in ipairs({
+    { "a color and color temperature light", ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE, pointX, pointY, CCT },
+    { "a color temperature light", ColorMode.COLOR_MODE_COLOR_TEMPERATURE, pointX, pointY, CCT },
+    { "a color light", ColorMode.COLOR_MODE_RGB, (warmX + coolX) / 2, (warmY + coolY) / 2, FULL },
+  }) do
+    local name, kind = case[1], case[2]
+    light({ kind }, false)
+    onModeCCT(6500, 2700)
+    mark()
+    proxy("SET_LEVEL", { LEVEL = 50 })
+    echo(kind)
+    T.check(
+      name .. ": the proxy is told the mix once, as the light takes and reports it",
+      toldOnce(case[3], case[4], case[5]),
+      T.show(sent)
+    )
+    mark()
+    proxy("SET_LEVEL", { LEVEL = 50 })
+    T.eq(name .. ", the level again: nothing is sent", commands(), 0)
+    T.eq(
+      name .. ", the level again: and the proxy is told no color",
+      told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+      {}
+    )
+  end
+  -- A light with color alone takes a color temperature as a color: the On
+  -- color, which the proxy's own send of it 20 ms on matches, and a step's.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onModeCCT(3000)
+  local onX, onY = C4:ColorCCTtoXY(3000)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(20)
+  proxy("SET_COLOR_TARGET", {
+    LIGHT_COLOR_TARGET_X = onX,
+    LIGHT_COLOR_TARGET_Y = onY,
+    LIGHT_COLOR_TARGET_MODE = CCT,
+    LIGHT_COLOR_TARGET_COLOR_RATE = 4000,
+  })
+  run(20000)
+  T.eq("an On color: the proxy's send of it puts no second color out", #colors(), 1)
+  T.check("an On color: the proxy is told it once, as a color", toldOnce(onX, onY, FULL), T.show(sent))
+  local stepX, stepY = C4:ColorCCTtoXY(4000)
+  local step = "<element><delay>0</delay><colorEnabled>true</colorEnabled><colorX>%s</colorX><colorY>%s</colorY>"
+    .. "<colorMode>1</colorMode><colorRate>2000</colorRate></element>"
+  activate(step:format(stepX, stepY))
+  run(20000)
+  T.check("a scene step's color: the proxy is told it once, as a color", toldOnce(stepX, stepY, FULL), T.show(sent))
+  proxy("CLEAR_ALL_SCENES")
+  C4.ColorCCTtoXY, C4.ColorXYtoCCT = toXY, toCCT
+end
+
 T.finish()

@@ -997,6 +997,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light that was ramping not stopping when a command asked for the level
   it had just reached: the light carried on to the end of its ramp while it was
   shown at the level asked for
+- Fixed a light with Dim-To-Warm between two color temperatures being shown in
+  two colors at every brightness change, the one it was sent and then the one it
+  reported, and being sent the level again by a command for the level it was
+  already at
+- Fixed a ramped on of a color light with no color temperature restarting a
+  moment in, when the light turns on in a color temperature preset
 
 ### Changed
 
