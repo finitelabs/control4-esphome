@@ -1004,6 +1004,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - With Dim-To-Warm, a color set on a light now lasts until its brightness next
   changes, when the light takes its Dim-To-Warm color again; it used to last
   until the light was turned off
+- With Dim-To-Warm, a brightness command for the level a light is already at now
+  returns a color set on it to its Dim-To-Warm color; it used to do nothing
 
 ## v20260926 - 2026-09-26
 

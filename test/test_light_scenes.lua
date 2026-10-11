@@ -1055,4 +1055,97 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+T.section("with Dim-To-Warm a brightness command for the level the light is at returns it to the formula's color")
+do
+  local green = { 0.3, 0.6 }
+  --- A Dim-To-Warm light settled at 50 %, in the mix for it.
+  local function settled()
+    light({ ColorMode.COLOR_MODE_RGB }, false)
+    onMode(ON, DIM)
+    proxy("SET_LEVEL", { LEVEL = 50 })
+  end
+  -- A color set on it, then Set Level 50 again.
+  settled()
+  setColor(green)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq("after a color was set: the level is sent again, at once", lastLevel(), { 50 / 100, 0 })
+  T.eq("in the mix for it", #colors(), 1)
+  T.eq("which the proxy is told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { mix(50) })
+  T.eq("with the level", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 50 })
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq("with the mix already showing: nothing is sent", commands(), 0)
+  T.eq("and the proxy is told the level alone", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), {})
+  -- A color still fading in ends there too.
+  settled()
+  colorTarget(green, 4000)
+  run(1000)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  run(15000)
+  T.eq(
+    "during a color fade: the proxy is told the mix, and no fade's end after it",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { mix(50) }
+  )
+  -- Off is not on: a light that is off, told off, is sent nothing.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  setColor(green)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 0 })
+  T.eq("a light that is off, told off: nothing is sent", commands(), 0)
+  -- Under no Color On Mode, or another, the level has no color of its own to return to. The last is
+  -- Dim-To-Warm switched off with its dim color still stored.
+  local modes = {
+    ["no Color On Mode"] = function() end,
+    ["a preset as the Color On Mode"] = function()
+      onMode(ON)
+    end,
+    ["Dim-To-Warm switched off"] = function()
+      proxy("UPDATE_COLOR_ON_MODE", {
+        COLOR_PRESET_ID = ON.id,
+        COLOR_PRESET_ORIGIN = 1,
+        COLOR_PRESET_COLOR_X = ON[1],
+        COLOR_PRESET_COLOR_Y = ON[2],
+        COLOR_PRESET_COLOR_MODE = 0,
+        COLOR_FADE_PRESET_ID = 2,
+        COLOR_FADE_PRESET_ORIGIN = 0,
+        COLOR_FADE_PRESET_COLOR_X = DIM[1],
+        COLOR_FADE_PRESET_COLOR_Y = DIM[2],
+        COLOR_FADE_PRESET_COLOR_MODE = 0,
+      })
+    end,
+  }
+  for _, name in ipairs({ "no Color On Mode", "a preset as the Color On Mode", "Dim-To-Warm switched off" }) do
+    light({ ColorMode.COLOR_MODE_RGB })
+    modes[name]()
+    proxy("SET_LEVEL", { LEVEL = 50 })
+    setColor(green)
+    mark()
+    proxy("SET_LEVEL", { LEVEL = 50 })
+    T.eq("with " .. name .. ": nothing is sent", commands(), 0)
+    T.eq(
+      "with " .. name .. ": and the proxy is told the level",
+      told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+      { 50 }
+    )
+  end
+  -- A scene step that sets a level alone, at the level the light is at, takes the mix as well.
+  for _, rate in ipairs({ 0, 2000 }) do
+    settled()
+    setColor(green)
+    activate(levelStep(50, rate))
+    T.eq("a scene step to that level over " .. rate .. " ms: its command carries the mix", #colors(), 1)
+    run(15000)
+    T.eq(
+      "a scene step over " .. rate .. " ms: and the proxy is told the mix",
+      told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+      { mix(50) }
+    )
+    proxy("CLEAR_ALL_SCENES")
+  end
+end
+
 T.finish()
