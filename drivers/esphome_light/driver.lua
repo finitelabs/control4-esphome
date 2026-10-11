@@ -910,12 +910,13 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
   --      the SET_COLOR_TARGET handler skip a redundant ESPHome cmd that
   --      would otherwise cancel and restart the in-flight transition.
   local mergedColor = nil
-  if keepColor then
-    -- A ramp's end holds the level alone: it is no brightness command, so it puts no color over one set since.
-  elseif level > 0 and not fadeOverride and getColorOnModeKind() == COLOR_ON_MODE_FADE then
-    mergedColor = computeFadeColor(level)
-  elseif goingOn then
-    mergedColor = resolveOnColor(level)
+  -- A ramp's end and a stop hold the level alone when the color is not the level's to send again.
+  if not keepColor then
+    if level > 0 and not fadeOverride and getColorOnModeKind() == COLOR_ON_MODE_FADE then
+      mergedColor = computeFadeColor(level)
+    elseif goingOn then
+      mergedColor = resolveOnColor(level)
+    end
   end
   local mergedColorApplied = false
   if mergedColor then
@@ -1029,7 +1030,7 @@ local function brightnessRampStopped()
   brightnessRamp = nil
   -- Cancel ESPHome's in-flight transition by sending a 0-transition cmd at
   -- the interpolated level. The bulb halts here.
-  setESPHomeBrightness(stoppedAt, 0)
+  setESPHomeBrightness(stoppedAt, 0, rampingColor)
   notifyBrightnessChanged(stoppedAt)
 end
 

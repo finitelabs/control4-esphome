@@ -541,4 +541,42 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+T.section("a stop of the level leaves a color ramp in flight its color, not the one the level would carry")
+do
+  local green = { 0.3, 0.6 }
+  -- The proxy's stop of a rated on whose color it has since set: the light is still taken to be
+  -- off, so the level held would carry the On color.
+  offInBlue()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(1000)
+  colorTarget(green, 2000)
+  run(500)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("Set Brightness Stop: it sends the level alone", #colors(), 0)
+  run(15000)
+  T.eq("and the color ramp runs to its end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { green[1] })
+  T.eq(
+    "the proxy is told where the level stopped",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 38 }
+  )
+  -- Dim-To-Warm at 100 %, a scene fading to 20 % in green: the level held would carry the mix for 80 %.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  activate(colorStep(20, green, 4000))
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("in a scene's fade with Dim-To-Warm: it sends the level alone", #colors(), 0)
+  run(15000)
+  T.eq(
+    "and the scene's color is told at its step's end",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { green[1] }
+  )
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.finish()
