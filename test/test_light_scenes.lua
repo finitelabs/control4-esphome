@@ -647,4 +647,27 @@ do
   T.eq("and tells the proxy none", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), {})
 end
 
+T.section("with Dim-To-Warm a scene step that sets a level alone takes the formula's color for it")
+do
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  activate(levelStep(20, 3000))
+  T.eq("a fade to 20 %: from the On color", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  T.eq("to the mix for 20 %", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { mix(20) })
+  T.eq("which the step's command carries", #colors(), 1)
+  run(15000)
+  T.eq("and at its end the proxy is told the mix", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { mix(20) })
+  proxy("CLEAR_ALL_SCENES")
+  -- A step that sets a color too takes its own.
+  activate(colorStep(60, { 0.3, 0.6 }, 3000))
+  run(15000)
+  T.eq(
+    "a step with a color of its own: the proxy is told that color",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { 0.3 }
+  )
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.finish()

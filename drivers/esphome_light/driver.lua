@@ -1637,16 +1637,24 @@ local function applySceneStep(step)
       notifyBrightnessChanging(step.level, rate)
     end
   end
-  if step.colorEnabled and step.colorX and step.colorY and not turningOff then
-    local mode = step.colorMode or LIGHT_COLOR_MODE_FULL
+  local color = step.colorEnabled
+    and step.colorX
+    and step.colorY
+    and { x = step.colorX, y = step.colorY, mode = step.colorMode }
+  -- A step that sets a level alone takes the Dim-To-Warm color for it, as a level command does.
+  if not color and step.levelEnabled and (step.level or 0) > 0 and getColorOnModeKind() == COLOR_ON_MODE_FADE then
+    color = computeFadeColor(step.level)
+  end
+  if color and not turningOff then
+    local mode = color.mode or LIGHT_COLOR_MODE_FULL
     if mode == LIGHT_COLOR_MODE_CCT and supportsCCT then
-      local k = tonumber(C4:ColorXYtoCCT(step.colorX, step.colorY))
+      local k = tonumber(C4:ColorXYtoCCT(color.x, color.y))
       if k and k > 0 then
         cmd.has_color_temperature = true
         cmd.color_temperature = kelvinToMireds(k)
       end
     elseif supportsColor then
-      local r, g, b = xyToRGB(step.colorX, step.colorY)
+      local r, g, b = xyToRGB(color.x, color.y)
       cmd.has_rgb = true
       cmd.red = r
       cmd.green = g
@@ -1655,8 +1663,8 @@ local function applySceneStep(step)
     cmd.has_state = true
     cmd.state = true
     currentColorPresetId = nil
-    local colorChanged = math.abs(step.colorX - currentColorX) > 1e-4
-      or math.abs(step.colorY - currentColorY) > 1e-4
+    local colorChanged = math.abs(color.x - currentColorX) > 1e-4
+      or math.abs(color.y - currentColorY) > 1e-4
       or mode ~= currentColorMode
     if rate > 0 and colorChanged then
       rampingColor = true
@@ -1664,12 +1672,12 @@ local function applySceneStep(step)
         startTime = startTime,
         startX = currentColorX,
         startY = currentColorY,
-        targetX = step.colorX,
-        targetY = step.colorY,
+        targetX = color.x,
+        targetY = color.y,
         targetMode = mode,
         durationMs = rate,
       }
-      notifyColorChanging(step.colorX, step.colorY, mode, rate)
+      notifyColorChanging(color.x, color.y, mode, rate)
     end
   end
   if next(cmd) ~= nil then
