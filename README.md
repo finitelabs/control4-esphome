@@ -1008,6 +1008,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   ramping, at the level and color it had before the fade: a command for that
   level then did nothing, and a stop found nothing to stop; the fade now runs on
   and shows as finished when the light gets there
+- Fixed a scene step that sets only a color, run while a light was ramping,
+  making the driver lose track of the ramp: a stop then did nothing, and the
+  level the light ramped to was never shown; the ramp now carries on for a stop
+  to hold
 
 ### Changed
 

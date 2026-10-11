@@ -1424,4 +1424,72 @@ do
   )
 end
 
+T.section("a scene step that sets a color alone leaves a brightness ramp running, for a stop to hold")
+do
+  local other = { 0.2, 0.5 }
+  -- 5 s into a 20 s fade from 100 to 30 a step fades the color over 500 ms; the stop comes 300 ms after that.
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(BLUE)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 20000 })
+  run(5000)
+  activate(colorStep(nil, other, 500))
+  run(800)
+  T.eq(
+    "the step's end is not the fade's: the proxy is told no level",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    {}
+  )
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "a stop after the step holds the fade where it has got to",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 80 }
+  )
+  T.eq("in the step's color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { other[1] })
+  proxy("CLEAR_ALL_SCENES")
+  -- Left alone the fade ends once, at its own time.
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(BLUE)
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(nil, other, 500) })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 20000 })
+  run(5000)
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  run(30000)
+  T.eq(
+    "the fade left to run ends at its own level",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 30 }
+  )
+  T.eq("at its own time", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 20000 })
+  proxy("CLEAR_ALL_SCENES")
+  -- A rated on from off carries the On color, which the step's color replaces: the stop does not send it again.
+  offInBlue()
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(nil, other, 500) })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 20000 })
+  run(5000)
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  run(800)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a stop of a rated on after the step: it sends the level alone", #colors(), 0)
+  T.eq("where the on has got to", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 29 })
+  T.eq("and tells the proxy no color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), {})
+  proxy("CLEAR_ALL_SCENES")
+  -- Left to run, the on does not tell the proxy the On color at its end, over the step's.
+  offInBlue()
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(nil, other, 500) })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 20000 })
+  run(5000)
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  run(30000)
+  T.eq(
+    "a rated on left to run after the step: the proxy is told the step's color alone",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { other[1] }
+  )
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.finish()
