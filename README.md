@@ -959,6 +959,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a ramp or color fade started while a scene was still fading a light
   showing as finished when the scene's fade ended, while the light was still
   moving; it now shows as finished when the light gets there
+- Fixed a color set on a light during a ramp being replaced by its Dim-To-Warm
+  color when the ramp ended
 
 ## v20260926 - 2026-09-26
 

@@ -422,4 +422,25 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+T.section("a color set during a rated on is the color the light ends in, with Dim-To-Warm too")
+do
+  -- The ramp's end sends the level again: alone, or the Dim-To-Warm mix for it would replace the color.
+  for _, case in ipairs({ { 4000, 500 }, { 500, 500 }, { 0, 500 }, { 1000, 100 } }) do
+    local rate, at = case[1], case[2]
+    local name = ("over %d ms, %d ms into the on"):format(rate, at)
+    light({ ColorMode.COLOR_MODE_RGB }, false)
+    onMode(ON, DIM)
+    local asked = setColor({ 0.2, 0.5 })
+    setColor(BLUE)
+    mark()
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+    run(at)
+    colorTarget({ 0.2, 0.5 }, rate)
+    run(15000)
+    local out = colors()
+    T.eq(name .. ": it is the last color the light is sent", out[#out], asked)
+    T.eq(name .. ": and the proxy is told it once", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
+  end
+end
+
 T.finish()

@@ -854,7 +854,7 @@ local leaveColorRamp -- defined with the color ramp helpers below
 -- Caller contract: only invoked when supportsDimming is true (lightOn/Off,
 -- rampToBrightness, scene apply, etc. all gate on it). On/off-only entities
 -- get a different code path that doesn't touch brightness.
-local function setESPHomeBrightness(level, rateMs)
+local function setESPHomeBrightness(level, rateMs, keepColor)
   local hasRate = rateMs and rateMs > 0
   local goingOn = level > 0 and currentBrightness == 0
 
@@ -903,7 +903,9 @@ local function setESPHomeBrightness(level, rateMs)
   --      the SET_COLOR_TARGET handler skip a redundant ESPHome cmd that
   --      would otherwise cancel and restart the in-flight transition.
   local mergedColor = nil
-  if level > 0 and not fadeOverride and getColorOnModeKind() == COLOR_ON_MODE_FADE then
+  if keepColor then
+    -- A ramp's end holds the level alone: it is no brightness command, so it puts no color over one set since.
+  elseif level > 0 and not fadeOverride and getColorOnModeKind() == COLOR_ON_MODE_FADE then
     mergedColor = computeFadeColor(level)
   elseif goingOn then
     mergedColor = resolveOnColor(level)
@@ -1077,10 +1079,9 @@ local function rampToBrightness(level, rate, presetId)
   SetTimer("BrightnessRampFinish", rate, function()
     -- Belt-and-suspenders: snap state with a 0-transition cmd at target so
     -- our state matches the bulb's even if the transition completed slightly
-    -- before/after our timer. The level is current first: the light is on by
-    -- now, so the cmd is no on from off and carries no on color again.
+    -- before/after our timer.
     currentBrightness = level
-    setESPHomeBrightness(level, 0)
+    setESPHomeBrightness(level, 0, true)
     brightnessRampFinished(level)
   end, false)
 end
