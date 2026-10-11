@@ -767,23 +767,28 @@ local mergedColorUntil = 0
 -- Helpers: brightness notifications
 ---------------------------------------------------------------------------
 
+-- The light has gone from on to off.
+local function endOnCycle()
+  -- Snapshot the current color so color_on_mode_previous can restore it on the
+  -- next on. Spec _7.4: "the proxy tracks the last color reported by a driver
+  -- before a BRIGHTNESS_CHANGED notification occurs with a level of 0." We
+  -- mirror that locally for non-proxy paths.
+  persist:set(P_PREVIOUS_COLOR, {
+    x = currentColorX,
+    y = currentColorY,
+    mode = currentColorMode,
+  })
+  -- A new on cycle is fresh: clear any prior dim-to-warm override so the
+  -- formula is re-applied next time the light turns on. Also drop any
+  -- color preset id; whatever drove the previous on-cycle's color no
+  -- longer applies after the light returns to off.
+  fadeOverride = false
+  currentColorPresetId = nil
+end
+
 local function notifyBrightnessChanged(level)
-  -- Snapshot the current color before the light goes off so color_on_mode_
-  -- previous can restore it on the next on. Spec _7.4: "the proxy tracks the
-  -- last color reported by a driver before a BRIGHTNESS_CHANGED notification
-  -- occurs with a level of 0." We mirror that locally for non-proxy paths.
   if level == 0 and currentBrightness > 0 then
-    persist:set(P_PREVIOUS_COLOR, {
-      x = currentColorX,
-      y = currentColorY,
-      mode = currentColorMode,
-    })
-    -- A new on cycle is fresh: clear any prior dim-to-warm override so the
-    -- formula is re-applied next time the light turns on. Also drop any
-    -- color preset id; whatever drove the previous on-cycle's color no
-    -- longer applies after the light returns to off.
-    fadeOverride = false
-    currentColorPresetId = nil
+    endOnCycle()
   end
   currentBrightness = level
   log:debug("LIGHT_BRIGHTNESS_CHANGED: %s", level)
@@ -1025,7 +1030,6 @@ local function brightnessRampStopped()
   -- Cancel ESPHome's in-flight transition by sending a 0-transition cmd at
   -- the interpolated level. The bulb halts here.
   setESPHomeBrightness(stoppedAt, 0)
-  currentBrightness = stoppedAt
   notifyBrightnessChanged(stoppedAt)
 end
 
@@ -1049,7 +1053,11 @@ local function rampToBrightness(level, rate, presetId)
   -- before starting the new ramp so CHANGING tracks correctly and a future
   -- STOP would interpolate from the right starting point.
   if rampingBrightness then
-    currentBrightness = interpolatedBrightness()
+    local at = interpolatedBrightness()
+    if at == 0 and currentBrightness > 0 then
+      endOnCycle() -- a fade retargeted as it reaches off has ended its on cycle
+    end
+    currentBrightness = at
   end
 
   cancelBrightnessRampTimers()
@@ -1082,7 +1090,6 @@ local function rampToBrightness(level, rate, presetId)
     -- Belt-and-suspenders: snap state with a 0-transition cmd at target so
     -- our state matches the bulb's even if the transition completed slightly
     -- before/after our timer.
-    currentBrightness = level
     setESPHomeBrightness(level, 0, true)
     brightnessRampFinished(level)
   end, false)

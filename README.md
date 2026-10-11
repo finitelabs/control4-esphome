@@ -965,6 +965,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   on in the color it last went off in, as if the mode were Previous, and with no
   color of its own before it had been off once; it now turns on in the preset's
   color and follows an edit of that preset
+- Fixed a light with Color On Mode set to Previous that was faded off, not
+  switched off at once, turning back on in the color it had before the fade, not
+  the one it faded off in
 
 ## v20260926 - 2026-09-26
 

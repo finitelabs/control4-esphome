@@ -487,4 +487,41 @@ do
   T.eq("and the proxy is told it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
 end
 
+T.section("a ramped off ends the on cycle, as an instant one does")
+do
+  local function fadeOff()
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 1000 })
+  end
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(PREVIOUS_ON)
+  proxy("ON")
+  setColor(ON)
+  proxy("OFF")
+  proxy("ON")
+  local previous = setColor({ 0.2, 0.5 })
+  fadeOff()
+  run(15000)
+  mark()
+  proxy("ON")
+  T.eq("Previous: it comes on in the color it faded off in", colors(), { previous })
+  -- A fade stopped as it reaches off.
+  previous = setColor({ 0.3, 0.6 })
+  fadeOff()
+  run(997)
+  proxy("SET_BRIGHTNESS_STOP")
+  run(15000)
+  mark()
+  proxy("ON")
+  T.eq("and in the color a fade stopped at off left", colors(), { previous })
+  -- A fade sent off again as it reaches off.
+  previous = setColor({ 0.35, 0.45 })
+  fadeOff()
+  run(997)
+  fadeOff()
+  run(15000)
+  mark()
+  proxy("ON")
+  T.eq("and in the color a fade sent off again as it reached off left", colors(), { previous })
+end
+
 T.finish()
