@@ -767,15 +767,16 @@ end
 
 local TOP_LINK = 300 -- the Top Button Link binding
 
+--- Half way up a 5 s ramp from off: at 50 %, held as off by the driver.
+local function rising()
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 5000 })
+  run(2500)
+  mark()
+end
+
 T.section("a press, click or toggle made in a ramp acts on the level the light has got to")
 do
-  --- A light 2.5 s into a 5 s ramp up from off: at 50 %, which the driver holds as off until the ramp ends.
-  local function rising()
-    light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
-    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 5000 })
-    run(2500)
-    mark()
-  end
   rising()
   proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
   run(110)
@@ -862,13 +863,6 @@ end
 
 T.section("Ramp Scene Up and Down in a ramp start from the level the light has got to")
 do
-  --- A light 2 s into a 4 s ramp up from off: at 50 %%, which the driver holds as off until the ramp ends.
-  local function rising()
-    light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
-    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
-    run(2000)
-    mark()
-  end
   rising()
   proxy("RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 3000 })
   T.eq("Ramp Scene Up: from 50", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"), { 50 })
@@ -1090,28 +1084,35 @@ do
   T.eq("a light that is off, told off: nothing is sent", commands(), 0)
   -- The last is Dim-To-Warm switched off with its dim color still stored.
   local modes = {
-    ["no Color On Mode"] = function() end,
-    ["a preset as the Color On Mode"] = function()
-      onMode(ON)
-    end,
-    ["Dim-To-Warm switched off"] = function()
-      proxy("UPDATE_COLOR_ON_MODE", {
-        COLOR_PRESET_ID = ON.id,
-        COLOR_PRESET_ORIGIN = 1,
-        COLOR_PRESET_COLOR_X = ON[1],
-        COLOR_PRESET_COLOR_Y = ON[2],
-        COLOR_PRESET_COLOR_MODE = 0,
-        COLOR_FADE_PRESET_ID = 2,
-        COLOR_FADE_PRESET_ORIGIN = 0,
-        COLOR_FADE_PRESET_COLOR_X = DIM[1],
-        COLOR_FADE_PRESET_COLOR_Y = DIM[2],
-        COLOR_FADE_PRESET_COLOR_MODE = 0,
-      })
-    end,
+    { "no Color On Mode", function() end },
+    {
+      "a preset as the Color On Mode",
+      function()
+        onMode(ON)
+      end,
+    },
+    {
+      "Dim-To-Warm switched off",
+      function()
+        proxy("UPDATE_COLOR_ON_MODE", {
+          COLOR_PRESET_ID = ON.id,
+          COLOR_PRESET_ORIGIN = 1,
+          COLOR_PRESET_COLOR_X = ON[1],
+          COLOR_PRESET_COLOR_Y = ON[2],
+          COLOR_PRESET_COLOR_MODE = 0,
+          COLOR_FADE_PRESET_ID = 2,
+          COLOR_FADE_PRESET_ORIGIN = 0,
+          COLOR_FADE_PRESET_COLOR_X = DIM[1],
+          COLOR_FADE_PRESET_COLOR_Y = DIM[2],
+          COLOR_FADE_PRESET_COLOR_MODE = 0,
+        })
+      end,
+    },
   }
-  for _, name in ipairs({ "no Color On Mode", "a preset as the Color On Mode", "Dim-To-Warm switched off" }) do
+  for _, case in ipairs(modes) do
+    local name, setup = case[1], case[2]
     light({ ColorMode.COLOR_MODE_RGB })
-    modes[name]()
+    setup()
     proxy("SET_LEVEL", { LEVEL = 50 })
     setColor(green)
     mark()
