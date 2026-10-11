@@ -961,6 +961,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   moving; it now shows as finished when the light gets there
 - Fixed a color set on a light during a ramp being replaced by its Dim-To-Warm
   color when the ramp ended
+- Fixed Color On Mode set to a color preset not being applied: the light turned
+  on in the color it last went off in, as if the mode were Previous, and with no
+  color of its own before it had been off once; it now turns on in the preset's
+  color and follows an edit of that preset
 
 ## v20260926 - 2026-09-26
 

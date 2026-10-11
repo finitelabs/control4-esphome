@@ -107,6 +107,9 @@ local COLOR_ON_MODE_FADE = 1 -- Dim-To-Warm
 local COLOR_ON_MODE_PREVIOUS = 2
 local COLOR_ON_MODE_PRESET = 3
 
+local PRESET_ORIGIN_DEVICE = 1
+local PREVIOUS_ON_PRESET_ID = 10
+
 local SCENE_TIMER_PREFIX = "Scene_"
 local SCENE_RAMP_TIMER = "SceneRamp"
 
@@ -706,12 +709,11 @@ local function getColorOnModeKind()
     -- Origin > 0 indicates fade is enabled (spec _21: origin 1=device, 2=agent).
     return COLOR_ON_MODE_FADE
   end
-  -- If no fade is configured but we have a stored previous color, treat as
-  -- previous mode.
-  if persist:get(P_PREVIOUS_COLOR) then
+  local onPreset = mode.onPreset
+  if onPreset and onPreset.id == PREVIOUS_ON_PRESET_ID and onPreset.origin == PRESET_ORIGIN_DEVICE then
     return COLOR_ON_MODE_PREVIOUS
   end
-  if mode.onPreset and mode.onPreset.x then
+  if onPreset and onPreset.x then
     return COLOR_ON_MODE_PRESET
   end
   return COLOR_ON_MODE_NONE
@@ -2040,6 +2042,16 @@ function RFP.UPDATE_COLOR_PRESET(idBinding, strCommand, tParams, args)
     }
   end
   persist:set(P_COLOR_PRESETS, presets)
+  -- The on and dim colors follow an edit of the device preset the on mode names.
+  local onMode = persist:get(P_COLOR_ON_MODE)
+  if onMode and presets[key] then
+    for _, p in ipairs({ onMode.onPreset, onMode.fadePreset }) do
+      if p.id == presetId and p.origin == PRESET_ORIGIN_DEVICE then
+        p.x, p.y, p.mode = presets[key].x, presets[key].y, presets[key].mode
+      end
+    end
+    persist:set(P_COLOR_ON_MODE, onMode)
+  end
 end
 
 -- Per spec _20.4: UPDATE_COLOR_ON_MODE carries the active On preset (and a

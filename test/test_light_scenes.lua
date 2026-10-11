@@ -175,13 +175,13 @@ function C4:ColorXYtoHSV(x, y)
   return x * 360, y * 100
 end
 
--- The color the light turns on in, a Dim-To-Warm dim color, and a color to leave it in (xy).
-local ON, DIM, BLUE = { 0.6, 0.3 }, { 0.14, 0.1 }, { 0.15, 0.06 }
+-- The proxy's On Color preset, a Dim-To-Warm dim color, and a color to leave the light in (xy).
+local ON, DIM, BLUE = { 0.6, 0.3, id = 1 }, { 0.14, 0.1 }, { 0.15, 0.06 }
 
---- Tell the driver its Color On Mode: the On color and, for Dim-To-Warm, the dim color.
+--- Tell the driver its Color On Mode: an on preset and, for Dim-To-Warm, the dim color.
 local function onMode(on, dim)
   proxy("UPDATE_COLOR_ON_MODE", {
-    COLOR_PRESET_ID = 1,
+    COLOR_PRESET_ID = on.id,
     COLOR_PRESET_ORIGIN = 1,
     COLOR_PRESET_COLOR_X = on[1],
     COLOR_PRESET_COLOR_Y = on[2],
@@ -221,13 +221,12 @@ local function setColor(xy)
   return colors()[1]
 end
 
---- A color light that went off in the On color, which it next turns on in, then left in blue.
+--- A color light that is off and left in blue, its Color On Mode the On color.
 --- Returns the red, green and blue the On color is sent as.
 local function offInBlue()
-  light({ ColorMode.COLOR_MODE_RGB })
+  light({ ColorMode.COLOR_MODE_RGB }, false)
   onMode(ON)
   local onColor = setColor(ON)
-  proxy("OFF")
   setColor(BLUE)
   return onColor
 end
@@ -441,6 +440,51 @@ do
     T.eq(name .. ": it is the last color the light is sent", out[#out], asked)
     T.eq(name .. ": and the proxy is told it once", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
   end
+end
+
+-- The proxy's Previous On preset, as UPDATE_COLOR_ON_MODE names it.
+local PREVIOUS_ON = { 0.45, 0.41, id = 10 }
+
+T.section("Color On Mode set to a preset turns the light on in it, whatever color it went off in")
+do
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON)
+  local onColor = setColor(ON)
+  proxy("ON")
+  setColor({ 0.2, 0.5 })
+  proxy("OFF")
+  mark()
+  proxy("ON")
+  T.eq("it is sent the preset's color", colors(), { onColor })
+  T.eq("and the proxy is told it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+end
+
+T.section("Color On Mode set to Previous turns the light on in the color it went off in")
+do
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(PREVIOUS_ON)
+  proxy("ON")
+  local previous = setColor({ 0.2, 0.5 })
+  proxy("OFF")
+  mark()
+  proxy("ON")
+  T.eq("it is sent the color it went off in", colors(), { previous })
+  T.eq("and the proxy is told it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
+end
+
+T.section("an edit of the preset the Color On Mode names is the color the light next turns on in")
+do
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON)
+  local edited = setColor({ 0.2, 0.5 })
+  proxy(
+    "UPDATE_COLOR_PRESET",
+    { COMMAND = "MODIFIED", ID = 1, NAME = "On Color", COLOR_X = 0.2, COLOR_Y = 0.5, COLOR_MODE = 0 }
+  )
+  mark()
+  proxy("ON")
+  T.eq("it is sent the edited color", colors(), { edited })
+  T.eq("and the proxy is told it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
 end
 
 T.finish()
