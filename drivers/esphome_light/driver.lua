@@ -2456,7 +2456,8 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     notifyBrightnessChanged(newBrightness)
   end
 
-  if isOn and (supportsColor or supportsCCT) and not rampingColor then
+  -- A light keeps its color while off, so a ramp or a stop starts from it whether or not it is lit.
+  if (supportsColor or supportsCCT) and not rampingColor then
     local activeMode = tointeger(Select(state, "color_mode"))
     local newX, newY, newColorMode
     if activeMode and COLOR_MODES_SUPPORTING_CCT[activeMode] and Select(state, "color_temperature") then

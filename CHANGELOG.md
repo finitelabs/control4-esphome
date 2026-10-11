@@ -91,6 +91,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   faded up again, or toggled the wrong way
 - Fixed a scene step with no ramp time not being shown for a light until the
   light reported it, so the step or command after it started from the old level
+- Fixed a color a light took while it was off not being picked up until it was
+  next on
 
 ### Changed
 

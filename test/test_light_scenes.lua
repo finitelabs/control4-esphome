@@ -849,4 +849,37 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+-- Hue and saturation back to xy, the inverse of the stub above.
+function C4:ColorHSVtoXY(h, s)
+  return h / 360, s / 100
+end
+
+T.section("a color the light takes while off is its color, which a color ramp then starts from")
+do
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  local rgb = setColor({ 0.25, 0.4 })
+  setColor(BLUE)
+  mark()
+  -- The device reports the color it was given elsewhere, still off.
+  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { ColorMode.COLOR_MODE_RGB } }),
+    state = SerializeSafe({
+      state = false,
+      brightness = 1.0,
+      color_mode = ColorMode.COLOR_MODE_RGB,
+      red = rgb[1],
+      green = rgb[2],
+      blue = rgb[3],
+    }),
+  })
+  local x = told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")[1]
+  T.check(
+    "the proxy is told it",
+    x ~= nil and math.abs(x - 0.25) < 5e-3,
+    T.show(told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"))
+  )
+  colorTarget(ON, 2000)
+  T.eq("and the ramp starts from it", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), { x })
+end
+
 T.finish()
