@@ -670,4 +670,88 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+T.section("Stop Scene Ramp holds the light where a scene's ramp has got to")
+do
+  local green = { 0.3, 0.6 }
+  -- A scene's color fade, a quarter done.
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  activate(colorStep(nil, DIM, 4000))
+  run(1000)
+  mark()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq(
+    "a color fade: the proxy is told the color it had got to",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] + (DIM[1] - ON[1]) * (1000 / 4000) }
+  )
+  T.eq("which the light is sent", #colors(), 1)
+  proxy("CLEAR_ALL_SCENES")
+  -- A held scene button: Ramp Scene Up from 20 toward full, stopped a second into its 5 s.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_LEVEL", { LEVEL = 20 })
+  proxy("RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 5000 })
+  run(1000)
+  mark()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  run(15000)
+  T.eq("Ramp Scene Up, stopped: the light is sent the level it had got to", commands(), 1)
+  T.eq("and the proxy is told it", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 36 })
+  -- A step's own fade from 50 to off, stopped under the published spec's name: the step after it does not run.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  activate(levelStep(0, 10000) .. levelStep(80))
+  run(2000)
+  proxy("STOP_RAMP_SCENE", { SCENE_ID = 7 })
+  run(30000)
+  T.eq(
+    "a step's fade, stopped: the proxy is told where, and nothing after",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 40 }
+  )
+  -- A scene that ignores ramps leaves alone a ramp the proxy asked for.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_LEVEL", { LEVEL = 20 })
+  proxy("PUSH_SCENE", { SCENE_ID = 7, IGNORE_RAMP = "true", ELEMENTS = levelStep(60) })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+  run(1000)
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  run(30000)
+  T.eq(
+    "a stop for a scene that ignores ramps: the ramp runs to its end",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 100 }
+  )
+  proxy("CLEAR_ALL_SCENES")
+  -- Dim-To-Warm at 100 %, a scene fading to 20 % in green: each stop holds its own, the level and the color.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  activate(colorStep(20, green, 4000))
+  run(1000)
+  mark()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq(
+    "a fade of level and color: the proxy is told a quarter of the way to the green",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] + (green[1] - ON[1]) * (1000 / 4000) }
+  )
+  T.eq("and the level it stopped at", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 80 })
+  proxy("CLEAR_ALL_SCENES")
+  -- A color set during a step's fade that carried none of its own is not replaced by the stop.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  activate(levelStep(20, 4000))
+  run(1000)
+  colorTarget(green, 0)
+  run(1000)
+  mark()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq("a stop after a color was set in the fade sends no color", #colors(), 0)
+  T.eq("and tells the proxy the level alone", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 60 })
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.finish()

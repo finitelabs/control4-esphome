@@ -1896,9 +1896,16 @@ function RFP.STOP_SCENE_RAMP(idBinding, strCommand, tParams, args)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  stopAllScenes()
+  local sceneId = tointeger(Select(tParams, "SCENE_ID"))
+  local scenes = getScenes()
+  local scene = sceneId and scenes[tostring(sceneId)]
+  if scene and scene.ignoreRamp then
+    return
+  end
+  -- The stops halt the bulb where its ramp has got to, which they read from the state stopAllScenes drops.
   brightnessRampStopped()
   colorRampStopped()
+  stopAllScenes()
 end
 
 -- The published spec calls this command STOP_RAMP_SCENE; older / template code
