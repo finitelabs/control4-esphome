@@ -849,6 +849,8 @@ local function notifyColorChanging(targetX, targetY, mode, rate)
   }, "NOTIFY", true)
 end
 
+local leaveColorRamp -- defined with the color ramp helpers below
+
 -- Caller contract: only invoked when supportsDimming is true (lightOn/Off,
 -- rampToBrightness, scene apply, etc. all gate on it). On/off-only entities
 -- get a different code path that doesn't touch brightness.
@@ -944,6 +946,9 @@ local function setESPHomeBrightness(level, rateMs)
   -- from the formula, not from a separate proxy-initiated cmd), so the
   -- driver has to push these notifies for the picker to track.
   if mergedColorApplied then
+    -- The color sent last is the one the light goes to, so a color ramp in flight ends here: its
+    -- end would tell the proxy, and re-send, a color the light has left.
+    leaveColorRamp()
     if hasRate then
       -- CHANGING carries the color the light is leaving, so the target is current only after it.
       notifyColorChanging(mergedColor.x, mergedColor.y, mergedColor.mode, rateMs)
@@ -1130,6 +1135,14 @@ local function interpolatedColor()
   return x, y, colorRamp.targetMode
 end
 
+-- End a color ramp where it has got to: what replaces it starts there.
+function leaveColorRamp()
+  currentColorX, currentColorY, currentColorMode = interpolatedColor()
+  cancelColorRampTimers()
+  rampingColor = false
+  colorRamp = nil
+end
+
 local function colorRampFinished(targetX, targetY, targetMode)
   cancelColorRampTimers()
   rampingColor = false
@@ -1159,16 +1172,7 @@ local function rampToColor(targetX, targetY, targetMode, rate)
   if brightnessRamp then
     brightnessRamp.mergedColor = nil
   end
-
-  if rampingColor then
-    local x, y, _ = interpolatedColor()
-    currentColorX = x
-    currentColorY = y
-  end
-
-  cancelColorRampTimers()
-  rampingColor = false
-  colorRamp = nil
+  leaveColorRamp()
 
   if rate == 0 then
     currentColorX = targetX

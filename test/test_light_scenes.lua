@@ -280,4 +280,80 @@ do
   run(15000)
 end
 
+--- A scene element that sets a color (xy) over `rate` ms, and a level unless it is nil.
+local function colorStep(level, xy, rate)
+  local brightness = "<brightnessEnabled>true</brightnessEnabled><brightness>%d</brightness>"
+  local step = "<element><delay>0</delay><rate>%d</rate>%s<colorEnabled>true</colorEnabled><colorX>%s</colorX>"
+    .. "<colorY>%s</colorY><colorMode>0</colorMode></element>"
+  return step:format(rate, level and brightness:format(level) or "", xy[1], xy[2])
+end
+
+T.section(
+  "a level set during a scene's fade, with Dim-To-Warm: the proxy is told the level's mix, never the scene's color"
+)
+do
+  -- The level's mix replaces the scene's color at the bulb, so the scene's ramp has no end to tell.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  activate(colorStep(60, { 0.3, 0.6 }, 3000))
+  run(340)
+  proxy("SET_LEVEL", { LEVEL = 2 })
+  run(15000)
+  T.eq(
+    "the proxy is told the mix for 2 % and nothing else",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { mix(2) }
+  )
+  proxy("CLEAR_ALL_SCENES")
+end
+
+T.section("an on during a color ramp begun while the light was off: the light ends in the On color")
+do
+  -- The on's On color goes out after the ramp's, which the ramp's end would then send again.
+  local onColor = offInBlue()
+  mark()
+  colorTarget({ 0.3, 0.6 }, 3000)
+  run(500)
+  proxy("ON")
+  run(15000)
+  local out = colors()
+  T.eq("the On color is the last the light is sent", out[#out], onColor)
+  T.eq("and the last the proxy is told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  -- A rated on a tenth into the ramp carries the On color from there to its own end.
+  offInBlue()
+  colorTarget({ 0.3, 0.6 }, 1000)
+  run(100)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  local tenth = BLUE[1] + (0.3 - BLUE[1]) * (100 / 1000)
+  T.eq(
+    "a rated on: from a tenth of the way to the ramp's color",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { tenth }
+  )
+  run(15000)
+  T.eq(
+    "the proxy is then told the On color and nothing else",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] }
+  )
+  T.eq("at the on's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+  -- A color ramp asked for while on holds Dim-To-Warm off: a level set during it carries no color.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  mark()
+  colorTarget({ 0.3, 0.6 }, 3000)
+  run(500)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  run(15000)
+  T.eq(
+    "a level that carries no color leaves the ramp to tell its own",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { 0.3 }
+  )
+  T.eq("at its end", told("LIGHT_COLOR_CHANGED", "at"), { 3000 })
+end
+
 T.finish()
