@@ -864,7 +864,40 @@ local function notifyColorChanging(targetX, targetY, mode, rate)
   }, "NOTIFY", true)
 end
 
-local leaveColorRamp -- defined with the color ramp helpers below
+local leaveColorRamp, colorRampFinished -- defined with the color ramps below
+
+-- Track a color the bulb goes on to with no command of its own, for `ms`:
+-- its end tells the proxy and sends nothing.
+local function carryColor(x, y, mode, ms)
+  if ms <= 0 then
+    notifyColorChanged(x, y, mode)
+    return
+  end
+  rampingColor = true
+  colorRamp = {
+    startTime = C4:GetTime(),
+    startX = currentColorX,
+    startY = currentColorY,
+    targetX = x,
+    targetY = y,
+    targetMode = mode,
+    durationMs = ms,
+    carried = true,
+  }
+  SetTimer("ColorRampFinish", ms, function()
+    colorRampFinished(x, y, mode)
+  end, false)
+end
+
+-- ESPHome runs one transition for every channel, so a command with no color
+-- moves a carried color on over its own transition, and at once with none.
+local function retimeCarriedColor(ms)
+  local ramp = colorRamp
+  if ramp and ramp.carried then
+    leaveColorRamp()
+    carryColor(ramp.targetX, ramp.targetY, ramp.targetMode, ms)
+  end
+end
 
 -- Two-phase fade-up workaround. ESPHome's light_call short-circuits on
 -- state=false: brightness=0 in the same command is dropped, so the bulb's
@@ -978,6 +1011,8 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
     else
       notifyColorChanged(mergedColor.x, mergedColor.y, mergedColor.mode)
     end
+  else
+    retimeCarriedColor(cmd.transition_length)
   end
 end
 
@@ -1037,7 +1072,8 @@ local function brightnessRampStopped()
   end
   local stoppedAt = interpolatedBrightness()
   -- A color ramping, or set during this ramp, is not the level's to replace.
-  local keepColor = rampingColor or brightnessRamp.colorSet
+  -- One a replaced ramp carried is the level's own.
+  local keepColor = (rampingColor and not colorRamp.carried) or brightnessRamp.colorSet
   rampingBrightness = false
   brightnessRamp = nil
   -- Cancel ESPHome's in-flight transition by sending a 0-transition cmd at
@@ -1048,17 +1084,19 @@ end
 
 local stopSceneSteps -- defined with the scene support below
 
--- Leave the color a brightness ramp carries where the ramp has got to: what
--- replaces it starts there.
+-- Hand the color a brightness ramp carries to the color ramp, from where the
+-- ramp has got to: the bulb goes on to it whatever replaces the ramp.
 local function leaveMergedColor()
   local merged = brightnessRamp and brightnessRamp.mergedColor
-  if merged then
-    local progress = math.min(1, (C4:GetTime() - brightnessRamp.startTime) / brightnessRamp.durationMs)
-    currentColorX = currentColorX + (merged.x - currentColorX) * progress
-    currentColorY = currentColorY + (merged.y - currentColorY) * progress
-    currentColorMode = merged.mode
-    brightnessRamp.mergedColor = nil
+  if not merged then
+    return
   end
+  brightnessRamp.mergedColor = nil
+  local elapsed = C4:GetTime() - brightnessRamp.startTime
+  local progress = math.min(1, elapsed / brightnessRamp.durationMs)
+  currentColorX = currentColorX + (merged.x - currentColorX) * progress
+  currentColorY = currentColorY + (merged.y - currentColorY) * progress
+  carryColor(merged.x, merged.y, merged.mode, brightnessRamp.durationMs - elapsed)
 end
 
 -- End a brightness ramp where it has got to, so what replaces it starts there
@@ -1206,7 +1244,7 @@ function leaveColorRamp()
   colorRamp = nil
 end
 
-local function colorRampFinished(targetX, targetY, targetMode)
+function colorRampFinished(targetX, targetY, targetMode)
   cancelColorRampTimers()
   rampingColor = false
   colorRamp = nil
@@ -1757,6 +1795,7 @@ local function applySceneStep(step)
       sendPreOn()
     end
     sendLightCommand(cmd)
+    retimeCarriedColor(rate)
     -- A step taken at once is where the light is: what follows starts there.
     -- One landing where a replaced ramp had got to is told too, as its end.
     if level ~= nil and not rampingBrightness and (level ~= currentBrightness or replaced) then

@@ -1035,6 +1035,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   first ramp was heading for
 - Fixed a ramped On cut short by a level command leaving the light shown as
   still changing color
+- Fixed a light that was fading to a color when a ramped level change, a ramped
+  Off or a scene step with no color took over being shown in that color at once,
+  before the bulb had reached it
 
 ### Changed
 

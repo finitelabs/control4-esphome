@@ -585,6 +585,17 @@ do
     { green[1] }
   )
   proxy("CLEAR_ALL_SCENES")
+  -- A color ramp begun before the fade it is stopped in.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  colorTarget(green, 10000)
+  run(2000)
+  proxy("RAMP_TO_LEVEL", { LEVEL = 0, TIME = 10000 })
+  run(2000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("in a fade to off begun after the color ramp: it sends the level alone", #colors(), 0)
 end
 
 T.section("a stop of a rated on leaves the color set since the on began")
@@ -1730,23 +1741,24 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+--- A device report: on at `brightness`, in the color sent as `rgb`.
+local function report(rgb, brightness)
+  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { ColorMode.COLOR_MODE_RGB } }),
+    state = SerializeSafe({
+      state = true,
+      brightness = brightness,
+      color_mode = ColorMode.COLOR_MODE_RGB,
+      red = rgb[1],
+      green = rgb[2],
+      blue = rgb[3],
+    }),
+  })
+end
+
 T.section("a ramp that replaces one still changing the color starts from the color the light has got to")
 do
   local other = { 0.2, 0.5 }
-  --- A device report: on at `brightness`, in the color sent as `rgb`.
-  local function report(rgb, brightness)
-    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
-      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { ColorMode.COLOR_MODE_RGB } }),
-      state = SerializeSafe({
-        state = true,
-        brightness = brightness,
-        color_mode = ColorMode.COLOR_MODE_RGB,
-        red = rgb[1],
-        green = rgb[2],
-        blue = rgb[3],
-      }),
-    })
-  end
   -- The press's hold ramp, 110 ms before the click, heads for the On color.
   offInBlue()
   proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
@@ -1863,20 +1875,6 @@ do
   )
   run(15000)
   T.eq("and the On color once, at the on's end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
-  -- A level command with no color of its own leaves the on's color where it
-  -- had got to, so the device's report of the color it goes on to is news.
-  onColor = offInBlue()
-  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
-  run(5000)
-  proxy("SET_LEVEL", { LEVEL = 50 })
-  mark()
-  report(onColor, 0.5)
-  local x = told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")[1]
-  T.check(
-    "a rated on cut short by a level command: the device's report of the On color is told",
-    x ~= nil and math.abs(x - ON[1]) < 5e-3,
-    T.show(told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"))
-  )
   -- A light starts in color temperature.
   light({ ColorMode.COLOR_MODE_RGB })
   mark()
@@ -1900,6 +1898,127 @@ do
     { 0 }
   )
   run(15000)
+end
+
+T.section("the color a replaced fade carried arrives with the command that replaced it")
+do
+  local function toldColors()
+    return told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")
+  end
+  --- The one `field` the proxy got with `command` since the mark is `want`.
+  local function near(name, command, field, want)
+    local got = told(command, field)
+    T.check(name, #got == 1 and math.abs(got[1] - want) < 1e-9, T.show(got))
+  end
+  --- A light off in blue, half way through a 10 s on that carries the On
+  --- color. Returns the red, green and blue the On color is sent as.
+  local function fading()
+    local onColor = offInBlue()
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+    run(5000)
+    mark()
+    return onColor
+  end
+  --- A Dim-To-Warm light half way through a 10 s fade from 50 % to 100 %,
+  --- as a 4 s fade to off is sent.
+  local function fadingOff()
+    light({ ColorMode.COLOR_MODE_RGB }, false)
+    onMode(ON, DIM)
+    proxy("SET_LEVEL", { LEVEL = 50 })
+    proxy("RAMP_TO_LEVEL", { LEVEL = 100, TIME = 10000 })
+    run(5000)
+    proxy("RAMP_TO_LEVEL", { LEVEL = 0, TIME = 4000 })
+    run(2000)
+    mark()
+  end
+
+  -- With no transition ESPHome puts every channel at its target at once.
+  for _, c in ipairs({ { "a level at once", "SET_LEVEL", { LEVEL = 50 }, 0.5 }, { "an off", "OFF", nil, 0 } }) do
+    local onColor = fading()
+    proxy(c[2], c[3])
+    T.eq(c[1] .. " in a rated on: it is sent with no color", #colors(), 0)
+    T.eq(c[1] .. ": the proxy is told the On color with it", toldColors(), { ON[1] })
+    report(onColor, c[4])
+    run(15000)
+    T.eq(c[1] .. ": and nothing after, the device's report included", toldColors(), { ON[1] })
+  end
+
+  -- Over a transition the color goes on to its target with the level.
+  local onColor = fading()
+  proxy("RAMP_TO_LEVEL", { LEVEL = 20, TIME = 4000 })
+  report(onColor, 0.2)
+  run(3900)
+  T.eq("a rated level in a rated on: no color is told on the way", toldColors(), {})
+  run(200)
+  T.eq("the On color is told", toldColors(), { ON[1] })
+  T.eq("at the level ramp's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+
+  -- Half way through the on the color is half way; 2 s into the 4 s ramp
+  -- that replaced it, half of the rest.
+  fading()
+  proxy("RAMP_TO_LEVEL", { LEVEL = 20, TIME = 4000 })
+  run(2000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  near(
+    "Set Color Stop in a carried color: the proxy is told where it has got to",
+    "LIGHT_COLOR_CHANGED",
+    "LIGHT_COLOR_CURRENT_X",
+    BLUE[1] + (ON[1] - BLUE[1]) * 0.75
+  )
+  T.eq("which the bulb is sent", #colors(), 1)
+  run(15000)
+  T.eq("and no color after", #toldColors(), 1)
+
+  fading()
+  proxy("RAMP_TO_LEVEL", { LEVEL = 20, TIME = 4000 })
+  run(2000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a stop of the ramp that replaced a rated on: the level is sent alone", #colors(), 0)
+  T.eq("and the proxy is told the On color with it", toldColors(), { ON[1] })
+  run(15000)
+  T.eq("and nothing after", toldColors(), { ON[1] })
+
+  fadingOff()
+  proxy("RAMP_TO_LEVEL", { LEVEL = 100, TIME = 4000 })
+  near(
+    "a fade up 2 s into a fade to off: from where the first fade's color has got to",
+    "LIGHT_COLOR_CHANGING",
+    "LIGHT_COLOR_CURRENT_X",
+    mix(87.5)
+  )
+  run(15000)
+  T.eq("and the proxy is told the mix for 100 % once", toldColors(), { mix(100) })
+  -- The fade to off is at 38 %: the color it took on is the level's own.
+  fadingOff()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a stop of that fade to off: the level is sent with a color", #colors(), 1)
+  T.eq("the mix for the level it stopped at", toldColors(), { mix(38) })
+  run(15000)
+  T.eq("and nothing after", toldColors(), { mix(38) })
+
+  for _, rate in ipairs({ 4000, 0 }) do
+    local name = rate > 0 and "a scene step to a level over 4 s" or "a scene step to a level at once"
+    onColor = fading()
+    activate(levelStep(20, rate))
+    report(onColor, 0.2)
+    run(rate - 100)
+    T.eq(name .. " in a rated on: the On color is told at its end", toldColors(), rate > 0 and {} or { ON[1] })
+    run(15000)
+    T.eq(name .. ": once", told("LIGHT_COLOR_CHANGED", "at"), { rate })
+    proxy("CLEAR_ALL_SCENES")
+  end
+
+  -- A level that comes as the on's time is up, ahead of the on's own end.
+  offInBlue()
+  mark()
+  C4:SetTimer(4000, function()
+    proxy("SET_LEVEL", { LEVEL = 50 })
+  end)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(15000)
+  T.eq("a level as a rated on's time is up: the proxy is told the On color", toldColors(), { ON[1] })
 end
 
 T.finish()
