@@ -963,4 +963,31 @@ do
   proxy("SET_PRESET_LEVEL", { LEVEL = 100 })
 end
 
+T.section("a scene step taken at once is the color the next fade starts from")
+do
+  -- With Dim-To-Warm a step that sets a level alone takes the mix for it.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  activate(levelStep(20))
+  T.eq(
+    "a level at once with Dim-To-Warm: the proxy is told the mix for 20 %",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { mix(20) }
+  )
+  mark()
+  colorTarget({ 0.3, 0.6 }, 2000)
+  T.eq("and a color ramp after it starts there", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), { mix(20) })
+  proxy("CLEAR_ALL_SCENES")
+  -- A step with a color of its own.
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(BLUE)
+  activate(colorStep(50, { 0.3, 0.6 }, 0))
+  T.eq("a color at once: the proxy is told it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.3 })
+  mark()
+  colorTarget(ON, 2000)
+  T.eq("and a color ramp after it starts there", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), { 0.3 })
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.finish()

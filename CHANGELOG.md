@@ -99,6 +99,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light that was ramping not stopping when a command asked for the level
   it had just reached: the light carried on to the end of its ramp while it was
   shown at the level asked for
+- Fixed a scene step with no ramp time not showing its color for a light until
+  the light reported it, so a color fade after it started from the old color
 
 ### Changed
 

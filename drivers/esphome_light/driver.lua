@@ -1655,6 +1655,7 @@ local function applySceneStep(step)
   if not color and step.levelEnabled and (step.level or 0) > 0 and getColorOnModeKind() == COLOR_ON_MODE_FADE then
     color = computeFadeColor(step.level)
   end
+  local colorAtOnce = nil
   if color and not turningOff then
     local mode = color.mode or LIGHT_COLOR_MODE_FULL
     if mode == LIGHT_COLOR_MODE_CCT and supportsCCT then
@@ -1688,16 +1689,22 @@ local function applySceneStep(step)
         durationMs = rate,
       }
       notifyColorChanging(color.x, color.y, mode, rate)
+    elseif colorChanged then
+      colorAtOnce = { x = color.x, y = color.y, mode = mode }
     end
   end
   if next(cmd) ~= nil then
     sendLightCommand(cmd)
-    -- A step taken at once is where the light is: the next step or command starts from it.
+    -- A step taken at once is where the light is, in level and color: the next step or command
+    -- starts from it.
     if rate == 0 and step.levelEnabled and step.level ~= nil then
       local level = supportsDimming and step.level or (step.level > 0 and 100 or 0)
       if level ~= currentBrightness then
         notifyBrightnessChanged(level)
       end
+    end
+    if colorAtOnce then
+      notifyColorChanged(colorAtOnce.x, colorAtOnce.y, colorAtOnce.mode)
     end
   end
   return rate
