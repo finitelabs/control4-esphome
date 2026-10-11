@@ -1650,4 +1650,51 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+T.section("a scene step that turns the light on fades it up from nothing, in the Color On Mode's color")
+do
+  -- Off in blue, its Color On Mode the On color: a step to 60 % over 10 s.
+  local onColor = offInBlue()
+  activate(levelStep(60, 10000))
+  T.eq("it is sent a pre-on ahead of its fade", commands(), 2)
+  T.eq("which carries the On color", colors(), { onColor })
+  T.eq(
+    "the proxy is told a color ramp from the blue",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { BLUE[1] }
+  )
+  T.eq("to the On color", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { ON[1] })
+  run(20000)
+  T.eq(
+    "at the step's end the proxy is told the On color",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] }
+  )
+  T.eq("and the step's level", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 60 })
+  proxy("CLEAR_ALL_SCENES")
+  -- The same step taken at once, from off in blue again.
+  onColor = offInBlue()
+  activate(levelStep(60))
+  T.eq("a step from off at once: it is sent the On color", colors(), { onColor })
+  T.eq("with no pre-on", commands(), 1)
+  T.eq("and the proxy is told the color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  proxy("CLEAR_ALL_SCENES")
+  -- A step with a color of its own keeps it.
+  offInBlue()
+  local own = setColor({ 0.3, 0.6 })
+  setColor(BLUE)
+  activate(colorStep(60, { 0.3, 0.6 }, 3000))
+  T.eq("a step from off with a color of its own: it is sent that color", colors(), { own })
+  run(15000)
+  T.eq("which the proxy is told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.3 })
+  proxy("CLEAR_ALL_SCENES")
+  -- Half way up a ramp from off the light is on, though the driver holds it as off until the ramp ends.
+  offInBlue()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+  run(5000)
+  activate(levelStep(80, 2000))
+  T.eq("a step half way up a ramp from off: it is sent its fade alone, with no pre-on", commands(), 1)
+  T.eq("and no On color", #colors(), 0)
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.finish()

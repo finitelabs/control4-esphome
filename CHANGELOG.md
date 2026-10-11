@@ -125,6 +125,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a scene step with a ramp time showing an On/Off-only light ramping to
   the step's level, and at that level when the ramp time had passed; the light
   switches at once and is now shown on or off as it does
+- Fixed a scene step that turns a light on over a ramp time not fading it up
+  from off as a ramped On does, and a step that sets only a level turning the
+  light on without its Color On Mode color
 
 ### Changed
 

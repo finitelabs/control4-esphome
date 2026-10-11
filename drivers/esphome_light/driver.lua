@@ -866,6 +866,27 @@ end
 
 local leaveColorRamp -- defined with the color ramp helpers below
 
+-- Two-phase fade-up workaround. ESPHome's light_call short-circuits on
+-- state=false: brightness=0 in the same command is dropped, so the bulb's
+-- stored brightness stays at whatever it was last set to (often 1.0).
+-- When we then send state=true brightness=target with transition_length,
+-- ESPHome sees no brightness diff and the LED snaps on instead of fading.
+-- Pre-pushing a state=true brightness=ε with transition=0 sets the stored
+-- brightness to ~0 so the real ramp has a real diff to interpolate across.
+-- 0.0039 = 1/256, the smallest 8-bit PWM step, visually indistinguishable
+-- from off. Using literal 0 risks ESPHome converting state=true brightness=0
+-- back into state=false.
+local function sendPreOn()
+  sendLightCommand({
+    has_state = true,
+    state = true,
+    has_brightness = true,
+    brightness = 0.0039,
+    has_transition_length = true,
+    transition_length = 0,
+  })
+end
+
 -- Caller contract: only invoked when supportsDimming is true (lightOn/Off,
 -- rampToBrightness, scene apply, etc. all gate on it). On/off-only entities
 -- get a different code path that doesn't touch brightness.
@@ -873,25 +894,8 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
   local hasRate = rateMs and rateMs > 0
   local goingOn = level > 0 and currentBrightness == 0
 
-  -- Two-phase fade-up workaround. ESPHome's light_call short-circuits on
-  -- state=false: brightness=0 in the same command is dropped, so the bulb's
-  -- stored brightness stays at whatever it was last set to (often 1.0).
-  -- When we then send state=true brightness=target with transition_length,
-  -- ESPHome sees no brightness diff and the LED snaps on instead of fading.
-  -- Pre-pushing a state=true brightness=ε with transition=0 sets the stored
-  -- brightness to ~0 so the real ramp has a real diff to interpolate across.
-  -- 0.0039 = 1/256 — the smallest 8-bit PWM step, visually indistinguishable
-  -- from off. Using literal 0 risks ESPHome converting state=true brightness=0
-  -- back into state=false.
   if goingOn and hasRate then
-    sendLightCommand({
-      has_state = true,
-      state = true,
-      has_brightness = true,
-      brightness = 0.0039,
-      has_transition_length = true,
-      transition_length = 0,
-    })
+    sendPreOn()
   end
 
   -- Always include both state AND brightness in the command. The brightness
@@ -1638,6 +1642,7 @@ local function applySceneStep(step)
   -- Don't send color/RGB fields in that case so the device actually turns off.
   local turningOff = step.levelEnabled and step.level == 0
   local replaced = nil
+  local goingOn = false
   -- The level the step leaves the light at: an On/Off-only light is on or off.
   local level = nil
   if step.levelEnabled and step.level ~= nil then
@@ -1656,6 +1661,7 @@ local function applySceneStep(step)
     -- non-scene cmd's), from the level it has got to. One that sets a color alone leaves it
     -- running, as the bulb does.
     replaced = leaveBrightnessRamp()
+    goingOn = level > 0 and currentBrightness == 0
     -- Only prime a ramp when the level actually moves; an explicit step at
     -- the current level with rate>0 would otherwise queue a pointless picker
     -- animation and suppress the next echo for no reason. An On/Off-only light
@@ -1681,9 +1687,14 @@ local function applySceneStep(step)
     local x, y, mode = takenColor(step.colorX, step.colorY, step.colorMode or LIGHT_COLOR_MODE_FULL)
     color = { x = x, y = y, mode = mode }
   end
-  -- A step that sets a level alone takes the Dim-To-Warm color for it.
-  if not color and step.levelEnabled and (step.level or 0) > 0 and getColorOnModeKind() == COLOR_ON_MODE_FADE then
-    color = computeFadeColor(step.level)
+  -- A step that sets a level alone takes the color a level command would: the Dim-To-Warm color
+  -- for the level, or the Color On Mode's when it turns the light on.
+  if not color and (level or 0) > 0 then
+    if getColorOnModeKind() == COLOR_ON_MODE_FADE then
+      color = computeFadeColor(step.level)
+    elseif goingOn then
+      color = resolveOnColor(step.level)
+    end
   end
   local colorAtOnce = nil
   if color and not turningOff then
@@ -1740,6 +1751,10 @@ local function applySceneStep(step)
     end
   end
   if next(cmd) ~= nil then
+    -- A dimmer turned on over a rate fades up from nothing, as a rated level command has it.
+    if goingOn and rate > 0 and supportsDimming then
+      sendPreOn()
+    end
     sendLightCommand(cmd)
     -- A step taken at once is where the light is: what follows starts there.
     -- At the level or color a ramp it replaced has got to, at any rate, it is
