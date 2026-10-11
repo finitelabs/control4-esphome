@@ -1656,13 +1656,16 @@ local function runScene(sceneId, generation)
   local timerName = SCENE_TIMER_PREFIX .. tostring(sceneId)
   CancelTimer(timerName)
 
+  -- Steps run here without waiting: a flash scene whose every step has no delay or rate ends
+  -- after one pass, where it would otherwise loop here forever.
+  local ran = 0
   while true do
     if gen ~= sceneGeneration then
       return
     end
     local idx = scene.state + 1
     if idx > #scene.elements then
-      if scene.flash then
+      if scene.flash and ran < #scene.elements then
         scene.state = 0
         idx = 1
       else
@@ -1712,6 +1715,7 @@ local function runScene(sceneId, generation)
       return
     end
     -- otherwise loop synchronously to the next element
+    ran = ran + 1
   end
 end
 

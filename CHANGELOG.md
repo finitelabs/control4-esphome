@@ -45,6 +45,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a SwitchBot Relay Switch with no encryption key staying Busy and keeping
   the proxy's connection slot when a connection came up without the device's
   Bluetooth characteristics; it now disconnects and frees the slot
+- Fixed an Advanced Lighting scene set to flash, with no delay or ramp time on
+  any step, hanging the light's driver; it now runs its steps once and stops
 
 ## v20260926 - 2026-09-26
 
