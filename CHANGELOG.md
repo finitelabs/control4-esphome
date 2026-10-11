@@ -50,11 +50,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a color sent to a light right after it was ramped on, as programming
   that turns a light on and sets its color does, being dropped; the light now
   takes it and keeps it when the ramp ends
-- Fixed a ramp that also changes a light's color, on to the color it turns on in
-  or with Dim-To-Warm, reporting the new color as the one the fade starts from
-- Fixed a light being shown in a scene's color, or going back to a color set
-  while it was off, after a level change or a turn-on had given it its
-  Dim-To-Warm color or the color it turns on in
+- Fixed a ramp that also changes a light's color, as a ramped on or a
+  Dim-To-Warm dim does, reporting the new color as the one the fade starts from
+- Fixed a light showing a scene's color, or going back to a color set while it
+  was off, after turning on or changing level had given it its on color or
+  Dim-To-Warm color
 - Fixed an Advanced Lighting scene carrying on with a light after the light was
   turned on or off, set to a level or ramped: a later step of the scene took the
   light back, and a scene that flashes the light kept flashing it; the command
@@ -89,8 +89,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a button pressed, clicked or toggled while a light was ramping acting on
   the level the ramp began from: a light on its way up could be switched off and
   faded up again, or toggled the wrong way
-- Fixed a scene step with no ramp time not being shown for a light until the
-  light reported it, so the step or command after it started from the old level
+- Fixed a scene step with no ramp time not being shown for a light, in level or
+  color, until the light reported it, so the step, command or color fade after
+  it started from the old one
 - Fixed a color a light took while it was off not being picked up until it was
   next on
 - Fixed Ramp Scene Up and Down, on a light already ramping, starting from the
@@ -99,16 +100,15 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light that was ramping not stopping when a command asked for the level
   it had just reached: the light carried on to the end of its ramp while it was
   shown at the level asked for
-- Fixed a scene step with no ramp time not showing its color for a light until
-  the light reported it, so a color fade after it started from the old color
 
 ### Changed
 
-- With Dim-To-Warm, a color set on a light now lasts until its brightness next
-  changes, when the light takes its Dim-To-Warm color again; it used to last
-  until the light was turned off
-- With Dim-To-Warm, a brightness command for the level a light is already at now
-  returns a color set on it to its Dim-To-Warm color; it used to do nothing
+- Changed how long a color set on a light with Dim-To-Warm lasts: it now lasts
+  until the brightness next changes, when the light takes its Dim-To-Warm color
+  again, instead of until the light is turned off
+- Changed a brightness command for the level a light with Dim-To-Warm is already
+  at: it now returns a color set on the light to its Dim-To-Warm color instead
+  of doing nothing
 
 ## v20260926 - 2026-09-26
 
