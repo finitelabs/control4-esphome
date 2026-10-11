@@ -947,6 +947,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a color sent to a light right after it was ramped on, as programming
   that turns a light on and sets its color does, being dropped; the light now
   takes it and keeps it when the ramp ends
+- Fixed a ramp that also changes a light's color, on to the color it turns on in
+  or with Dim-To-Warm, reporting the new color as the one the fade starts from
 
 ## v20260926 - 2026-09-26
 

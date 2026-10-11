@@ -913,9 +913,6 @@ local function setESPHomeBrightness(level, rateMs)
       for k, v in pairs(colorFields) do
         cmd[k] = v
       end
-      currentColorX = mergedColor.x
-      currentColorY = mergedColor.y
-      currentColorMode = mergedColor.mode
       mergedColorApplied = true
       -- Window during which a follow-up SET_COLOR_TARGET targeting the same
       -- color is treated as already applied. 250ms covers the proxy's
@@ -948,9 +945,13 @@ local function setESPHomeBrightness(level, rateMs)
   -- driver has to push these notifies for the picker to track.
   if mergedColorApplied then
     if hasRate then
-      notifyColorChanging(currentColorX, currentColorY, currentColorMode, rateMs)
+      -- CHANGING carries the color the light is leaving, so the target is current only after it.
+      notifyColorChanging(mergedColor.x, mergedColor.y, mergedColor.mode, rateMs)
+      currentColorX = mergedColor.x
+      currentColorY = mergedColor.y
+      currentColorMode = mergedColor.mode
     else
-      notifyColorChanged(currentColorX, currentColorY, currentColorMode)
+      notifyColorChanged(mergedColor.x, mergedColor.y, mergedColor.mode)
     end
   end
 end

@@ -255,4 +255,29 @@ do
   T.eq("and the proxy is told it alone", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
 end
 
+--- The x of the Dim-To-Warm mix for a level, as the driver computes it.
+local function mix(level)
+  return DIM[1] + (ON[1] - DIM[1]) * (level * 0.01)
+end
+
+T.section("a rated on or dim that changes the color tells the proxy the color the light is leaving")
+do
+  offInBlue()
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
+  T.eq("a rated on: from the color it had", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
+  T.eq("to the On color", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { ON[1] })
+  run(15000)
+  T.eq("which it is told at the ramp's end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  -- Dim-To-Warm at 100 %, where the mix is the On color.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  mark()
+  proxy("RAMP_TO_LEVEL", { LEVEL = 10, TIME = 4000 })
+  T.eq("a rated dim: from the On color", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  T.eq("to the mix for 10 %", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { mix(10) })
+  run(15000)
+end
+
 T.finish()
