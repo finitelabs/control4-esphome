@@ -938,6 +938,71 @@ do
   run(15000)
   T.eq("with Dim-To-Warm: the bulb is last sent that level", lastLevel(), { 50 / 100, 0 })
   T.eq("in the mix for it, which the proxy is told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { mix(50) })
+  -- A color set during the press's hold lasts until the next brightness command, which the click is.
+  local green = { 0.3, 0.6 }
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(50)
+  colorTarget(green, 0)
+  run(60)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_CLICK })
+  run(15000)
+  T.eq("after a color set during the hold: the bulb is last sent that level", lastLevel(), { 50 / 100, 0 })
+  T.eq("in the mix for it, which the proxy is told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { mix(50) })
+  -- A color ramp in flight ends there too: 2 s into a fade to off begun just after it, the light is at 25 %.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  colorTarget(green, 4000)
+  run(100)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  run(2000)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 25 })
+  T.eq("in a color ramp: the bulb is held at the level a fade has got to", lastLevel(), { 25 / 100, 0 })
+  run(15000)
+  T.eq(
+    "in the mix for it, which the proxy is told once, and not the ramp's color after",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { mix(25) }
+  )
+  -- With no Color On Mode the level has no color of its own, and goes alone in both.
+  light({ ColorMode.COLOR_MODE_RGB })
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(50)
+  colorTarget(green, 0)
+  run(60)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_CLICK })
+  run(15000)
+  T.eq("with no color mode, after a color set during the hold: the level goes alone", #colors(), 0)
+  T.eq(
+    "and the color set is kept: the proxy is told no other",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    {}
+  )
+  light({ ColorMode.COLOR_MODE_RGB })
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  colorTarget(green, 4000)
+  run(100)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  run(2000)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 25 })
+  T.eq("with no color mode, in a color ramp: the level goes alone", #colors(), 0)
+  run(15000)
+  T.eq("and the color ramp runs to its own end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { green[1] })
+  -- With no ramp in flight there is nothing to hold: the level a settled light is at sends nothing.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq("the level a settled light is at, asked for again: nothing is sent", commands(), 0)
+  T.eq("and the proxy is told the level", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 50 })
   -- A click that moves the light sends its ramp and nothing ahead of it.
   proxy("SET_PRESET_LEVEL", { LEVEL = 100 })
   light({ ColorMode.COLOR_MODE_BRIGHTNESS })

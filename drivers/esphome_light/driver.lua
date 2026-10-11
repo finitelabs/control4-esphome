@@ -1066,10 +1066,10 @@ local function rampToBrightness(level, rate, presetId, replaced)
 
   local startingLevel = currentBrightness
   if level == startingLevel then
-    -- The bulb is still on its way to the replaced ramp's target: hold it here, in the level's
-    -- own color unless one is ramping or was set since.
+    -- The bulb is still on its way to the replaced ramp's target: hold it here. This is a brightness
+    -- command: the level's own color goes with it, as for any other target.
     if replaced then
-      setESPHomeBrightness(level, 0, rampingColor or replaced.colorSet)
+      setESPHomeBrightness(level, 0)
     end
     notifyBrightnessChanged(level)
     return
