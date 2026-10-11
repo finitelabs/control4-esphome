@@ -472,6 +472,13 @@ local function xyToRGB(x, y)
   return r, g, b
 end
 
+-- How far apart two xy colors still read as one: a round trip through RGB / HSV drifts 1-2e-3.
+local COLOR_TOLERANCE = 5e-3
+
+local function sameColor(x1, y1, mode1, x2, y2, mode2)
+  return mode1 == mode2 and math.abs(x1 - x2) <= COLOR_TOLERANCE and math.abs(y1 - y2) <= COLOR_TOLERANCE
+end
+
 ---------------------------------------------------------------------------
 -- Helpers: persistence
 ---------------------------------------------------------------------------
@@ -1060,9 +1067,10 @@ local function rampToBrightness(level, rate, presetId)
   SetTimer("BrightnessRampFinish", rate, function()
     -- Belt-and-suspenders: snap state with a 0-transition cmd at target so
     -- our state matches the bulb's even if the transition completed slightly
-    -- before/after our timer.
-    setESPHomeBrightness(level, 0)
+    -- before/after our timer. The level is current first: the light is on by
+    -- now, so the cmd is no on from off and carries no on color again.
     currentBrightness = level
+    setESPHomeBrightness(level, 0)
     brightnessRampFinished(level)
   end, false)
 end
@@ -1145,6 +1153,11 @@ end
 
 local function rampToColor(targetX, targetY, targetMode, rate)
   rate = math.max(0, tointeger(rate) or 0)
+
+  -- The target replaces the on color a brightness ramp carries, which would otherwise show at its end.
+  if brightnessRamp then
+    brightnessRamp.mergedColor = nil
+  end
 
   if rampingColor then
     local x, y, _ = interpolatedColor()
@@ -1393,11 +1406,13 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   -- will emit notifyColorChanged when the ramp completes - so there is
   -- nothing to notify here, just suppress the redundant ESPHome cmd.
   local now = C4:GetTime()
-  if now < mergedColorUntil and rampingBrightness then
+  local merged = rampingBrightness and brightnessRamp and brightnessRamp.mergedColor
+  if now < mergedColorUntil and merged and sameColor(merged.x, merged.y, merged.mode, targetX, targetY, targetMode) then
     log:debug("SET_COLOR_TARGET deduped (%sms remaining in merged-color window)", mergedColorUntil - now)
     currentColorX = targetX
     currentColorY = targetY
     currentColorMode = targetMode
+    brightnessRamp.mergedColor = { x = targetX, y = targetY, mode = targetMode }
     return
   end
 

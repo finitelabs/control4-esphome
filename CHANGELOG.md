@@ -47,6 +47,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Bluetooth characteristics; it now disconnects and frees the slot
 - Fixed an Advanced Lighting scene set to flash, with no delay or ramp time on
   any step, hanging the light's driver; it now runs its steps once and stops
+- Fixed a color sent to a light right after it was ramped on, as programming
+  that turns a light on and sets its color does, being dropped; the light now
+  takes it and keeps it when the ramp ends
 
 ## v20260926 - 2026-09-26
 

@@ -166,4 +166,93 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+---------------------------------------------------------------------------
+-- Color
+---------------------------------------------------------------------------
+
+-- xy as hue and saturation over their ranges: the shim has no color conversions.
+function C4:ColorXYtoHSV(x, y)
+  return x * 360, y * 100
+end
+
+-- The color the light turns on in, a Dim-To-Warm dim color, and a color to leave it in (xy).
+local ON, DIM, BLUE = { 0.6, 0.3 }, { 0.14, 0.1 }, { 0.15, 0.06 }
+
+--- Tell the driver its Color On Mode: the On color and, for Dim-To-Warm, the dim color.
+local function onMode(on, dim)
+  proxy("UPDATE_COLOR_ON_MODE", {
+    COLOR_PRESET_ID = 1,
+    COLOR_PRESET_ORIGIN = 1,
+    COLOR_PRESET_COLOR_X = on[1],
+    COLOR_PRESET_COLOR_Y = on[2],
+    COLOR_PRESET_COLOR_MODE = 0,
+    COLOR_FADE_PRESET_ID = dim and 2 or 0,
+    COLOR_FADE_PRESET_ORIGIN = dim and 1 or 0,
+    COLOR_FADE_PRESET_COLOR_X = dim and dim[1],
+    COLOR_FADE_PRESET_COLOR_Y = dim and dim[2],
+    COLOR_FADE_PRESET_COLOR_MODE = 0,
+  })
+end
+
+--- Ask for a color (xy) over `rate` ms.
+local function colorTarget(xy, rate)
+  proxy(
+    "SET_COLOR_TARGET",
+    { LIGHT_COLOR_TARGET_X = xy[1], LIGHT_COLOR_TARGET_Y = xy[2], LIGHT_COLOR_TARGET_COLOR_RATE = rate }
+  )
+end
+
+--- The red, green and blue of each command since the mark that carried a color.
+local function colors()
+  local out = {}
+  for _, s in ipairs(sent) do
+    local cmd = s.binding == ESPHOME and s.command == "ENTITY_COMMAND" and DeserializeSafe(s.params.body)
+    if cmd and cmd.has_rgb then
+      out[#out + 1] = { cmd.red, cmd.green, cmd.blue }
+    end
+  end
+  return out
+end
+
+--- Set the light to a color at once, and return the red, green and blue it was sent as.
+local function setColor(xy)
+  mark()
+  colorTarget(xy, 0)
+  return colors()[1]
+end
+
+--- A color light that went off in the On color, which it next turns on in, then left in blue.
+--- Returns the red, green and blue the On color is sent as.
+local function offInBlue()
+  light({ ColorMode.COLOR_MODE_RGB })
+  onMode(ON)
+  local onColor = setColor(ON)
+  proxy("OFF")
+  setColor(BLUE)
+  return onColor
+end
+
+T.section("a color the proxy sends with a rated on goes out, unless it is the On color the on carried")
+do
+  -- The proxy's Dynamic On: the level, then the On color the level command has already sent.
+  offInBlue()
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
+  colorTarget(ON, 750)
+  run(15000)
+  T.eq("the On color goes out once", #colors(), 1)
+  T.eq("and the proxy is told it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  -- Programming that ramps the light on and sets another color on the way.
+  offInBlue()
+  local asked = setColor({ 0.2, 0.5 })
+  setColor(BLUE)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  colorTarget({ 0.2, 0.5 }, 1000)
+  run(15000)
+  local out = colors()
+  T.eq("another color is the last the light is sent", out[#out], asked)
+  T.eq("and the proxy is told it alone", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
+end
+
 T.finish()
