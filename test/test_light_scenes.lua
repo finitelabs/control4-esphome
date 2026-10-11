@@ -524,4 +524,21 @@ do
   T.eq("and in the color a fade sent off again as it reached off left", colors(), { previous })
 end
 
+T.section("a brightness stop takes the light out of the scene too")
+do
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  activate(levelStep(60, 3000) .. levelStep(20, 0, 5000))
+  run(1500)
+  proxy("SET_BRIGHTNESS_STOP")
+  local before = commands()
+  run(15000)
+  T.eq("the device is sent nothing after the stop", commands(), before)
+  T.eq(
+    "and the proxy is told where it stopped alone",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 80 }
+  )
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.finish()
