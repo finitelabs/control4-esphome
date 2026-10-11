@@ -1016,6 +1016,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   from the level that ramp began at: the step's fade was shown from the wrong
   level and a stop held the light at the wrong one, and a step back to the level
   the ramp began at left the light shown as still ramping
+- Fixed a scene step run while a light's color was fading: a step with a color
+  of its own showed its fade from the color the earlier fade began at, and a
+  step that sets only a level left the earlier fade's end never shown
 
 ### Changed
 

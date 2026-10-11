@@ -156,7 +156,7 @@ local rampingBrightness = false
 local rampingColor = false
 
 -- Ramp metadata: { startTime, startLevel, targetLevel, durationMs }, and for a
--- brightness ramp a scene step primed, that step. Cleared when no ramp is in flight.
+-- ramp a scene step primed, that step. Cleared when no ramp is in flight.
 local brightnessRamp = nil
 local colorRamp = nil
 
@@ -1622,11 +1622,6 @@ local function applySceneStep(step)
   if not step.levelEnabled and not step.colorEnabled then
     return 0
   end
-  -- Cancel any in-flight color ramp (a prior step's or a non-scene cmd's) and re-prime the
-  -- flag for this step: rampingColor holds color echoes back until it ends.
-  cancelColorRampTimers()
-  rampingColor = false
-  colorRamp = nil
   local cmd = {}
   -- ESPHome takes a single transition_length per cmd, so the bulb interpolates
   -- both brightness and color over the longer of the two requested rates. Use
@@ -1688,10 +1683,14 @@ local function applySceneStep(step)
   end
   local colorAtOnce = nil
   if color and not turningOff then
-    -- The step's color replaces the on color a brightness ramp carries, which would otherwise show at its end.
+    -- The step's color replaces the on color a brightness ramp carries, which would otherwise show at
+    -- its end, and a color ramp in flight, from where it has got to. A step with no color leaves that
+    -- ramp running.
     if brightnessRamp then
       brightnessRamp.mergedColor = nil
     end
+    local colorReplaced = rampingColor
+    leaveColorRamp()
     -- It is the light's color for a brightness ramp the step leaves running: a stop keeps it.
     if brightnessRamp and brightnessRamp.step ~= step then
       brightnessRamp.colorSet = true
@@ -1726,20 +1725,21 @@ local function applySceneStep(step)
         targetY = color.y,
         targetMode = mode,
         durationMs = rate,
+        step = step,
       }
       notifyColorChanging(color.x, color.y, mode, rate)
       SetTimer("ColorRampFinish", rate, function()
         colorRampFinished(color.x, color.y, mode)
       end, false)
-    elseif colorChanged then
+    elseif colorChanged or colorReplaced then
       colorAtOnce = { x = color.x, y = color.y, mode = mode }
     end
   end
   if next(cmd) ~= nil then
     sendLightCommand(cmd)
     -- A step taken at once is where the light is: what follows starts there.
-    -- At the level a ramp it replaced has got to, at any rate, it is still that
-    -- ramp's end for the proxy.
+    -- At the level or color a ramp it replaced has got to, at any rate, it is
+    -- still that ramp's end for the proxy.
     if step.levelEnabled and step.level ~= nil and not rampingBrightness then
       local level = supportsDimming and step.level or (step.level > 0 and 100 or 0)
       if (rate == 0 and level ~= currentBrightness) or replaced then
@@ -1795,10 +1795,10 @@ local function runScene(sceneId, generation)
 
     -- At the step's end, finish the ramps it primed so their CHANGED notifies
     -- come before the next step. A ramp a command replaced is left to it, as
-    -- is a brightness ramp that a color-only step left running.
+    -- is a ramp the step left running because it did not set that aspect.
     local function advanceAfter(rampMs)
       local level = brightnessRamp and brightnessRamp.step == step and brightnessRamp
-      local color = colorRamp
+      local color = colorRamp and colorRamp.step == step and colorRamp
       SetTimer(timerName, rampMs, function()
         if level and brightnessRamp == level then
           brightnessRampFinished(level.targetLevel)

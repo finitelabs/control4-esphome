@@ -1568,4 +1568,57 @@ do
   end
 end
 
+T.section("a color ramp that a scene step replaces is left where it has got to")
+do
+  local other = { 0.2, 0.5 }
+  -- A scene's color step a second into a 4 s color ramp a command began.
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  colorTarget(other, 4000)
+  run(1000)
+  activate(colorStep(nil, DIM, 2000))
+  T.eq(
+    "a step in a command's color ramp ramps from a quarter of the way through it",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] + (other[1] - ON[1]) * 0.25 }
+  )
+  run(15000)
+  T.eq(
+    "and at its end the proxy is told the step's color alone",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { DIM[1] }
+  )
+  proxy("CLEAR_ALL_SCENES")
+  -- A step that sets a level alone, over 500 ms a second into the command's ramp, leaves it to run to its own end.
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(50, 500) })
+  mark()
+  colorTarget(other, 4000)
+  run(1000)
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  run(15000)
+  T.eq(
+    "a step that sets a level alone: the proxy is told the color asked for and nothing else",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { other[1] }
+  )
+  T.eq("at its ramp's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+  T.eq("and the step's level", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 50 })
+  proxy("CLEAR_ALL_SCENES")
+  -- A step in the color a ramp has got to has nothing to ramp, and is still the ramp's end for the proxy.
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  colorTarget(other, 4000)
+  activate(colorStep(nil, ON, 2000))
+  T.eq(
+    "a step back to the color a ramp began from, as it begins: the proxy is told it at once",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] }
+  )
+  run(15000)
+  T.eq("and nothing after", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.finish()
