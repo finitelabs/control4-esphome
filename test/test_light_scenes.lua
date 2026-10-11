@@ -356,4 +356,70 @@ do
   T.eq("at its end", told("LIGHT_COLOR_CHANGED", "at"), { 3000 })
 end
 
+T.section("a level ramp begun during a scene's fade runs to its own end, not to the scene step's")
+do
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  activate(levelStep(60, 3000))
+  run(1500)
+  proxy("RAMP_TO_LEVEL", { LEVEL = 10, TIME = 4000 })
+  run(3900)
+  T.eq("no LIGHT_BRIGHTNESS_CHANGED at the scene step's end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), {})
+  run(15000)
+  T.eq("one for its level", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 10 })
+  T.eq("at its own ramp's end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 5500 })
+  proxy("CLEAR_ALL_SCENES")
+end
+
+T.section("a level command takes the light out of the scene: no later step runs")
+do
+  -- A second step, due 5 s after the first, would take the light to 20.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  activate(levelStep(60, 3000) .. levelStep(20, 0, 5000))
+  run(1500)
+  proxy("SET_LEVEL", { LEVEL = 90 })
+  local before = commands()
+  run(15000)
+  T.eq("the device is sent nothing after the level", commands(), before)
+  T.eq("and the proxy is told the level alone", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 90 })
+  proxy("CLEAR_ALL_SCENES")
+end
+
+T.section("an On/Off-only light turned off during a scene stays off, and is not shown at the scene's level")
+do
+  light({ ColorMode.COLOR_MODE_ON_OFF }, false)
+  activate(levelStep(100, 3000) .. levelStep(100, 0, 5000))
+  run(1500)
+  proxy("OFF")
+  local before = commands()
+  run(15000)
+  T.eq("the device is sent nothing after the Off", commands(), before)
+  T.eq("and the proxy is told off alone", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 0 })
+  proxy("CLEAR_ALL_SCENES")
+end
+
+T.section("a color ramp asked for during a scene's fade runs to its own end, not to the scene step's")
+do
+  light({ ColorMode.COLOR_MODE_RGB })
+  activate(colorStep(nil, { 0.3, 0.6 }, 3000))
+  run(1500)
+  colorTarget({ 0.2, 0.5 }, 4000)
+  run(15000)
+  T.eq("the proxy is told the color asked for", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
+  T.eq("at its own ramp's end", told("LIGHT_COLOR_CHANGED", "at"), { 5500 })
+  proxy("CLEAR_ALL_SCENES")
+  -- A level set during the fade takes the light from the scene, whose step still ends the color ramp it began.
+  light({ ColorMode.COLOR_MODE_RGB })
+  activate(colorStep(60, { 0.3, 0.6 }, 3000))
+  run(1500)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  run(15000)
+  T.eq(
+    "a level set during it: the proxy is told the scene's color",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { 0.3 }
+  )
+  T.eq("at the step's end", told("LIGHT_COLOR_CHANGED", "at"), { 3000 })
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.finish()

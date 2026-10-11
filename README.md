@@ -952,6 +952,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light being shown in a scene's color, or going back to a color set
   while it was off, after a level change or a turn-on had given it its
   Dim-To-Warm color or the color it turns on in
+- Fixed an Advanced Lighting scene carrying on with a light after the light was
+  turned on or off, set to a level or ramped: a later step of the scene took the
+  light back, and a scene that flashes the light kept flashing it; the command
+  now takes the light out of the scene
+- Fixed a ramp or color fade started while a scene was still fading a light
+  showing as finished when the scene's fade ended, while the light was still
+  moving; it now shows as finished when the light gets there
 
 ## v20260926 - 2026-09-26
 

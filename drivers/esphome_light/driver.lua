@@ -1025,11 +1025,15 @@ local function brightnessRampStopped()
   notifyBrightnessChanged(stoppedAt)
 end
 
+local stopSceneSteps -- defined with the scene support below
+
 local function rampToBrightness(level, rate, presetId)
   level = math.max(0, math.min(100, math.floor((level or 0) + 0.5)))
   rate = math.max(0, tointeger(rate) or 0)
 
   log:debug("rampToBrightness(%s, %s) from %s", level, rate, currentBrightness)
+
+  stopSceneSteps()
 
   -- Single source of truth for the active brightness preset id. SET_BRIGHTNESS_
   -- TARGET passes the proxy's id through; everywhere else (buttons, scenes,
@@ -1210,11 +1214,19 @@ end
 -- Helpers: on / off / toggle
 ---------------------------------------------------------------------------
 
+-- An On/Off-only light switches at once: the command replaces the ramp a scene step primed.
+local function switchLight(on)
+  stopSceneSteps()
+  rampingBrightness = false
+  brightnessRamp = nil
+  sendLightCommand({ has_state = true, state = on })
+  notifyBrightnessChanged(on and 100 or 0)
+end
+
 local function lightOn(rate)
   local level = getOnBrightness()
   if not supportsDimming then
-    sendLightCommand({ has_state = true, state = true })
-    notifyBrightnessChanged(100)
+    switchLight(true)
     return
   end
   -- color_on_mode_previous/preset/fade are all handled by the merged-color
@@ -1229,8 +1241,7 @@ local function lightOff(rate)
   if supportsDimming then
     rampToBrightness(0, rate or 0)
   else
-    sendLightCommand({ has_state = true, state = false })
-    notifyBrightnessChanged(0)
+    switchLight(false)
   end
 end
 
@@ -1548,6 +1559,12 @@ end
 -- and bails out if it has changed.
 local sceneGeneration = 0
 
+-- A level command takes the light out of a scene, as on Control4's own lights: no later step runs.
+-- The step in flight still ends the ramps of its own that the command left.
+function stopSceneSteps()
+  sceneGeneration = sceneGeneration + 1
+end
+
 local function stopAllScenes()
   sceneGeneration = sceneGeneration + 1
   CancelTimer(SCENE_RAMP_TIMER)
@@ -1701,17 +1718,19 @@ local function runScene(sceneId, generation)
     scenes[tostring(sceneId)] = scene
     saveScenes(scenes)
 
-    -- When a step's ramp elapses, finalise any in-flight ramp metadata so
-    -- rampingBrightness/rampingColor are cleared and CHANGED notifies fire
-    -- before we apply the next step.
-    local function finishRampsAndAdvance()
-      if brightnessRamp and brightnessRamp.targetLevel ~= nil then
-        brightnessRampFinished(brightnessRamp.targetLevel)
-      end
-      if colorRamp and colorRamp.targetX and colorRamp.targetY and colorRamp.targetMode then
-        colorRampFinished(colorRamp.targetX, colorRamp.targetY, colorRamp.targetMode)
-      end
-      runScene(sceneId, gen)
+    -- When the step's ramp elapses, finish the ramps it primed so their CHANGED notifies fire before
+    -- the next step is applied. One a command has since replaced is that command's to finish.
+    local function advanceAfter(rampMs)
+      local level, color = brightnessRamp, colorRamp
+      SetTimer(timerName, rampMs, function()
+        if level and brightnessRamp == level then
+          brightnessRampFinished(level.targetLevel)
+        end
+        if color and colorRamp == color then
+          colorRampFinished(color.targetX, color.targetY, color.targetMode)
+        end
+        runScene(sceneId, gen)
+      end)
     end
 
     if delay > 0 then
@@ -1721,7 +1740,7 @@ local function runScene(sceneId, generation)
         end
         local rampMs = applySceneStep(step)
         if rampMs > 0 then
-          SetTimer(timerName, rampMs, finishRampsAndAdvance)
+          advanceAfter(rampMs)
         else
           runScene(sceneId, gen)
         end
@@ -1731,7 +1750,7 @@ local function runScene(sceneId, generation)
 
     local rampMs = applySceneStep(step)
     if rampMs > 0 then
-      SetTimer(timerName, rampMs, finishRampsAndAdvance)
+      advanceAfter(rampMs)
       return
     end
     -- otherwise loop synchronously to the next element
