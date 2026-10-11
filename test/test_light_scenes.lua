@@ -882,4 +882,25 @@ do
   T.eq("and the ramp starts from it", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), { x })
 end
 
+T.section("Ramp Scene Up and Down in a ramp start from the level the light has got to")
+do
+  --- A light 2 s into a 4 s ramp up from off: at 50 %%, which the driver holds as off until the ramp ends.
+  local function rising()
+    light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+    run(2000)
+    mark()
+  end
+  rising()
+  proxy("RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 3000 })
+  T.eq("Ramp Scene Up: from 50", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"), { 50 })
+  T.eq("with no pre-on ahead of its ramp", commands(), 1)
+  rising()
+  proxy("RAMP_SCENE_DOWN", { SCENE_ID = 7, RATE = 3000 })
+  T.eq("Ramp Scene Down: from 50", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"), { 50 })
+  T.eq("toward off", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET"), { 0 })
+  run(15000)
+  T.eq("which the proxy is told at its ramp's end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 3000 })
+end
+
 T.finish()

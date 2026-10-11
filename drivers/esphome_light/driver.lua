@@ -1030,6 +1030,21 @@ end
 
 local stopSceneSteps -- defined with the scene support below
 
+-- End a brightness ramp where it has got to: what replaces it starts there, so its CHANGING
+-- tracks correctly and a future STOP interpolates from the right level.
+local function leaveBrightnessRamp()
+  if rampingBrightness then
+    local at = interpolatedBrightness()
+    if at == 0 and currentBrightness > 0 then
+      endOnCycle() -- a fade retargeted as it reaches off has ended its on cycle
+    end
+    currentBrightness = at
+  end
+  cancelBrightnessRampTimers()
+  rampingBrightness = false
+  brightnessRamp = nil
+end
+
 local function rampToBrightness(level, rate, presetId)
   level = math.max(0, math.min(100, math.floor((level or 0) + 0.5)))
   rate = math.max(0, tointeger(rate) or 0)
@@ -1044,20 +1059,7 @@ local function rampToBrightness(level, rate, presetId)
   -- a stale value to the Daylight Agent.
   currentBrightnessPresetId = presetId
 
-  -- If a ramp is already running, snapshot the interpolated current level
-  -- before starting the new ramp so CHANGING tracks correctly and a future
-  -- STOP would interpolate from the right starting point.
-  if rampingBrightness then
-    local at = interpolatedBrightness()
-    if at == 0 and currentBrightness > 0 then
-      endOnCycle() -- a fade retargeted as it reaches off has ended its on cycle
-    end
-    currentBrightness = at
-  end
-
-  cancelBrightnessRampTimers()
-  rampingBrightness = false
-  brightnessRamp = nil
+  leaveBrightnessRamp()
 
   local startingLevel = currentBrightness
   if level == startingLevel then
@@ -1870,6 +1872,8 @@ function RFP.RAMP_SCENE_UP(idBinding, strCommand, tParams, args)
   if scene and scene.ignoreRamp then
     return
   end
+  -- stopAllScenes drops a ramp in flight: left where it has got to first, the ramp below starts there.
+  leaveBrightnessRamp()
   stopAllScenes()
   if supportsDimming then
     rampToBrightness(getOnBrightness(), rate)
@@ -1890,6 +1894,7 @@ function RFP.RAMP_SCENE_DOWN(idBinding, strCommand, tParams, args)
   if scene and scene.ignoreRamp then
     return
   end
+  leaveBrightnessRamp()
   stopAllScenes()
   if supportsDimming then
     rampToBrightness(0, rate)
