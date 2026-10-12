@@ -2019,6 +2019,7 @@ do
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   run(15000)
   T.eq("a level as a rated on's time is up: the proxy is told the On color", toldColors(), { ON[1] })
+  T.eq("with the level, at the on's last millisecond", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
 end
 
 T.finish()
