@@ -36,6 +36,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a Yale lock in Persistent mode counting a failed or timed-out handshake
   as two failures, using up its reconnect attempts twice as fast and retrying a
   lock or unlock that hit it as a status read instead
+- Fixed the SwitchBot and Yale drivers keeping the proxy's connection slot when
+  a connection came up without the device's Bluetooth characteristics, as can
+  happen on a first connect: a Yale lock stayed on "Error: Missing
+  characteristics" and stopped polling or reconnecting; the driver now
+  disconnects, frees the slot and handles it as a failed connection
 
 ## v20260926 - 2026-09-26
 

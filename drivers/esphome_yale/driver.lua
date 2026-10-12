@@ -1522,12 +1522,12 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
         regularReadSubscribed = false
         subscribeNotifications(cSR)
       else
-        updateStatus("Error: Missing characteristics", false)
+        abandonAttempt("Error: Missing characteristics")
       end
     end
   else
     log:error("No services provided in CONNECTED message")
-    updateStatus("Error: Missing services", false)
+    abandonAttempt("Error: Missing services")
   end
 end
 
