@@ -68,9 +68,14 @@ local RESPONSE_TIMEOUT_MS = 2000
 --- Linger after the last reply so presses in quick succession share a connection.
 --- @type integer
 local DISCONNECT_DELAY_MS = 3000
---- Covers both connecting and subscribing to notifications.
+--- Backstop for a CONNECT that is never answered. The parent reports a failed
+--- connect itself: a proxy allows 30s to connect and 30s for GATT discovery, and
+--- the coordinator runs up to three such attempts in a row (180s).
 --- @type integer
-local CONNECT_TIMEOUT_MS = 30000
+local CONNECT_TIMEOUT_MS = 200000
+--- How long the parent gets to confirm the notification subscription.
+--- @type integer
+local SUBSCRIBE_TIMEOUT_MS = 30000
 --- How long to wait for the proxy to answer our DISCONNECT before connecting
 --- again. The standalone proxy only answers when the slot was allocated.
 --- @type integer
@@ -665,7 +670,7 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
   CancelTimer("PollCycle")
   link = "subscribing"
   -- Re-armed so a subscription that is never confirmed cannot hold the slot
-  SetTimer("ConnectTimeout", CONNECT_TIMEOUT_MS, function()
+  SetTimer("ConnectTimeout", SUBSCRIBE_TIMEOUT_MS, function()
     fail("Connection timed out")
   end)
   SendToProxy(ESPHOME_BINDING, "GATT_NOTIFY", {
