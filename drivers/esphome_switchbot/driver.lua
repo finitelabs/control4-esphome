@@ -294,7 +294,7 @@ local awaitingCommandResponse = false
 local notificationsSubscribed = false
 --- @type boolean
 local notificationsSubscribing = false
---- Whether the connect timeout gave up and released the link. Until the next
+--- Whether a failed attempt gave up and released the link. Until the next
 --- CONNECTED there is no link to lose, so a DISCONNECTED in between is the parent
 --- answering that DISCONNECT (the coordinator always does) and must neither hide
 --- the failure behind "Listening" nor reset a newer press.
@@ -451,17 +451,24 @@ end
 -- Connection Management
 --------------------------------------------------------------------------------
 
+--- Give up on a failed attempt: drop the queued command and release the link,
+--- freeing any slot the parent still holds for it.
+--- @param status string Driver status message to display
+local function abandonAttempt(status)
+  log:trace("abandonAttempt(%s)", status)
+  linkAbandoned = true
+  resetConnectionState()
+  SendToProxy(ESPHOME_BINDING, "DISCONNECT", {}, "NOTIFY")
+  updateStatus(status, false)
+end
+
 --- Request GATT connection from parent driver
 local function requestConnection()
   log:trace("requestConnection()")
   SendToProxy(ESPHOME_BINDING, "CONNECT", {}, "NOTIFY")
   SetTimer("ConnectionTimeout", CONNECT_TIMEOUT_MS, function()
     log:error("Connection failed: no answer to CONNECT after %dms", CONNECT_TIMEOUT_MS)
-    linkAbandoned = true
-    resetConnectionState()
-    -- Free any half-open slot the parent is still holding for us
-    SendToProxy(ESPHOME_BINDING, "DISCONNECT", {}, "NOTIFY")
-    updateStatus("Connection Failed: timeout", false)
+    abandonAttempt("Connection Failed: timeout")
   end)
 end
 
@@ -2437,12 +2444,12 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
           executePendingCommand()
         end
       else
-        updateStatus("Error: Missing characteristics", false)
+        abandonAttempt("Error: Missing characteristics")
       end
     end
   else
     log:error("No services provided in CONNECTED message")
-    updateStatus("Error: Missing services", false)
+    abandonAttempt("Error: Missing services")
   end
 end
 
@@ -2531,7 +2538,7 @@ function RFP.DISCONNECTED(idBinding, strCommand, tParams, args)
   local reason = Select(tParams, "reason") or "unknown"
   log:info("Disconnected from device: %s", reason)
 
-  -- The answer to the connect timeout's DISCONNECT: keep its failure status
+  -- The answer to a failed attempt's DISCONNECT: keep its failure status
   if linkAbandoned then
     log:debug("Ignoring DISCONNECTED - connection already abandoned")
     return
