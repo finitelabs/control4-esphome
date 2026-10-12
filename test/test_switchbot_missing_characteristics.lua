@@ -7,6 +7,9 @@
 --- The coordinator answers the DISCONNECT with DISCONNECTED. That answer must not
 --- turn the failure back into "Listening".
 ---
+--- With cached handles the link is usable, but an encrypted switch with no key
+--- still has nothing it can send, and has to release the link there too.
+---
 --- Run from the driver root:
 ---   make test
 --- or:
@@ -23,6 +26,7 @@ H.use("esphome_switchbot")
 
 local ESPHOME = 5001
 local BOT = SwitchBot.DEVICE_NAMES[SwitchBot.DeviceTypeCode.BOT]
+local RELAY = SwitchBot.DEVICE_NAMES[SwitchBot.DeviceTypeCode.RELAY_1]
 local SERVICE = "CBA20D00-224D-11E6-9FB8-0002A5D5C51B"
 local TX = "CBA20002-224D-11E6-9FB8-0002A5D5C51B"
 local RX = "CBA20003-224D-11E6-9FB8-0002A5D5C51B"
@@ -52,8 +56,14 @@ local function press()
 end
 
 --- @param services string|nil Serialized services; nil leaves them out.
-local function connected(services)
-  H.rfp(ESPHOME, "CONNECTED", { name = "Bot", mac = "AA:BB:CC:DD:EE:FF", deviceType = BOT, services = services })
+--- @param deviceType string|nil Defaults to the Bot.
+local function connected(services, deviceType)
+  H.rfp(ESPHOME, "CONNECTED", {
+    name = "SwitchBot",
+    mac = "AA:BB:CC:DD:EE:FF",
+    deviceType = deviceType or BOT,
+    services = services,
+  })
 end
 
 --- The coordinator's answer to a DISCONNECT.
@@ -111,5 +121,32 @@ H.test("handles cached from an earlier connect still carry a CONNECTED without c
   T.eq("nothing is disconnected", H.count("DISCONNECT", ESPHOME), 0)
   T.eq("and no error is shown", Properties["Driver Status"]:find("Error", 1, true), nil)
 end)
+
+local NO_KEY_CASES = {
+  { name = "with its characteristics", services = SERVICES },
+  { name = "on cached handles", services = NO_CHARACTERISTICS },
+}
+
+for _, case in ipairs(NO_KEY_CASES) do
+  H.test("an encrypted switch with no key releases a link that comes up " .. case.name, function()
+    H.boot(nil, function()
+      persist:set("TX_HANDLE", 12)
+      persist:set("RX_HANDLE", 14)
+      values:update("Device Type", RELAY, "STRING")
+    end)
+    H.rfp(bindings:getDynamicBinding("SwitchBot", "channel1").bindingId, "ON")
+    T.eq("the press asks the parent to connect", H.count("CONNECT", ESPHOME), 1)
+
+    connected(case.services, RELAY)
+    T.eq("Encryption Status says why", Properties["Encryption Status"], "Required - Not Configured")
+    T.truthy("the disconnect is scheduled", H.armed("DisconnectDelay"))
+    T.truthy("and fires", H.fire("DisconnectDelay"))
+    T.eq("sending DISCONNECT once", H.count("DISCONNECT", ESPHOME), 1)
+
+    disconnectAnswered()
+    T.eq("the driver is listening again", Properties["Driver Status"], "Listening")
+    T.eq("nothing was written", H.count("GATT_WRITE", ESPHOME), 0)
+  end)
+end
 
 T.finish()

@@ -485,6 +485,15 @@ local function requestDisconnect()
   SetTimer("DisconnectDelay", DISCONNECT_DELAY_MS, doDisconnect)
 end
 
+--- Encryption is required but no key is set, so nothing can be sent: drop the
+--- queued command and release the link.
+local function disconnectUnconfigured()
+  log:warn("Encryption not configured - control commands will fail")
+  UpdateProperty("Encryption Status", "Required - Not Configured")
+  pendingCommand = nil
+  requestDisconnect()
+end
+
 --- Cancel any pending disconnect (called when starting a new command)
 local function cancelPendingDisconnect()
   log:trace("cancelPendingDisconnect()")
@@ -2417,10 +2426,7 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
           if isEncryptionConfigured() then
             subscribeNotifications()
           else
-            log:warn("Encryption not configured - control commands will fail")
-            UpdateProperty("Encryption Status", "Required - Not Configured")
-            pendingCommand = nil
-            requestDisconnect()
+            disconnectUnconfigured()
           end
         else
           -- Non-encrypted device (Plug Mini)
@@ -2442,6 +2448,8 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
         elseif not requiresEncryption then
           updateEncryptionStatus()
           executePendingCommand()
+        else
+          disconnectUnconfigured()
         end
       else
         abandonAttempt("Error: Missing characteristics")
