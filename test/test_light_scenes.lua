@@ -1900,6 +1900,65 @@ do
   run(15000)
 end
 
+T.section("a color still on its way at an off is the light's previous color, told ahead of the level")
+do
+  local green = { 0.3, 0.6 }
+  --- The proxy's notifies since the mark, in order.
+  local function said()
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.binding == PROXY then
+        out[#out + 1] = s.command
+      end
+    end
+    return out
+  end
+  --- A Previous mode light, on in blue, `ms` into a 20 s ramp to green.
+  local function ramping(ms)
+    light({ ColorMode.COLOR_MODE_RGB }, false)
+    onMode(PREVIOUS_ON)
+    proxy("ON")
+    setColor(BLUE)
+    colorTarget(green, 20000)
+    run(ms)
+    mark()
+  end
+
+  ramping(6000)
+  proxy("OFF")
+  T.eq(
+    "an off 6 s into a 20 s color ramp: the proxy is told the color, then the level",
+    said(),
+    { "LIGHT_COLOR_CHANGED", "LIGHT_BRIGHTNESS_CHANGED" }
+  )
+  run(30000)
+  T.eq(
+    "the color the ramp was heading for, and nothing at its own end",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { green[1] }
+  )
+  -- The proxy's On in the Previous mode: the level, then the color it took.
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
+  colorTarget(green, 750)
+  T.eq("a rated on carries that color, and the proxy's own send of it adds none", #colors(), 1)
+  run(15000)
+  T.eq("which the proxy is told once", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { green[1] })
+
+  ramping(2000)
+  proxy("RAMP_TO_LEVEL", { LEVEL = 0, TIME = 4000 })
+  run(3900)
+  mark()
+  run(200)
+  T.eq(
+    "a 4 s fade to off inside that color ramp: the color is told, then the level",
+    said(),
+    { "LIGHT_COLOR_CHANGED", "LIGHT_BRIGHTNESS_CHANGED" }
+  )
+  run(30000)
+  T.eq("once, with nothing at the ramp's own end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { green[1] })
+end
+
 T.section("the color a replaced fade carried arrives with the command that replaced it")
 do
   local function toldColors()

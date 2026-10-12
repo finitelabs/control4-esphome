@@ -141,6 +141,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light that was fading to a color when a ramped level change, a ramped
   Off or a scene step with no color took over being shown in that color at once,
   before the bulb had reached it
+- Fixed a light turned off while its color was still fading coming back on, with
+  Color On Mode set to Previous, in the color the fade began in
 
 ### Changed
 

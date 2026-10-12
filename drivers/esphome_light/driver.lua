@@ -779,7 +779,15 @@ local mergedColorUntil = 0
 -- Helpers: brightness notifications
 ---------------------------------------------------------------------------
 
+local notifyColorChanged -- defined with the color notifications below
+
 local function endOnCycle()
+  -- A color still on its way is the one the bulb is in when it is next seen,
+  -- so the proxy hears it ahead of the level, where it takes its Previous On.
+  if rampingColor then
+    colorRamp.told = true
+    notifyColorChanged(colorRamp.targetX, colorRamp.targetY, colorRamp.targetMode)
+  end
   -- Snapshot the current color so color_on_mode_previous can restore it on the
   -- next on. Spec _7.4: "the proxy tracks the last color reported by a driver
   -- before a BRIGHTNESS_CHANGED notification occurs with a level of 0." We
@@ -834,7 +842,7 @@ end
 -- Helpers: color notifications
 ---------------------------------------------------------------------------
 
-local function notifyColorChanged(x, y, mode)
+function notifyColorChanged(x, y, mode)
   currentColorX = x
   currentColorY = y
   currentColorMode = mode
@@ -1246,9 +1254,13 @@ end
 
 function colorRampFinished(targetX, targetY, targetMode)
   cancelColorRampTimers()
+  -- A ramp told at an off went out with the preset id the off then dropped.
+  local told = colorRamp and colorRamp.told
   rampingColor = false
   colorRamp = nil
-  notifyColorChanged(targetX, targetY, targetMode)
+  if not told then
+    notifyColorChanged(targetX, targetY, targetMode)
+  end
 end
 
 local function colorRampStopped()
