@@ -134,6 +134,8 @@ for _, case in ipairs(NO_KEY_CASES) do
       persist:set("RX_HANDLE", 14)
       values:update("Device Type", RELAY, "STRING")
     end)
+    -- Boot already shows this status; clear it so CONNECTED has to set it.
+    Properties["Encryption Status"] = ""
     H.rfp(bindings:getDynamicBinding("SwitchBot", "channel1").bindingId, "ON")
     T.eq("the press asks the parent to connect", H.count("CONNECT", ESPHOME), 1)
 
