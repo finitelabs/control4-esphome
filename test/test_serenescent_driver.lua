@@ -920,7 +920,7 @@ test("every timer is armed with its declared duration", function()
   install()
   delays = {}
   command("Request Status")
-  T.eq("connect timeout outlasts the parent's own", delays.ConnectTimeout, 120000)
+  T.eq("connect timeout outlasts the parent's own", delays.ConnectTimeout, 200000)
   connected()
   T.eq("re-armed shorter for subscribing", delays.ConnectTimeout, 30000)
   subscribed()

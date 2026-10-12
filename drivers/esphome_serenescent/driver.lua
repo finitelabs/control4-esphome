@@ -69,10 +69,10 @@ local RESPONSE_TIMEOUT_MS = 2000
 --- @type integer
 local DISCONNECT_DELAY_MS = 3000
 --- Backstop for a CONNECT that is never answered. The parent reports a failed
---- connect itself, after its own timeouts and the coordinator's failover across
---- up to three proxies, so this sits well past those.
+--- connect itself: a proxy allows 30s to connect and 30s for GATT discovery, and
+--- the coordinator runs up to three such attempts in a row (180s).
 --- @type integer
-local CONNECT_TIMEOUT_MS = 120000
+local CONNECT_TIMEOUT_MS = 200000
 --- How long the parent gets to confirm the notification subscription.
 --- @type integer
 local SUBSCRIBE_TIMEOUT_MS = 30000
