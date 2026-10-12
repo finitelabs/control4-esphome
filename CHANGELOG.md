@@ -41,6 +41,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   happen on a first connect: a Yale lock stayed on "Error: Missing
   characteristics" and stopped polling or reconnecting; the driver now
   disconnects, frees the slot and handles it as a failed connection
+- Fixed a SwitchBot Relay Switch with no encryption key staying Busy and keeping
+  the proxy's connection slot when a connection came up without the device's
+  Bluetooth characteristics; it now disconnects and frees the slot
 
 ## v20260926 - 2026-09-26
 
