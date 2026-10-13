@@ -2333,6 +2333,14 @@ do
     { 2000 }
   )
 
+  -- 9.5 s into its 10 s a ramp to 30 % is within a rounding of it.
+  onInColor()
+  level(30, 10000)
+  run(9500)
+  colorTarget(BLUE, 2000)
+  T.eq("a color as a level ramp arrives: the proxy is told the level", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 9500 })
+  T.eq("and no ramp again", told("LIGHT_BRIGHTNESS_CHANGING", "RATE"), { 10000 })
+
   -- A scene step that sets a level alone, 2 s into a color fade.
   onInColor()
   proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(30, 2000) })
@@ -2411,6 +2419,22 @@ do
   run(15000)
   T.eq("the color is told as the light goes off", told("LIGHT_COLOR_CHANGED", "at"), { 5000 })
   T.eq("and nothing at the fade's own end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
+
+  -- Sent on again as it reaches off, the fade to off has told its color.
+  for _, rate in ipairs({ 2000, 0 }) do
+    local name = "a level over " .. rate .. " ms as a fade to off in a color fade reaches off"
+    light({ ColorMode.COLOR_MODE_RGB })
+    setColor(ON)
+    colorTarget(BLUE, 20000)
+    run(1000)
+    level(0, 4000)
+    run(3990)
+    mark()
+    level(50, rate)
+    run(15000)
+    T.eq(name .. ": the color is told once, with it", told("LIGHT_COLOR_CHANGED", "at"), { 0 })
+    T.eq(name .. ": and no fade of it again", told("LIGHT_COLOR_CHANGING", "at"), {})
+  end
 end
 
 T.section("a stop holds its own fade where the light is and leaves the other the time it has left")
@@ -2577,6 +2601,18 @@ do
     LIGHT_COLOR_TARGET_COLOR_RATE = 0,
   })
   T.eq("a color temperature: no mode is named", modes(), { false })
+  light({ RGBCT, CT }, false)
+  local x, y = C4:ColorCCTtoXY(3000)
+  proxy("UPDATE_COLOR_ON_MODE", {
+    COLOR_PRESET_ID = 1,
+    COLOR_PRESET_ORIGIN = 1,
+    COLOR_PRESET_COLOR_X = x,
+    COLOR_PRESET_COLOR_Y = y,
+    COLOR_PRESET_COLOR_MODE = 1,
+  })
+  mark()
+  proxy("ON")
+  T.eq("the color temperature an on carries: its mode, as before", modes(), { CT })
   C4.ColorCCTtoXY, C4.ColorXYtoCCT = toXY, toCCT
 end
 
