@@ -172,6 +172,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   that is off or fading to off now keeps the color for when it next comes on,
   and is shown in it at once, and an Advanced Lighting scene that sets a color
   and no level no longer turns it on
+- Fixed a color change sent with no ramp time snapping to the color at once on a
+  light whose default ramp rate had never been set; it now fades over the
+  default half second, as a level change does
 
 ### Changed
 

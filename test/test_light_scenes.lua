@@ -2704,4 +2704,31 @@ do
   T.eq("and the proxy is told a color ramp", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_COLOR_RATE"), { 2000 })
 end
 
+T.section("a color with no rate takes the default rate, the brightness one when none was ever set")
+do
+  local function colorNoRate(xy)
+    proxy("SET_COLOR_TARGET", { LIGHT_COLOR_TARGET_X = xy[1], LIGHT_COLOR_TARGET_Y = xy[2] })
+  end
+  for _, key in ipairs({ "color_rate_default", "brightness_rate_default" }) do
+    persist:delete(key)
+  end
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  mark()
+  colorNoRate(BLUE)
+  T.eq("with no default ever set: it goes out over 500 ms, as a level does", lengths(), { 500 })
+  T.eq("which the proxy is told", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_COLOR_RATE"), { 500 })
+  proxy("UPDATE_BRIGHTNESS_RATE_DEFAULT", { RATE = 750 })
+  mark()
+  colorNoRate(ON)
+  T.eq("with a default rate set: over that", lengths(), { 750 })
+  proxy("UPDATE_COLOR_RATE_DEFAULT", { RATE = 0 })
+  mark()
+  colorNoRate(BLUE)
+  T.eq("with a default of 0: at once", lengths(), { 0 })
+  for _, key in ipairs({ "color_rate_default", "brightness_rate_default" }) do
+    persist:delete(key)
+  end
+end
+
 T.finish()

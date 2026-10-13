@@ -511,12 +511,9 @@ end
 -- Rate" setting; the brightness and color defaults are the same value. If
 -- nothing has been persisted yet for color we fall back to the brightness
 -- default rather than the hard-coded constant so the two can never drift.
+-- Read as a number: a key never stored reads as an empty table, not nil.
 local function getDefaultColorRate()
-  local colorRate = persist:get(P_COLOR_RATE_DEFAULT)
-  if colorRate ~= nil then
-    return colorRate
-  end
-  return getDefaultRate()
+  return tointeger(persist:get(P_COLOR_RATE_DEFAULT)) or getDefaultRate()
 end
 
 local function getClickRateUp()
