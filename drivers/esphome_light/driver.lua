@@ -1850,7 +1850,10 @@ local function applySceneStep(step)
   local color = nil
   if step.colorEnabled and step.colorX and step.colorY then
     local x, y, mode = takenColor(step.colorX, step.colorY, step.colorMode or LIGHT_COLOR_MODE_FULL)
-    color = { x = x, y = y, mode = mode }
+    -- A color the light cannot take is none of the step's: nothing of it is sent or told.
+    if buildColorCmdFields(x, y, mode) then
+      color = { x = x, y = y, mode = mode }
+    end
   end
   local ownColor = color
   -- A color alone, for a light that is off or fading to off, is the color it
@@ -1869,7 +1872,12 @@ local function applySceneStep(step)
     end
   end
   local colorAtOnce = nil
-  local setsColor = color and not turningOff
+  -- An on color the light cannot take builds no fields: the step then sets none.
+  local colorFields = nil
+  if color and not turningOff then
+    colorFields = buildColorCmdFields(color.x, color.y, color.mode or LIGHT_COLOR_MODE_FULL)
+  end
+  local setsColor = colorFields ~= nil
   if setsColor then
     -- The step's color replaces the on color a brightness ramp carries and a
     -- color ramp in flight, each from where it has got to.
@@ -1880,7 +1888,7 @@ local function applySceneStep(step)
       brightnessRamp.colorSet = true
     end
     local mode = color.mode or LIGHT_COLOR_MODE_FULL
-    for k, v in pairs(buildColorCmdFields(color.x, color.y, mode) or {}) do
+    for k, v in pairs(colorFields) do
       cmd[k] = v
     end
     cmd.has_state = true

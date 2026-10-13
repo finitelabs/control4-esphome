@@ -2740,6 +2740,32 @@ do
   T.eq("and the proxy is told a color ramp", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_COLOR_RATE"), { 2000 })
 end
 
+T.section("a scene step's color that the light cannot take is none: nothing of it is sent or told")
+do
+  -- The step's fields are built from the light's modes, and a dimmer has none for a color.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  activate(colorStep(nil, { 0.3, 0.6 }, 3000))
+  T.eq("a color alone, on a light with no color: no command", commands(), 0)
+  T.eq("and no color fade told", told("LIGHT_COLOR_CHANGING", "at"), {})
+  run(4000)
+  activate(colorStep(40, BLUE, 3000))
+  T.eq("with a level: the level goes out", commands(), 1)
+  T.eq("as a fade of the level", told("LIGHT_BRIGHTNESS_CHANGING", "at"), { 0 })
+  T.eq("with no color fade beside it", told("LIGHT_COLOR_CHANGING", "at"), {})
+  run(4000)
+  T.eq("so none is left with no end", told("LIGHT_COLOR_CHANGED", "at"), {})
+  T.eq("and the level's is told", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 3000 })
+  -- A light that is off holds a color for its next on, but not one it cannot take.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+  activate(colorStep(nil, { 0.3, 0.6 }, 3000))
+  T.eq("a color alone, on such a light that is off: no command", commands(), 0)
+  T.eq("and no color told as held", told("LIGHT_COLOR_CHANGED", "at"), {})
+  light({ ColorMode.COLOR_MODE_COLOR_TEMPERATURE }, false)
+  activate(colorStep(nil, { 0.3, 0.6 }, 3000))
+  T.eq("a full color alone, on a color temperature light that is off: no command", commands(), 0)
+  T.eq("and none told", told("LIGHT_COLOR_CHANGED", "at"), {})
+end
+
 T.section("a color with no rate takes the default rate, the brightness one when none was ever set")
 do
   local function colorNoRate(xy)
