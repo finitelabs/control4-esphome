@@ -2413,4 +2413,118 @@ do
   T.eq("and nothing at the fade's own end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
 end
 
+T.section("a stop holds its own fade where the light is and leaves the other the time it has left")
+do
+  local function level(target, rate)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = target, RATE = rate })
+  end
+  --- The notifies of an aspect, "COLOR" or "BRIGHTNESS", since the mark.
+  local function notifies(aspect)
+    return #told("LIGHT_" .. aspect .. "_CHANGING", "at") + #told("LIGHT_" .. aspect .. "_CHANGED", "at")
+  end
+  --- A color light 3 s into a 10 s fade to blue, with a 10 s ramp to 30 %
+  --- begun 300 ms in: the ramp is at 91 %, and the color has 7.3 s left.
+  local function both()
+    light({ ColorMode.COLOR_MODE_RGB })
+    setColor(ON)
+    colorTarget(BLUE, 10000)
+    run(300)
+    level(30, 10000)
+    run(2700)
+    mark()
+  end
+  -- The color where the ramp re-timed it, and where the stop then finds it.
+  local retimed = ON[1] + (BLUE[1] - ON[1]) * eased(300 / 10000)
+  local stopped = retimed + (BLUE[1] - retimed) * eased(2700 / 10000)
+
+  both()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a level stop with a color fading: the level is held over the color's 7.3 s", lastLevel(), { 91 / 100, 7300 })
+  T.eq("the proxy is told the level", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 91 })
+  T.eq("and nothing of the color", notifies("COLOR"), 0)
+  run(15000)
+  T.eq("which it is told at the fade's own end", told("LIGHT_COLOR_CHANGED", "at"), { 7300 })
+  T.eq("with nothing more sent", lengths(), { 7300 })
+
+  -- The hold starts every channel again from where it is.
+  both()
+  proxy("SET_BRIGHTNESS_STOP")
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a color stop a second after it: the color is where the hold's fade has got to",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { stopped + (BLUE[1] - stopped) * eased(1000 / 7300) }
+  )
+  T.eq("and with nothing else fading, is sent with no transition", lengths(), { 0 })
+
+  -- The mirror: the ramp first, the color 300 ms in.
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  level(30, 10000)
+  run(300)
+  colorTarget(BLUE, 10000)
+  run(2700)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("a color stop with a level ramping: the color is held over the level's 7.3 s", lengths(), { 7300 })
+  T.eq(
+    "the proxy is told the color",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] + (BLUE[1] - ON[1]) * eased(2700 / 10000) }
+  )
+  T.eq("and nothing of the level", notifies("BRIGHTNESS"), 0)
+  run(15000)
+  T.eq("which it is told", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 30 })
+  T.eq("at the ramp's own end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 7300 })
+
+  both()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq("Stop Scene Ramp with both: the level is held, then the color lands both", lengths(), { 7300, 0 })
+  T.eq("the proxy is told the level", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 91 })
+  T.eq("and the color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { stopped })
+  run(15000)
+  T.eq("and nothing after", notifies("COLOR") + notifies("BRIGHTNESS"), 2)
+
+  -- A rated on 100 ms old, still at 0 %, when a color re-times it over 5 s.
+  offInBlue()
+  level(100, 4000)
+  run(100)
+  colorTarget({ 0.3, 0.6 }, 5000)
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a stop of a rated on with a color fading: the level is held, with no pre-on", lengths(), { 4000 })
+  T.eq("where a fifth of its time has got to", lastLevel(), { fadeLevel(0, 100, 1000 / 5000) / 100, 4000 })
+
+  -- With Dim-To-Warm a level sent alone would carry its mix.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  onMode(ON, DIM)
+  proxy("ON")
+  level(30, 10000)
+  run(300)
+  colorTarget(BLUE, 10000)
+  run(2700)
+  proxy("SET_COLOR_STOP")
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a level stop after the color's stop: nothing fading, it is sent with no transition", lengths(), { 0 })
+  T.eq("and no color, the one stopped being kept", #colors(), 0)
+  T.eq(
+    "where the color stop's hold has got to",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { fadeLevel(91, 30, 1000 / 7300) }
+  )
+
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  colorTarget(BLUE, 10000)
+  run(2500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("a color stop with nothing else fading is sent with no transition", lengths(), { 0 })
+end
+
 T.finish()

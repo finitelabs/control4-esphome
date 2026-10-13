@@ -158,6 +158,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   arrived: an ESPHome light takes a fade already running along with the new
   command, over that command's ramp time, and the driver now follows it and
   shows both finishing together, at once when the command has no ramp time
+- Fixed a light that was told to stop ramping while its color was still fading
+  jumping to the color the fade was heading for, and one told to stop a color
+  fade while it was ramping jumping to the level the ramp was heading for; a
+  stop now holds what it stops where the light is and leaves the other to finish
+  in the time it had left
 
 ### Changed
 

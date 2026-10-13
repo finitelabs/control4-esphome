@@ -908,14 +908,15 @@ end
 
 -- ESPHome runs one transition for every channel, so a command with no color
 -- moves a color on its way on over its own transition, and at once with none.
-local function retimeColor(ms)
+--- @param held boolean|nil A stop's hold over the time the color has left: its end stays, and nothing is told.
+local function retimeColor(ms, held)
   local ramp = colorRamp
   if not ramp then
     return
   end
   leaveColorRamp()
   carryColor(ramp.targetX, ramp.targetY, ramp.targetMode, ms, ramp)
-  if rampingColor and not ramp.told then
+  if rampingColor and not ramp.told and not held then
     notifyColorChanging(ramp.targetX, ramp.targetY, ramp.targetMode, ms)
   end
 end
@@ -977,7 +978,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
   --      the SET_COLOR_TARGET handler skip a redundant ESPHome cmd that
   --      would otherwise cancel and restart the in-flight transition.
   local mergedColor = nil
-  -- A stop after a color was set sends the level alone.
+  -- A stop that keeps a color sends the level alone.
   if not keepColor then
     if level > 0 and getColorOnModeKind() == COLOR_ON_MODE_FADE then
       mergedColor = computeFadeColor(level)
@@ -1032,8 +1033,8 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
     else
       notifyColorChanged(mergedColor.x, mergedColor.y, mergedColor.mode)
     end
-  elseif not keepColor then
-    retimeColor(cmd.transition_length)
+  else
+    retimeColor(cmd.transition_length, keepColor)
   end
 end
 
@@ -1106,11 +1107,16 @@ local function brightnessRampStopped()
   -- A color ramping, or set during this ramp, is not the level's to replace.
   -- One a replaced ramp carried is the level's own.
   local keepColor = (rampingColor and not colorRamp.carried) or brightnessRamp.colorSet
+  -- With no transition the stop would put the color at its target too, so a
+  -- color kept on its way has the level held over the time it has left.
+  local hold = keepColor and rampingColor and remaining(colorRamp) or 0
   rampingBrightness = false
   brightnessRamp = nil
-  -- Cancel ESPHome's in-flight transition by sending a 0-transition cmd at
-  -- the interpolated level. The bulb halts here.
-  setESPHomeBrightness(stoppedAt, 0, keepColor)
+  if hold > 0 and stoppedAt > 0 then
+    -- No turn-on, whose pre-on has no transition either.
+    currentBrightness = stoppedAt
+  end
+  setESPHomeBrightness(stoppedAt, hold, keepColor)
   notifyBrightnessChanged(stoppedAt)
 end
 
@@ -1151,7 +1157,8 @@ end
 
 -- The same for a level on its way when a command sets a color alone: it goes
 -- on to its target over that command's transition.
-local function retimeBrightness(ms)
+--- @param held boolean|nil A stop's hold over the time the level has left: its end stays, and nothing is told.
+local function retimeBrightness(ms, held)
   local ramp = leaveBrightnessRamp()
   if not ramp then
     return
@@ -1168,7 +1175,9 @@ local function retimeBrightness(ms)
     durationMs = ms,
     colorSet = ramp.colorSet,
   }
-  notifyBrightnessChanging(ramp.targetLevel, ms)
+  if not held then
+    notifyBrightnessChanging(ramp.targetLevel, ms)
+  end
   SetTimer("BrightnessRampFinish", ms, function()
     brightnessRampFinished(ramp.targetLevel)
   end, false)
@@ -1316,13 +1325,13 @@ local function colorRampStopped()
     return
   end
   local x, y, mode = interpolatedColor()
+  -- The mirror of a level's stop: held over the time a level ramp has left.
+  local hold = rampingBrightness and remaining(brightnessRamp) or 0
   rampingColor = false
   colorRamp = nil
-  sendColor(x, y, mode, 0)
-  currentColorX = x
-  currentColorY = y
-  currentColorMode = mode
+  sendColor(x, y, mode, hold)
   notifyColorChanged(x, y, mode)
+  retimeBrightness(hold, true)
 end
 
 local function rampToColor(targetX, targetY, targetMode, rate)
