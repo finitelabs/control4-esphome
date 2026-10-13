@@ -183,6 +183,78 @@ local sentLevels = {}
 local sentColors = {}
 
 ---------------------------------------------------------------------------
+-- The proxy's setup
+---------------------------------------------------------------------------
+
+--- The attributes of the element in `list` with this id, and this origin
+--- where one is given.
+local function setupPreset(list, id, origin)
+  list = list or {}
+  for _, element in ipairs(IsList(list) and list or { list }) do
+    local attr = element._attr or {}
+    if tointeger(attr.id) == id and (origin == nil or tointeger(attr.origin) == origin) then
+      return attr
+    end
+  end
+end
+
+-- The proxy sends its on modes and default rates only when they change, never
+-- at start. Its setup holds them, and it is the authority.
+local function readProxySetup()
+  local ok, setup = pcall(function()
+    return Select(ParseXml(SendUIRequest(C4:GetProxyDevices(), "GET_SETUP", {})), "setup")
+  end)
+  if not ok or type(setup) ~= "table" then
+    log:warn("The proxy's setup could not be read: %s", ok and "no setup in its answer" or setup)
+    return
+  end
+
+  -- A preset id means one preset only with its origin: the device's own and
+  -- the Color Agent's both count from 1.
+  local colors = Select(setup, "colors", "color")
+  local onId, onOrigin =
+    tointeger(setup.light_color_on_mode_preset_id), tointeger(setup.light_color_on_mode_preset_origin)
+  local fadeId = tointeger(setup.light_color_on_mode_fade_preset_id)
+  local fadeOrigin = tointeger(setup.light_color_on_mode_fade_preset_origin)
+  local on = onId and onOrigin and setupPreset(colors, onId, onOrigin)
+  local fade = fadeId and (fadeOrigin or 0) > 0 and setupPreset(colors, fadeId, fadeOrigin) or nil
+  if on and fadeOrigin and (fadeOrigin == 0 or fade) then
+    fade = fade or {}
+    RFP.UPDATE_COLOR_ON_MODE(PROXY_BINDING, "UPDATE_COLOR_ON_MODE", {
+      COLOR_PRESET_ID = onId,
+      COLOR_PRESET_ORIGIN = onOrigin,
+      COLOR_PRESET_COLOR_X = on.color_x,
+      COLOR_PRESET_COLOR_Y = on.color_y,
+      COLOR_PRESET_COLOR_MODE = on.color_mode,
+      COLOR_FADE_PRESET_ID = fadeId,
+      COLOR_FADE_PRESET_ORIGIN = fadeOrigin,
+      COLOR_FADE_PRESET_COLOR_X = fade.color_x,
+      COLOR_FADE_PRESET_COLOR_Y = fade.color_y,
+      COLOR_FADE_PRESET_COLOR_MODE = fade.color_mode,
+    })
+  end
+
+  local levelId = tointeger(setup.light_brightness_on_mode_preset_id)
+  local level = levelId and setupPreset(Select(setup, "brightnesses", "level"), levelId)
+  if level and tonumber(level.level) then
+    RFP.UPDATE_BRIGHTNESS_ON_MODE(
+      PROXY_BINDING,
+      "UPDATE_BRIGHTNESS_ON_MODE",
+      { BRIGHTNESS_PRESET_ID = levelId, BRIGHTNESS_PRESET_LEVEL = level.level }
+    )
+  end
+
+  local rate = tointeger(setup.light_brightness_rate_default)
+  if rate then
+    RFP.UPDATE_BRIGHTNESS_RATE_DEFAULT(PROXY_BINDING, "UPDATE_BRIGHTNESS_RATE_DEFAULT", { RATE = rate })
+  end
+  rate = tointeger(setup.light_color_rate_default)
+  if rate then
+    RFP.UPDATE_COLOR_RATE_DEFAULT(PROXY_BINDING, "UPDATE_COLOR_RATE_DEFAULT", { RATE = rate })
+  end
+end
+
+---------------------------------------------------------------------------
 -- Driver lifecycle
 ---------------------------------------------------------------------------
 
@@ -222,6 +294,7 @@ function OnDriverLateInit()
   updateStatus("Disconnected", false)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
+  readProxySetup()
 end
 
 ---------------------------------------------------------------------------
@@ -2207,6 +2280,9 @@ function RFP.UPDATE_BRIGHTNESS_ON_MODE(idBinding, strCommand, tParams, args)
   local presetId = tointeger(Select(tParams, "BRIGHTNESS_PRESET_ID"))
   local presetLevel = tonumber(Select(tParams, "BRIGHTNESS_PRESET_LEVEL")) or DEFAULT_PRESET_LEVEL
   persist:set(P_ON_MODE, { id = presetId, level = presetLevel })
+  -- The preset whose edits the on level follows, as UPDATE_BRIGHTNESS_PRESET
+  -- brings them.
+  persist:set(P_BRIGHTNESS_ON_MODE_PRESET, presetId)
 end
 
 -- Per spec _21.2: SET_BRIGHTNESS_ON_MODE is sent by the proxy to tell the
