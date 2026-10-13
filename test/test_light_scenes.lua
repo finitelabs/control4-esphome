@@ -150,6 +150,18 @@ local function fadeLevel(from, to, p)
   return math.floor(from + (to - from) * eased(p) + 0.5)
 end
 
+--- The transition length of each command the device was sent since the mark.
+local function lengths()
+  local out = {}
+  for _, s in ipairs(sent) do
+    local cmd = s.binding == ESPHOME and s.command == "ENTITY_COMMAND" and DeserializeSafe(s.params.body)
+    if cmd then
+      out[#out + 1] = cmd.transition_length
+    end
+  end
+  return out
+end
+
 --- A scene element setting a level over `rate` ms after `delay`, 0 if nil.
 local function levelStep(level, rate, delay)
   local step = "<element><delay>%d</delay><rate>%d</rate><brightnessEnabled>true</brightnessEnabled>"
@@ -316,7 +328,7 @@ end
 
 T.section("an on during a color ramp begun while the light was off: the light ends in the On color")
 do
-  -- The On color goes out after the ramp's, whose end would re-send its own.
+  -- The On color goes out after the ramp's, whose end sends nothing.
   local onColor = offInBlue()
   mark()
   colorTarget({ 0.3, 0.6 }, 3000)
@@ -444,7 +456,7 @@ end
 
 T.section("a color set during a rated on is the color the light ends in, with Dim-To-Warm too")
 do
-  -- The ramp's end re-sends the level alone, lest its mix replace the color.
+  -- The ramp's end sends nothing, so its mix cannot replace the color.
   for _, case in ipairs({ { 4000, 500 }, { 500, 500 }, { 0, 500 }, { 1000, 100 } }) do
     local rate, at = case[1], case[2]
     local name = ("over %d ms, %d ms into the on"):format(rate, at)
@@ -1312,7 +1324,7 @@ do
       run(20)
       target(lineX, lineY, 4000)
       run(20000)
-      T.eq(name .. ": the proxy's send of the color puts nothing more out", commands(), 3)
+      T.eq(name .. ": the proxy's send of the color puts nothing more out", commands(), 2)
       T.check(
         name .. ": the proxy is told the color once, as the light takes it",
         toldOnce(pointX, pointY, CCT),
@@ -2149,6 +2161,47 @@ do
     x ~= nil and math.abs(x - (ON[1] + (BLUE[1] - ON[1]) * 0.1035)) < 1e-4,
     T.show(x)
   )
+end
+
+T.section("a ramp's end sends the light nothing: it reaches its level and color by itself")
+do
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 2000 })
+  run(15000)
+  T.eq("a level ramp: the light is sent its one command", lengths(), { 2000 })
+  T.eq("and the proxy is told the level at its end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 2000 })
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  mark()
+  colorTarget(BLUE, 10000)
+  run(15000)
+  T.eq("a color ramp: the light is sent its one command", lengths(), { 10000 })
+  T.eq("and the proxy is told the color at its end", told("LIGHT_COLOR_CHANGED", "at"), { 10000 })
+  -- Sent again with no transition, a level put every channel at its target:
+  -- a color fade begun in the ramp ended with it, and the reverse.
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 2000 })
+  run(300)
+  colorTarget(BLUE, 10000)
+  run(15000)
+  T.eq("a color fade begun in a level ramp: nothing is sent as either ends", lengths(), { 2000, 10000 })
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  mark()
+  colorTarget(BLUE, 2000)
+  run(300)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 10000 })
+  run(15000)
+  T.eq("a level ramp begun in a color fade: nothing is sent as either ends", lengths(), { 2000, 10000 })
+  -- The pre-on, and the on itself.
+  offInBlue()
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(15000)
+  T.eq("a rated on that carries the On color: nothing is sent at its end", lengths(), { 0, 4000 })
+  T.eq("where the proxy is told the color", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
 end
 
 T.finish()

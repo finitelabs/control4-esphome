@@ -1045,6 +1045,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   a ramp still running being shown from the wrong level or color: an ESPHome
   light eases into and out of a ramp, and the driver took it to move at a steady
   rate
+- Fixed a light that was ramping and fading to a color at the same time jumping
+  to the end of both when the first of the two ran out: a slow color fade begun
+  during a short ramp sat almost still and then snapped to its color and level,
+  and a light turned off during a color fade and faded back on jumped to full
+  when the color fade would have ended
 
 ### Changed
 
