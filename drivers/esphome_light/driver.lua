@@ -790,9 +790,8 @@ local function getColorOnModeKind()
   return COLOR_ON_MODE_NONE
 end
 
--- The bulb is "logically on" if a ramp in flight is heading for an on level,
--- or with none in flight if we think it's on. A color command sends this
--- state: the other would cancel a fade up, or turn a fade to off full on.
+-- On when a ramp in flight is heading for an on level, or with none in flight when we think it is.
+-- A color command sends this state: the other would cancel a fade up, or turn a fade to off full on.
 local function isLogicallyOn()
   if rampingBrightness and brightnessRamp then
     return (brightnessRamp.targetLevel or 0) > 0
@@ -1087,7 +1086,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
   -- driver has to push these notifies for the picker to track.
   if mergedColorApplied then
     -- The color sent last is where the light goes, so a color ramp in flight
-    -- ends here: its end would report, and re-send, a color it has left.
+    -- ends here: its end would report a color it has left.
     leaveColorRamp(now)
     if hasRate then
       -- CHANGING reports the color left: the ramp's end sets the target.
@@ -1824,8 +1823,8 @@ local function applySceneStep(step)
     -- so subsequent CHANGED notifies don't echo a stale value. Color-only
     -- steps don't touch this so a brightness preset can survive across them.
     currentBrightnessPresetId = nil
-    -- A color-only step leaves a brightness ramp running, as the bulb does:
-    -- only a level replaces it.
+    -- A level ends a ramp in flight where it has got to. A color-only step
+    -- re-times it instead, below.
     replaced = leaveBrightnessRamp()
     goingOn = level > 0 and currentBrightness == 0
     -- Only prime a ramp when the level actually moves; an explicit step at
@@ -2714,8 +2713,6 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
 
   -- During a ramp ESPHome's echo confirms the level the ramp is heading for,
   -- not where the bulb is, so it is ignored: the ramp's end tells the level.
-  -- Outside a ramp the echo's target equals what we last set, so processing
-  -- it is a no-op (newBrightness already matches currentBrightness).
   if rampingBrightness and taken then
     leaveBrightnessRamp()
     notifyBrightnessChanged(newBrightness)
@@ -2728,9 +2725,8 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     notifyBrightnessChanged(newBrightness)
   end
 
-  -- A light keeps its color while off, so read it whether or not it is lit.
-  -- A ramp tells its own color, or the one it carries, at its end, unless
-  -- another client ended it: the level's ramp has then handed on its color.
+  -- A light keeps its color while off, so read it lit or not. A ramp tells its
+  -- color, or the one it carries, at its end, unless another client ended it.
   taken = taken and fading
   if taken then
     leaveColorRamp()
