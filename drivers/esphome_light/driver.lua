@@ -614,7 +614,8 @@ end
 -- Convert an XY/mode color into the right ESPHome cmd fields. Returns the
 -- partial cmd table or nil if the bulb doesn't support color/CCT or the
 -- provided values can't be mapped.
-local function buildColorCmdFields(x, y, mode)
+--- @param merged boolean|nil The color a level command carries, whose color temperature names its mode too.
+local function buildColorCmdFields(x, y, mode, merged)
   if not (supportsColor or supportsCCT) or x == nil or y == nil then
     return nil
   end
@@ -627,6 +628,9 @@ local function buildColorCmdFields(x, y, mode)
       has_color_temperature = true,
       color_temperature = kelvinToMireds(k),
     }
+    if not merged then
+      return fields
+    end
     -- Set color_mode explicitly so ESPHome doesn't have to infer.
     local pickedMode = pickColorMode("cct")
     if pickedMode then
@@ -651,6 +655,7 @@ local function buildColorCmdFields(x, y, mode)
   if supportsColor then
     local r, g, b = xyToRGB(x, y)
     local fields = { has_rgb = true, red = r, green = g, blue = b }
+    -- Named, or a light that is off in a mode with no color drops the color.
     local pickedMode = pickColorMode("rgb")
     if pickedMode then
       fields.has_color_mode = true
@@ -988,7 +993,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
   end
   local mergedColorApplied = false
   if mergedColor then
-    local colorFields = buildColorCmdFields(mergedColor.x, mergedColor.y, mergedColor.mode)
+    local colorFields = buildColorCmdFields(mergedColor.x, mergedColor.y, mergedColor.mode, true)
     if colorFields then
       for k, v in pairs(colorFields) do
         cmd[k] = v
@@ -1259,25 +1264,14 @@ end
 
 -- Build and send an ESPHome light_command reflecting the given color state.
 local function sendColor(x, y, mode, rateMs)
-  if not (supportsColor or supportsCCT) then
+  local cmd = buildColorCmdFields(x, y, mode)
+  if not cmd then
     return
   end
   -- isLogicallyOn so that a SET_COLOR_TARGET arriving mid-ramp from off→on
   -- doesn't send state=false (which would cancel the brightness transition).
-  local cmd = { has_state = true, state = isLogicallyOn() }
-  if mode == LIGHT_COLOR_MODE_CCT and supportsCCT then
-    local k = tonumber(C4:ColorXYtoCCT(x, y))
-    if k and k > 0 then
-      cmd.has_color_temperature = true
-      cmd.color_temperature = kelvinToMireds(k)
-    end
-  elseif supportsColor then
-    local r, g, b = xyToRGB(x, y)
-    cmd.has_rgb = true
-    cmd.red = r
-    cmd.green = g
-    cmd.blue = b
-  end
+  cmd.has_state = true
+  cmd.state = isLogicallyOn()
   cmd.has_transition_length = true
   cmd.transition_length = (rateMs and rateMs > 0) and rateMs or 0
   sendLightCommand(cmd)
@@ -1815,18 +1809,8 @@ local function applySceneStep(step)
       brightnessRamp.colorSet = true
     end
     local mode = color.mode or LIGHT_COLOR_MODE_FULL
-    if mode == LIGHT_COLOR_MODE_CCT and supportsCCT then
-      local k = tonumber(C4:ColorXYtoCCT(color.x, color.y))
-      if k and k > 0 then
-        cmd.has_color_temperature = true
-        cmd.color_temperature = kelvinToMireds(k)
-      end
-    elseif supportsColor then
-      local r, g, b = xyToRGB(color.x, color.y)
-      cmd.has_rgb = true
-      cmd.red = r
-      cmd.green = g
-      cmd.blue = b
+    for k, v in pairs(buildColorCmdFields(color.x, color.y, mode) or {}) do
+      cmd[k] = v
     end
     cmd.has_state = true
     cmd.state = true

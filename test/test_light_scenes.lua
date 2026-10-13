@@ -2527,4 +2527,57 @@ do
   T.eq("a color stop with nothing else fading is sent with no transition", lengths(), { 0 })
 end
 
+T.section("a full color goes out with its color mode named, so a light off in a white mode takes it")
+do
+  local RGBCT, CT = ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE, ColorMode.COLOR_MODE_COLOR_TEMPERATURE
+  --- The color mode each command since the mark named, false where it named none.
+  local function modes()
+    local out = {}
+    for _, s in ipairs(sent) do
+      local cmd = s.binding == ESPHOME and s.command == "ENTITY_COMMAND" and DeserializeSafe(s.params.body)
+      if cmd then
+        out[#out + 1] = cmd.has_color_mode and cmd.color_mode or false
+      end
+    end
+    return out
+  end
+  -- Off, ESPHome keeps the light's color mode unless the command names one,
+  -- and a color temperature mode drops a color.
+  light({ RGBCT, CT }, false)
+  mark()
+  colorTarget(ON, 0)
+  T.eq("a color for a light that is off: it names the mode that holds a color", modes(), { RGBCT })
+  light({ RGBCT, CT })
+  mark()
+  colorTarget(ON, 2000)
+  run(1000)
+  proxy("SET_COLOR_STOP")
+  T.eq("a color ramp, and its stop", modes(), { RGBCT, RGBCT })
+  activate(colorStep(nil, BLUE, 0))
+  T.eq("a scene step's color", modes(), { RGBCT })
+  activate(colorStep(50, ON, 2000))
+  T.eq("with a level too", modes(), { RGBCT })
+  proxy("CLEAR_ALL_SCENES")
+  light({ ColorMode.COLOR_MODE_RGB })
+  mark()
+  colorTarget(ON, 0)
+  T.eq("a light with color alone: its one mode", modes(), { ColorMode.COLOR_MODE_RGB })
+  -- A color temperature is left as it was: its mode is the light's to choose.
+  local toXY, toCCT = C4.ColorCCTtoXY, C4.ColorXYtoCCT
+  function C4:ColorCCTtoXY(kelvin)
+    return kelvin / 10000, 0.4
+  end
+  function C4:ColorXYtoCCT(x)
+    return x * 10000
+  end
+  light({ RGBCT, CT })
+  mark()
+  proxy("SET_COLOR_TARGET", {
+    LIGHT_COLOR_TARGET_COLOR_CORRELATED_TEMPERATURE = 3000,
+    LIGHT_COLOR_TARGET_COLOR_RATE = 0,
+  })
+  T.eq("a color temperature: no mode is named", modes(), { false })
+  C4.ColorCCTtoXY, C4.ColorXYtoCCT = toXY, toCCT
+end
+
 T.finish()

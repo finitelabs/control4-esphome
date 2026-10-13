@@ -1060,6 +1060,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   fade while it was ramping jumping to the level the ramp was heading for; a
   stop now holds what it stops where the light is and leaves the other to finish
   in the time it had left
+- Fixed a color set on a light that was off being dropped when the light had
+  last been on in a color temperature: it was shown in the color and came on
+  white
 
 ### Changed
 
