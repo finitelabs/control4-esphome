@@ -876,9 +876,17 @@ local leaveColorRamp, colorRampFinished -- defined with the color ramps below
 
 -- Track a color the bulb goes on to with no command of its own, for `ms`:
 -- its end tells the proxy and sends nothing.
-local function carryColor(x, y, mode, ms)
+--- @param from table|nil The ramp the color was already in, whose marks it keeps.
+local function carryColor(x, y, mode, ms, from)
+  local told = from and from.told
+  if told then
+    -- Told at an off, the color is the one the bulb is in when next seen.
+    currentColorX, currentColorY, currentColorMode = x, y, mode
+  end
   if ms <= 0 then
-    notifyColorChanged(x, y, mode)
+    if not told then
+      notifyColorChanged(x, y, mode)
+    end
     return
   end
   rampingColor = true
@@ -890,7 +898,8 @@ local function carryColor(x, y, mode, ms)
     targetY = y,
     targetMode = mode,
     durationMs = ms,
-    carried = true,
+    carried = not from or from.carried,
+    told = told,
   }
   SetTimer("ColorRampFinish", ms, function()
     colorRampFinished(x, y, mode)
@@ -898,12 +907,16 @@ local function carryColor(x, y, mode, ms)
 end
 
 -- ESPHome runs one transition for every channel, so a command with no color
--- moves a carried color on over its own transition, and at once with none.
-local function retimeCarriedColor(ms)
+-- moves a color on its way on over its own transition, and at once with none.
+local function retimeColor(ms)
   local ramp = colorRamp
-  if ramp and ramp.carried then
-    leaveColorRamp()
-    carryColor(ramp.targetX, ramp.targetY, ramp.targetMode, ms)
+  if not ramp then
+    return
+  end
+  leaveColorRamp()
+  carryColor(ramp.targetX, ramp.targetY, ramp.targetMode, ms, ramp)
+  if rampingColor and not ramp.told then
+    notifyColorChanging(ramp.targetX, ramp.targetY, ramp.targetMode, ms)
   end
 end
 
@@ -1019,8 +1032,8 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
     else
       notifyColorChanged(mergedColor.x, mergedColor.y, mergedColor.mode)
     end
-  else
-    retimeCarriedColor(cmd.transition_length)
+  elseif not keepColor then
+    retimeColor(cmd.transition_length)
   end
 end
 
@@ -1134,6 +1147,31 @@ local function leaveBrightnessRamp()
   rampingBrightness = false
   brightnessRamp = nil
   return ramp
+end
+
+-- The same for a level on its way when a command sets a color alone: it goes
+-- on to its target over that command's transition.
+local function retimeBrightness(ms)
+  local ramp = leaveBrightnessRamp()
+  if not ramp then
+    return
+  end
+  if ms <= 0 or currentBrightness == ramp.targetLevel then
+    notifyBrightnessChanged(ramp.targetLevel)
+    return
+  end
+  rampingBrightness = true
+  brightnessRamp = {
+    startTime = C4:GetTime(),
+    startLevel = currentBrightness,
+    targetLevel = ramp.targetLevel,
+    durationMs = ms,
+    colorSet = ramp.colorSet,
+  }
+  notifyBrightnessChanging(ramp.targetLevel, ms)
+  SetTimer("BrightnessRampFinish", ms, function()
+    brightnessRampFinished(ramp.targetLevel)
+  end, false)
 end
 
 local function awayFromFadeColor(level)
@@ -1304,6 +1342,7 @@ local function rampToColor(targetX, targetY, targetMode, rate)
     currentColorMode = targetMode
     sendColor(targetX, targetY, targetMode, 0)
     notifyColorChanged(targetX, targetY, targetMode)
+    retimeBrightness(0)
     return
   end
 
@@ -1324,6 +1363,7 @@ local function rampToColor(targetX, targetY, targetMode, rate)
   SetTimer("ColorRampFinish", rate, function()
     colorRampFinished(targetX, targetY, targetMode)
   end, false)
+  retimeBrightness(rate)
 end
 
 ---------------------------------------------------------------------------
@@ -1755,7 +1795,8 @@ local function applySceneStep(step)
     end
   end
   local colorAtOnce = nil
-  if color and not turningOff then
+  local setsColor = color and not turningOff
+  if setsColor then
     -- The step's color replaces the on color a brightness ramp carries and a
     -- color ramp in flight, each from where it has got to.
     leaveMergedColor()
@@ -1812,7 +1853,13 @@ local function applySceneStep(step)
       sendPreOn()
     end
     sendLightCommand(cmd)
-    retimeCarriedColor(rate)
+    -- The fade the step sets nothing of goes on over the step's transition.
+    if not setsColor then
+      retimeColor(rate)
+    end
+    if level == nil then
+      retimeBrightness(rate)
+    end
     -- A step taken at once is where the light is: what follows starts there.
     -- One landing where a replaced ramp had got to is told too, as its end.
     if level ~= nil and not rampingBrightness and (level ~= currentBrightness or replaced) then

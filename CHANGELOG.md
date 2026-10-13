@@ -153,6 +153,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   during a short ramp sat almost still and then snapped to its color and level,
   and a light turned off during a color fade and faded back on jumped to full
   when the color fade would have ended
+- Fixed a light that was sent a level while its color was fading, or a color
+  while it was ramping, being shown as still changing for seconds after it had
+  arrived: an ESPHome light takes a fade already running along with the new
+  command, over that command's ramp time, and the driver now follows it and
+  shows both finishing together, at once when the command has no ramp time
 
 ### Changed
 
