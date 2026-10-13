@@ -3225,4 +3225,124 @@ do
   C4.ColorCCTtoXY, C4.ColorXYtoCCT = toXY, toCCT
 end
 
+T.section("a fade a command re-times is read as the command goes out, not once the proxy has been told")
+do
+  local function level(target, rate)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = target, RATE = rate })
+  end
+  --- A color light on at full in the On color, with Dim-To-Warm if `warm`, on
+  --- a controller that takes 10 ms over each message to the device or the proxy.
+  local function slowLight(warm)
+    light({ ColorMode.COLOR_MODE_RGB })
+    if warm then
+      onMode(ON, DIM)
+    end
+    setColor(ON)
+    local send = SendToProxy
+    function SendToProxy(...)
+      send(...)
+      now = now + 10
+    end
+    mark()
+  end
+  --- The level a stop holds the light at.
+  local function stoppedAt()
+    mark()
+    proxy("SET_BRIGHTNESS_STOP")
+    return told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT")
+  end
+
+  -- Half way through 1.5 s a fade is at its steepest: 20 ms is 2 % of 100 to 20.
+  slowLight()
+  level(20, 1500)
+  run(730)
+  colorTarget(BLUE, 1500)
+  T.eq(
+    "a color 750 ms into a level ramp: the ramp is told again from the level it was at as the color went out",
+    told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 100, fadeLevel(100, 20, 750 / 1500) }
+  )
+  run(720)
+  T.eq("and begins again then: a stop 750 ms on is half way from there", stoppedAt(), { fadeLevel(60, 20, 750 / 1500) })
+
+  local half = ON[1] + (BLUE[1] - ON[1]) * eased(750 / 1500)
+  slowLight()
+  colorTarget(BLUE, 1500)
+  run(730)
+  level(20, 1500)
+  T.eq(
+    "a level 750 ms into a color fade: the fade is told again from the color it was at as the level went out",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1], half }
+  )
+  run(720)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "and begins again then: a stop 750 ms on is half way from there",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { half + (BLUE[1] - half) * eased(750 / 1500) }
+  )
+
+  -- With Dim-To-Warm the level carries a color of its own, which replaces the fade.
+  slowLight(true)
+  colorTarget(BLUE, 1500)
+  run(730)
+  level(20, 1500)
+  T.eq(
+    "a level that carries its color, 750 ms into a color fade: its color is told from where the fade was then",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1], half }
+  )
+
+  -- A color for a light fading to off restarts the fade's record, untold.
+  slowLight()
+  level(0, 1500)
+  run(730)
+  colorTarget(BLUE, 1000)
+  run(80)
+  T.eq(
+    "a color 750 ms into a fade to off: a stop 100 ms on reads the fade from where the color found it",
+    stoppedAt(),
+    { fadeLevel(50, 0, 100 / 750) }
+  )
+
+  -- A color stop holds over the 770 ms the level has left, 730 ms into it.
+  slowLight()
+  colorTarget(BLUE, 3000)
+  level(20, 1500)
+  run(700)
+  proxy("SET_COLOR_STOP")
+  run(365)
+  T.eq(
+    "a color stop in a level ramp: a level stop half the hold on reads the ramp from where the stop found it",
+    stoppedAt(),
+    { fadeLevel(fadeLevel(100, 20, 730 / 1500), 20, 385 / 770) }
+  )
+
+  -- A scene step tells its own fade, 10 ms, and then sends.
+  slowLight()
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(20, 1500) })
+  colorTarget(BLUE, 1500)
+  run(730)
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq(
+    "a scene step's level in a color fade: the fade is told again from the color it was at as the step went out",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1], ON[1] + (BLUE[1] - ON[1]) * eased(760 / 1500) }
+  )
+  proxy("CLEAR_ALL_SCENES")
+  slowLight()
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(nil, BLUE, 1500) })
+  level(20, 1500)
+  run(730)
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq(
+    "a scene step's color in a level ramp: the ramp is told again from the level it was at as the step went out",
+    told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 100, fadeLevel(100, 20, 760 / 1500) }
+  )
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.finish()
