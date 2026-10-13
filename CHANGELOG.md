@@ -143,6 +143,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   before the bulb had reached it
 - Fixed a light turned off while its color was still fading coming back on, with
   Color On Mode set to Previous, in the color the fade began in
+- Fixed a light that was stopped part way through a ramp stepping to another
+  level, by up to 15 % of the ramp, and a ramp, fade or stop that took over from
+  a ramp still running being shown from the wrong level or color: an ESPHome
+  light eases into and out of a ramp, and the driver took it to move at a steady
+  rate
 
 ### Changed
 

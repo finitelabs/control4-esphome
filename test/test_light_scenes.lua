@@ -139,6 +139,17 @@ local function commands()
   return count
 end
 
+--- ESPHome's easing of a transition: how far along it is at fraction `p` of
+--- its time (LightTransformer::smoothed_progress).
+local function eased(p)
+  return p * p * p * (p * (p * 6 - 15) + 10)
+end
+
+--- The level a fade from `from` to `to` has got to at fraction `p` of its time.
+local function fadeLevel(from, to, p)
+  return math.floor(from + (to - from) * eased(p) + 0.5)
+end
+
 --- A scene element setting a level over `rate` ms after `delay`, 0 if nil.
 local function levelStep(level, rate, delay)
   local step = "<element><delay>%d</delay><rate>%d</rate><brightnessEnabled>true</brightnessEnabled>"
@@ -320,9 +331,9 @@ do
   run(100)
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
-  local tenth = BLUE[1] + (0.3 - BLUE[1]) * (100 / 1000)
+  local tenth = BLUE[1] + (0.3 - BLUE[1]) * eased(100 / 1000)
   T.eq(
-    "a rated on: from a tenth of the way to the ramp's color",
+    "a rated on: from where a tenth of the ramp's time has taken the color",
     told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
     { tenth }
   )
@@ -565,9 +576,9 @@ do
   run(15000)
   T.eq("and the color ramp runs to its end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { green[1] })
   T.eq(
-    "the proxy is told where the level stopped",
+    "the proxy is told where the level stopped, 1.5 s into the on's 4 s",
     told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
-    { 38 }
+    { fadeLevel(0, 100, 1500 / 4000) }
   )
   -- With Dim-To-Warm the level held in a scene's fade would carry its mix.
   light({ ColorMode.COLOR_MODE_RGB }, false)
@@ -698,11 +709,11 @@ do
   T.eq(
     "a color fade: the proxy is told the color it had got to",
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { ON[1] + (DIM[1] - ON[1]) * (1000 / 4000) }
+    { ON[1] + (DIM[1] - ON[1]) * eased(1000 / 4000) }
   )
   T.eq("which the light is sent", #colors(), 1)
   proxy("CLEAR_ALL_SCENES")
-  -- Ramp Scene Up from 20, stopped a second into its 5 s: at 36.
+  -- Ramp Scene Up from 20, stopped a second into its 5 s.
   light({ ColorMode.COLOR_MODE_BRIGHTNESS })
   proxy("SET_LEVEL", { LEVEL = 20 })
   proxy("RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 5000 })
@@ -711,7 +722,11 @@ do
   proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
   run(15000)
   T.eq("Ramp Scene Up, stopped: the light is sent the level it had got to", commands(), 1)
-  T.eq("and the proxy is told it", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 36 })
+  T.eq(
+    "and the proxy is told it",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { fadeLevel(20, 100, 1000 / 5000) }
+  )
   -- STOP_RAMP_SCENE is the published spec's name for the same stop.
   light({ ColorMode.COLOR_MODE_BRIGHTNESS })
   proxy("SET_LEVEL", { LEVEL = 50 })
@@ -722,7 +737,7 @@ do
   T.eq(
     "a step's fade, stopped: the proxy is told where, and nothing after",
     told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
-    { 40 }
+    { fadeLevel(50, 0, 2000 / 10000) }
   )
   light({ ColorMode.COLOR_MODE_BRIGHTNESS })
   proxy("SET_LEVEL", { LEVEL = 20 })
@@ -746,11 +761,15 @@ do
   mark()
   proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
   T.eq(
-    "a fade of level and color: the proxy is told a quarter of the way to the green",
+    "a fade of level and color: the proxy is told the color a quarter of its time has got to",
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { ON[1] + (green[1] - ON[1]) * (1000 / 4000) }
+    { ON[1] + (green[1] - ON[1]) * eased(1000 / 4000) }
   )
-  T.eq("and the level it stopped at", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 80 })
+  T.eq(
+    "and the level it stopped at",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { fadeLevel(100, 20, 1000 / 4000) }
+  )
   proxy("CLEAR_ALL_SCENES")
   light({ ColorMode.COLOR_MODE_RGB }, false)
   onMode(ON, DIM)
@@ -1414,9 +1433,9 @@ do
   mark()
   proxy("RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 2000 })
   T.eq(
-    "Ramp Scene Up in a step's fade: the color ramps from a quarter of the way through it",
+    "Ramp Scene Up in a step's fade: the color ramps from where a quarter of its time has got to",
     told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
-    { ON[1] + (green[1] - ON[1]) * 0.25 }
+    { ON[1] + (green[1] - ON[1]) * eased(0.25) }
   )
   T.eq("to the mix for the on level", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { mix(100) })
   run(15000)
@@ -1437,7 +1456,7 @@ end
 T.section("a scene step that sets a color alone leaves a brightness ramp running, for a stop to hold")
 do
   local other = { 0.2, 0.5 }
-  -- 5 s into a 20 s fade from 100 to 30; the stop comes 800 ms on, at 80.
+  -- 5 s into a 20 s fade from 100 to 30; the stop comes 800 ms on.
   light({ ColorMode.COLOR_MODE_RGB })
   setColor(BLUE)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 20000 })
@@ -1453,7 +1472,7 @@ do
   T.eq(
     "a stop after the step holds the fade where it has got to",
     told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
-    { 80 }
+    { fadeLevel(100, 30, 5800 / 20000) }
   )
   T.eq("in the step's color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { other[1] })
   proxy("CLEAR_ALL_SCENES")
@@ -1482,7 +1501,11 @@ do
   mark()
   proxy("SET_BRIGHTNESS_STOP")
   T.eq("a stop of a rated on after the step: it sends the level alone", #colors(), 0)
-  T.eq("where the on has got to", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 29 })
+  T.eq(
+    "where the on has got to",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { fadeLevel(0, 100, 5800 / 20000) }
+  )
   T.eq("and tells the proxy no color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), {})
   proxy("CLEAR_ALL_SCENES")
   offInBlue()
@@ -1543,7 +1566,8 @@ do
     )
     proxy("CLEAR_ALL_SCENES")
   end
-  -- 2 s into a 10 s ramp from 30 to 100 the light is at 44.
+  -- 2 s into a 10 s ramp from 30 to 100.
+  local fifth = fadeLevel(30, 100, 2000 / 10000)
   for _, rate in ipairs({ 3000, 0 }) do
     local name = "a step back to where a ramp began, over " .. rate .. " ms"
     light({ ColorMode.COLOR_MODE_BRIGHTNESS })
@@ -1552,9 +1576,9 @@ do
     run(2000)
     activate(levelStep(30, rate))
     T.eq(
-      name .. ": the proxy is told a ramp from 44, or none",
+      name .. ": the proxy is told a ramp from where it had got to, or none",
       told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"),
-      rate > 0 and { 44 } or {}
+      rate > 0 and { fifth } or {}
     )
     run(15000)
     T.eq(name .. ": and the step's level, once", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 30 })
@@ -1584,9 +1608,9 @@ do
   run(1000)
   activate(colorStep(nil, DIM, 2000))
   T.eq(
-    "a step in a command's color ramp ramps from a quarter of the way through it",
+    "a step in a command's color ramp ramps from where a quarter of its time has got to",
     told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
-    { ON[1] + (other[1] - ON[1]) * 0.25 }
+    { ON[1] + (other[1] - ON[1]) * eased(0.25) }
   )
   run(15000)
   T.eq(
@@ -1711,7 +1735,7 @@ do
     T.eq(
       stop .. ": the proxy is told where it stopped",
       told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
-      { 80 }
+      { fadeLevel(100, 20, 1000 / 4000) }
     )
     T.eq(stop .. ": and no color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), {})
     proxy("CLEAR_ALL_SCENES")
@@ -1726,9 +1750,9 @@ do
   mark()
   proxy("SET_BRIGHTNESS_STOP")
   T.eq(
-    "a stop of a step's Dim-To-Warm fade, its color stopped first: the mix for 80 %",
+    "a stop of a step's Dim-To-Warm fade, its color stopped first: the mix for the level it stopped at",
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { mix(80) }
+    { mix(fadeLevel(100, 20, 1000 / 4000)) }
   )
   proxy("CLEAR_ALL_SCENES")
 end
@@ -1795,9 +1819,9 @@ do
   mark()
   proxy("RAMP_TO_LEVEL", { LEVEL = 100, TIME = 4000 })
   T.eq(
-    "a dim sent back up: from a quarter of the way to the mix for 10 %",
+    "a dim sent back up: from where a quarter of its time has got to, toward the mix for 10 %",
     told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
-    { mix(100) + (mix(10) - mix(100)) * 0.25 }
+    { mix(100) + (mix(10) - mix(100)) * eased(0.25) }
   )
   T.eq("to the mix for 100 %", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { mix(100) })
   run(20000)
@@ -1815,9 +1839,9 @@ do
       colorTarget(other, 1000)
     end
     T.eq(
-      replace .. " a quarter into a rated on: from a quarter of the way to the On color",
+      replace .. " a quarter into a rated on: from where a quarter of its time has got to, toward the On color",
       told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
-      { BLUE[1] + (ON[1] - BLUE[1]) * 0.25 }
+      { BLUE[1] + (ON[1] - BLUE[1]) * eased(0.25) }
     )
     run(15000)
     T.eq(
@@ -2079,6 +2103,52 @@ do
   run(15000)
   T.eq("a level as a rated on's time is up: the proxy is told the On color", toldColors(), { ON[1] })
   T.eq("with the level, at the on's last millisecond", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+end
+
+T.section("a ramp part way through its time is where the light's easing has taken it, not a straight line")
+do
+  -- As measured on an ESPHome light: 91.8 % a quarter through a 10 s fade from
+  -- 100 to 20, where a straight line gives 80, and 96 % 2 s into one to 30.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 20, RATE = 10000 })
+  run(2500)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a stop a quarter through: the light is held at 92", lastLevel(), { 92 / 100, 0 })
+  T.eq("which the proxy is told", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 92 })
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 10000 })
+  run(2000)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 3000 })
+  T.eq(
+    "a fade to off 2 s in: its ramp is told from 96",
+    told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 96 }
+  )
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 20, RATE = 10000 })
+  run(5000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "half way through its time a fade is half way",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 60 }
+  )
+  -- A color is 10.4 % of its way a quarter through, the easing's value there.
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  colorTarget(BLUE, 10000)
+  run(2500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  local x = told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")[1]
+  T.check(
+    "a color stop a quarter through: the color is told 10.4 % of its way",
+    x ~= nil and math.abs(x - (ON[1] + (BLUE[1] - ON[1]) * 0.1035)) < 1e-4,
+    T.show(x)
+  )
 end
 
 T.finish()

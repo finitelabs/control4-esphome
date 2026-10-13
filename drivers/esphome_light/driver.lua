@@ -1042,6 +1042,17 @@ local function cancelBrightnessRampTimers()
   CancelTimer("BrightnessRampFinish")
 end
 
+-- ESPHome eases a transition (LightTransformer::smoothed_progress): a ramp
+-- is 10 % of its way a quarter through its time, and half way at the half.
+local function eased(p)
+  return p * p * p * (p * (p * 6 - 15) + 10)
+end
+
+--- The time a ramp has left, in ms.
+local function remaining(ramp)
+  return math.max(0, ramp.durationMs - (C4:GetTime() - ramp.startTime))
+end
+
 local function interpolatedBrightness()
   if not brightnessRamp or brightnessRamp.durationMs <= 0 then
     return currentBrightness
@@ -1053,7 +1064,7 @@ local function interpolatedBrightness()
   if elapsed >= brightnessRamp.durationMs then
     return brightnessRamp.targetLevel
   end
-  local progress = elapsed / brightnessRamp.durationMs
+  local progress = eased(elapsed / brightnessRamp.durationMs)
   local span = brightnessRamp.targetLevel - brightnessRamp.startLevel
   return math.floor(brightnessRamp.startLevel + span * progress + 0.5)
 end
@@ -1101,10 +1112,10 @@ local function leaveMergedColor()
   end
   brightnessRamp.mergedColor = nil
   local elapsed = C4:GetTime() - brightnessRamp.startTime
-  local progress = math.min(1, elapsed / brightnessRamp.durationMs)
+  local progress = eased(math.min(1, elapsed / brightnessRamp.durationMs))
   currentColorX = currentColorX + (merged.x - currentColorX) * progress
   currentColorY = currentColorY + (merged.y - currentColorY) * progress
-  carryColor(merged.x, merged.y, merged.mode, brightnessRamp.durationMs - elapsed)
+  carryColor(merged.x, merged.y, merged.mode, remaining(brightnessRamp))
 end
 
 -- End a brightness ramp where it has got to, so what replaces it starts there
@@ -1238,7 +1249,7 @@ local function interpolatedColor()
   if elapsed >= colorRamp.durationMs then
     return colorRamp.targetX, colorRamp.targetY, colorRamp.targetMode
   end
-  local progress = elapsed / colorRamp.durationMs
+  local progress = eased(elapsed / colorRamp.durationMs)
   local x = colorRamp.startX + (colorRamp.targetX - colorRamp.startX) * progress
   local y = colorRamp.startY + (colorRamp.targetY - colorRamp.startY) * progress
   return x, y, colorRamp.targetMode
