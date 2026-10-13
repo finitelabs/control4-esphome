@@ -1063,6 +1063,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a color set on a light that was off being dropped when the light had
   last been on in a color temperature: it was shown in the color and came on
   white
+- Fixed a color sent to a light that was fading to off turning it full on in
+  that color until the fade's time was up, and a color set over a ramp time on a
+  light that was off making a ramped On after it jump to full early; a light
+  that is off or fading to off now keeps the color for when it next comes on,
+  and is shown in it at once, and an Advanced Lighting scene that sets a color
+  and no level no longer turns it on
 
 ### Changed
 

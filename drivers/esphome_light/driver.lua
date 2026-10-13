@@ -735,13 +735,12 @@ local function getColorOnModeKind()
   return COLOR_ON_MODE_NONE
 end
 
--- The bulb is "logically on" if either we already think it's on or a ramp
--- is in flight targeting an on-state. Used so a SET_COLOR_TARGET arriving
--- mid-ramp from off→on doesn't send state=false (which kills the brightness
--- fade by reverting the bulb to off).
+-- The bulb is "logically on" if a ramp in flight is heading for an on level,
+-- or with none in flight if we think it's on. A color command sends this
+-- state: the other would cancel a fade up, or turn a fade to off full on.
 local function isLogicallyOn()
-  if rampingBrightness and brightnessRamp and (brightnessRamp.targetLevel or 0) > 0 then
-    return true
+  if rampingBrightness and brightnessRamp then
+    return (brightnessRamp.targetLevel or 0) > 0
   end
   return currentBrightness > 0
 end
@@ -1268,8 +1267,6 @@ local function sendColor(x, y, mode, rateMs)
   if not cmd then
     return
   end
-  -- isLogicallyOn so that a SET_COLOR_TARGET arriving mid-ramp from off→on
-  -- doesn't send state=false (which would cancel the brightness transition).
   cmd.has_state = true
   cmd.state = isLogicallyOn()
   cmd.has_transition_length = true
@@ -1339,13 +1336,20 @@ local function rampToColor(targetX, targetY, targetMode, rate)
     brightnessRamp.colorSet = true
   end
 
-  if rate == 0 then
+  -- A light that is off, or fading to off, has no color fade to show: this is
+  -- the color it next comes on in, sent over what a fade to off has left.
+  local off = not isLogicallyOn()
+  if off then
+    rate = rampingBrightness and remaining(brightnessRamp) or 0
+  end
+
+  if rate == 0 or off then
     currentColorX = targetX
     currentColorY = targetY
     currentColorMode = targetMode
-    sendColor(targetX, targetY, targetMode, 0)
+    sendColor(targetX, targetY, targetMode, rate)
     notifyColorChanged(targetX, targetY, targetMode)
-    retimeBrightness(0)
+    retimeBrightness(rate, off)
     return
   end
 
@@ -1789,6 +1793,13 @@ local function applySceneStep(step)
     color = { x = x, y = y, mode = mode }
   end
   local ownColor = color
+  -- A color alone, for a light that is off or fading to off, is the color it
+  -- next comes on in, as a color command's is: the step does not turn it on.
+  if ownColor and level == nil and not isLogicallyOn() then
+    currentColorPresetId = nil
+    rampToColor(color.x, color.y, color.mode, rate)
+    return rate
+  end
   -- A step that sets a level alone takes the color a level command would.
   if not color and (level or 0) > 0 then
     if getColorOnModeKind() == COLOR_ON_MODE_FADE then
