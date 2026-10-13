@@ -1072,6 +1072,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a color change sent with no ramp time snapping to the color at once on a
   light whose default ramp rate had never been set; it now fades over the
   default half second, as a level change does
+- Fixed a light that another controller of the ESPHome device, such as Home
+  Assistant, set to a level or color while it was ramping from Control4 being
+  put back at the ramp's level or color when the ramp's time was up; the change
+  is now kept, and shown as soon as the light reports it
 
 ### Changed
 

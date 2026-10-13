@@ -76,6 +76,11 @@ local function compileHandler(source)
     currentBrightness = -1,
     COLOR_MODES_SUPPORTING_CCT = {},
     COLOR_MODES_SUPPORTING_RGB = {},
+    sentLevels = {},
+    sentColors = {},
+    isOwnReport = function()
+      return true
+    end,
     brightnessPushes = {},
     proxySends = {},
   }

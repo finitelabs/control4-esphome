@@ -2731,4 +2731,462 @@ do
   end
 end
 
+T.section("a report during a ramp of a level or color the driver did not send is another client's, taken as news")
+do
+  local RGB = ColorMode.COLOR_MODE_RGB
+  local function level(target, rate)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = target, RATE = rate })
+  end
+  --- A report from a light of kind `modes`: a state, and a color if given,
+  --- in the RGB color mode or `mode`.
+  local function push(modes, state, rgb, mode)
+    state.color_mode = rgb and (mode or RGB) or state.color_mode
+    state.red, state.green, state.blue = (rgb or {})[1], (rgb or {})[2], (rgb or {})[3]
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = modes }),
+      state = SerializeSafe(state),
+    })
+  end
+  local dimmer = { ColorMode.COLOR_MODE_BRIGHTNESS }
+
+  -- ESPHome reports a light's targets: 100 ms after a command, that command's.
+  light(dimmer)
+  level(30, 10000)
+  run(100)
+  push(dimmer, { state = true, brightness = 0.3 })
+  T.eq("the report of the level a ramp is heading for: nothing is told", told("LIGHT_BRIGHTNESS_CHANGED", "at"), {})
+  run(1900)
+  push(dimmer, { state = true, brightness = 0.8 })
+  T.eq(
+    "a level set elsewhere 2 s into a 10 s ramp: the proxy is told it",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 80 }
+  )
+  T.eq("at once", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 2000 })
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  run(15000)
+  T.eq("the ramp is over: a stop sends nothing", commands(), 0)
+  T.eq("and the proxy is told nothing when its time is up", told("LIGHT_BRIGHTNESS_CHANGED", "at"), {})
+  light(dimmer)
+  level(30, 10000)
+  run(2000)
+  push(dimmer, { state = false })
+  T.eq(
+    "the light turned off elsewhere: the proxy is told",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 0 }
+  )
+  -- The light's last report again, ahead of the ramp's own, is of a command
+  -- before the ramp's. After the ramp's own it is another client's.
+  light(dimmer)
+  level(30, 10000)
+  run(10)
+  push(dimmer, { state = true, brightness = 1.0 })
+  T.eq(
+    "the report of the level a ramp began from, ahead of the ramp's own: nothing is told",
+    told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+    {}
+  )
+  run(90)
+  push(dimmer, { state = true, brightness = 0.3 })
+  run(1900)
+  push(dimmer, { state = true, brightness = 1.0 })
+  T.eq(
+    "the light set elsewhere to the level the ramp began at: the proxy is told that too",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 100 }
+  )
+
+  -- A float a light has nothing to report for comes as NaN.
+  light(dimmer)
+  level(30, 10000)
+  run(100)
+  push(dimmer, { state = true, brightness = 0.3 }, { 0 / 0, 0 / 0, 0 / 0 })
+  T.eq("a report whose color is no number, in a ramp: nothing is told", told("LIGHT_BRIGHTNESS_CHANGED", "at"), {})
+
+  -- A report can come after the next command has gone out.
+  light(dimmer)
+  level(30, 10000)
+  run(50)
+  level(60, 2000)
+  run(50)
+  push(dimmer, { state = true, brightness = 0.3 })
+  run(100)
+  push(dimmer, { state = true, brightness = 0.6 })
+  T.eq(
+    "the report of a level sent before the one a ramp is heading for: nothing is told",
+    told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+    {}
+  )
+  push(dimmer, { state = true, brightness = 0.3 })
+  T.eq(
+    "that level again, after the ramp's own has been reported: it is another client's",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 30 }
+  )
+  -- A light may report two commands sent close together once, as the second.
+  light(dimmer)
+  level(30, 10000)
+  run(50)
+  level(60, 2000)
+  run(100)
+  push(dimmer, { state = true, brightness = 0.6 })
+  push(dimmer, { state = true, brightness = 0.3 })
+  T.eq(
+    "a level whose own report never came, set elsewhere after the next one's: it is another client's",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 30 }
+  )
+  light(dimmer, false)
+  level(100, 4000)
+  push(dimmer, { state = true, brightness = 0.0039 })
+  push(dimmer, { state = true, brightness = 1.0 })
+  run(15000)
+  T.eq(
+    "the reports of a rated on's pre-on and of the on: the proxy is told the on's end alone",
+    told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+    { 4000 }
+  )
+  -- A scene step's off goes out with no brightness.
+  light(dimmer)
+  activate(levelStep(0, 10000))
+  run(100)
+  push(dimmer, { state = false })
+  run(15000)
+  T.eq(
+    "the report of a scene step's fade to off: the proxy is told off at the step's end alone",
+    told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+    { 10000 }
+  )
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A command sent while the light is disconnected draws no report.
+  light(dimmer)
+  RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
+  proxy("OFF")
+  proxy("OFF")
+  push(dimmer, { state = true, brightness = 1.0 })
+  mark()
+  level(30, 10000)
+  run(50)
+  push(dimmer, { state = false })
+  T.eq(
+    "offs sent while disconnected, and the light then turned off elsewhere in a ramp: the proxy is told",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 0 }
+  )
+  -- What was sent before a disconnect is forgotten with it.
+  light(dimmer)
+  level(30, 0)
+  RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
+  push(dimmer, { state = true, brightness = 1.0 })
+  mark()
+  level(60, 10000)
+  run(2000)
+  push(dimmer, { state = true, brightness = 0.3 })
+  T.eq(
+    "a level sent before a disconnect, set elsewhere in a ramp after it: the proxy is told",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 30 }
+  )
+
+  -- Green, a color the driver never sent, reads as x 1/3 through the stubs.
+  local foreign = { 0, 1, 0 }
+  light({ RGB })
+  local blue = setColor(BLUE)
+  setColor(ON)
+  mark()
+  colorTarget(BLUE, 10000)
+  run(100)
+  push({ RGB }, { state = true, brightness = 1.0 }, blue)
+  T.eq("the report of the color a fade is heading for: nothing is told", told("LIGHT_COLOR_CHANGED", "at"), {})
+  push({ RGB }, { state = true, brightness = 1.0 }, { blue[1] + 0.003, blue[2] - 0.003, blue[3] })
+  T.eq("nor for that color as a light may round it", told("LIGHT_COLOR_CHANGED", "at"), {})
+  run(1900)
+  push({ RGB }, { state = true, brightness = 1.0 }, foreign)
+  T.eq(
+    "a color set elsewhere 2 s into a 10 s fade: the proxy is told it",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { 1 / 3 }
+  )
+  T.eq("at once", told("LIGHT_COLOR_CHANGED", "at"), { 2000 })
+  mark()
+  proxy("SET_COLOR_STOP")
+  run(15000)
+  T.eq("the fade is over: a stop sends nothing", commands(), 0)
+  T.eq("and the proxy is told nothing when its time is up", told("LIGHT_COLOR_CHANGED", "at"), {})
+  light({ RGB })
+  blue = setColor(BLUE)
+  setColor(ON)
+  mark()
+  colorTarget(BLUE, 10000)
+  run(2000)
+  push({ RGB }, { state = true, brightness = 0.5 }, blue)
+  T.eq(
+    "a level set elsewhere in a color fade: the proxy is told the level",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 50 }
+  )
+  T.eq("and the color, the fade being over at the light too", told("LIGHT_COLOR_CHANGED", "at"), { 2000 })
+  mark()
+  proxy("SET_COLOR_STOP")
+  run(15000)
+  T.eq("a stop sends nothing", commands(), 0)
+  T.eq("and the proxy is told nothing at the fade's own end", told("LIGHT_COLOR_CHANGED", "at"), {})
+  light({ RGB })
+  setColor(ON)
+  mark()
+  level(30, 10000)
+  colorTarget(BLUE, 10000)
+  run(2000)
+  push({ RGB }, { state = true, brightness = 0.3 }, foreign)
+  T.eq(
+    "a color set elsewhere with a level ramping too: the proxy is told the level the ramp was heading for",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 30 }
+  )
+  T.eq("with the color", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 2000 })
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  run(15000)
+  T.eq("the ramp is over as well: a stop sends nothing", commands(), 0)
+  T.eq("and the proxy is told nothing when its time is up", told("LIGHT_BRIGHTNESS_CHANGED", "at"), {})
+  -- With no color on its way, a level set elsewhere is told alone.
+  light({ RGB })
+  blue = setColor(BLUE)
+  push({ RGB }, { state = true, brightness = 1.0 }, blue)
+  mark()
+  level(30, 10000)
+  run(2000)
+  push({ RGB }, { state = true, brightness = 0.8 }, blue)
+  T.eq(
+    "a level set elsewhere in a ramp with no color fading: the proxy is told the level",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 80 }
+  )
+  T.eq("and no color", told("LIGHT_COLOR_CHANGED", "at"), {})
+  light({ RGB })
+  blue = setColor(BLUE)
+  push({ RGB }, { state = true, brightness = 1.0 }, blue)
+  mark()
+  level(30, 10000)
+  run(100)
+  push({ RGB }, { state = true, brightness = 0.3 }, blue)
+  run(1900)
+  push({ RGB }, { state = true, brightness = 0.3 }, foreign)
+  T.eq(
+    "a color set elsewhere in a ramp with no color fading: the proxy is told the color",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { 1 / 3 }
+  )
+  T.eq("and the level the ramp was heading for, then", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 2000 })
+  -- A light reports no red at all while it has none.
+  light({ RGB })
+  push({ RGB }, { state = true, brightness = 1.0 }, { nil, 1, 0 })
+  mark()
+  level(30, 10000)
+  run(100)
+  push({ RGB }, { state = true, brightness = 0.3 }, { nil, 1, 0 })
+  run(1900)
+  push({ RGB }, { state = true, brightness = 0.3 }, { 0.5, 1, 0 })
+  T.eq(
+    "a color set elsewhere that differs in the one field the light had not reported: the ramp is over then",
+    told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+    { 2000 }
+  )
+  -- The report of a level sent before the last is the driver's own.
+  light({ RGB })
+  local on = setColor(ON)
+  level(30, 0)
+  level(60, 0)
+  mark()
+  colorTarget(BLUE, 10000)
+  push({ RGB }, { state = true, brightness = 0.3 }, on)
+  run(15000)
+  T.eq(
+    "the report of a level sent before the last, in a color fade: the fade runs on to its end",
+    told("LIGHT_COLOR_CHANGED", "at"),
+    { 10000 }
+  )
+
+  -- The driver's own color, in a color mode it did not name.
+  light({ RGB, ColorMode.COLOR_MODE_RGB_WHITE })
+  blue = setColor(BLUE)
+  setColor(ON)
+  mark()
+  colorTarget(BLUE, 10000)
+  run(100)
+  push({ RGB, ColorMode.COLOR_MODE_RGB_WHITE }, { state = true, brightness = 1.0 }, blue)
+  run(1900)
+  push(
+    { RGB, ColorMode.COLOR_MODE_RGB_WHITE },
+    { state = true, brightness = 1.0 },
+    blue,
+    ColorMode.COLOR_MODE_RGB_WHITE
+  )
+  run(15000)
+  T.eq(
+    "the light put in another color mode elsewhere: the fade is over then",
+    told("LIGHT_COLOR_CHANGED", "at"),
+    { 2000 }
+  )
+
+  -- A light in a color it was given elsewhere, which the driver never sent.
+  light({ RGB })
+  push({ RGB }, { state = true, brightness = 1.0 }, foreign)
+  mark()
+  colorTarget(BLUE, 10000)
+  run(10)
+  push({ RGB }, { state = true, brightness = 1.0 }, foreign)
+  T.eq(
+    "the report of the color a fade began from, ahead of the fade's own: nothing is told",
+    told("LIGHT_COLOR_CHANGED", "at"),
+    {}
+  )
+  run(90)
+  push({ RGB }, { state = true, brightness = 1.0 }, blue)
+  push({ RGB }, { state = true, brightness = 1.0 }, foreign)
+  T.eq(
+    "that color set again after the fade's own report: the proxy is told the fade is over",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { 1 / 3 }
+  )
+
+  -- A rated on that carries the On color.
+  local onColor = offInBlue()
+  push({ RGB }, { state = false }, foreign)
+  mark()
+  level(100, 4000)
+  push({ RGB }, { state = true, brightness = 0.0039 }, foreign)
+  push({ RGB }, { state = true, brightness = 1.0 }, onColor)
+  run(15000)
+  T.eq(
+    "a rated on's pre-on reported in a color the light was given elsewhere: the proxy is told the on's end alone",
+    told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+    { 4000 }
+  )
+  T.eq("with its On color", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+  offInBlue()
+  mark()
+  level(100, 4000)
+  run(1000)
+  push({ RGB }, { state = true, brightness = 1.0 }, foreign)
+  T.eq(
+    "a color set elsewhere in a rated on: the proxy is told it",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { 1 / 3 }
+  )
+  T.eq("and the level the on was heading for", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 100 })
+  run(15000)
+  T.eq("and not the On color at the on's end", told("LIGHT_COLOR_CHANGED", "at"), { 1000 })
+  T.eq("nor the level again", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 1000 })
+  offInBlue()
+  mark()
+  level(100, 4000)
+  run(1000)
+  push({ RGB }, { state = true, brightness = 0.4 }, onColor)
+  T.eq(
+    "a level set elsewhere in a rated on: the proxy is told it",
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 40 }
+  )
+  T.eq("and the On color with it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  run(15000)
+  T.eq("and not again when the on's time is up", told("LIGHT_COLOR_CHANGED", "at"), { 1000 })
+
+  -- A color temperature goes out in mireds, 2700 K as 370.37.
+  local CT = ColorMode.COLOR_MODE_COLOR_TEMPERATURE
+  local toXY, toCCT = C4.ColorCCTtoXY, C4.ColorXYtoCCT
+  function C4:ColorCCTtoXY(kelvin)
+    return kelvin / 10000, 0.4
+  end
+  function C4:ColorXYtoCCT(x)
+    return x * 10000
+  end
+  local function kelvin(target, rate)
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_COLOR_CORRELATED_TEMPERATURE = target,
+      LIGHT_COLOR_TARGET_COLOR_RATE = rate,
+    })
+  end
+  light({ CT })
+  mark()
+  kelvin(2700, 10000)
+  run(100)
+  push({ CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 370.3703613 })
+  push({ CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 370.4 })
+  T.eq(
+    "the report of the color temperature a fade is heading for, as a light may round it: nothing is told",
+    told("LIGHT_COLOR_CHANGED", "at"),
+    {}
+  )
+  run(1900)
+  push({ CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 200 })
+  T.eq(
+    "a color temperature set elsewhere in the fade: the proxy is told at once",
+    told("LIGHT_COLOR_CHANGED", "at"),
+    { 2000 }
+  )
+  light({ CT })
+  mark()
+  kelvin(2700, 10000)
+  run(50)
+  push({ CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 200 })
+  T.eq("and one set elsewhere ahead of the fade's own report", told("LIGHT_COLOR_CHANGED", "at"), { 50 })
+  local RGBCT = ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE
+  light({ RGBCT })
+  mark()
+  kelvin(2700, 10000)
+  run(100)
+  push({ RGBCT }, { state = true, brightness = 1.0, color_temperature = 370.3703613 }, { 1, 1, 1 }, RGBCT)
+  run(1900)
+  push({ RGBCT }, { state = true, brightness = 1.0, color_temperature = 370.3703613 }, foreign, RGBCT)
+  T.eq(
+    "a full color set elsewhere in the fade, the color temperature left as it was: the fade is over then",
+    told("LIGHT_COLOR_CHANGED", "at"),
+    { 2000 }
+  )
+  -- The light's range here is 153 to 500 mireds, 6536 to 2000 K, and it
+  -- holds a color temperature beyond an end to that end.
+  light({ CT })
+  mark()
+  kelvin(1800, 10000)
+  T.eq(
+    "a color temperature beyond the light's range: the proxy is told a fade to the range's end",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"),
+    { 2000 / 10000 }
+  )
+  run(100)
+  push({ CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 500 })
+  run(15000)
+  T.eq(
+    "the light's report of that end is the driver's own: the color is told at the fade's end",
+    told("LIGHT_COLOR_CHANGED", "at"),
+    { 10000 }
+  )
+  light({ CT })
+  mark()
+  kelvin(8000, 10000)
+  run(100)
+  push({ CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 153 })
+  run(15000)
+  T.eq("one beyond the other end: that end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 6536 / 10000 })
+  T.eq("told at the fade's end too", told("LIGHT_COLOR_CHANGED", "at"), { 10000 })
+  light({ CT })
+  mark()
+  proxy("SET_COLOR_TARGET", {
+    LIGHT_COLOR_TARGET_X = 1800 / 10000,
+    LIGHT_COLOR_TARGET_Y = 0.4,
+    LIGHT_COLOR_TARGET_MODE = 1,
+    LIGHT_COLOR_TARGET_COLOR_RATE = 0,
+  })
+  T.eq(
+    "and one given as its point, as a preset is: the range's end",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { 2000 / 10000 }
+  )
+  C4.ColorCCTtoXY, C4.ColorXYtoCCT = toXY, toCCT
+end
+
 T.finish()

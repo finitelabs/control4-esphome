@@ -177,6 +177,11 @@ local currentBrightnessPresetId = nil
 -- LIGHT_COLOR_TARGET_PRESET_ID counterpart (spec _3.1).
 local currentColorPresetId = nil
 
+-- The level and color the light last reported, then those it has been sent
+-- since, oldest first: a report of any other is another client's.
+local sentLevels = {}
+local sentColors = {}
+
 ---------------------------------------------------------------------------
 -- Driver lifecycle
 ---------------------------------------------------------------------------
@@ -558,9 +563,57 @@ end
 
 local function sendLightCommand(opts)
   log:debug("sendLightCommand(%s)", opts)
+  -- A light that is not connected reports nothing of what it is sent.
+  if STATE and (opts.has_brightness or opts.state == false) then
+    -- As UPDATE_STATE reads the level back: 0 for off, and at least 1 for on.
+    sentLevels[#sentLevels + 1] = opts.state and math.max(1, math.floor(opts.brightness * 100 + 0.5)) or 0
+  end
+  if STATE and (opts.has_rgb or opts.has_color_temperature) then
+    sentColors[#sentColors + 1] = {
+      color_mode = opts.color_mode,
+      red = opts.red,
+      green = opts.green,
+      blue = opts.blue,
+      color_temperature = opts.color_temperature,
+    }
+  end
   SendToProxy(ESPHOME_BINDING, "ENTITY_COMMAND", {
     body = SerializeSafe(opts),
   })
+end
+
+--- Whether a report `matches` a value in `sent`: the light's last report
+--- again, or a value sent since. Either way it is the last from then, kept
+--- as `reported`, and what was sent before it is forgotten.
+local function isOwnReport(sent, matches, reported)
+  local own = false
+  for i, value in ipairs(sent) do
+    if matches(value) then
+      for _ = 2, i do
+        table.remove(sent, 1)
+      end
+      -- A repeat of it sent next adds nothing.
+      while sent[2] and matches(sent[2]) do
+        table.remove(sent, 2)
+      end
+      own = true
+      break
+    end
+  end
+  sent[1] = reported
+  return own
+end
+
+--- Whether a light's state holds the fields of a color it was sent, to the
+--- tolerance colors are compared at: a fraction of a field above 1, as mireds.
+local function holdsColor(state, color)
+  for field, value in pairs(color) do
+    local tolerance = COLOR_TOLERANCE * math.max(1, math.abs(value))
+    if not (math.abs((tofinite(state[field]) or 0) - value) <= tolerance) then
+      return false
+    end
+  end
+  return true
 end
 
 -- Pick the most specific ESPHome color mode the bulb supports for a given
@@ -663,6 +716,11 @@ local function buildColorCmdFields(x, y, mode, merged)
   return nil
 end
 
+-- A color temperature as the light takes it: held to the light's own range.
+local function takenKelvin(k)
+  return math.max(miredsToKelvin(maxMireds), math.min(miredsToKelvin(minMireds), k))
+end
+
 -- A color as the light takes it, which its reports then read as: its color
 -- temperature's point, or a full color on a light with no color temperature.
 local function takenColor(x, y, mode)
@@ -674,7 +732,7 @@ local function takenColor(x, y, mode)
   end
   local k = tonumber(C4:ColorXYtoCCT(x, y))
   if k and k > 0 then
-    x, y = C4:ColorCCTtoXY(k)
+    x, y = C4:ColorCCTtoXY(takenKelvin(k))
   end
   return x, y, mode
 end
@@ -1048,10 +1106,9 @@ end
 -- interpolate the device's current level mid-ramp using C4:GetTime() (ms).
 --
 -- ESPHome echoes one UPDATE_STATE per command it receives confirming the
--- target. During a ramp we ignore those echoes (rampingBrightness=true).
--- After the ramp ends we ignore brightness echoes for an additional grace
--- window in case stale echoes from a prior cmd arrive late and would
--- otherwise re-mutate currentBrightness and bounce the UI.
+-- target. During a ramp we ignore those echoes (rampingBrightness=true): the
+-- ramp's end tells the level. A level the bulb reports that we never sent is
+-- another client's, and ends the ramp (sentLevels).
 
 local function cancelBrightnessRampTimers()
   CancelTimer("BrightnessRampFinish")
@@ -1543,7 +1600,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   local targetX, targetY, targetMode
 
   if kelvin and kelvin > 0 and supportsCCT then
-    targetX, targetY = C4:ColorCCTtoXY(kelvin)
+    targetX, targetY = C4:ColorCCTtoXY(takenKelvin(kelvin))
     targetMode = LIGHT_COLOR_MODE_CCT
   elseif incomingMode == LIGHT_COLOR_MODE_CCT and supportsCCT and x and y then
     local k = tonumber(C4:ColorXYtoCCT(x, y))
@@ -2566,6 +2623,8 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   mergedColorUntil = 0
   currentBrightnessPresetId = nil
   currentColorPresetId = nil
+  sentLevels = {}
+  sentColors = {}
   updateStatus("Disconnected", false)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   notifyBrightnessChanged(0)
@@ -2620,15 +2679,32 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   else
     newBrightness = 100
   end
+  local ownLevel = isOwnReport(sentLevels, function(level)
+    return level == newBrightness
+  end, newBrightness)
+  local ownColor = isOwnReport(sentColors, function(color)
+    return holdsColor(state, color)
+  end, {
+    color_mode = tointeger(Select(state, "color_mode")),
+    red = tofinite(Select(state, "red")) or 0,
+    green = tofinite(Select(state, "green")) or 0,
+    blue = tofinite(Select(state, "blue")) or 0,
+    color_temperature = tofinite(Select(state, "color_temperature")) or 0,
+  })
 
-  -- During a ramp, ESPHome's echo confirms the target value (not the
-  -- interpolated physical value), so we ignore it - rampingBrightness will
-  -- be cleared in brightnessRampFinished or brightnessRampStopped, both of
-  -- which set currentBrightness to the appropriate value before the snap
-  -- cmd's echo can arrive. Outside a ramp, the echo's target equals what
-  -- we last set, so processing it is a no-op (newBrightness already
-  -- matches currentBrightness).
-  if rampingBrightness then
+  -- A level or color the light did not last report and the driver never sent
+  -- is another client's command: at the bulb that ends both fades.
+  local fading = rampingColor or (rampingBrightness and brightnessRamp and brightnessRamp.mergedColor)
+  local taken = not (ownLevel and ownColor)
+
+  -- During a ramp ESPHome's echo confirms the level the ramp is heading for,
+  -- not where the bulb is, so it is ignored: the ramp's end tells the level.
+  -- Outside a ramp the echo's target equals what we last set, so processing
+  -- it is a no-op (newBrightness already matches currentBrightness).
+  if rampingBrightness and taken then
+    leaveBrightnessRamp()
+    notifyBrightnessChanged(newBrightness)
+  elseif rampingBrightness then
     log:trace("UPDATE_STATE brightness=%s ignored (ramping)", newBrightness)
   elseif isFirstUpdate or newBrightness ~= currentBrightness then
     -- Spec note: LIGHT_BRIGHTNESS_CHANGED should always be sent when the
@@ -2638,7 +2714,12 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- A light keeps its color while off, so read it whether or not it is lit.
-  -- A ramp tells its own color, or the one it carries, at its end.
+  -- A ramp tells its own color, or the one it carries, at its end, unless
+  -- another client ended it: the level's ramp has then handed on its color.
+  taken = taken and fading
+  if taken then
+    leaveColorRamp()
+  end
   local merged = rampingBrightness and brightnessRamp and brightnessRamp.mergedColor
   if (supportsColor or supportsCCT) and not rampingColor and not merged then
     local activeMode = tointeger(Select(state, "color_mode"))
@@ -2671,6 +2752,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
       and newColorMode
       and (
         isFirstUpdate
+        or taken
         or math.abs(newX - currentColorX) > COLOR_ECHO_TOLERANCE
         or math.abs(newY - currentColorY) > COLOR_ECHO_TOLERANCE
         or newColorMode ~= currentColorMode
@@ -2706,6 +2788,8 @@ OBC[ESPHOME_BINDING] = function()
   mergedColorUntil = 0
   currentBrightnessPresetId = nil
   currentColorPresetId = nil
+  sentLevels = {}
+  sentColors = {}
   currentColorX = DEFAULT_COLOR_X
   currentColorY = DEFAULT_COLOR_Y
   currentColorMode = LIGHT_COLOR_MODE_CCT
