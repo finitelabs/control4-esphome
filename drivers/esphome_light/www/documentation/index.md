@@ -102,8 +102,12 @@ color-temperature, and full-color lights are all supported.
 Control4 sets a light to a color or to a color temperature, not to both. On a
 light that can light its color and its white at the same time (an ESPHome RGBW,
 RGBCT or RGBWW light built without `color_interlock`), a color turns the white
-off and a color temperature turns the color off. An RGBW light has no color
-temperature for Control4 to set, so its white stays off.
+off and a color temperature turns the color off. Such an RGBW light has no color
+temperature for Control4 to set: a color that is the point of a color
+temperature from about 2000 to 6500 K, such as the On Color a new light is given
+or a white picked on the color wheel, lights its white alone, and any other
+color lights its red, green and blue alone. An RGBW light built with
+`color_interlock` lights its red, green and blue for every color.
 
 # <span style="color:#17BCF2">Installer Setup</span>
 

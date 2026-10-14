@@ -759,25 +759,32 @@ local function holdsColor(state, color)
   return true
 end
 
+local takenColor -- defined with the white points below
+
 -- The color a light's fields show, as an xy and its color mode: nil for none.
--- A mode with a color and a color temperature shows the one turned up further,
--- the color while it is at least the white, and the white below that.
+-- A mode with a color and a white shows the one turned up further, the color
+-- while it is at least the white, and the white below that: at its color
+-- temperature's point, or for a white with none, at the white's point of the
+-- red, green and blue a white is sent beside.
 local function shownColor(fields)
+  local CM = ESPHomeProtoSchema.Enum.ColorMode
   local mode = fields.color_mode
   local hasColor = mode and COLOR_MODES_SUPPORTING_RGB[mode]
-  if mode and COLOR_MODES_SUPPORTING_CCT[mode] and fields.color_temperature > 0 then
-    local white = fields.white
-    if mode == ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE then
-      white = math.max(fields.cold_white, fields.warm_white)
-    end
-    if not (hasColor and fields.color_brightness > 0 and fields.color_brightness >= white) then
-      local x, y = C4:ColorCCTtoXY(miredsToKelvin(fields.color_temperature))
-      return x, y, LIGHT_COLOR_MODE_CCT
-    end
+  local white = fields.white
+  if mode == CM.COLOR_MODE_RGB_COLD_WARM_WHITE then
+    white = math.max(fields.cold_white, fields.warm_white)
+  end
+  local inWhite = not (hasColor and fields.color_brightness > 0 and fields.color_brightness >= white)
+  if inWhite and mode and COLOR_MODES_SUPPORTING_CCT[mode] and fields.color_temperature > 0 then
+    local x, y = C4:ColorCCTtoXY(miredsToKelvin(fields.color_temperature))
+    return x, y, LIGHT_COLOR_MODE_CCT
   end
   if hasColor and math.max(fields.red, fields.green, fields.blue) > 0 then
     local h, s = rgbToHSV(fields.red, fields.green, fields.blue)
     local x, y = C4:ColorHSVtoXY(h, s, 100)
+    if inWhite and mode == CM.COLOR_MODE_RGB_WHITE then
+      return takenColor(x, y, LIGHT_COLOR_MODE_CCT)
+    end
     return x, y, LIGHT_COLOR_MODE_FULL
   end
 end
@@ -862,25 +869,25 @@ end
 
 -- A combined mode lights its color and its white side by side, so the one
 -- asked for goes out with the other off, in that mode: a change of mode fades through off.
---- @param kelvin number|nil The white's color temperature, or nil for the color.
-local function combinedFields(fields, mode, kelvin)
+--- @param white number|boolean|nil The white's color temperature, true for a white with none, or nil for the color.
+local function combinedFields(fields, mode, white)
   fields.has_color_mode = true
   fields.color_mode = mode
   fields.has_color_brightness = true
-  fields.color_brightness = kelvin and 0 or 1
+  fields.color_brightness = white and 0 or 1
   if mode ~= ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE then
     fields.has_white = true
-    fields.white = kelvin and 1 or 0
+    fields.white = white and 1 or 0
     return fields
   end
   -- The light works its cold and warm white out from a color temperature, with
   -- its own gamma. One that reports no range for it cannot, and is sent them.
   local cw, ww = 0, 0
-  if kelvin then
+  if white then
     if givesMiredsRange() then
       return fields
     end
-    cw, ww = kelvinToCoolWarmSplit(kelvin)
+    cw, ww = kelvinToCoolWarmSplit(white)
   end
   fields.has_cold_white = true
   fields.cold_white = cw
@@ -946,7 +953,9 @@ local function buildColorCmdFields(x, y, mode, merged)
     local fields = { has_rgb = true, red = r, green = g, blue = b }
     local combined = combinedColorMode()
     if combined then
-      return combinedFields(fields, combined)
+      -- A white that has no color temperature is lit alone, with its point's red,
+      -- green and blue beside it for the light's report to be read back at.
+      return combinedFields(fields, combined, mode == LIGHT_COLOR_MODE_CCT or nil)
     end
     -- Named, or a light that is off in a mode with no color drops the color.
     local pickedMode = pickColorMode("rgb")
@@ -959,15 +968,22 @@ local function buildColorCmdFields(x, y, mode, merged)
   return nil
 end
 
--- A color temperature as the light takes it: held to the light's own range.
+-- A color temperature as the light takes it: held to the light's own range, or
+-- an RGBW white to the default one, as C4 gives even the wheel's rim a color temperature.
 local function takenKelvin(k)
   return math.max(miredsToKelvin(maxMireds), math.min(miredsToKelvin(minMireds), k))
+end
+
+-- Whether the light has a white for a white's own point: one at a color
+-- temperature, or one with none beside its color, as an RGBW light has.
+local function hasWhiteForPoints()
+  return supportsCCT or combinedColorMode() ~= nil
 end
 
 -- Whether a full color is a color temperature's own point, inside the light's
 -- range: a light with a white for it shows it in that white.
 local function isWhitePoint(x, y)
-  local k = supportsCCT and tonumber(C4:ColorXYtoCCT(x, y))
+  local k = hasWhiteForPoints() and tonumber(C4:ColorXYtoCCT(x, y))
   if not k or k <= 0 or k ~= takenKelvin(k) then
     return false
   end
@@ -975,13 +991,13 @@ local function isWhitePoint(x, y)
   return sameColor(x, y, LIGHT_COLOR_MODE_CCT, whiteX, whiteY, LIGHT_COLOR_MODE_CCT)
 end
 
--- A color as the light takes it, which its reports then read as: its color
--- temperature's point, or a full color on a light with no color temperature.
-local function takenColor(x, y, mode)
+-- A color as the light takes it, which its reports then read as: a white at its
+-- color temperature's point, or a full color on a light with no white.
+function takenColor(x, y, mode)
   if mode ~= LIGHT_COLOR_MODE_CCT and not isWhitePoint(x, y) then
     return x, y, mode
   end
-  if not supportsCCT then
+  if not hasWhiteForPoints() then
     return x, y, supportsColor and LIGHT_COLOR_MODE_FULL or mode
   end
   local k = tonumber(C4:ColorXYtoCCT(x, y))
@@ -1072,7 +1088,9 @@ local function resolveOnColor(brightnessLevel)
   if kind == COLOR_ON_MODE_PREVIOUS then
     local prev = persist:get(P_PREVIOUS_COLOR)
     if prev and prev.x and prev.y then
-      return { x = prev.x, y = prev.y, mode = prev.mode or LIGHT_COLOR_MODE_FULL }
+      -- Taken as the proxy's own copy of it after the on will be, or that copy goes out again.
+      local x, y, colorMode = takenColor(prev.x, prev.y, prev.mode or LIGHT_COLOR_MODE_FULL)
+      return { x = x, y = y, mode = colorMode }
     end
   end
   if kind == COLOR_ON_MODE_PRESET then
@@ -1160,6 +1178,15 @@ end
 -- Helpers: color notifications
 ---------------------------------------------------------------------------
 
+-- The proxy of a light whose white has no color temperature has none to be
+-- told: a white is a full color to it.
+local function toldMode(mode)
+  if mode == LIGHT_COLOR_MODE_CCT and not supportsCCT and hasWhiteForPoints() then
+    return LIGHT_COLOR_MODE_FULL
+  end
+  return mode
+end
+
 function notifyColorChanged(x, y, mode)
   currentColorX = x
   currentColorY = y
@@ -1168,7 +1195,7 @@ function notifyColorChanged(x, y, mode)
   SendToProxy(PROXY_BINDING, "LIGHT_COLOR_CHANGED", {
     LIGHT_COLOR_CURRENT_X = x,
     LIGHT_COLOR_CURRENT_Y = y,
-    LIGHT_COLOR_CURRENT_COLOR_MODE = mode,
+    LIGHT_COLOR_CURRENT_COLOR_MODE = toldMode(mode),
     LIGHT_COLOR_CURRENT_PRESET_ID = currentColorPresetId,
   }, "NOTIFY")
 end
@@ -1178,10 +1205,10 @@ local function notifyColorChanging(targetX, targetY, mode, rate)
   SendToProxy(PROXY_BINDING, "LIGHT_COLOR_CHANGING", {
     LIGHT_COLOR_CURRENT_X = currentColorX,
     LIGHT_COLOR_CURRENT_Y = currentColorY,
-    LIGHT_COLOR_CURRENT_COLOR_MODE = currentColorMode,
+    LIGHT_COLOR_CURRENT_COLOR_MODE = toldMode(currentColorMode),
     LIGHT_COLOR_TARGET_X = targetX,
     LIGHT_COLOR_TARGET_Y = targetY,
-    LIGHT_COLOR_TARGET_COLOR_MODE = mode,
+    LIGHT_COLOR_TARGET_COLOR_MODE = toldMode(mode),
     -- Spec _10.7 names this LIGHT_COLOR_TARGET_COLOR_RATE; some older docs
     -- and helper code use LIGHT_COLOR_TARGET_RATE so we send both for safety.
     LIGHT_COLOR_TARGET_COLOR_RATE = rate,

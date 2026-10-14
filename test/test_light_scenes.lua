@@ -3761,9 +3761,10 @@ end
 
 -- The white is its own color mode, or one mode holds it with the color, as a
 -- light built with no color_interlock has: RGB with a color temperature
--- (RGBCT above), or with cold and warm white.
+-- (RGBCT above), with cold and warm white, or with a white that has no color
+-- temperature.
 local RGB, CWWW = ColorMode.COLOR_MODE_RGB, ColorMode.COLOR_MODE_COLD_WARM_WHITE
-local RGBWW = ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE
+local RGBWW, RGBW = ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE, ColorMode.COLOR_MODE_RGB_WHITE
 local FULL_MODE = 0
 
 --- A report from a light of kind `modes`.
@@ -3816,6 +3817,27 @@ local function lastCommand()
   return {}
 end
 
+--- The state a light reports once it has that command: on, in white unless
+--- the command set a color.
+local function taken()
+  local cmd = lastCommand()
+  local state = { state = true, brightness = 1.0, red = 1, green = 1, blue = 1 }
+  for _, field in ipairs({
+    "color_mode",
+    "color_brightness",
+    "red",
+    "green",
+    "blue",
+    "white",
+    "color_temperature",
+    "cold_white",
+    "warm_white",
+  }) do
+    state[field] = cmd[field] or state[field]
+  end
+  return state
+end
+
 T.section("a full color that is a color temperature's own point lights the white of a light that has one")
 do
   -- A new color light's proxy makes its On Color and Dim Color one white
@@ -3856,6 +3878,24 @@ do
   colorTarget(POINT, 750)
   T.eq(
     "an On Color preset, and the proxy's own copy of it after the on: the white, once",
+    { kelvins(), colors() },
+    { { 3200 }, {} }
+  )
+  run(1000)
+  light({ RGB })
+  local point = setColor(POINT)
+  light()
+  pushed({ RGBCT, CT }, { state = true, brightness = 1.0 }, RANGE)
+  onMode(PREVIOUS_ON)
+  local inColor = { state = true, brightness = 1.0, color_mode = RGBCT, color_brightness = 1, white = 0 }
+  inColor.color_temperature, inColor.red, inColor.green, inColor.blue = 300, point[1], point[2], point[3]
+  pushed({ RGBCT, CT }, inColor, RANGE)
+  proxy("OFF")
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
+  colorTarget(POINT, 750)
+  T.eq(
+    "Previous, of a light read in its color at a white's point, and the proxy's own copy of it: the white, once",
     { kelvins(), colors() },
     { { 3200 }, {} }
   )
@@ -3904,6 +3944,195 @@ do
   C4.ColorCCTtoXY = toXY
 end
 
+T.section(
+  "a full color that is a white's own point lights the white alone of a light whose white has no color temperature"
+)
+do
+  -- An RGBW light built with no color_interlock: its white is any white in the default
+  -- range, 2000 to 6536 K, and goes out with the point's red, green and blue beside it.
+  local POINT = { 0.32, 0.4 }
+  local WHITE, COLOR = { RGBW, 0, 1 }, { RGBW, 1, 0 }
+  --- What the last command lit: its color mode, color brightness and white.
+  local function lit()
+    local cmd = lastCommand()
+    return { cmd.color_mode, cmd.color_brightness, cmd.white }
+  end
+  --- The y of each color the proxy was told since the mark.
+  local function ysTold()
+    return told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_Y")
+  end
+  --- `values` to six places.
+  local function places(values)
+    local out = {}
+    for i, value in ipairs(values) do
+      out[i] = math.floor(value * 1e6 + 0.5) / 1e6
+    end
+    return out
+  end
+  light({ RGB })
+  local point = setColor(POINT)
+
+  light({ RGBW }, false)
+  fadeMode(POINT, POINT, FULL_MODE)
+  mark()
+  proxy("ON")
+  T.eq(
+    "an on in a new light's On Color: the white alone, with the point's red, green and blue beside it",
+    { lit(), colors() },
+    { WHITE, { point } }
+  )
+  T.eq("which the proxy is told as that color", { colorsTold(), modesTold() }, { { 0.32 }, { FULL_MODE } })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
+  T.eq("and so is a level after it, told as going from that color to it", {
+    lit(),
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_COLOR_MODE"),
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_COLOR_MODE"),
+  }, { WHITE, { FULL_MODE }, { FULL_MODE } })
+  run(2000)
+
+  light({ RGBW })
+  setColor(BLUE)
+  mark()
+  colorTarget(POINT, 0)
+  T.eq("a white set from Navigator: the white alone", lit(), WHITE)
+  pushed({ RGBW }, taken())
+  T.eq("and the light's report of it, from a color, tells nothing more", colorsTold(), { 0.32 })
+  mark()
+  colorTarget({ 0.15, 0.4 }, 0)
+  local warmer = lit()
+  colorTarget({ 0.7, 0.4 }, 0)
+  T.eq(
+    "the point of a white beyond the default range, warmer or cooler: its red, green and blue alone",
+    { warmer, lit() },
+    { COLOR, COLOR }
+  )
+  activate(colorStep(nil, POINT, 0))
+  T.eq("a scene step's", lit(), WHITE)
+  proxy("CLEAR_ALL_SCENES")
+  mark()
+  colorTarget({ 0.32, 0.41 }, 0)
+  T.eq("a color beside a white's point: its red, green and blue alone", lit(), COLOR)
+  colorTarget(BLUE, 0)
+  T.eq("and any other color", lit(), COLOR)
+  light({ RGBW })
+  onMode(PREVIOUS_ON)
+  colorTarget(POINT, 0)
+  proxy("OFF")
+  mark()
+  proxy("ON")
+  T.eq("with Color On Mode set to Previous a light that went off in the white comes back on in it", lit(), WHITE)
+  light({ RGBW })
+  onMode(PREVIOUS_ON)
+  local inColor = { state = true, brightness = 1.0, color_mode = RGBW, color_brightness = 1, white = 0 }
+  inColor.red, inColor.green, inColor.blue = point[1], point[2], point[3]
+  pushed({ RGBW }, inColor)
+  proxy("OFF")
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
+  colorTarget(POINT, 750)
+  T.eq(
+    "and one read in its color at a white's point, with the proxy's own copy of Previous: the white, once",
+    { #colors(), lit() },
+    { 1, WHITE }
+  )
+  run(1000)
+
+  -- Dim-To-Warm is between its two ends, as on a light with a color temperature.
+  light({ RGBW })
+  fadeMode({ 0.5, 0.6 }, { 0.3, 0.2 }, FULL_MODE)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq("between two colors, at the level whose mix crosses a white's point: red, green and blue still", lit(), COLOR)
+  light({ RGBW })
+  fadeMode(POINT, BLUE, FULL_MODE)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq("between a white and a color: red, green and blue, the mix not asked", lit(), COLOR)
+  local toXY = C4.ColorCCTtoXY
+  function C4:ColorCCTtoXY(k)
+    return k / 10000, 0.4 - (k / 10000 - 0.45) ^ 2
+  end
+  light({ RGBW })
+  fadeMode({ C4:ColorCCTtoXY(6000) }, { C4:ColorCCTtoXY(3000) }, FULL_MODE)
+  local each = {}
+  for _, level in ipairs({ 20, 50, 80 }) do
+    mark()
+    proxy("SET_LEVEL", { LEVEL = level })
+    each[#each + 1] = lit()
+  end
+  T.eq("between two whites, their mix off the curve they are on: the white alone at every level", each, {
+    WHITE,
+    WHITE,
+    WHITE,
+  })
+  T.eq(
+    "and told at the white's point, not the mix",
+    places({ colorsTold()[1], ysTold()[1] }),
+    places({ 0.54, 0.4 - 0.09 ^ 2 })
+  )
+  C4.ColorCCTtoXY = toXY
+
+  -- A fade from the white to a color is a cross-fade of the two.
+  light({ RGBW })
+  onMode(PREVIOUS_ON)
+  colorTarget(POINT, 0)
+  colorTarget(BLUE, 6000)
+  run(1500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a fade from the white to a color stopped a quarter through its time: held with the white turned up further",
+    { places({ lastCommand().white }), lastCommand().color_brightness > 0 },
+    { places({ 1 - eased(0.25) }), true }
+  )
+  T.eq("which the proxy is told as a white's own point", { ysTold(), modesTold() }, { { 0.4 }, { FULL_MODE } })
+  pushed({ RGBW }, taken())
+  T.eq("and the light's report of the stop tells nothing more", #colorsTold(), 1)
+  proxy("OFF")
+  mark()
+  proxy("ON")
+  T.eq("with Color On Mode set to Previous it comes back on in the white alone", lit(), WHITE)
+
+  -- Another client's command: the color at a hundredth beside the white at full.
+  light({ RGBW })
+  onMode(PREVIOUS_ON)
+  setColor(BLUE)
+  mark()
+  local elsewhere = {
+    state = true,
+    brightness = 1.0,
+    color_mode = RGBW,
+    color_brightness = 0.01,
+    red = 0,
+    green = 1,
+    blue = 0,
+    white = 1,
+  }
+  pushed({ RGBW }, elsewhere)
+  T.eq("another client's color at a hundredth beside the white: a white's own point", ysTold(), { 0.4 })
+  proxy("OFF")
+  mark()
+  proxy("ON")
+  T.eq("so the light comes back on in the white alone, not in that color at full", lit(), WHITE)
+  light({ RGBW })
+  setColor(BLUE)
+  mark()
+  elsewhere.color_brightness = 1
+  pushed({ RGBW }, elsewhere)
+  T.eq("with its color turned up further: that color", ysTold(), { 1 })
+
+  -- color_interlock makes the white a mode of its own, which a color never names.
+  light({ RGB, ColorMode.COLOR_MODE_WHITE })
+  mark()
+  colorTarget(POINT, 0)
+  T.eq(
+    "a light with a color mode and a white mode that has no color temperature: its red, green and blue, as before",
+    { lastCommand().color_mode, colors() },
+    { RGB, { point } }
+  )
+end
+
 T.section("the color temperature a level carries is left to a light that can work its cold and warm white out")
 do
   -- ESPHome splits a color temperature into cold and warm white with the
@@ -3950,9 +4179,6 @@ end
 -- Combined color modes
 ---------------------------------------------------------------------------
 
--- RGB with a white is one too, with no color temperature.
-local RGBW = ColorMode.COLOR_MODE_RGB_WHITE
-
 local function kelvin(target, rate)
   proxy("SET_COLOR_TARGET", {
     LIGHT_COLOR_TARGET_COLOR_CORRELATED_TEMPERATURE = target,
@@ -3971,27 +4197,6 @@ local function channels()
     cmd.has_cold_white and cmd.cold_white or false,
     cmd.has_warm_white and cmd.warm_white or false,
   }
-end
-
---- The state a light reports once it has that command: on, in white unless
---- the command set a color.
-local function taken()
-  local cmd = lastCommand()
-  local state = { state = true, brightness = 1.0, red = 1, green = 1, blue = 1 }
-  for _, field in ipairs({
-    "color_mode",
-    "color_brightness",
-    "red",
-    "green",
-    "blue",
-    "white",
-    "color_temperature",
-    "cold_white",
-    "warm_white",
-  }) do
-    state[field] = cmd[field] or state[field]
-  end
-  return state
 end
 
 T.section("a combined color mode's report is the color or the white, whichever is turned up further")

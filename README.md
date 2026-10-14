@@ -1088,8 +1088,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   of its red, green and blue: the On Color and Dim Color a new color light is
   given are 3200 K stored as a color, so the light turned on and dimmed in a mix
   of the three; a color that is a color temperature's own point, in the Color On
-  Mode, a scene or a color set from Navigator, now lights the light's white at
-  that color temperature
+  Mode, a scene or a color set from Navigator, now lights the light's white, at
+  that color temperature where the white has one
 - Fixed a cold and warm white light coming on, or dimming, at a third of its
   light and warmer than asked when the level carried a color temperature, as
   every level does with Dim-To-Warm: the driver split the color temperature into
@@ -1110,8 +1110,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed the white of an ESPHome light with its color and its white in one color
   mode, an RGBW light among them, staying lit beside every color the light was
   set to, which washed the color out; a color now turns the white off, and an
-  RGBW light, which has no color temperature for Control4 to set, shows its red,
-  green and blue alone
+  RGBW light, which has no color temperature for Control4 to set, lights its
+  white alone for a color that is the point of a color temperature from about
+  2000 to 6500 K, such as the On Color a new light is given or a white picked on
+  the color wheel, and its red, green and blue alone for any other color
 - Fixed a color temperature set on a light that was off in a color being dropped
   by an ESPHome light whose color and white are separate color modes, as one
   built with `color_interlock` has: the light was shown at the color temperature
