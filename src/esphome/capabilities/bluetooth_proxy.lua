@@ -1601,6 +1601,7 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
           mtu = tostring(result.mtu or 0),
         }, "NOTIFY")
       end, function(err)
+        self._client:bluetoothDeviceDisconnect(mac)
         SendToProxy(bindingId, "GATT_CONNECT_RESPONSE", {
           proxyId = proxyId,
           mac = mac,

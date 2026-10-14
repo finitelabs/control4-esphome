@@ -64,6 +64,16 @@ local function advance(ms)
   now = target
 end
 
+local function armed()
+  local n = 0
+  for _, timer in ipairs(timers) do
+    if not timer.cancelled then
+      n = n + 1
+    end
+  end
+  return n
+end
+
 local requests
 local sent
 
@@ -96,6 +106,26 @@ local function count(method)
     end
   end
   return n
+end
+
+local DISCONNECT = ESPHomeProtoSchema.Enum.BluetoothDeviceRequestType.BLUETOOTH_DEVICE_REQUEST_TYPE_DISCONNECT
+
+local function deviceRequests(disconnect)
+  local n = 0
+  for _, r in ipairs(requests) do
+    if r.method == RPC.bluetooth_device_request and (r.body.request_type == DISCONNECT) == disconnect then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+local function connects()
+  return deviceRequests(false)
+end
+
+local function disconnects()
+  return deviceRequests(true)
 end
 
 local function answer(client, schema, message)
@@ -157,6 +187,7 @@ do
   advance(1)
   T.truthy("rejected at 30s", outcome.rejected)
   T.eq("measured from the request", outcome.at, 30000)
+  T.eq("and tells the proxy to stop", disconnects(), 1)
 end
 
 T.section("a connect that succeeds leaves no timer to fire later")
@@ -168,8 +199,30 @@ do
   advance(5000)
   connectionResponse(client, true)
   T.truthy("resolved on the final answer", outcome.resolved)
+  T.eq("no timer left armed", armed(), 0)
   advance(60000)
   T.falsy("and never rejected after", outcome.rejected)
+end
+
+T.section("a connect that fails leaves no timer to fire later")
+do
+  reset()
+  local client = newClient()
+  local outcome = watch(client:bluetoothDeviceConnect(MAC, 0, false))
+  answer(client, Message.BluetoothDeviceConnectionResponse, { error = 133 })
+  T.truthy("rejected on the failure", outcome.rejected)
+  T.eq("no timer left armed", armed(), 0)
+end
+
+T.section("a connect fails at once when the proxy's connection drops")
+do
+  reset()
+  local client = newClient()
+  local outcome = watch(client:bluetoothDeviceConnect(MAC, 0, false))
+  advance(1000)
+  client:disconnect()
+  T.truthy("rejected", outcome.rejected)
+  T.eq("when the connection dropped", outcome.at, 1000)
 end
 
 T.section("discovery does not connect again when the slot list lags")
@@ -177,7 +230,7 @@ do
   reset()
   local client = newClient()
   watch(client:bluetoothGattGetServices(MAC))
-  T.eq("no connect request", count(RPC.bluetooth_device_request), 0)
+  T.eq("no connect request", connects(), 0)
   T.eq("only the services request", count(RPC.bluetooth_gatt_get_services), 1)
 end
 
@@ -186,11 +239,22 @@ do
   reset()
   local client = newClient(0)
   coordinatorConnect(coordinatorProxy(client))
-  T.eq("no connect request", count(RPC.bluetooth_device_request), 0)
+  T.eq("no connect request", connects(), 0)
   local responses = connectResponses()
   T.eq("one GATT_CONNECT_RESPONSE", #responses, 1)
   T.eq("a failure", responses[1] and responses[1].params.success, "false")
   T.eq("saying why", responses[1] and responses[1].params.error, "No connection slots available")
+  T.eq("for the request", responses[1] and responses[1].params.requestId, "r1")
+end
+
+T.section("coordinator: before the slot count is known, it connects")
+do
+  reset()
+  local client = newClient(0)
+  client._btConnections.initialized = false
+  coordinatorConnect(coordinatorProxy(client))
+  T.eq("it connects", connects(), 1)
+  T.eq("and answers nothing yet", #connectResponses(), 0)
 end
 
 T.section("coordinator: a device already connected here does not need a free slot")
@@ -199,7 +263,7 @@ do
   local client = newClient(0)
   client._btConnections.allocated = { MAC }
   coordinatorConnect(coordinatorProxy(client))
-  T.eq("it connects", count(RPC.bluetooth_device_request), 1)
+  T.eq("it connects", connects(), 1)
   T.eq("and answers nothing yet", #connectResponses(), 0)
 end
 
@@ -214,6 +278,7 @@ do
   T.eq("one GATT_CONNECT_RESPONSE", #responses, 1)
   T.eq("a failure", responses[1] and responses[1].params.success, "false")
   T.eq("at 30s", responses[1] and responses[1].at, 30000)
+  T.eq("and tells the proxy to stop", disconnects(), 1)
 end
 
 T.section("coordinator: a slow connect then a silent discovery fails within 60s")
@@ -228,11 +293,12 @@ do
   advance(29900)
   connectionResponse(client, true)
   advance(60000)
-  T.eq("one connect request in all", count(RPC.bluetooth_device_request), 1)
+  T.eq("one connect request in all", connects(), 1)
   local responses = connectResponses()
   T.eq("one GATT_CONNECT_RESPONSE", #responses, 1)
   T.eq("a failure", responses[1] and responses[1].params.success, "false")
   T.eq("at 59.9s", responses[1] and responses[1].at, 59900)
+  T.eq("and releases the link", disconnects(), 1)
 end
 
 T.section("coordinator: a connect and discovery that complete answer with the services")
@@ -247,6 +313,7 @@ do
   local responses = connectResponses()
   T.eq("one GATT_CONNECT_RESPONSE", #responses, 1)
   T.eq("a success", responses[1] and responses[1].params.success, "true")
+  T.eq("with the services", responses[1] and #DeserializeSafe(responses[1].params.services), 1)
   advance(120000)
   T.eq("and nothing more later", #connectResponses(), 1)
 end
@@ -263,7 +330,7 @@ do
   advance(29900)
   connectionResponse(client, true)
   advance(60000)
-  T.eq("one connect request in all", count(RPC.bluetooth_device_request), 1)
+  T.eq("one connect request in all", connects(), 1)
   local failed
   for _, s in ipairs(sent) do
     if s.command == "CONNECTION_FAILED" and not failed then

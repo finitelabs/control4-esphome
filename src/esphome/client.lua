@@ -910,6 +910,8 @@ function ESPHomeClient:bluetoothDeviceConnect(mac, addressType, withCache)
   local connectTimer = C4:SetTimer(30 * ONE_SECOND, function()
     log:warn("Bluetooth connection to %s not settled after 30s", mac)
     d:reject("Connection timeout")
+    -- The proxy may still be connecting; a late success would hold a slot with no owner.
+    self:bluetoothDeviceDisconnect(mac)
   end)
 
   local requestType = (withCache == false)

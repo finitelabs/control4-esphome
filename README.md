@@ -942,12 +942,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a SwitchBot Relay Switch with no encryption key staying Busy and keeping
   the proxy's connection slot when a connection came up without the device's
   Bluetooth characteristics; it now disconnects and frees the slot
-- Fixed a Bluetooth connection that an ESPHome proxy acknowledged and never
-  finished leaving the SwitchBot, Yale or SereneScent driver waiting, where it
-  now fails after 30 seconds and the coordinator tries the next proxy; a
-  connection that took a while also no longer connected a second time before
-  reading the device's services, and the coordinator moves on at once from a
-  proxy with no free connection slot
+- Fixed the SwitchBot and Yale drivers waiting indefinitely when an ESPHome
+  proxy answered a connection request without ever connecting or failing; the
+  proxy now fails the connection after 30 seconds and the coordinator tries the
+  next proxy
+- Fixed the Bluetooth coordinator trying a proxy with no free connection slot,
+  and a slow connection taking up to 90 seconds on one proxy and four and a half
+  minutes through the coordinator; the coordinator now moves on from a full
+  proxy at once, and one proxy's attempt takes about a minute at most
 - Fixed Advanced Lighting scenes on an ESPHome light: a flash scene with no
   delay or ramp time hung the driver, Stop Scene Ramp did not stop the light,
   and a scene kept moving a light that was sent another command, or showed it
