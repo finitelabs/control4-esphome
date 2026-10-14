@@ -302,7 +302,7 @@ local notificationsSubscribing = false
 local linkAbandoned = false
 --- Whether a CONNECT is still waiting on its CONNECTED or CONNECTION_FAILED.
 --- @type boolean
-local connectPending = false
+local pendingConnect = false
 --- @type integer
 local DISCONNECT_DELAY_MS = 4000
 --- Give up on a CONNECT that gets neither CONNECTED nor CONNECTION_FAILED back (a
@@ -436,7 +436,7 @@ local function resetConnectionState(clearHandles)
   log:trace("resetConnectionState(%s)", clearHandles)
   -- Connection state
   CancelTimer("ConnectionTimeout")
-  connectPending = false
+  pendingConnect = false
   pendingCommand = nil
   awaitingCommandResponse = false
   notificationsSubscribed = false
@@ -470,7 +470,7 @@ end
 local function requestConnection()
   log:trace("requestConnection()")
   SendToProxy(ESPHOME_BINDING, "CONNECT", {}, "NOTIFY")
-  connectPending = true
+  pendingConnect = true
   SetTimer("ConnectionTimeout", CONNECT_TIMEOUT_MS, function()
     log:error("Connection failed: no answer to CONNECT after %dms", CONNECT_TIMEOUT_MS)
     abandonAttempt("Connection Failed: timeout")
@@ -2385,7 +2385,7 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
 
   log:info("Connected to %s device: %s", devType or "unknown", mac or "unknown")
   CancelTimer("ConnectionTimeout")
-  connectPending = false
+  pendingConnect = false
   linkAbandoned = false
 
   -- Active GATT connection means this is not a passive device
@@ -2420,13 +2420,9 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
         if pendingCommand then
           executePendingCommand()
         else
-          log:debug("No pending command, requesting device status")
-          SendToProxy(ESPHOME_BINDING, "GATT_NOTIFY", {
-            handle = tostring(rxHandle),
-            enable = "true",
-          }, "NOTIFY")
           -- An abandoned attempt's late answer, or the parent connecting a newly
           -- bound child: no press needs the link, and nothing else releases it.
+          log:debug("No pending command, releasing the link")
           requestDisconnect()
         end
       elseif deviceCategory == DEVICE_CATEGORY.SWITCH then
@@ -2577,7 +2573,7 @@ function RFP.CONNECTION_FAILED(idBinding, strCommand, tParams, args)
   local error = Select(tParams, "error") or "unknown"
   -- The parent answers a CONNECT the timeout already gave up on, or one sent
   -- before the link that is up now.
-  if not connectPending then
+  if not pendingConnect then
     log:warn("Ignoring CONNECTION_FAILED with no CONNECT outstanding: %s", error)
     return
   end

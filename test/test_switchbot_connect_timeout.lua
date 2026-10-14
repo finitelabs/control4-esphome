@@ -81,7 +81,8 @@ H.test("a CONNECT nobody answers times out, frees the slot and drops the press",
   H.clearSent()
   connected()
   T.eq("the press is not written", H.count("GATT_WRITE", ESPHOME), 0)
-  T.eq("the link only subscribes for status", H.count("GATT_NOTIFY", ESPHOME), 1)
+  T.eq("nor anything subscribed", H.count("GATT_NOTIFY", ESPHOME), 0)
+  T.truthy("the link is released", H.armed("DisconnectDelay"))
 end)
 
 H.test("the next press after a timeout connects afresh", function()
@@ -123,6 +124,7 @@ H.test("CONNECTED cancels the timeout", function()
   T.falsy("the timeout is cancelled", H.armed("ConnectionTimeout"))
   T.eq("and the queued press is written", H.count("GATT_WRITE", ESPHOME), 1)
   T.eq("nothing is disconnected", H.count("DISCONNECT", ESPHOME), 0)
+  T.falsy("and no disconnect is scheduled before the write is answered", H.armed("DisconnectDelay"))
 end)
 
 H.test("CONNECTION_FAILED cancels the timeout", function()
@@ -173,6 +175,38 @@ H.test("a CONNECTION_FAILED that lands once connected leaves the press alone", f
   T.eq("the driver stays Busy", Properties["Driver Status"], "Busy")
   H.rfp(ESPHOME, "GATT_WRITE_RESPONSE", { success = "true" })
   T.truthy("and the write answer still schedules the disconnect", H.armed("DisconnectDelay"))
+end)
+
+H.test("a Bot the parent connects at bind releases the link", function()
+  boot()
+  OBC[ESPHOME](ESPHOME, "ESPHOME_SWITCHBOT", true)
+  connected()
+  T.eq("nothing is subscribed", H.count("GATT_NOTIFY", ESPHOME), 0)
+  T.eq("nor written", H.count("GATT_WRITE", ESPHOME), 0)
+  T.eq("the disconnect waits the usual delay", H.delay("DisconnectDelay"), 4000)
+  T.truthy("and fires", H.fire("DisconnectDelay"))
+  T.eq("sending DISCONNECT", H.count("DISCONNECT", ESPHOME), 1)
+end)
+
+local RELAY = SwitchBot.DEVICE_NAMES[SwitchBot.DeviceTypeCode.RELAY_1]
+
+H.test("a late CONNECTION_FAILED leaves an encrypted Relay Switch press waiting on its IV alone", function()
+  H.boot({ ["Key ID"] = "01", ["Encryption Key"] = string.rep("00", 16) }, function()
+    persist:delete("TX_HANDLE")
+    persist:delete("RX_HANDLE")
+    values:update("Device Type", RELAY, "STRING")
+  end)
+  local relay = bindings:getDynamicBinding("SwitchBot", "channel1").bindingId
+  H.rfp(relay, "ON")
+  H.fire("ConnectionTimeout")
+  disconnectAnswered()
+  H.rfp(relay, "ON")
+  H.rfp(ESPHOME, "CONNECTED", { name = "Relay", mac = "AA:BB:CC:DD:EE:FF", deviceType = RELAY, services = SERVICES })
+  H.rfp(ESPHOME, "GATT_NOTIFY_SUBSCRIBED", { handle = "14", success = "true" })
+  T.eq("the IV is requested", Properties["Encryption Status"], "Requesting IV...")
+
+  H.rfp(ESPHOME, "CONNECTION_FAILED", { error = "late" })
+  T.eq("the driver stays Busy", Properties["Driver Status"], "Busy")
 end)
 
 T.finish()
