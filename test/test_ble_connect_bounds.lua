@@ -399,4 +399,47 @@ do
   T.eq("and releases the link", disconnects(), 1)
 end
 
+T.section("direct: a CONNECT made while the first is still connecting leaves it to connect")
+do
+  reset()
+  local client = newClient()
+  local proxy = BluetoothProxyCapability:new(client)
+  proxy._addedDevices[MAC] = { name = "Lock", addressType = 0, deviceType = "Yale", passive = false }
+  proxy:handleCommand(MAC, 5001, "CONNECT", {}, {})
+  -- ESPHome lists the slot as allocated from the connect request on.
+  client._btConnections.allocated = { MAC }
+  proxy:handleCommand(MAC, 5001, "CONNECT", {}, {})
+  answer(client, Message.BluetoothGATTErrorResponse, { error = 133 })
+  T.eq("no disconnect", disconnects(), 0)
+  connectionResponse(client, true)
+  advance(500)
+  servicesDone(client)
+  local connected
+  for _, s in ipairs(sent) do
+    if s.command == "CONNECTED" then
+      connected = s
+    end
+  end
+  T.truthy("the first CONNECT is answered as connected", connected)
+end
+
+T.section("coordinator: a discovery that fails while a newer request connects leaves that connect alone")
+do
+  reset()
+  local client = newClient()
+  local proxy = coordinatorProxy(client)
+  coordinatorConnect(proxy)
+  connectionResponse(client, true)
+  advance(20000)
+  proxy:handleCoordinatorCommand("GATT_CONNECT", { mac = MAC, requestId = "r2" })
+  advance(10000)
+  local responses = connectResponses()
+  T.eq("the first request fails", responses[1] and responses[1].params.success, "false")
+  T.eq("no disconnect", disconnects(), 0)
+  connectionResponse(client, true)
+  servicesDone(client)
+  responses = connectResponses()
+  T.eq("the newer request succeeds", responses[2] and responses[2].params.success, "true")
+end
+
 T.finish()

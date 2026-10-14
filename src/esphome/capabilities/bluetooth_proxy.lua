@@ -441,7 +441,8 @@ function BluetoothProxyCapability:_discoverGattServices(mac, callback)
     end
   end, function(err)
     log:error("GATT service discovery failed for %s: %s", mac, err)
-    if err ~= ESPHomeClient.SUPERSEDED then
+    -- A newer discovery or connect for this MAC owns the link.
+    if err ~= ESPHomeClient.SUPERSEDED and not self._client:isBluetoothDeviceConnecting(mac) then
       self._client:bluetoothDeviceDisconnect(mac)
     end
     if callback then
@@ -1605,8 +1606,8 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
           mtu = tostring(result.mtu or 0),
         }, "NOTIFY")
       end, function(err)
-        -- A newer GATT_CONNECT for this MAC took the link over.
-        if err ~= ESPHomeClient.SUPERSEDED then
+        -- A newer GATT_CONNECT for this MAC owns the link.
+        if err ~= ESPHomeClient.SUPERSEDED and not self._client:isBluetoothDeviceConnecting(mac) then
           self._client:bluetoothDeviceDisconnect(mac)
         end
         SendToProxy(bindingId, "GATT_CONNECT_RESPONSE", {

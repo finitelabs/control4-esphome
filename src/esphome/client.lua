@@ -1632,6 +1632,17 @@ function ESPHomeClient:isBluetoothDeviceAllocated(mac)
   return false
 end
 
+--- Whether a connect to a Bluetooth device is still waiting for its answer.
+--- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
+--- @return boolean connecting
+function ESPHomeClient:isBluetoothDeviceConnecting(mac)
+  local key = self:_makeBluetoothCallbackKey(
+    ESPHomeProtoSchema.Message.BluetoothDeviceConnectionResponse,
+    BLEAddress.fromString(mac)
+  )
+  return self._callbacks[key] ~= nil
+end
+
 --- Ensure a BLE device is connected before performing GATT operations.
 --- If the device already has an active connection (allocated slot), resolves immediately.
 --- Otherwise, initiates a new BLE connection first. This enables on-demand connection for GATT
