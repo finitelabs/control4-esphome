@@ -182,6 +182,10 @@ local currentColorPresetId = nil
 local sentLevels = {}
 local sentColors = {}
 
+-- What the light is going to, or is at, of its color and its white: its last
+-- report, with what it has been sent since.
+local lightTarget = {}
+
 ---------------------------------------------------------------------------
 -- The proxy's setup
 ---------------------------------------------------------------------------
@@ -637,6 +641,30 @@ end
 -- Helpers: ESPHome light commands
 ---------------------------------------------------------------------------
 
+--- Take a report's fields, or a command's, into what the light is going to.
+local function aimLight(fields)
+  local target = {}
+  for field, value in pairs(lightTarget) do
+    target[field] = value
+  end
+  for field, value in pairs(fields) do
+    target[field] = value
+  end
+  lightTarget = target
+end
+
+-- The mode ESPHome gives a light with none yet, as after a restart with none
+-- restored, at a turn-on that names none: its first.
+local function firstColorMode()
+  local first
+  for mode in pairs(supportedColorModes) do
+    if mode >= ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_WHITE and (not first or mode < first) then
+      first = mode
+    end
+  end
+  return first
+end
+
 local function sendLightCommand(opts)
   log:debug("sendLightCommand(%s)", opts)
   -- A light that is not connected reports nothing of what it is sent.
@@ -647,11 +675,25 @@ local function sendLightCommand(opts)
   if STATE and (opts.has_rgb or opts.has_color_temperature) then
     sentColors[#sentColors + 1] = {
       color_mode = opts.color_mode,
+      color_brightness = opts.color_brightness,
       red = opts.red,
       green = opts.green,
       blue = opts.blue,
+      white = opts.white,
       color_temperature = opts.color_temperature,
+      cold_white = opts.cold_white,
+      warm_white = opts.warm_white,
     }
+    aimLight(sentColors[#sentColors])
+  elseif
+    STATE
+    and opts.state
+    and currentBrightness == 0
+    and (
+      lightTarget.color_mode == nil or lightTarget.color_mode == ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_UNKNOWN
+    )
+  then
+    aimLight({ color_mode = firstColorMode() })
   end
   SendToProxy(ESPHOME_BINDING, "ENTITY_COMMAND", {
     body = SerializeSafe(opts),
@@ -742,6 +784,63 @@ local function givesMiredsRange()
   return (tonumber(Select(ENTITY, "min_mireds")) or 0) > 0 and (tonumber(Select(ENTITY, "max_mireds")) or 0) > 0
 end
 
+-- The mode a color goes out in when it holds a white beside the color, as a
+-- light built with no color_interlock has: nil for a light with none.
+local function combinedColorMode()
+  local mode = pickColorMode("rgb")
+  if mode ~= ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_RGB then
+    return mode
+  end
+end
+
+local isLogicallyOn -- defined with the on modes below
+
+-- The mode the light is in, where that has a color temperature and no color,
+-- as an RGBCT light has beside its combined mode: nil in any other.
+local function whiteOnlyMode()
+  local mode = lightTarget.color_mode
+  -- A rated on's pre-on, which names none, is yet to go out.
+  if
+    (mode == nil or mode == ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_UNKNOWN)
+    and currentBrightness == 0
+    and isLogicallyOn()
+  then
+    mode = firstColorMode()
+  end
+  if supportedColorModes[mode] and COLOR_MODES_SUPPORTING_CCT[mode] and not COLOR_MODES_SUPPORTING_RGB[mode] then
+    return mode
+  end
+end
+
+-- A combined mode lights its color and its white side by side, so the one
+-- asked for goes out with the other off, in that mode: a change of mode fades through off.
+--- @param kelvin number|nil The white's color temperature, or nil for the color.
+local function combinedFields(fields, mode, kelvin)
+  fields.has_color_mode = true
+  fields.color_mode = mode
+  fields.has_color_brightness = true
+  fields.color_brightness = kelvin and 0 or 1
+  if mode ~= ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE then
+    fields.has_white = true
+    fields.white = kelvin and 1 or 0
+    return fields
+  end
+  -- The light works its cold and warm white out from a color temperature, with
+  -- its own gamma. One that reports no range for it cannot, and is sent them.
+  local cw, ww = 0, 0
+  if kelvin then
+    if givesMiredsRange() then
+      return fields
+    end
+    cw, ww = kelvinToCoolWarmSplit(kelvin)
+  end
+  fields.has_cold_white = true
+  fields.cold_white = cw
+  fields.has_warm_white = true
+  fields.warm_white = ww
+  return fields
+end
+
 -- Convert an XY/mode color into the right ESPHome cmd fields. Returns the
 -- partial cmd table or nil if the bulb doesn't support color/CCT or the
 -- provided values can't be mapped.
@@ -759,11 +858,20 @@ local function buildColorCmdFields(x, y, mode, merged)
       has_color_temperature = true,
       color_temperature = kelvinToMireds(k),
     }
+    local combined = combinedColorMode()
+    local pickedMode = pickColorMode("cct")
+    if combined and COLOR_MODES_SUPPORTING_CCT[combined] then
+      -- In its white-only mode the light is left there, as one whose white is
+      -- a mode of its own is: ESPHome fades a change of mode through off.
+      pickedMode = whiteOnlyMode()
+      if not pickedMode then
+        return combinedFields(fields, combined, k)
+      end
+    end
     if not merged then
       return fields
     end
     -- Set color_mode explicitly so ESPHome doesn't have to infer.
-    local pickedMode = pickColorMode("cct")
     if pickedMode then
       fields.has_color_mode = true
       fields.color_mode = pickedMode
@@ -786,6 +894,10 @@ local function buildColorCmdFields(x, y, mode, merged)
   if supportsColor then
     local r, g, b = xyToRGB(x, y)
     local fields = { has_rgb = true, red = r, green = g, blue = b }
+    local combined = combinedColorMode()
+    if combined then
+      return combinedFields(fields, combined)
+    end
     -- Named, or a light that is off in a mode with no color drops the color.
     local pickedMode = pickColorMode("rgb")
     if pickedMode then
@@ -890,7 +1002,7 @@ end
 
 -- On when a ramp in flight is heading for an on level, or with none in flight when we think it is.
 -- A color command sends this state: the other would cancel a fade up, or turn a fade to off full on.
-local function isLogicallyOn()
+function isLogicallyOn()
   if rampingBrightness and brightnessRamp then
     return (brightnessRamp.targetLevel or 0) > 0
   end
@@ -2740,6 +2852,7 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   currentColorPresetId = nil
   sentLevels = {}
   sentColors = {}
+  lightTarget = {}
   updateStatus("Disconnected", false)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   notifyBrightnessChanged(0)
@@ -2797,15 +2910,26 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   local ownLevel = isOwnReport(sentLevels, function(level)
     return level == newBrightness
   end, newBrightness)
-  local ownColor = isOwnReport(sentColors, function(color)
-    return holdsColor(state, color)
-  end, {
+  local reported = {
     color_mode = tointeger(Select(state, "color_mode")),
+    color_brightness = tofinite(Select(state, "color_brightness")) or 0,
     red = tofinite(Select(state, "red")) or 0,
     green = tofinite(Select(state, "green")) or 0,
     blue = tofinite(Select(state, "blue")) or 0,
+    white = tofinite(Select(state, "white")) or 0,
     color_temperature = tofinite(Select(state, "color_temperature")) or 0,
-  })
+    cold_white = tofinite(Select(state, "cold_white")) or 0,
+    warm_white = tofinite(Select(state, "warm_white")) or 0,
+  }
+  local ownColor = isOwnReport(sentColors, function(color)
+    return holdsColor(state, color)
+  end, reported)
+  -- Its own, a report is of a command with others sent since. Another
+  -- client's is where the light now goes, whatever it was sent before.
+  lightTarget = {}
+  for _, color in ipairs(ownColor and sentColors or { reported }) do
+    aimLight(color)
+  end
 
   -- A level or color the light did not last report and the driver never sent
   -- is another client's command: at the bulb that ends both fades.
@@ -2918,6 +3042,7 @@ OBC[ESPHOME_BINDING] = function()
   currentColorPresetId = nil
   sentLevels = {}
   sentColors = {}
+  lightTarget = {}
   currentColorX = DEFAULT_COLOR_X
   currentColorY = DEFAULT_COLOR_Y
   currentColorMode = LIGHT_COLOR_MODE_CCT

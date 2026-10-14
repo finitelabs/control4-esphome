@@ -2634,14 +2634,14 @@ do
   function C4:ColorXYtoCCT(x)
     return x * 10000
   end
-  light({ RGBCT, CT })
+  light({ ColorMode.COLOR_MODE_RGB, CT })
   mark()
   proxy("SET_COLOR_TARGET", {
     LIGHT_COLOR_TARGET_COLOR_CORRELATED_TEMPERATURE = 3000,
     LIGHT_COLOR_TARGET_COLOR_RATE = 0,
   })
   T.eq("a color temperature: no mode is named", modes(), { false })
-  light({ RGBCT, CT }, false)
+  light({ ColorMode.COLOR_MODE_RGB, CT }, false)
   local x, y = C4:ColorCCTtoXY(3000)
   proxy("UPDATE_COLOR_ON_MODE", {
     COLOR_PRESET_ID = 1,
@@ -3236,14 +3236,15 @@ do
   run(50)
   push({ CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 200 })
   T.eq("and one set elsewhere ahead of the fade's own report", told("LIGHT_COLOR_CHANGED", "at"), { 50 })
+  -- A light with both in one mode is sent the white turned up, and reports it.
   local RGBCT = ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE
   light({ RGBCT })
   mark()
   kelvin(2700, 10000)
   run(100)
-  push({ RGBCT }, { state = true, brightness = 1.0, color_temperature = 370.3703613 }, { 1, 1, 1 }, RGBCT)
+  push({ RGBCT }, { state = true, brightness = 1.0, color_temperature = 370.3703613, white = 1 }, { 1, 1, 1 }, RGBCT)
   run(1900)
-  push({ RGBCT }, { state = true, brightness = 1.0, color_temperature = 370.3703613 }, foreign, RGBCT)
+  push({ RGBCT }, { state = true, brightness = 1.0, color_temperature = 370.3703613, white = 1 }, foreign, RGBCT)
   T.eq(
     "a full color set elsewhere in the fade, the color temperature left as it was: the fade is over then",
     told("LIGHT_COLOR_CHANGED", "at"),
@@ -3949,11 +3950,48 @@ end
 -- Combined color modes
 ---------------------------------------------------------------------------
 
+-- RGB with a white is one too, with no color temperature.
+local RGBW = ColorMode.COLOR_MODE_RGB_WHITE
+
 local function kelvin(target, rate)
   proxy("SET_COLOR_TARGET", {
     LIGHT_COLOR_TARGET_COLOR_CORRELATED_TEMPERATURE = target,
     LIGHT_COLOR_TARGET_COLOR_RATE = rate,
   })
+end
+
+--- What that command turns up and down: its color mode, color brightness,
+--- white, cold white and warm white, false for each it does not set.
+local function channels()
+  local cmd = lastCommand()
+  return {
+    cmd.has_color_mode and cmd.color_mode or false,
+    cmd.has_color_brightness and cmd.color_brightness or false,
+    cmd.has_white and cmd.white or false,
+    cmd.has_cold_white and cmd.cold_white or false,
+    cmd.has_warm_white and cmd.warm_white or false,
+  }
+end
+
+--- The state a light reports once it has that command: on, in white unless
+--- the command set a color.
+local function taken()
+  local cmd = lastCommand()
+  local state = { state = true, brightness = 1.0, red = 1, green = 1, blue = 1 }
+  for _, field in ipairs({
+    "color_mode",
+    "color_brightness",
+    "red",
+    "green",
+    "blue",
+    "white",
+    "color_temperature",
+    "cold_white",
+    "warm_white",
+  }) do
+    state[field] = cmd[field] or state[field]
+  end
+  return state
 end
 
 T.section("a combined color mode's report is the color or the white, whichever is turned up further")
@@ -4086,6 +4124,344 @@ do
     { colorsTold(), modesTold() },
     { { 0.4 }, { CCT_MODE } }
   )
+end
+
+T.section("a color temperature for a light in a combined color mode turns the color down, in that mode")
+do
+  --- Set the Color On Mode to a color temperature preset, with a dim one for Dim-To-Warm.
+  local function onModeKelvin(on, dim)
+    proxy("UPDATE_COLOR_ON_MODE", {
+      COLOR_PRESET_ID = 1,
+      COLOR_PRESET_ORIGIN = 1,
+      COLOR_PRESET_COLOR_X = on / 10000,
+      COLOR_PRESET_COLOR_Y = 0.4,
+      COLOR_PRESET_COLOR_MODE = CCT_MODE,
+      COLOR_FADE_PRESET_ID = dim and 2 or 0,
+      COLOR_FADE_PRESET_ORIGIN = dim and 1 or 0,
+      COLOR_FADE_PRESET_COLOR_X = dim and dim / 10000,
+      COLOR_FADE_PRESET_COLOR_Y = dim and 0.4,
+      COLOR_FADE_PRESET_COLOR_MODE = CCT_MODE,
+    })
+  end
+  local WHITE = { RGBCT, 0, 1, false, false }
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  mark()
+  kelvin(3000, 0)
+  T.eq("a light in a color: the combined mode, the color off and the white up", channels(), WHITE)
+  T.eq("at the color temperature", kelvins(), { 3000 })
+  T.eq("and at the level it was: none is sent", lastCommand().has_brightness or false, false)
+  T.eq("nor told", told("LIGHT_BRIGHTNESS_CHANGED", "at"), {})
+  mark()
+  kelvin(5000, 3000)
+  T.eq("over a rate", { channels(), lengths() }, { WHITE, { 3000 } })
+  light({ RGBCT, CT }, false)
+  mark()
+  kelvin(3000, 0)
+  T.eq("for a light that is off, which stays off", { lastCommand().state, channels() }, { false, WHITE })
+  light({ RGBCT, CT }, false)
+  onModeKelvin(3000)
+  mark()
+  proxy("ON")
+  T.eq("the color temperature an on carries: not the white-only mode", { kelvins(), channels() }, { { 3000 }, WHITE })
+  light({ RGBCT, CT })
+  onModeKelvin(6000, 3000)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
+  T.eq("Dim-To-Warm's color temperature for a level", { kelvins(), channels() }, { { 4500 }, WHITE })
+  light({ RGBCT, CT })
+  activate(
+    "<element><delay>0</delay><colorEnabled>true</colorEnabled><colorX>0.3</colorX><colorY>0.4</colorY>"
+      .. "<colorMode>1</colorMode><colorRate>0</colorRate></element>"
+  )
+  T.eq("a scene step's", { kelvins(), channels() }, { { 3000 }, WHITE })
+  proxy("CLEAR_ALL_SCENES")
+
+  -- ESPHome works a color temperature out into cold and warm white with the
+  -- light's gamma, for a light that gives a range for it.
+  light()
+  pushed({ RGBWW }, { state = true, brightness = 1.0 }, RANGE)
+  mark()
+  kelvin(4000, 0)
+  T.eq(
+    "a light with cold and warm white: the color off, and the two left to the light",
+    { kelvins(), channels() },
+    { { 4000 }, { RGBWW, 0, false, false, false } }
+  )
+  local warm = (250 - 153) / (500 - 153)
+  local cmd
+  for name, range in pairs({
+    ["no range"] = {},
+    ["one end of a range"] = { 153.8, 0 },
+    ["the other end"] = { 0, 370.4 },
+  }) do
+    light()
+    pushed({ RGBWW }, { state = true, brightness = 1.0 }, range)
+    mark()
+    kelvin(4000, 0)
+    cmd = lastCommand()
+    T.check(
+      "one that gives " .. name .. " cannot, and is sent the two",
+      cmd.color_brightness == 0
+        and not cmd.has_white
+        and math.abs(cmd.cold_white + cmd.warm_white - 1) < 1e-9
+        and cmd.cold_white > cmd.warm_white,
+      T.show(cmd)
+    )
+  end
+
+  -- A light whose color and white are separate modes is sent what it was.
+  light({ RGB, CT })
+  setColor(BLUE)
+  mark()
+  kelvin(3000, 0)
+  T.eq(
+    "a light with a color mode and a white mode: the color temperature alone",
+    channels(),
+    { false, false, false, false, false }
+  )
+  light({ RGBW, CT })
+  setColor(BLUE)
+  mark()
+  kelvin(3000, 0)
+  T.eq(
+    "a light whose combined mode has no color temperature: the same",
+    channels(),
+    { false, false, false, false, false }
+  )
+  light({ RGB, CWWW }, false)
+  onModeKelvin(4000)
+  mark()
+  proxy("ON")
+  cmd = lastCommand()
+  T.check(
+    "the one an on carries: its white mode and the driver's own two",
+    cmd.color_mode == CWWW
+      and not cmd.has_color_brightness
+      and not cmd.has_white
+      and math.abs(cmd.cold_white - (1 - warm)) < 1e-9
+      and math.abs(cmd.warm_white - warm) < 1e-9,
+    T.show(cmd)
+  )
+
+  -- The light reports each of these back: one that differs is another client's.
+  for _, case in ipairs({
+    { "the color brightness", { RGBCT, CT }, "color_brightness", 1 },
+    { "the white", { RGBCT, CT }, "white", 0 },
+    { "the cold white", { RGBWW }, "cold_white", 1 },
+    { "the warm white", { RGBWW }, "warm_white", 1 },
+  }) do
+    for _, reported in ipairs({ true, false }) do
+      local name, modes = case[1], case[2]
+      light(modes)
+      mark()
+      kelvin(4000, 10000)
+      run(100)
+      local state = taken()
+      if reported then
+        pushed(modes, state)
+        T.eq(
+          name .. ": the light's report of the fade's own command tells nothing",
+          told("LIGHT_COLOR_CHANGED", "at"),
+          {}
+        )
+      end
+      run(1900)
+      state[case[3]] = case[4]
+      pushed(modes, state)
+      T.eq(
+        name
+          .. " set elsewhere in the fade"
+          .. (reported and "" or ", ahead of the fade's own report")
+          .. ": it is over then",
+        told("LIGHT_COLOR_CHANGED", "at"),
+        { 2000 }
+      )
+    end
+  end
+end
+
+T.section("a color temperature for a light in its white-only mode leaves it in that mode")
+do
+  -- As a restart of the light, another client or a build that named this
+  -- mode for a white leaves an RGBCT light.
+  local WHITE_ONLY = {
+    state = true,
+    brightness = 1.0,
+    color_mode = CT,
+    color_brightness = 1,
+    red = 1,
+    green = 1,
+    blue = 1,
+    white = 1,
+    color_temperature = 300,
+  }
+  --- A light with both modes, in the white-only one.
+  local function whiteOnly()
+    light({ RGBCT, CT })
+    pushed({ RGBCT, CT }, WHITE_ONLY, RANGE)
+    mark()
+  end
+  whiteOnly()
+  kelvin(3000, 3000)
+  T.eq(
+    "a color temperature over a rate: that alone, with no mode for the light to fade through off to",
+    { kelvins(), channels() },
+    { { 3000 }, { false, false, false, false, false } }
+  )
+  whiteOnly()
+  fadeMode({ 0.5, 0.4 }, { 0.27, 0.4 }, CCT_MODE)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 40, RATE = 3000 })
+  T.eq(
+    "the one a level carries: the mode the light is in",
+    { kelvins(), channels() },
+    { { 3620 }, { CT, false, false, false, false } }
+  )
+  -- A color has to leave it: the white-only mode has none.
+  whiteOnly()
+  colorTarget(BLUE, 3000)
+  T.eq("a color names the combined mode", channels(), { RGBCT, 1, 0, false, false })
+  -- The light reports a command a tenth of a second after it has it.
+  whiteOnly()
+  colorTarget(BLUE, 0)
+  mark()
+  kelvin(3000, 3000)
+  T.eq(
+    "a color temperature after a color, ahead of the light's report of the color: the combined mode",
+    channels(),
+    { RGBCT, 0, 1, false, false }
+  )
+  pushed({ RGBCT, CT }, WHITE_ONLY, RANGE)
+  mark()
+  kelvin(4000, 3000)
+  T.eq(
+    "and still, when the report that comes is of the state before the two",
+    channels(),
+    { RGBCT, 0, 1, false, false }
+  )
+  -- Another client puts the light back, with the driver's color long since reported.
+  whiteOnly()
+  colorTarget(BLUE, 0)
+  pushed({ RGBCT, CT }, taken(), RANGE)
+  pushed({ RGBCT, CT }, WHITE_ONLY, RANGE)
+  mark()
+  kelvin(3000, 3000)
+  T.eq(
+    "a light put back in its white-only mode elsewhere is left there again",
+    channels(),
+    { false, false, false, false, false }
+  )
+  whiteOnly()
+  colorTarget(BLUE, 0)
+  local elsewhere = {}
+  for field, value in pairs(WHITE_ONLY) do
+    elsewhere[field] = value
+  end
+  elsewhere.color_temperature = 250
+  pushed({ RGBCT, CT }, elsewhere, RANGE)
+  mark()
+  kelvin(3000, 3000)
+  T.eq(
+    "and when it is put there after the driver's color and ahead of its report: the report is where it is",
+    channels(),
+    { false, false, false, false, false }
+  )
+  -- ESPHome gives a light that has no mode yet, as after a restart with none
+  -- restored, its first at a turn-on that names none: a rated on's pre-on.
+  light({ RGBCT, CT }, false)
+  fadeMode({ 0.5, 0.4 }, { 0.27, 0.4 }, CCT_MODE)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 3000 })
+  T.eq(
+    "a light with no mode yet, ramped on with Dim-To-Warm: the white-only mode its pre-on gives it",
+    { kelvins(), channels() },
+    { { 5000 }, { CT, false, false, false, false } }
+  )
+  light({ RGBCT, CT }, false)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 3000 })
+  mark()
+  kelvin(3000, 3000)
+  T.eq(
+    "and a color temperature sent as it ramps on, ahead of its report: that mode",
+    channels(),
+    { false, false, false, false, false }
+  )
+  light({ RGBCT, CT }, false)
+  proxy("ON")
+  mark()
+  kelvin(3000, 3000)
+  T.eq(
+    "turned on at once, and sent a color temperature ahead of its report: the same",
+    channels(),
+    { false, false, false, false, false }
+  )
+  light({ RGBCT, CT }, false)
+  activate(
+    "<element><delay>0</delay><rate>3000</rate><brightnessEnabled>true</brightnessEnabled><brightness>100</brightness>"
+      .. "<colorEnabled>true</colorEnabled><colorX>0.3</colorX><colorY>0.4</colorY><colorMode>1</colorMode></element>"
+  )
+  T.eq(
+    "and a scene step that ramps it on in a color temperature, built ahead of its pre-on: the same",
+    channels(),
+    { false, false, false, false, false }
+  )
+  proxy("CLEAR_ALL_SCENES")
+end
+
+T.section("a full color for a light in a combined color mode turns the white off")
+do
+  local COLOR = { RGBCT, 1, 0, false, false }
+  light({ RGBCT, CT })
+  kelvin(3000, 0)
+  mark()
+  colorTarget(ON, 0)
+  T.eq("a light in a white: the color up and the white off", channels(), COLOR)
+  mark()
+  colorTarget(BLUE, 3000)
+  T.eq("over a rate", { channels(), lengths() }, { COLOR, { 3000 } })
+  light({ RGBW })
+  mark()
+  colorTarget(ON, 0)
+  T.eq("a light with a white beside its color", channels(), { RGBW, 1, 0, false, false })
+  light({ RGBWW })
+  mark()
+  colorTarget(ON, 0)
+  T.eq("one with cold and warm white: both off", channels(), { RGBWW, 1, false, 0, 0 })
+  light({ RGBCT, CT }, false)
+  mark()
+  colorTarget(ON, 0)
+  T.eq("a color for a light that is off, which stays off", { lastCommand().state, channels() }, { false, COLOR })
+  light({ RGBCT, CT }, false)
+  onMode(ON)
+  mark()
+  proxy("ON")
+  T.eq("the On color an on carries", channels(), COLOR)
+  light({ RGBCT, CT })
+  activate(colorStep(50, BLUE, 2000))
+  T.eq("a scene step's", channels(), COLOR)
+  proxy("CLEAR_ALL_SCENES")
+  light({ RGB })
+  mark()
+  colorTarget(ON, 0)
+  T.eq("a light with a color alone: the color, as before", channels(), { RGB, false, false, false, false })
+  light({ RGB, CT })
+  mark()
+  colorTarget(ON, 0)
+  T.eq("a light with a color mode and a white mode: the same", channels(), { RGB, false, false, false, false })
+
+  -- A report of the color with the white lit again is another client's.
+  light({ RGBCT, CT })
+  mark()
+  colorTarget(BLUE, 10000)
+  run(100)
+  local state = taken()
+  pushed({ RGBCT, CT }, state)
+  T.eq("the light's report of a fade's own color tells nothing", told("LIGHT_COLOR_CHANGED", "at"), {})
+  run(1900)
+  state.white = 0.5
+  pushed({ RGBCT, CT }, state)
+  T.eq("the white turned up elsewhere in the fade: it is over then", told("LIGHT_COLOR_CHANGED", "at"), { 2000 })
+  T.eq("in the color, which is still lit", modesTold(), { FULL_MODE })
 end
 
 T.finish()

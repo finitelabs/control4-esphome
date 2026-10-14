@@ -204,6 +204,17 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   next fade was shown from, and the color it came back on in with Color On Mode
   set to Previous; it is now shown in its color while the color is turned up at
   least as far as the white, and in its white below that
+- Fixed a color temperature set on an ESPHome light with its color and its white
+  in one color mode leaving the color lit: asked for 3000 K while blue, the
+  light stayed blue with a warm white beside it and was shown at 3000 K; the
+  color now fades out as the white fades in, and only the first color set on an
+  RGBCT light that is in its white-only mode, as it is after a restart, still
+  fades through off
+- Fixed the white of an ESPHome light with its color and its white in one color
+  mode, an RGBW light among them, staying lit beside every color the light was
+  set to, which washed the color out; a color now turns the white off, and an
+  RGBW light, which has no color temperature for Control4 to set, shows its red,
+  green and blue alone
 
 ### Changed
 
