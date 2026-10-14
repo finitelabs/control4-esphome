@@ -953,10 +953,6 @@ local isLogicallyOn -- defined with the on modes below
 -- as an RGBCT light has beside its combined mode: nil in any other.
 local function whiteOnlyMode()
   local mode = lightTarget.color_mode
-  -- A rated on's pre-on, which names none, is yet to go out.
-  if mode == ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_UNKNOWN and currentBrightness == 0 and isLogicallyOn() then
-    mode = firstColorMode()
-  end
   if supportedColorModes[mode] and COLOR_MODES_SUPPORTING_CCT[mode] and not COLOR_MODES_SUPPORTING_RGB[mode] then
     return mode
   end
@@ -1373,16 +1369,22 @@ end
 -- brightness to ~0 so the real ramp has a real diff to interpolate across.
 -- 0.0039 = 1/256, the smallest 8-bit PWM step, visually indistinguishable
 -- from off. Using literal 0 risks ESPHome converting state=true brightness=0
--- back into state=false.
-local function sendPreOn()
-  sendLightCommand({
+-- back into state=false. It carries the ramp's color, as ESPHome brings a light
+-- up from off in its new one: the ramp would fade a change of mode through off.
+--- @param fields table|nil The color fields of the ramp that follows, which the light comes on in.
+local function sendPreOn(fields)
+  local cmd = {
     has_state = true,
     state = true,
     has_brightness = true,
     brightness = 0.0039,
     has_transition_length = true,
     transition_length = 0,
-  })
+  }
+  for k, v in pairs(fields or {}) do
+    cmd[k] = v
+  end
+  sendLightCommand(cmd)
 end
 
 -- Caller contract: only invoked when supportsDimming is true (lightOn/Off,
@@ -1392,10 +1394,6 @@ end
 local function setESPHomeBrightness(level, rateMs, keepColor, at)
   local hasRate = rateMs and rateMs > 0
   local goingOn = level > 0 and currentBrightness == 0
-
-  if goingOn and hasRate then
-    sendPreOn()
-  end
 
   -- Always include both state AND brightness in the command. The brightness
   -- field is dropped by ESPHome when state=false (see workaround above), but
@@ -1431,8 +1429,9 @@ local function setESPHomeBrightness(level, rateMs, keepColor, at)
     end
   end
   local mergedColorApplied = false
+  local colorFields = nil
   if mergedColor then
-    local colorFields = buildColorCmdFields(mergedColor.x, mergedColor.y, mergedColor.mode, true)
+    colorFields = buildColorCmdFields(mergedColor.x, mergedColor.y, mergedColor.mode, true)
     if colorFields then
       for k, v in pairs(colorFields) do
         cmd[k] = v
@@ -1446,21 +1445,26 @@ local function setESPHomeBrightness(level, rateMs, keepColor, at)
       -- on-preset), not from an explicit SET_COLOR_TARGET. Clear any
       -- lingering target-preset id so we don't echo a stale value. If the
       -- proxy follows up with a SET_COLOR_TARGET inside mergedColorUntil,
-      -- that handler will set the correct id before brightnessRampFinished
-      -- emits the terminal LIGHT_COLOR_CHANGED.
+      -- that handler sets the correct id for the LIGHT_COLOR_CHANGED that
+      -- follows.
       currentColorPresetId = nil
       -- Stash on the ramp metadata so brightnessRampFinished can emit the
       -- terminal LIGHT_COLOR_CHANGED when the bulb's combined transition
       -- completes. The proxy needs CHANGING (now) + CHANGED (at finish) to
-      -- keep its color-picker animation in sync.
+      -- keep its color-picker animation in sync. A ramped on's pre-on brings
+      -- the light up in it at once: it is kept only to match the proxy's send.
       if brightnessRamp then
-        brightnessRamp.mergedColor = {
-          x = mergedColor.x,
-          y = mergedColor.y,
-          mode = mergedColor.mode,
-        }
+        local color = { x = mergedColor.x, y = mergedColor.y, mode = mergedColor.mode }
+        if goingOn then
+          brightnessRamp.onColor = color
+        else
+          brightnessRamp.mergedColor = color
+        end
       end
     end
+  end
+  if goingOn and hasRate then
+    sendPreOn(colorFields)
   end
   local now = C4:GetTime()
   sendLightCommand(cmd)
@@ -1472,7 +1476,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor, at)
     -- The color sent last is where the light goes, so a color ramp in flight
     -- ends here: its end would report a color it has left.
     leaveColorRamp(now)
-    if hasRate then
+    if hasRate and not goingOn then
       -- CHANGING reports the color left: the ramp's end sets the target.
       notifyColorChanging(mergedColor.x, mergedColor.y, mergedColor.mode, rateMs)
     else
@@ -2230,12 +2234,19 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   -- making the brightness fade-up snap visually. The earlier merged-color
   -- path already emitted notifyColorChanging, and brightnessRampFinished
   -- will emit notifyColorChanged when the ramp completes - so there is
-  -- nothing to notify here, just suppress the redundant ESPHome cmd.
+  -- nothing to notify here, just suppress the redundant ESPHome cmd. A color
+  -- a ramped on's pre-on brought the light up in was told at once, and is
+  -- told again with the preset the proxy names.
   local now = C4:GetTime()
-  local merged = rampingBrightness and brightnessRamp and brightnessRamp.mergedColor
+  local ramp = rampingBrightness and brightnessRamp
+  local merged = ramp and (ramp.mergedColor or ramp.onColor)
   if now < mergedColorUntil and merged and sameColor(merged.x, merged.y, merged.mode, targetX, targetY, targetMode) then
     log:debug("SET_COLOR_TARGET deduped (%sms remaining in merged-color window)", mergedColorUntil - now)
-    brightnessRamp.mergedColor = { x = targetX, y = targetY, mode = targetMode }
+    if not ramp.onColor then
+      ramp.mergedColor = { x = targetX, y = targetY, mode = targetMode }
+    elseif presetId then
+      notifyColorChanged(targetX, targetY, targetMode)
+    end
     return
   end
 
@@ -2496,6 +2507,9 @@ local function applySceneStep(step)
     end
   end
   local colorAtOnce = nil
+  -- A step that turns the light on over its time sends a pre-on first, which
+  -- brings it up in the step's color at once.
+  local preOn = goingOn and rate > 0 and supportsDimming
   -- An on color the light cannot take builds no fields: the step then sets none.
   local colorFields = nil
   if color and not turningOff then
@@ -2521,7 +2535,7 @@ local function applySceneStep(step)
     local colorChanged = math.abs(color.x - currentColorX) > 1e-4
       or math.abs(color.y - currentColorY) > 1e-4
       or mode ~= currentColorMode
-    if rate > 0 and colorChanged then
+    if rate > 0 and colorChanged and not preOn then
       rampingColor = true
       colorRamp = {
         startTime = startTime,
@@ -2545,8 +2559,8 @@ local function applySceneStep(step)
     -- A rate of 0 is sent too, or the device ramps at its default transition.
     cmd.has_transition_length = true
     cmd.transition_length = rate
-    if goingOn and rate > 0 and supportsDimming then
-      sendPreOn()
+    if preOn then
+      sendPreOn(colorFields)
     end
     local now = C4:GetTime()
     sendLightCommand(cmd)
