@@ -71,6 +71,10 @@ local HANDSHAKE_TIMEOUT_MS = 10000
 --- comes.
 local CONNECT_TIMEOUT_MS = 200000
 
+--- Setup timeout (ms) - release a link whose secure-read subscription is never
+--- answered. The parent answers a subscription within 10s.
+local SUBSCRIBE_TIMEOUT_MS = 15000
+
 --- Minimum delay between GATT writes (ms) per Yale BLE protocol
 local GATT_WRITE_COOLDOWN_MS = 250
 
@@ -179,7 +183,7 @@ local linkAbandoned = false
 
 --- Whether a CONNECT is still waiting on its CONNECTED or CONNECTION_FAILED.
 --- @type boolean
-local connectPending = false
+local pendingConnect = false
 
 --- August cloud session token (for key fetching)
 --- @type string|nil
@@ -222,8 +226,9 @@ local function resetConnectionState(clearHandles)
   pendingCommand = nil
   awaitingResponse = nil
   gattWriteQueue = {}
-  connectPending = false
+  pendingConnect = false
   CancelTimer("ConnectionTimeout")
+  CancelTimer("SubscribeTimeout")
   CancelTimer("GattWriteDrain")
   CancelTimer("HandshakeTimeout")
   CancelTimer("Keepalive")
@@ -312,7 +317,7 @@ end
 local function requestConnection()
   log:trace("requestConnection()")
   SendToProxy(ESPHOME_BINDING, "CONNECT", {}, "NOTIFY")
-  connectPending = true
+  pendingConnect = true
   SetTimer("ConnectionTimeout", CONNECT_TIMEOUT_MS, function()
     log:warn("Connection timeout - no answer to CONNECT after %dms", CONNECT_TIMEOUT_MS)
     abandonAttempt("Connection failed: timeout")
@@ -1474,6 +1479,17 @@ end
 -- RFP Handlers - BLE Connection (binding 5002)
 --------------------------------------------------------------------------------
 
+--- Subscribe to the secure read, the first step after CONNECTED, under a timeout:
+--- the handshake timeout is not armed until the subscription is answered.
+--- @param handle integer Secure read handle
+local function subscribeSecureRead(handle)
+  subscribeNotifications(handle)
+  SetTimer("SubscribeTimeout", SUBSCRIBE_TIMEOUT_MS, function()
+    log:warn("No answer to the secure read subscription after %dms", SUBSCRIBE_TIMEOUT_MS)
+    abandonAttempt("Error: Notification subscription timeout")
+  end)
+end
+
 --- Handle active GATT connection from parent driver
 function RFP.CONNECTED(idBinding, strCommand, tParams, args)
   log:trace("RFP.CONNECTED(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
@@ -1487,7 +1503,7 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
 
   log:info("Connected to Yale lock: %s", mac or "unknown")
   CancelTimer("ConnectionTimeout")
-  connectPending = false
+  pendingConnect = false
   linkAbandoned = false
 
   if not IsEmpty(name) then
@@ -1519,7 +1535,7 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
       regularReadSubscribed = false
 
       -- Subscribe to notifications on secure read first, then regular read
-      subscribeNotifications(secureReadHandle)
+      subscribeSecureRead(secureReadHandle)
     else
       log:error("Could not find all Yale GATT characteristics")
       -- Try cached handles
@@ -1528,7 +1544,7 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
         log:warn("Using cached handles as fallback")
         secureReadSubscribed = false
         regularReadSubscribed = false
-        subscribeNotifications(cSR)
+        subscribeSecureRead(cSR)
       else
         abandonAttempt("Error: Missing characteristics")
       end
@@ -1549,8 +1565,13 @@ function RFP.BLE_ADVERTISEMENT(idBinding, strCommand, tParams, args)
     return
   end
 
-  -- Go online on first advertisement if still disconnected
+  -- Go online on first advertisement if still disconnected. A bind leaves
+  -- "Waiting for data" with no timer armed, and nothing else moves it on if the
+  -- parent's own connect to the new child fails.
   local driverStatus = Properties["Driver Status"]
+  if driverStatus == "Waiting for data" then
+    driverStatus = "Disconnected"
+  end
   if driverStatus == "Disconnected" then
     updateStatus("Listening", false)
     SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
@@ -1669,7 +1690,7 @@ function RFP.CONNECTION_FAILED(idBinding, strCommand, tParams, args)
   local errMsg = Select(tParams, "error") or "unknown"
   -- The parent answers a CONNECT the timeout already gave up on, or one sent
   -- before the link that is up now: recovery, if any, is already scheduled.
-  if not connectPending then
+  if not pendingConnect then
     log:warn("Ignoring CONNECTION_FAILED with no CONNECT outstanding: %s", errMsg)
     return
   end
@@ -1717,6 +1738,9 @@ function RFP.GATT_NOTIFY_SUBSCRIBED(idBinding, strCommand, tParams, args)
 
   if not success then
     log:error("GATT notification subscription failed on handle %s", handle)
+    if handshakeState == HANDSHAKE_STATE.IDLE and pendingCommand then
+      abandonAttempt("Error: Notification subscription failed")
+    end
     return
   end
 
@@ -1724,6 +1748,7 @@ function RFP.GATT_NOTIFY_SUBSCRIBED(idBinding, strCommand, tParams, args)
 
   if handle == secureReadHandle then
     log:info("Secure read notifications subscribed")
+    CancelTimer("SubscribeTimeout")
     secureReadSubscribed = true
     -- Per yalexs-ble: subscribe secure read, then start handshake immediately
     -- Regular read is subscribed AFTER handshake completes
