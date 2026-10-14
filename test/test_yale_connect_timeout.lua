@@ -84,6 +84,7 @@ H.test("a CONNECT nobody answers times out, frees the slot and polls again", fun
   lock()
   T.eq("LOCK asks the parent to connect", H.count("CONNECT", ESPHOME), 1)
   T.truthy("and arms the connect timeout", H.armed("ConnectionTimeout"))
+  T.eq("which outlasts the parent's own", H.delay("ConnectionTimeout"), 200000)
 
   T.truthy("the timeout fires", H.fire("ConnectionTimeout"))
   T.eq("it sends DISCONNECT so the parent frees any half-open slot", H.count("DISCONNECT", ESPHOME), 1)

@@ -116,6 +116,18 @@ function H.armed(name)
   return Timer[name] ~= nil
 end
 
+local delays = {}
+local realSetTimer = SetTimer
+SetTimer = function(id, delay, fn, repeating) -- luacheck: ignore
+  delays[id] = delay
+  return realSetTimer(id, delay, fn, repeating)
+end
+
+--- The delay, in ms, the named timer was last armed with.
+function H.delay(name)
+  return delays[name]
+end
+
 --- Fire one named timer now, as the controller would when it fell due.
 function H.fire(name)
   local handle = Timer[name]
