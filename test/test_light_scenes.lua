@@ -3805,6 +3805,16 @@ local function modesTold()
   return told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE")
 end
 
+--- The last command the device was sent since the mark, empty if it was sent none.
+local function lastCommand()
+  for i = #sent, 1, -1 do
+    if sent[i].binding == ESPHOME and sent[i].command == "ENTITY_COMMAND" then
+      return DeserializeSafe(sent[i].params.body)
+    end
+  end
+  return {}
+end
+
 T.section("a full color that is a color temperature's own point lights the white of a light that has one")
 do
   -- A new color light's proxy makes its On Color and Dim Color one white
@@ -3891,6 +3901,48 @@ do
     { { 4500 }, {} }
   )
   C4.ColorCCTtoXY = toXY
+end
+
+T.section("the color temperature a level carries is left to a light that can work its cold and warm white out")
+do
+  -- ESPHome splits a color temperature into cold and warm white with the
+  -- light's gamma, for a light that gives a range for it.
+  for name, modes in pairs({
+    ["cold and warm white alone"] = { CWWW },
+    ["a color mode beside its cold and warm white"] = { RGB, CWWW },
+    ["cold and warm white beside its color"] = { RGBWW },
+  }) do
+    light()
+    pushed(modes, { state = false, brightness = 1.0 }, RANGE)
+    fadeMode({ 0.32, 0.4 }, { 0.32, 0.4 }, CCT_MODE)
+    mark()
+    proxy("ON")
+    local cmd = lastCommand()
+    T.eq(
+      "a light with " .. name .. ": the color temperature, and neither cold nor warm white",
+      { kelvins(), cmd.color_mode, cmd.has_cold_white or false, cmd.has_warm_white or false },
+      { { 3200 }, modes[#modes], false, false }
+    )
+  end
+  -- 3200 K between the driver's own 153 and 500 mireds, or the end the light gives.
+  for name, case in pairs({
+    ["no range"] = { {}, (312.5 - 153) / (500 - 153) },
+    ["one end of a range"] = { { 153.8, 0 }, (312.5 - 153.8) / (500 - 153.8) },
+    ["the other end"] = { { 0, 370.4 }, (312.5 - 153) / (370.4 - 153) },
+  }) do
+    local warm = case[2]
+    light()
+    pushed({ CWWW }, { state = false, brightness = 1.0 }, case[1])
+    fadeMode({ 0.32, 0.4 }, { 0.32, 0.4 }, CCT_MODE)
+    mark()
+    proxy("ON")
+    local cmd = lastCommand()
+    T.check(
+      "one that gives " .. name .. " cannot, and is sent the two as the driver splits them",
+      cmd.color_mode == CWWW and math.abs(cmd.cold_white - (1 - warm)) < 1e-9 and math.abs(cmd.warm_white - warm) < 1e-9,
+      T.show(cmd)
+    )
+  end
 end
 
 T.finish()

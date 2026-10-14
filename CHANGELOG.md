@@ -193,6 +193,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   of the three; a color that is a color temperature's own point, in the Color On
   Mode, a scene or a color set from Navigator, now lights the light's white at
   that color temperature
+- Fixed a cold and warm white light coming on, or dimming, at a third of its
+  light and warmer than asked when the level carried a color temperature, as
+  every level does with Dim-To-Warm: the driver split the color temperature into
+  cold and warm white itself, where the light does it with its own gamma; the
+  light now works the two out, as it does for a color temperature set by itself
 
 ### Changed
 

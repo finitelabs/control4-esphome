@@ -737,6 +737,11 @@ local function kelvinToCoolWarmSplit(kelvin)
   return 1 - ratio, ratio
 end
 
+--- Whether the light gives a range for its color temperature, in mireds.
+local function givesMiredsRange()
+  return (tonumber(Select(ENTITY, "min_mireds")) or 0) > 0 and (tonumber(Select(ENTITY, "max_mireds")) or 0) > 0
+end
+
 -- Convert an XY/mode color into the right ESPHome cmd fields. Returns the
 -- partial cmd table or nil if the bulb doesn't support color/CCT or the
 -- provided values can't be mapped.
@@ -763,13 +768,13 @@ local function buildColorCmdFields(x, y, mode, merged)
       fields.has_color_mode = true
       fields.color_mode = pickedMode
     end
-    -- For RGBCW / cold-warm-white capable bulbs, also drive the cold/warm
-    -- channels directly. ESPHome would compute these internally from
-    -- color_temperature, but sending them ourselves removes ambiguity in
-    -- min_mireds/max_mireds reading and keeps the channel split exactly
-    -- where we expect it.
+    -- ESPHome works the cold and warm white out from a color temperature, with
+    -- the light's own gamma. A light that gives no range for it cannot, and is sent them.
     local CM = ESPHomeProtoSchema.Enum.ColorMode
-    if supportedColorModes[CM.COLOR_MODE_COLD_WARM_WHITE] or supportedColorModes[CM.COLOR_MODE_RGB_COLD_WARM_WHITE] then
+    if
+      not givesMiredsRange()
+      and (supportedColorModes[CM.COLOR_MODE_COLD_WARM_WHITE] or supportedColorModes[CM.COLOR_MODE_RGB_COLD_WARM_WHITE])
+    then
       local cw, ww = kelvinToCoolWarmSplit(k)
       fields.has_cold_white = true
       fields.cold_white = cw
