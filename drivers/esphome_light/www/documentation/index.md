@@ -109,6 +109,14 @@ or a white picked on the color wheel, lights its white alone, and any other
 color lights its red, green and blue alone. An RGBW light built with
 `color_interlock` lights its red, green and blue for every color.
 
+A light built with `color_interlock` has its color and its white as separate
+modes and never lights both at once. ESPHome changes between them by fading
+through off, so a fade from a color to a white, or from a white to a color, goes
+dark for a moment half way. A fade between two colors or between two whites does
+not. On a light built without `color_interlock` the color and the white
+cross-fade in one mode instead, and the light dims to about 30 % of its
+brightness half way.
+
 # <span style="color:#17BCF2">Installer Setup</span>
 
 Refer to the main ESPHome driver documentation for setup instructions. Once the
