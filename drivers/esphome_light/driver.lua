@@ -868,10 +868,12 @@ local function buildColorCmdFields(x, y, mode, merged)
         return combinedFields(fields, combined, k)
       end
     end
-    if not merged then
+    -- A light that is on is left to its own mode: ESPHome fades a change of
+    -- mode through off. Off, one with a color keeps a mode that cannot hold a
+    -- color temperature unless another is named, and drops the color temperature.
+    if not merged and (isLogicallyOn() or not supportsColor) then
       return fields
     end
-    -- Set color_mode explicitly so ESPHome doesn't have to infer.
     if pickedMode then
       fields.has_color_mode = true
       fields.color_mode = pickedMode

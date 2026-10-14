@@ -1112,6 +1112,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   set to, which washed the color out; a color now turns the white off, and an
   RGBW light, which has no color temperature for Control4 to set, shows its red,
   green and blue alone
+- Fixed a color temperature set on a light that was off in a color being dropped
+  by an ESPHome light whose color and white are separate color modes, as one
+  built with `color_interlock` has: the light was shown at the color temperature
+  and came back on in the color; it now comes on in that white
 
 ### Changed
 

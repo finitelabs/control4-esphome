@@ -4464,4 +4464,73 @@ do
   T.eq("in the color, which is still lit", modesTold(), { FULL_MODE })
 end
 
+T.section("a color temperature for a light that is off names the white mode, where the mode it is off in may have none")
+do
+  -- ESPHome keeps the color mode of a light that is off unless a command names
+  -- one, and drops a color temperature the mode cannot hold.
+  light()
+  pushed({ RGB, CWWW }, { state = false, brightness = 1.0 }, RANGE)
+  setColor(BLUE)
+  mark()
+  kelvin(3000, 0)
+  T.eq(
+    "off in a color, a light with a color mode and a white mode: the white mode, and the light stays off",
+    { lastCommand().state, kelvins(), channels() },
+    { false, { 3000 }, { CWWW, false, false, false, false } }
+  )
+  light({ RGB, CWWW }, false)
+  setColor(BLUE)
+  mark()
+  kelvin(3000, 0)
+  local cmd = lastCommand()
+  T.check(
+    "one that gives no range for its color temperature: the driver's own cold and warm white with it",
+    cmd.color_mode == CWWW and math.abs(cmd.cold_white + cmd.warm_white - 1) < 1e-9,
+    T.show(cmd)
+  )
+  light({ RGB, CT })
+  setColor(BLUE)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 3000 })
+  run(1000)
+  mark()
+  kelvin(3000, 0)
+  T.eq(
+    "a light fading to off: the white mode, as an off over the time the fade has left",
+    { lastCommand().state, channels()[1], lengths() },
+    { false, CT, { 2000 } }
+  )
+  run(3000)
+  light({ RGB, CT }, false)
+  setColor(BLUE)
+  activate(
+    "<element><delay>0</delay><colorEnabled>true</colorEnabled><colorX>0.3</colorX><colorY>0.4</colorY>"
+      .. "<colorMode>1</colorMode><colorRate>2000</colorRate></element>"
+  )
+  T.eq("a scene step's, with no level", { lastCommand().state, channels()[1] }, { false, CT })
+  proxy("CLEAR_ALL_SCENES")
+  light({ RGBCT, CT }, false)
+  pushed({ RGBCT, CT }, { state = false, brightness = 1.0, color_mode = CT, color_temperature = 300 }, RANGE)
+  mark()
+  kelvin(3000, 0)
+  T.eq(
+    "an RGBCT light off in its white-only mode: that mode",
+    { lastCommand().state, channels() },
+    { false, { CT, false, false, false, false } }
+  )
+  light({ CT }, false)
+  mark()
+  kelvin(3000, 0)
+  T.eq(
+    "a light with a color temperature alone: that alone, as before",
+    channels(),
+    { false, false, false, false, false }
+  )
+  -- On, a change of mode is a fade through off, and is left to the light.
+  light({ RGB, CT })
+  setColor(BLUE)
+  mark()
+  kelvin(3000, 2000)
+  T.eq("a light that is on is sent the color temperature alone", channels(), { false, false, false, false, false })
+end
+
 T.finish()
