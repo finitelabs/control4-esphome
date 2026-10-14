@@ -65,10 +65,11 @@ local HANDSHAKE_TIMEOUT_MS = 10000
 
 --- Connect timeout (ms) - give up on a CONNECT that gets neither CONNECTED nor
 --- CONNECTION_FAILED back (a lost message, or the parent restarted mid-connect).
---- The parent reports a failed connect itself (the proxy allows 30s to connect,
---- and the coordinator fails over across up to three proxies), so this sits well
---- past that and only catches an answer that never comes.
-local CONNECT_TIMEOUT_MS = 120000 -- 2 minutes
+--- The parent reports a failed connect itself: a proxy allows 30s to connect and
+--- 30s for GATT discovery, and the coordinator runs up to three such attempts in
+--- a row (180s). This outlasts that, so it only catches an answer that never
+--- comes.
+local CONNECT_TIMEOUT_MS = 200000
 
 --- Minimum delay between GATT writes (ms) per Yale BLE protocol
 local GATT_WRITE_COOLDOWN_MS = 250
