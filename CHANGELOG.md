@@ -226,6 +226,17 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   to 100 % now runs between the two, as on a Control4 dimmer, for every level it
   is sent and shown, and a change of either leaves the light where it is until
   its next command, shown at its level on the new range
+- Fixed a stop part way through a fade between a color and a white, on an
+  ESPHome light whose color and white are separate color modes, as one built
+  with `color_interlock` has, sending the light a color temperature read off a
+  point between the two: stopped 150 ms into a fade from red to 4000 K, the
+  light went to its warmest white; it now stays in the color or white it is in,
+  the one it was fading from up to half way and the one it was fading to after,
+  comes back up to its level from the dip over half a second, and is shown in
+  it; a level stopped part way through a ramp from a color with Dim-To-Warm, as
+  when a keypad hold is let go, went to the white at once, and a fade sent part
+  way through either, as by a keypad hold pressed then, came back up to its
+  level at once when stopped; both now do the same
 
 ### Changed
 

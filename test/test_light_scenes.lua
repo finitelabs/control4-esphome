@@ -5125,6 +5125,7 @@ do
     { channels(), kelvins(), lastTold() },
     { { RGBCT, 0, 1, false, false }, { 3750 }, { 0.375, CCT_MODE } }
   )
+  T.eq("held at once, with no change of mode to come back from", lengths(), { 0 })
   for name, modes in pairs({
     ["a color temperature beside its color"] = { RGBCT, CT },
     ["a white beside its color"] = { RGBW },
@@ -5144,7 +5145,8 @@ do
     proxy("CLEAR_ALL_SCENES")
   end
 
-  -- A change of color mode is ESPHome's fade through off, with nothing of both to hold.
+  -- A change of color mode is ESPHome's fade through off, with nothing of both to
+  -- hold: up to half way the light is in the mode it left, and from then in the other.
   light({ RGBCT, CT })
   pushed({ RGBCT, CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 300 }, RANGE)
   colorTarget(BLUE, 3000)
@@ -5152,9 +5154,22 @@ do
   mark()
   proxy("SET_COLOR_STOP")
   T.eq(
-    "a color fade begun in the white-only mode: a color, with no white",
-    { lastCommand().has_color_temperature or false, channels() },
-    { false, { RGBCT, 1, 0, false, false } }
+    "a color fade begun in the white-only mode, a third of the way: that white, in that mode",
+    { lastCommand().has_rgb or false, channels(), kelvins(), lastTold() },
+    { false, { CT, false, false, false, false }, { 3333 }, { 0.3333, CCT_MODE } }
+  )
+  T.eq("eased back up to its level from the dip through off, over half a second", lengths(), { 500 })
+  light({ RGBCT, CT })
+  pushed({ RGBCT, CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 300 }, RANGE)
+  colorTarget(BLUE, 3000)
+  blue = colors()[1]
+  run(2000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "two thirds of the way: the color, in the combined mode",
+    { colors(), channels(), lastTold() },
+    { { blue }, { RGBCT, 1, 0, false, false }, { BLUE[1], FULL_MODE } }
   )
   light({ RGBCT, CT })
   pushed({ RGBCT, CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 300 }, RANGE)
@@ -5178,9 +5193,9 @@ do
     mark()
     proxy("SET_COLOR_STOP")
     T.eq(
-      "a light with " .. name .. " is sent a color temperature, as before",
-      { lastCommand().has_rgb or false, channels(), modesTold() },
-      { false, { false, false, false, false, false }, { CCT_MODE } }
+      "a light with " .. name .. ", from a color to a white, half way: the white",
+      { lastCommand().has_rgb or false, channels(), kelvins(), modesTold() },
+      { false, { false, false, false, false, false }, { 3000 }, { CCT_MODE } }
     )
   end
 end
@@ -5747,6 +5762,581 @@ do
       )
     end
   end
+end
+
+T.section(
+  "a fade between a color and a white on a light with separate modes, stopped part way, holds the mode it is in"
+)
+do
+  -- Red, x 0 through the stubs.
+  local RED = { 0, 1 }
+  local FIELDS = {
+    "brightness",
+    "color_mode",
+    "color_brightness",
+    "red",
+    "green",
+    "blue",
+    "white",
+    "color_temperature",
+    "cold_white",
+    "warm_white",
+  }
+  --- What the light has, as ESPHome keeps it: each field as it was last sent.
+  local state
+  --- A light with a color mode and a white mode, on at full in red.
+  --- @param range table|nil The range it gives for its color temperature: RANGE if nil.
+  local function inRed(modes, range)
+    light()
+    state = {
+      state = true,
+      brightness = 1.0,
+      color_mode = RGB,
+      color_brightness = 1,
+      red = 1,
+      green = 0,
+      blue = 0,
+      white = 1,
+      color_temperature = RANGE[1],
+      cold_white = 1,
+      warm_white = 1,
+    }
+    pushed(modes, state, range or RANGE)
+  end
+  --- The light's report of its last command, in `mode` where the command names none.
+  local function reported(modes, mode)
+    local cmd = lastCommand()
+    for _, field in ipairs(FIELDS) do
+      state[field] = cmd[field] or state[field]
+    end
+    state.color_mode = cmd.color_mode or mode
+    pushed(modes, state, RANGE)
+  end
+  --- The color the proxy was last told since the mark: its x and its color mode.
+  local function lastTold()
+    local xs, modes = colorsTold(), modesTold()
+    return { math.floor(xs[#xs] * 1e6 + 0.5) / 1e6, modes[#modes] }
+  end
+  local function level(target, rate)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = target, RATE = rate })
+  end
+
+  -- ESPHome fades the color it leaves to off over the first half of the time,
+  -- and the white it was sent up from off over the second (transformers.h).
+  for name, kind in pairs({
+    ["a color mode and a white mode with a color temperature"] = { RGB, CT },
+    ["a color mode and a cold and warm white mode, as the Athom bulb has"] = { RGB, CWWW },
+  }) do
+    local white = kind[2]
+    inRed(kind)
+    kelvin(4000, 4000)
+    run(150)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(
+      "a light with " .. name .. ", from red to 4000 K, stopped at 150 ms: red, in its color mode",
+      { lastCommand().color_mode, colors(), kelvins(), lastTold() },
+      { RGB, { { 1, 0, 0 } }, {}, { 0, FULL_MODE } }
+    )
+    T.eq("at the level it was", lastCommand().has_brightness or false, false)
+    T.eq("eased back up to it from the dip through off over half a second", lengths(), { 500 })
+    reported(kind)
+    T.eq("and the light's report of the stop tells nothing more", #colorsTold(), 1)
+    run(1000)
+    T.eq(
+      "nor is anything told of the level",
+      #told("LIGHT_BRIGHTNESS_CHANGING", "at") + #told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+      0
+    )
+    inRed(kind)
+    kelvin(4000, 4000)
+    run(3000)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(
+      "three quarters of the way: the white, at 4000 K",
+      { colors(), kelvins(), lastTold() },
+      { {}, { 4000 }, { 0.4, CCT_MODE } }
+    )
+    T.eq("over half a second too", lengths(), { 500 })
+    reported(kind, white)
+    T.eq("and the light's report of that tells nothing more", #colorsTold(), 1)
+    inRed(kind)
+    kelvin(4000, 4000)
+    run(2000)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq("from half way: the white", { colors(), kelvins(), lastTold() }, { {}, { 4000 }, { 0.4, CCT_MODE } })
+
+    -- From a white to a color the white is left first.
+    inRed(kind)
+    kelvin(3000, 0)
+    reported(kind, white)
+    colorTarget(RED, 4000)
+    run(1000)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(
+      "from 3000 K to red, a quarter of the way: 3000 K, in its white mode, the light working out its whites",
+      { channels(), kelvins(), colors(), lastTold() },
+      { { white, false, false, false, false }, { 3000 }, {}, { 0.3, CCT_MODE } }
+    )
+    T.eq("eased back up over half a second", lengths(), { 500 })
+    -- Sent a color temperature alone, ESPHome gives the light the first of its modes that has one.
+    inRed(kind)
+    kelvin(3000, 0)
+    colorTarget(RED, 4000)
+    run(1000)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(
+      "the same before the light reports 3000 K: 3000 K, in its white mode",
+      { channels()[1], kelvins(), colors(), lastTold() },
+      { white, { 3000 }, {}, { 0.3, CCT_MODE } }
+    )
+    inRed(kind)
+    kelvin(3000, 0)
+    reported(kind, white)
+    colorTarget(RED, 4000)
+    run(3000)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(
+      "three quarters of the way: red, in its color mode",
+      { lastCommand().color_mode, colors(), kelvins(), lastTold() },
+      { RGB, { { 1, 0, 0 } }, {}, { 0, FULL_MODE } }
+    )
+  end
+
+  -- A command that takes the fade on starts ESPHome's change of mode again from the mode the light is in.
+  inRed({ RGB, CWWW })
+  kelvin(4000, 4000)
+  run(1000)
+  mark()
+  level(50, 2000)
+  T.eq("a level sent a quarter of the way: the fade is told again from red, which the light is still in", {
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_COLOR_MODE"),
+  }, { { 0 }, { FULL_MODE } })
+  run(500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "and a stop a quarter through that: red, over the time the level has left",
+    { lastCommand().color_mode, colors(), lengths(), lastTold() },
+    { RGB, { { 1, 0, 0 } }, { 1500 }, { 0, FULL_MODE } }
+  )
+  inRed({ RGB, CWWW })
+  kelvin(4000, 4000)
+  run(1000)
+  level(50, 2000)
+  run(1500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a stop three quarters through that: the white, the light having changed mode over the level's time",
+    { colors(), kelvins(), lastTold() },
+    { {}, { 4000 }, { 0.4, CCT_MODE } }
+  )
+  inRed({ RGB, CWWW })
+  kelvin(4000, 4000)
+  run(1000)
+  level(50, 1200)
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  run(1000)
+  T.eq(
+    "a stop with less than half a second of the level left: over half a second, the level told at its end",
+    { kelvins(), lengths(), told("LIGHT_BRIGHTNESS_CHANGED", "at") },
+    { { 4000 }, { 500 }, { 500 } }
+  )
+  inRed({ RGB, CWWW })
+  kelvin(4000, 4000)
+  run(3000)
+  level(50, 2000)
+  run(500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "one sent three quarters of the way: the light is in the white from then",
+    { colors(), kelvins(), lastTold() },
+    { {}, { 4000 }, { 0.4, CCT_MODE } }
+  )
+  -- A fade within the one mode has no dip to come back from.
+  inRed({ RGB, CT })
+  colorTarget(BLUE, 4000)
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a fade from red to another color, stopped a quarter of the way: held at once, as before",
+    { lastCommand().color_mode, lengths() },
+    { RGB, { 0 } }
+  )
+  -- Dim-To-Warm's white for a level, carried by the level command, takes the light out of its color mode too.
+  for _, case in ipairs({ { 1000, "a quarter", 0, FULL_MODE }, { 3000, "three quarters", 0.45, CCT_MODE } }) do
+    inRed({ RGB, CWWW })
+    fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+    level(50, 4000)
+    run(case[1])
+    mark()
+    colorTarget(BLUE, 2000)
+    T.eq(
+      "a color sent "
+        .. case[2]
+        .. " into a level carrying a Dim-To-Warm white from red: told from the one the light is in",
+      {
+        told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+        told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_COLOR_MODE"),
+      },
+      { { case[3] }, { case[4] } }
+    )
+    run(5000)
+  end
+  -- A level's stop part way through that change of mode is held as a color's is.
+  for name, kind in pairs({
+    ["a color temperature white mode"] = { RGB, CT },
+    ["a cold and warm white mode"] = { RGB, CWWW },
+  }) do
+    inRed(kind)
+    fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+    level(50, 4000)
+    run(1000)
+    mark()
+    proxy("SET_BRIGHTNESS_STOP")
+    T.eq(
+      "a light with a color mode and "
+        .. name
+        .. ", a level carrying a Dim-To-Warm white from red stopped a quarter of the way: red, at the level stopped at",
+      {
+        lastCommand().color_mode,
+        colors(),
+        kelvins(),
+        lastCommand().has_brightness,
+        brightnessSent(),
+        lastTold(),
+        levelsTold(),
+      },
+      { RGB, { { 1, 0, 0 } }, {}, true, 0.95, { 0, FULL_MODE }, { 95 } }
+    )
+    T.eq("eased back up to it from the dip over half a second, in the one command", lengths(), { 500 })
+    reported(kind)
+    T.eq("and the light's report of the stop tells nothing more", { #colorsTold(), #levelsTold() }, { 1, 1 })
+    inRed(kind)
+    fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+    level(50, 4000)
+    run(3000)
+    mark()
+    proxy("SET_BRIGHTNESS_STOP")
+    T.eq(
+      "three quarters of the way: the level's white, which the light is in, at the level stopped at, over half a second",
+      { colors(), kelvins(), brightnessSent(), lengths(), lastTold(), levelsTold() },
+      { {}, { 4500 }, 0.55, { 500 }, { 0.45, CCT_MODE }, { 55 } }
+    )
+    reported(kind, kind[2])
+    T.eq("and the light's report of that tells nothing more", { #colorsTold(), #levelsTold() }, { 1, 1 })
+  end
+  -- One above its Max On Level is held where it has got to on the range's line.
+  inRed({ RGB, CT })
+  onLevels(80, 20)
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  level(50, 4000)
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "with a Max On Level of 80, from red at full, a quarter of the way: red, where it has got to above the Max",
+    { lastCommand().color_mode, brightnessSent(), lengths() },
+    { RGB, nine(1 + (at80(50) - 1) * eased(0.25)), { 500 } }
+  )
+  forgetOnLevels()
+  -- A keypad hold let go and a scene's ramp stopped are level stops too.
+  inRed({ RGB, CWWW })
+  state.brightness = 0.3
+  pushed({ RGB, CWWW }, state, RANGE)
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(1000)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_HOLD })
+  T.eq(
+    "Top held from 30 % in red with Dim-To-Warm, let go a third of the way up: red, at 45 %, over half a second",
+    { lastCommand().color_mode, colors(), brightnessSent(), lengths(), lastTold() },
+    { RGB, { { 1, 0, 0 } }, 0.45, { 500 }, { 0, FULL_MODE } }
+  )
+  inRed({ RGB, CWWW })
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  level(50, 4000)
+  run(1000)
+  mark()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq(
+    "a scene's ramp stopped a quarter of the way: red, over half a second",
+    { lastCommand().color_mode, colors(), lengths() },
+    { RGB, { { 1, 0, 0 } }, { 500 } }
+  )
+  inRed({ RGB, CWWW })
+  state.state = false
+  pushed({ RGB, CWWW }, state, RANGE)
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  level(50, 4000)
+  run(3000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "a ramp up from off in red, stopped three quarters of the way: the light is held on, at 45 %",
+    { lastCommand().state, brightnessSent(), levelsTold() },
+    { true, 0.45, { 45 } }
+  )
+  inRed({ RGB, CWWW })
+  state.state = false
+  pushed({ RGB, CWWW }, state, RANGE)
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  level(50, 4000)
+  run(100)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "and one stopped before it is lit: off, at once, as before",
+    { lastCommand().state, lengths(), levelsTold() },
+    { false, { 0 }, { 0 } }
+  )
+  -- A fade sent part way through the change in the mode the light is then in starts
+  -- from the dip: stopped, it is brought back up from there too.
+  local FOUR_K = "<colorEnabled>true</colorEnabled><colorX>0.4</colorX><colorY>0.4</colorY><colorMode>1</colorMode>"
+  inRed({ RGB, CWWW })
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  level(50, 4000)
+  run(2500)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(1000)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_HOLD })
+  T.eq(
+    "Top held past half way through a level carrying a Dim-To-Warm white from red, let go a second later: the white, over half a second",
+    { lastCommand().color_mode, colors(), brightnessSent(), lengths() },
+    { CWWW, {}, fadeLevel(fadeLevel(100, 50, 2500 / 4000), 100, 1000 / 3000) / 100, { 500 } }
+  )
+  for name, color in pairs({ ["a level, with Dim-To-Warm,"] = "", ["a level and 4000 K"] = FOUR_K }) do
+    inRed({ RGB, CWWW })
+    if color == "" then
+      fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+    end
+    activate(
+      "<element><delay>0</delay><rate>4000</rate><brightnessEnabled>true</brightnessEnabled>"
+        .. "<brightness>50</brightness>"
+        .. color
+        .. "</element>"
+    )
+    run(3000)
+    mark()
+    proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+    T.eq(
+      "a scene step of "
+        .. name
+        .. " from red, stopped three quarters of the way: the level over the step's time left, then the white over half a second",
+      { lengths(), lastCommand().color_mode },
+      { { 1000, 500 }, CWWW }
+    )
+    proxy("CLEAR_ALL_SCENES")
+  end
+  inRed({ RGB, CWWW })
+  activate(
+    "<element><delay>0</delay><rate>4000</rate><brightnessEnabled>true</brightnessEnabled>"
+      .. "<brightness>50</brightness>"
+      .. FOUR_K
+      .. "</element>"
+  )
+  run(3000)
+  proxy("RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 4000 })
+  run(1000)
+  mark()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq(
+    "Ramp Scene Up past half way through that step, stopped a second later: the white, over half a second",
+    { lengths(), lastCommand().color_mode },
+    { { 3000, 500 }, CWWW }
+  )
+  proxy("CLEAR_ALL_SCENES")
+  -- Before half way the light is still in the mode it left, and a fade back into it starts from the dip.
+  inRed({ RGB, CWWW })
+  kelvin(4000, 0)
+  reported({ RGB, CWWW }, CWWW)
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  colorTarget(RED, 4000)
+  run(1000)
+  level(50, 4000)
+  run(500)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "from 4000 K to red, a level carrying a Dim-To-Warm white sent a quarter of the way, stopped half a second later: in the white, over half a second",
+    { lastCommand().color_mode, colors(), lengths() },
+    { CWWW, {}, { 500 } }
+  )
+  inRed({ RGB, CWWW })
+  kelvin(4000, 0)
+  reported({ RGB, CWWW }, CWWW)
+  colorTarget(RED, 4000)
+  run(1000)
+  kelvin(4000, 4000)
+  run(500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "and 4000 K sent back a quarter of the way, stopped half a second later: 4000 K, over half a second",
+    { lastCommand().color_mode, kelvins(), lengths() },
+    { CWWW, { 4000 }, { 500 } }
+  )
+  -- A fade to off keeps the mode the light is in, and it is held in that.
+  inRed({ RGB, CWWW })
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  level(50, 4000)
+  run(1000)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  run(1000)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = RELEASE_HOLD })
+  T.eq(
+    "Bottom held a quarter of the way through a level carrying a Dim-To-Warm white from red, let go a second later: red, over half a second",
+    { lastCommand().color_mode, colors(), brightnessSent(), lengths(), lastTold() },
+    {
+      RGB,
+      { { 1, 0, 0 } },
+      fadeLevel(fadeLevel(100, 50, 1000 / 4000), 0, 1000 / 3000) / 100,
+      { 500 },
+      { 0, FULL_MODE },
+    }
+  )
+  -- Once such a fade has run its time the light is back up: the next has no dip.
+  inRed({ RGB, CWWW })
+  kelvin(4000, 4000)
+  run(3000)
+  level(50, 500)
+  run(1500)
+  kelvin(3000, 4000)
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("a fade from 4000 K to 3000 K after it, stopped part way: at once", lengths(), { 0 })
+  -- A level's stop within one mode has no dip to come back from.
+  inRed({ RGB, CWWW })
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  kelvin(4000, 0)
+  level(50, 4000)
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "a level carrying a Dim-To-Warm white from a white, stopped a quarter of the way: the stopped level's white, at once, as before",
+    { kelvins(), brightnessSent(), lengths() },
+    { { 4950 }, 0.95, { 0 } }
+  )
+  -- A color sent since is not the level's to hold: it goes on through the change.
+  inRed({ RGB, CWWW })
+  kelvin(4000, 4000)
+  run(1000)
+  level(50, 2000)
+  run(500)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "a level stopped part way through a color's fade from red to 4000 K: the level alone, over the time the color has left, as before",
+    { lastCommand().has_color_mode or false, colors(), kelvins(), brightnessSent(), lengths(), levelsTold() },
+    { false, {}, {}, 0.95, { 1500 }, { 95 } }
+  )
+  -- Nor is one sent while the light faded to off: the light goes on to it through off.
+  inRed({ RGB, CWWW })
+  level(0, 4000)
+  run(1000)
+  kelvin(4000, 2000)
+  level(50, 2000)
+  run(500)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "4000 K sent to a light fading to off from red, then a level stopped a quarter of the way: the level alone, over half a second",
+    {
+      lastCommand().has_color_mode or false,
+      colors(),
+      kelvins(),
+      brightnessSent(),
+      lengths(),
+      #colorsTold(),
+      levelsTold(),
+    },
+    { false, {}, {}, 0.86, { 500 }, 0, { 86 } }
+  )
+  -- A scene step's fade is the light's too.
+  inRed({ RGB, CWWW })
+  activate(
+    "<element><delay>0</delay><colorEnabled>true</colorEnabled><colorX>0.4</colorX><colorY>0.4</colorY>"
+      .. "<colorMode>1</colorMode><colorRate>4000</colorRate></element>"
+  )
+  run(1000)
+  mark()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq(
+    "a scene step from red to 4000 K, stopped a quarter of the way: red",
+    { lastCommand().color_mode, colors(), lastTold() },
+    { RGB, { { 1, 0, 0 } }, { 0, FULL_MODE } }
+  )
+  T.eq("over half a second", lengths(), { 500 })
+  proxy("CLEAR_ALL_SCENES")
+  inRed({ RGB, CWWW })
+  activate(
+    "<element><delay>0</delay><colorEnabled>true</colorEnabled><colorX>0.4</colorX><colorY>0.4</colorY>"
+      .. "<colorMode>1</colorMode><colorRate>4000</colorRate></element>"
+  )
+  run(3000)
+  level(50, 2000)
+  run(500)
+  mark()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq(
+    "one a level took on three quarters of the way, stopped: the white",
+    { colors(), kelvins(), lastTold() },
+    { {}, { 4000 }, { 0.4, CCT_MODE } }
+  )
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A white with no color temperature, as an RGB light built with color_interlock has.
+  local WHITE = ColorMode.COLOR_MODE_WHITE
+  inRed({ RGB, WHITE })
+  state.color_mode, state.green, state.blue = WHITE, 1, 1
+  pushed({ RGB, WHITE }, state)
+  level(50, 4000)
+  colorTarget(RED, 4000)
+  run(1000)
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a light with a color mode and a white mode with no color temperature, from that white to red, a quarter of the way: its white",
+    channels(),
+    { WHITE, false, 1, false, false }
+  )
+  mark()
+  state.brightness, state.green, state.blue = 0.5, 0, 0
+  pushed({ RGB, WHITE }, state)
+  run(5000)
+  T.eq(
+    "and the light's report of that is the stop's own: the level is told at its ramp's end",
+    told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+    { 3000 }
+  )
+  -- One that gives no range for its color temperature has its cold and warm white to keep.
+  inRed({ RGB, CWWW }, {})
+  state.color_mode, state.color_temperature, state.cold_white, state.warm_white = CWWW, 0, 0.25, 0.75
+  pushed({ RGB, CWWW }, state)
+  colorTarget(RED, 4000)
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a light with a color mode and a cold and warm white mode that gives no range, a quarter of the way to red: its cold and warm white",
+    { channels(), kelvins(), colors() },
+    { { CWWW, false, false, 0.25, 0.75 }, {}, {} }
+  )
 end
 
 T.finish()
