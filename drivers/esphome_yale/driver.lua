@@ -177,6 +177,10 @@ local expectedDisconnect = false
 --- @type boolean
 local linkAbandoned = false
 
+--- Whether a CONNECT is still waiting on its CONNECTED or CONNECTION_FAILED.
+--- @type boolean
+local connectPending = false
+
 --- August cloud session token (for key fetching)
 --- @type string|nil
 local augustSessionToken = nil
@@ -218,6 +222,7 @@ local function resetConnectionState(clearHandles)
   pendingCommand = nil
   awaitingResponse = nil
   gattWriteQueue = {}
+  connectPending = false
   CancelTimer("ConnectionTimeout")
   CancelTimer("GattWriteDrain")
   CancelTimer("HandshakeTimeout")
@@ -307,6 +312,7 @@ end
 local function requestConnection()
   log:trace("requestConnection()")
   SendToProxy(ESPHOME_BINDING, "CONNECT", {}, "NOTIFY")
+  connectPending = true
   SetTimer("ConnectionTimeout", CONNECT_TIMEOUT_MS, function()
     log:warn("Connection timeout - no answer to CONNECT after %dms", CONNECT_TIMEOUT_MS)
     abandonAttempt("Connection failed: timeout")
@@ -1481,6 +1487,7 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
 
   log:info("Connected to Yale lock: %s", mac or "unknown")
   CancelTimer("ConnectionTimeout")
+  connectPending = false
   linkAbandoned = false
 
   if not IsEmpty(name) then
@@ -1658,6 +1665,12 @@ function RFP.CONNECTION_FAILED(idBinding, strCommand, tParams, args)
   end
 
   local errMsg = Select(tParams, "error") or "unknown"
+  -- The parent answers a CONNECT the timeout already gave up on, or one sent
+  -- before the link that is up now: recovery, if any, is already scheduled.
+  if not connectPending then
+    log:warn("Ignoring CONNECTION_FAILED with no CONNECT outstanding: %s", errMsg)
+    return
+  end
   log:error("Connection failed: %s", errMsg)
   resetConnectionState()
   scheduleRecovery("Connection failed: " .. errMsg)

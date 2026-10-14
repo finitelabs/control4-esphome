@@ -942,6 +942,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a SwitchBot Relay Switch with no encryption key staying Busy and keeping
   the proxy's connection slot when a connection came up without the device's
   Bluetooth characteristics; it now disconnects and frees the slot
+- Fixed the SwitchBot and Yale drivers acting on a connection failure the
+  Bluetooth proxy or coordinator reported after the driver had stopped waiting
+  for it, or after the device had connected: a Yale lock in Persistent mode
+  spent a second reconnect attempt and retried a lock or unlock as a status
+  read, and a SwitchBot showed Connection Failed for a press that went through;
+  a SwitchBot Bot that connects after the driver gave up now disconnects instead
+  of keeping the proxy's connection slot
 - Fixed Advanced Lighting scenes on an ESPHome light: a flash scene with no
   delay or ramp time hung the driver, Stop Scene Ramp did not stop the light,
   and a scene kept moving a light that was sent another command, or showed it
