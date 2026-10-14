@@ -5,6 +5,7 @@ local constants = require("constants")
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
 
+local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 local BLEAddress = require("esphome.ble.address")
 local UUID = require("esphome.ble.uuid")
@@ -440,6 +441,9 @@ function BluetoothProxyCapability:_discoverGattServices(mac, callback)
     end
   end, function(err)
     log:error("GATT service discovery failed for %s: %s", mac, err)
+    if err ~= ESPHomeClient.SUPERSEDED then
+      self._client:bluetoothDeviceDisconnect(mac)
+    end
     if callback then
       callback(false)
     end
@@ -1601,7 +1605,10 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
           mtu = tostring(result.mtu or 0),
         }, "NOTIFY")
       end, function(err)
-        self._client:bluetoothDeviceDisconnect(mac)
+        -- A newer GATT_CONNECT for this MAC took the link over.
+        if err ~= ESPHomeClient.SUPERSEDED then
+          self._client:bluetoothDeviceDisconnect(mac)
+        end
         SendToProxy(bindingId, "GATT_CONNECT_RESPONSE", {
           proxyId = proxyId,
           mac = mac,

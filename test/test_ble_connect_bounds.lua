@@ -113,7 +113,11 @@ local DISCONNECT = ESPHomeProtoSchema.Enum.BluetoothDeviceRequestType.BLUETOOTH_
 local function deviceRequests(disconnect)
   local n = 0
   for _, r in ipairs(requests) do
-    if r.method == RPC.bluetooth_device_request and (r.body.request_type == DISCONNECT) == disconnect then
+    if
+      r.method == RPC.bluetooth_device_request
+      and (r.body.request_type == DISCONNECT) == disconnect
+      and BLEAddress.toString(r.body.address) == MAC
+    then
       n = n + 1
     end
   end
@@ -212,6 +216,20 @@ do
   answer(client, Message.BluetoothDeviceConnectionResponse, { error = 133 })
   T.truthy("rejected on the failure", outcome.rejected)
   T.eq("no timer left armed", armed(), 0)
+end
+
+T.section("a connect that a newer one replaces leaves the link to it")
+do
+  reset()
+  local client = newClient()
+  local first = watch(client:bluetoothDeviceConnect(MAC, 0, false))
+  advance(10000)
+  local second = watch(client:bluetoothDeviceConnect(MAC, 0, false))
+  T.truthy("the first is rejected", first.rejected)
+  advance(25000)
+  connectionResponse(client, true)
+  T.truthy("the second connects after the first's 30s", second.resolved)
+  T.eq("and nothing disconnects it", disconnects(), 0)
 end
 
 T.section("a connect fails at once when the proxy's connection drops")
@@ -318,6 +336,45 @@ do
   T.eq("and nothing more later", #connectResponses(), 1)
 end
 
+T.section("coordinator: a discovery that a newer request takes over leaves the link up")
+do
+  reset()
+  local client = newClient()
+  local proxy = coordinatorProxy(client)
+  coordinatorConnect(proxy)
+  connectionResponse(client, true)
+  client._btConnections.allocated = { MAC }
+  proxy:handleCoordinatorCommand("GATT_CONNECT", { mac = MAC, requestId = "r2" })
+  connectionResponse(client, true)
+  T.eq("no disconnect", disconnects(), 0)
+  servicesDone(client)
+  local responses = connectResponses()
+  T.eq("the newer request succeeds", responses[2] and responses[2].params.success, "true")
+end
+
+T.section("direct: a discovery that a newer CONNECT takes over leaves the link up")
+do
+  reset()
+  local client = newClient()
+  local proxy = BluetoothProxyCapability:new(client)
+  proxy._addedDevices[MAC] = { name = "Lock", addressType = 0, deviceType = "Yale", passive = false }
+  proxy:handleCommand(MAC, 5001, "CONNECT", {}, {})
+  connectionResponse(client, true)
+  advance(1000)
+  T.eq("discovery is under way", count(RPC.bluetooth_gatt_get_services), 1)
+  client._btConnections.allocated = { MAC }
+  proxy:handleCommand(MAC, 5001, "CONNECT", {}, {})
+  T.eq("no disconnect", disconnects(), 0)
+  servicesDone(client)
+  local connected
+  for _, s in ipairs(sent) do
+    if s.command == "CONNECTED" then
+      connected = s
+    end
+  end
+  T.truthy("the newer CONNECT is answered as connected", connected)
+end
+
 T.section("direct: a slow connect then a silent discovery fails within 61s")
 do
   reset()
@@ -339,6 +396,7 @@ do
   end
   T.truthy("the child is told it failed", failed)
   T.eq("30s after discovery began", failed and failed.at, 60400)
+  T.eq("and releases the link", disconnects(), 1)
 end
 
 T.finish()
