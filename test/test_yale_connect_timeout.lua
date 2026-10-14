@@ -579,4 +579,63 @@ H.test("a second answer to the secure-read subscription starts no second handsha
   T.eq("one key exchange", H.count("GATT_WRITE", ESPHOME), 1)
 end)
 
+--- The proxy's answer to a subscription a newer one to the same handle replaced.
+local function superseded()
+  H.rfp(
+    ESPHOME,
+    "GATT_NOTIFY_SUBSCRIBED",
+    { handle = "26", success = "false", error = "Superseded by a newer request" }
+  )
+end
+
+H.test("in Poll mode an unlock tapped while the parent's link subscribes outlives the superseded answer", function()
+  H.boot({ ["Connection Mode"] = "Poll", ["Offline Key"] = OFFLINE_KEY })
+  OBC[ESPHOME](ESPHOME, "ESPHOME_YALE", true)
+  connected()
+  H.rfp(PROXY, "UNLOCK")
+  -- The direct parent answers a CONNECT for a connected lock at once
+  connected()
+  H.clearSent()
+  superseded()
+  T.eq("nothing is disconnected", H.count("DISCONNECT", ESPHOME), 0)
+  H.rfp(ESPHOME, "GATT_NOTIFY_SUBSCRIBED", { handle = "26", success = "true" })
+  T.eq("the newer answer starts the handshake", H.count("GATT_WRITE", ESPHOME), 1)
+end)
+
+H.test("a dropped link's subscription superseded by the retry's leaves the retry alone", function()
+  H.boot(PERSISTENT)
+  H.rfp(PROXY, "UNLOCK")
+  connected()
+  H.rfp(ESPHOME, "DISCONNECTED", { reason = "BLE connection closed" })
+  H.fire("Reconnect")
+  connected()
+  H.clearSent()
+  superseded()
+  T.eq("nothing is disconnected", H.count("DISCONNECT", ESPHOME), 0)
+  T.eq("it stays the first retry", Properties["Driver Status"], "Reconnecting (1/5)")
+  T.truthy("and the retry's subscription is still waited on", H.armed("SubscribeTimeout"))
+end)
+
+H.test("once the retries have run out the parent closing the link after its failure is not a second one", function()
+  H.boot(PERSISTENT)
+  lock()
+  for _ = 1, 6 do
+    connected()
+    H.rfp(ESPHOME, "DISCONNECTED", { reason = "BLE connection closed" })
+    H.fire("Reconnect")
+  end
+  T.eq("the retries run out on dropped links", Properties["Driver Status"], "Listening (reconnect failed)")
+  H.rfp(ESPHOME, "CONNECTION_FAILED", { error = "Connection failed with code 133" })
+  H.rfp(ESPHOME, "DISCONNECTED", { reason = "BLE connection closed" })
+  T.eq("the close leaves it the first retry", Properties["Driver Status"], "Reconnecting (1/5)")
+end)
+
+H.test("once the retries have run out a late failure leaves the parent's link being set up alone", function()
+  retriesRunOut()
+  connected()
+  H.rfp(ESPHOME, "CONNECTION_FAILED", { error = "GATT discovery failed" })
+  T.falsy("nothing is scheduled to reconnect", H.armed("Reconnect"))
+  T.truthy("and the subscription is still waited on", H.armed("SubscribeTimeout"))
+end)
+
 T.finish()

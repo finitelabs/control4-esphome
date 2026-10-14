@@ -52,6 +52,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Bluetooth proxy or coordinator reported after the device had connected: a Yale
   lock abandoned its handshake, and a SwitchBot showed Connection Failed for a
   press that went through
+- Fixed the SwitchBot and Yale drivers taking an ESPHome device freeing its
+  connection slot after a failed Bluetooth connection for a link that dropped: a
+  Yale lock in Persistent mode spent two reconnect attempts on the one failure,
+  and a SwitchBot went from Connection Failed straight to Listening
 - Fixed a Yale lock dropping a lock or unlock tapped while it waited for its
   first connection after a restart or a change of Connection Mode, when an
   advertisement from the lock arrived: the driver replaced it with a status

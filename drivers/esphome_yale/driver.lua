@@ -1706,8 +1706,10 @@ function RFP.CONNECTION_FAILED(idBinding, strCommand, tParams, args)
       Properties["Driver Status"] == "Listening (reconnect failed)"
       and handshakeState == HANDSHAKE_STATE.IDLE
       and not pendingCommand
+      and not pendingSubscribe
     then
       log:info("Parent connect failed after retries ran out, retrying: %s", errMsg)
+      linkAbandoned = true
       scheduleRecovery("Connection failed: " .. errMsg)
       return
     end
@@ -1758,6 +1760,13 @@ function RFP.GATT_NOTIFY_SUBSCRIBED(idBinding, strCommand, tParams, args)
 
   local handle = tointeger(Select(tParams, "handle"))
   local success = Select(tParams, "success") == "true"
+
+  -- A second CONNECTED re-subscribes, and the proxy supersedes the first
+  -- request; the newer one still answers
+  if not success and (Select(tParams, "error") or ""):find("Superseded", 1, true) then
+    log:debug("Ignoring superseded subscription on handle %s", handle)
+    return
+  end
 
   -- An answer for a link already released, or one the timeout gave up on
   if handle == nil or handle ~= pendingSubscribe then
@@ -1854,7 +1863,8 @@ OBC[ESPHOME_BINDING] = function(idBinding, strClass, bIsBound, otherDeviceId)
   resetConnectionState(true)
 
   if bIsBound then
-    -- The coordinator connects nothing at bind, so the next advertisement has to
+    -- A bind starts afresh: if the parent does not connect it, the next
+    -- advertisement does
     initialStatusTriggered = false
     updateStatus("Waiting for data", false)
   else
