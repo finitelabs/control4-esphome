@@ -1084,6 +1084,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   light's settings in the project when it starts and when the light connects, so
   a light turns on in its On Color and dims with Dim-To-Warm from the first time
   it is used
+- Fixed a light that has a white as well as a color making a white On Color out
+  of its red, green and blue: the On Color and Dim Color a new color light is
+  given are 3200 K stored as a color, so the light turned on and dimmed in a mix
+  of the three; a color that is a color temperature's own point, in the Color On
+  Mode, a scene or a color set from Navigator, now lights the light's white at
+  that color temperature
 
 ### Changed
 

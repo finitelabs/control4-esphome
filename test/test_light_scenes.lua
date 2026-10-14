@@ -231,6 +231,11 @@ function C4:ColorXYtoHSV(x, y)
   return x * 360, y * 100
 end
 
+-- No xy is a color temperature's point until a section gives the two a form.
+function C4:ColorXYtoCCT()
+  return nil
+end
+
 -- An On Color preset, a Dim-To-Warm dim color and another color, as xy.
 local ON, DIM, BLUE = { 0.6, 0.3, id = 1 }, { 0.14, 0.1 }, { 0.15, 0.06 }
 
@@ -3747,6 +3752,145 @@ do
   T.eq("and a level carries the Dim-To-Warm color", kelvins(), { 4234 })
   forgetSetup()
   newLightSetup, proxySetup = nil, ""
+end
+
+---------------------------------------------------------------------------
+-- A light with a white beside its color
+---------------------------------------------------------------------------
+
+-- The white is its own color mode, or one mode holds it with the color, as a
+-- light built with no color_interlock has: RGB with a color temperature
+-- (RGBCT above), or with cold and warm white.
+local RGB, CWWW = ColorMode.COLOR_MODE_RGB, ColorMode.COLOR_MODE_COLD_WARM_WHITE
+local RGBWW = ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE
+local FULL_MODE = 0
+
+--- A report from a light of kind `modes`.
+--- @param range table|nil The range its entity gives for its color temperature, in mireds.
+local function pushed(modes, state, range)
+  range = range or {}
+  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+    entity = SerializeSafe({
+      key = 1,
+      name = "Light",
+      supported_color_modes = modes,
+      min_mireds = range[1],
+      max_mireds = range[2],
+    }),
+    state = SerializeSafe(state),
+  })
+end
+
+-- 6500 to 2700 K.
+local RANGE = { 153.8, 370.4 }
+
+--- Set the Color On Mode to Dim-To-Warm between an On Color and a Dim Color, each an xy in `mode`.
+local function fadeMode(on, dim, mode)
+  proxy("UPDATE_COLOR_ON_MODE", {
+    COLOR_PRESET_ID = 1,
+    COLOR_PRESET_ORIGIN = 1,
+    COLOR_PRESET_COLOR_X = on[1],
+    COLOR_PRESET_COLOR_Y = on[2],
+    COLOR_PRESET_COLOR_MODE = mode,
+    COLOR_FADE_PRESET_ID = 2,
+    COLOR_FADE_PRESET_ORIGIN = 1,
+    COLOR_FADE_PRESET_COLOR_X = dim[1],
+    COLOR_FADE_PRESET_COLOR_Y = dim[2],
+    COLOR_FADE_PRESET_COLOR_MODE = mode,
+  })
+end
+
+--- The color mode the proxy was told with each color since the mark.
+local function modesTold()
+  return told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE")
+end
+
+T.section("a full color that is a color temperature's own point lights the white of a light that has one")
+do
+  -- A new color light's proxy makes its On Color and Dim Color one white
+  -- point, 3200 K, and stores it as a full color (setup-626.xml's two).
+  local POINT = { 0.32, 0.4 }
+  for name, modes in pairs({
+    ["cold and warm white beside its color"] = { RGBWW },
+    ["a color temperature beside its color"] = { RGBCT, CT },
+    ["a color mode and a white mode"] = { RGB, CWWW },
+  }) do
+    light()
+    pushed(modes, { state = false, brightness = 1.0 }, RANGE)
+    fadeMode(POINT, POINT, FULL_MODE)
+    mark()
+    proxy("ON")
+    T.eq(
+      "a light with " .. name .. ": an on is in that white, with no red, green or blue",
+      { kelvins(), colors() },
+      { { 3200 }, {} }
+    )
+    T.eq("which the proxy is told as a color temperature", { colorsTold(), modesTold() }, { { 0.32 }, { CCT_MODE } })
+    mark()
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
+    T.eq("and so is a level after it", { kelvins(), colors() }, { { 3200 }, {} })
+  end
+  light({ RGB }, false)
+  fadeMode(POINT, POINT, FULL_MODE)
+  mark()
+  proxy("ON")
+  T.eq("a light with a color alone has only its color for it", { kelvins(), #colors() }, { {}, 1 })
+
+  -- The same color from each place a full color comes from.
+  light()
+  pushed({ RGBCT, CT }, { state = false, brightness = 1.0 }, RANGE)
+  onMode({ POINT[1], POINT[2], id = 1 })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
+  colorTarget(POINT, 750)
+  T.eq(
+    "an On Color preset, and the proxy's own copy of it after the on: the white, once",
+    { kelvins(), colors() },
+    { { 3200 }, {} }
+  )
+  run(1000)
+  light()
+  pushed({ RGBCT, CT }, { state = true, brightness = 1.0 }, RANGE)
+  mark()
+  colorTarget(POINT, 0)
+  T.eq("a color the proxy sets: the white", { kelvins(), colors(), modesTold() }, { { 3200 }, {}, { CCT_MODE } })
+  activate(colorStep(nil, POINT, 0))
+  T.eq("a scene step's: the white", { kelvins(), colors() }, { { 3200 }, {} })
+  proxy("CLEAR_ALL_SCENES")
+  mark()
+  colorTarget({ 0.2, 0.4 }, 0)
+  T.eq("the point of a white beyond the light's range stays a color", { kelvins(), #colors() }, { {}, 1 })
+  mark()
+  colorTarget({ 0.32, 0.41 }, 0)
+  T.eq("and so does a color beside a white's point", { kelvins(), #colors() }, { {}, 1 })
+
+  -- Dim-To-Warm is between its two ends: both a white's point, or a color.
+  light()
+  pushed({ RGBCT, CT }, { state = true, brightness = 1.0 }, RANGE)
+  fadeMode({ 0.5, 0.6 }, { 0.3, 0.2 }, FULL_MODE)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq(
+    "between two colors, at the level whose mix crosses a white's point: a color still",
+    { kelvins(), #colors() },
+    { {}, 1 }
+  )
+  -- Kelvin as x over a y that curves as the locus does, so the mix of two whites lies off it.
+  local toXY = C4.ColorCCTtoXY
+  function C4:ColorCCTtoXY(k)
+    return k / 10000, 0.4 - (k / 10000 - 0.45) ^ 2
+  end
+  light()
+  pushed({ RGBCT, CT }, { state = true, brightness = 1.0 }, RANGE)
+  fadeMode({ C4:ColorCCTtoXY(6000) }, { C4:ColorCCTtoXY(3000) }, FULL_MODE)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq(
+    "between two whites given as full colors: a white at every level, its mix off their line or not",
+    { kelvins(), colors() },
+    { { 4500 }, {} }
+  )
+  C4.ColorCCTtoXY = toXY
 end
 
 T.finish()

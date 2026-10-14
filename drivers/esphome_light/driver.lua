@@ -797,10 +797,21 @@ local function takenKelvin(k)
   return math.max(miredsToKelvin(maxMireds), math.min(miredsToKelvin(minMireds), k))
 end
 
+-- Whether a full color is a color temperature's own point, inside the light's
+-- range: a light with a white for it shows it in that white.
+local function isWhitePoint(x, y)
+  local k = supportsCCT and tonumber(C4:ColorXYtoCCT(x, y))
+  if not k or k <= 0 or k ~= takenKelvin(k) then
+    return false
+  end
+  local whiteX, whiteY = C4:ColorCCTtoXY(k)
+  return sameColor(x, y, LIGHT_COLOR_MODE_CCT, whiteX, whiteY, LIGHT_COLOR_MODE_CCT)
+end
+
 -- A color as the light takes it, which its reports then read as: its color
 -- temperature's point, or a full color on a light with no color temperature.
 local function takenColor(x, y, mode)
-  if mode ~= LIGHT_COLOR_MODE_CCT then
+  if mode ~= LIGHT_COLOR_MODE_CCT and not isWhitePoint(x, y) then
     return x, y, mode
   end
   if not supportsCCT then
@@ -810,7 +821,7 @@ local function takenColor(x, y, mode)
   if k and k > 0 then
     x, y = C4:ColorCCTtoXY(takenKelvin(k))
   end
-  return x, y, mode
+  return x, y, LIGHT_COLOR_MODE_CCT
 end
 
 -- Apply the dim-to-warm formula from spec _7.2:
@@ -833,11 +844,17 @@ local function computeFadeColor(brightness)
     return nil
   end
   local b = math.max(0, math.min(100, brightness)) * 0.01
-  local x, y, colorMode = takenColor(
-    dimPreset.x + (onPreset.x - dimPreset.x) * b,
-    dimPreset.y + (onPreset.y - dimPreset.y) * b,
-    onPreset.mode or LIGHT_COLOR_MODE_FULL
-  )
+  local x = dimPreset.x + (onPreset.x - dimPreset.x) * b
+  local y = dimPreset.y + (onPreset.y - dimPreset.y) * b
+  local colorMode = onPreset.mode or LIGHT_COLOR_MODE_FULL
+  -- Two full colors that are each a white's point fade between whites. The mix
+  -- is not asked: a line between two colors can cross a white's point at one level.
+  if isWhitePoint(onPreset.x, onPreset.y) and isWhitePoint(dimPreset.x, dimPreset.y) then
+    colorMode = LIGHT_COLOR_MODE_CCT
+  end
+  if colorMode == LIGHT_COLOR_MODE_CCT then
+    x, y, colorMode = takenColor(x, y, colorMode)
+  end
   return { x = x, y = y, mode = colorMode }
 end
 
@@ -1691,7 +1708,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
     end
     targetX, targetY, targetMode = takenColor(x, y, LIGHT_COLOR_MODE_CCT)
   elseif x and y and supportsColor then
-    targetX, targetY, targetMode = x, y, LIGHT_COLOR_MODE_FULL
+    targetX, targetY, targetMode = takenColor(x, y, LIGHT_COLOR_MODE_FULL)
   else
     log:warn(
       "SET_COLOR_TARGET ignored (kelvin=%s x=%s y=%s mode=%s color=%s cct=%s)",
