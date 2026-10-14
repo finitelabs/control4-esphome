@@ -2580,6 +2580,9 @@ function RFP.CONNECTION_FAILED(idBinding, strCommand, tParams, args)
   log:error("Connection failed: %s", error)
 
   resetConnectionState()
+  -- The parent can close the link after reporting the failure; there is no link
+  -- to lose until the next CONNECTED.
+  linkAbandoned = true
   updateStatus("Connection Failed: " .. error, false)
 end
 
