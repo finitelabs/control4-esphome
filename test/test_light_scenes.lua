@@ -4533,4 +4533,451 @@ do
   T.eq("a light that is on is sent the color temperature alone", channels(), { false, false, false, false, false })
 end
 
+T.section("a fade on a light in its combined color mode, stopped part way, is held where the light is")
+do
+  --- `values` to six places: a fade's easing leaves them just off a round figure.
+  local function places(values)
+    local out = {}
+    for i, value in ipairs(values) do
+      out[i] = type(value) == "number" and math.floor(value * 1e6 + 0.5) / 1e6 or value
+    end
+    return out
+  end
+  --- What the stop sent: its color brightness and its white.
+  local function held()
+    return places({ lastCommand().color_brightness, lastCommand().white })
+  end
+  --- The color the proxy was last told since the mark: its x and its color mode.
+  local function lastTold()
+    local xs, modes = colorsTold(), modesTold()
+    return places({ xs[#xs], modes[#modes] })
+  end
+  local function level(target, rate)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = target, RATE = rate })
+  end
+  --- A color as the light scales it: its largest channel at full, and that scale.
+  local function scaled(r, g, b)
+    local full = math.max(r, g, b)
+    return { r / full, g / full, b / full }, full
+  end
+
+  -- ESPHome fades every field of the light's color and white from where it is
+  -- to where it was sent: the color down as the white comes up. Half way
+  -- through its time a fade is half way along.
+  light({ RGBCT, CT })
+  local blue = setColor(BLUE)
+  kelvin(3000, 6000)
+  run(3000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a color fading to a white, half way: half of each, in the combined mode",
+    { channels(), kelvins(), lengths() },
+    { { RGBCT, 0.5, 0.5, false, false }, { 3000 }, { 0 } }
+  )
+  T.eq("the color its own", colors(), { blue })
+  T.eq("which the proxy is told, the two being level", lastTold(), { BLUE[1], FULL_MODE })
+  pushed({ RGBCT, CT }, taken())
+  T.eq("and the light's report of both lit tells nothing more", #colorsTold(), 1)
+  light({ RGBCT, CT })
+  kelvin(3000, 0)
+  colorTarget(BLUE, 6000)
+  run(1500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a white fading to a color, a quarter through its time: the color as far as it has come",
+    { held(), kelvins() },
+    { places({ eased(0.25), 1 - eased(0.25) }), { 3000 } }
+  )
+  T.eq("where the light is still in the white, which the proxy is told", lastTold(), { 0.3, CCT_MODE })
+
+  -- The proxy is told the one that is turned up further, as a report is read.
+  light({ RGBCT, CT })
+  onMode(PREVIOUS_ON)
+  setColor(BLUE)
+  kelvin(3000, 4000)
+  run(3600)
+  mark()
+  proxy("SET_COLOR_STOP")
+  -- eased(0.9) is 0.991: the color is at under a hundredth, the white at full.
+  T.eq("nine tenths through a fade to a white: the white, not a color at a hundredth", modesTold(), { CCT_MODE })
+  pushed({ RGBCT, CT }, taken())
+  T.eq("and the light's report of what the stop sent tells no color", modesTold(), { CCT_MODE })
+  proxy("OFF")
+  mark()
+  proxy("ON")
+  T.eq("with Color On Mode set to Previous the light comes back on in that white", { kelvins(), colors() }, {
+    { 3000 },
+    {},
+  })
+  light({ RGBCT, CT })
+  kelvin(3000, 0)
+  colorTarget(BLUE, 4000)
+  run(2400)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("six tenths through a fade to a color: the color", lastTold(), { BLUE[1], FULL_MODE })
+
+  -- The white's color temperature and the color fade too, each from where the light had it.
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  local state = taken()
+  state.color_temperature = 200
+  pushed({ RGBCT, CT }, state, RANGE)
+  kelvin(3000, 6000)
+  run(4500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  local mireds = 200 + (1e6 / 3000 - 200) * eased(0.75)
+  T.eq(
+    "a white coming up from another color temperature is held at the one it has got to",
+    { lastCommand().color_temperature, lastTold() },
+    { mireds, places({ math.floor(1e6 / mireds + 0.5) / 10000, CCT_MODE }) }
+  )
+  light({ RGBCT, CT })
+  local on = setColor(ON)
+  kelvin(3000, 0)
+  mark()
+  colorTarget(BLUE, 6000)
+  run(3000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  local mixed, full = scaled((on[1] + blue[1]) / 2, (on[2] + blue[2]) / 2, (on[3] + blue[3]) / 2)
+  T.eq(
+    "a color coming up from another color: the mix the light has, its scale in the color brightness",
+    { places(colors()[1]), held() },
+    { places(mixed), places({ 0.5 * full, 0.5 }) }
+  )
+
+  -- Any command starts the light's fade again from where it is, over its own time.
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  kelvin(3000, 6000)
+  run(3000)
+  mark()
+  level(50, 2000)
+  T.eq("a level sent half way: the fade is told again from the color, the two being level", {
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X")[1] - BLUE[1] < 1e-9,
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_COLOR_MODE"),
+  }, { true, { FULL_MODE } })
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("a stop half way through that: three quarters of the way", held(), { 0.25, 0.75 })
+  light({ RGBCT, CT })
+  kelvin(3000, 0)
+  colorTarget(BLUE, 6000)
+  run(3000)
+  level(50, 2000)
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("the same of a white fading to a color", held(), { 0.75, 0.25 })
+  -- On a controller that takes 10 ms over each message, as of when the level went out.
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  local send = SendToProxy
+  function SendToProxy(...)
+    send(...)
+    now = now + 10
+  end
+  kelvin(3000, 6000)
+  run(2980)
+  local asOf = now
+  level(50, 2000)
+  run(asOf + 1000 - now)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("the fade a level takes on is read as the level goes out", held(), { 0.25, 0.75 })
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  kelvin(3000, 4000)
+  run(2000)
+  kelvin(5000, 4000)
+  run(2000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("another white half way, stopped half way through that: a quarter of the color left", held(), { 0.25, 0.75 })
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  kelvin(3000, 4000)
+  run(2000)
+  mark()
+  colorTarget(ON, 4000)
+  T.eq(
+    "a color that takes the fade over is told from the color the light is in",
+    places(told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X")),
+    { BLUE[1] }
+  )
+  run(2000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  mixed, full = scaled((on[1] + blue[1]) / 2, (on[2] + blue[2]) / 2, (on[3] + blue[3]) / 2)
+  T.eq(
+    "and stopped half way through that, is held with a quarter of the white left",
+    { places(colors()[1]), held() },
+    { places(mixed), places({ 0.75 * full, 0.25 }) }
+  )
+  light({ RGBCT, CT })
+  kelvin(3000, 0)
+  colorTarget(BLUE, 4000)
+  run(1000)
+  proxy("SET_COLOR_STOP")
+  colorTarget(BLUE, 4000)
+  run(2000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  local first = eased(0.25)
+  T.eq(
+    "a fade stopped, sent again and stopped again holds some of each, not the color at full",
+    held(),
+    places({ first + (1 - first) * 0.5, (1 - first) * 0.5 })
+  )
+  -- A level's stop holds the level over the time the color has left, and the fade starts again there too.
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  level(40, 6000)
+  kelvin(3000, 6000)
+  run(3000)
+  proxy("SET_BRIGHTNESS_STOP")
+  run(1500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("a stop of the level half way, then of the color half way through what was left", held(), { 0.25, 0.75 })
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  level(40, 6000)
+  run(1000)
+  kelvin(3000, 6000)
+  run(3000)
+  level(80, 4000)
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a fade stopped while the level ramps: some of each, over the time the ramp has left",
+    { held(), lengths() },
+    { places({ 0.5 * (1 - eased(0.25)), 1 - 0.5 * (1 - eased(0.25)) }), { 3000 } }
+  )
+
+  -- The color a level command carries fades under the level, and is handed on with the ramp.
+  light({ RGBCT, CT }, false)
+  proxy("UPDATE_COLOR_ON_MODE", {
+    COLOR_PRESET_ID = 1,
+    COLOR_PRESET_ORIGIN = 1,
+    COLOR_PRESET_COLOR_X = 0.3,
+    COLOR_PRESET_COLOR_Y = 0.4,
+    COLOR_PRESET_COLOR_MODE = CCT_MODE,
+    COLOR_FADE_PRESET_ID = 0,
+    COLOR_FADE_PRESET_ORIGIN = 0,
+  })
+  setColor(BLUE)
+  level(100, 6000)
+  run(2000)
+  mark()
+  level(50, 4000)
+  T.eq(
+    "a white preset coming up under a rated on from a color: a second level tells it from the color, still lit",
+    places({
+      told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X")[1],
+      told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_COLOR_MODE")[1],
+    }),
+    { BLUE[1], FULL_MODE }
+  )
+  run(2000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  local left = (1 - eased(1 / 3)) * 0.5
+  T.eq(
+    "and a stop half way through that holds what the light has, told as the white it is mostly in",
+    { held(), colors(), lastTold() },
+    { places({ left, 1 - left }), { blue }, { 0.3, CCT_MODE } }
+  )
+  -- A fade to off holds the color and the white where they were, and a level back up goes on from there.
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  kelvin(3000, 10000)
+  run(1000)
+  level(0, 3000)
+  run(1000)
+  level(50, 2000)
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a fade to off and back on in a fade to a white: from the color it was held at",
+    held(),
+    places({ (1 - eased(0.1)) * 0.5, 1 - (1 - eased(0.1)) * 0.5 })
+  )
+  -- From 1 % a fade to off reads 0 half way, where the white it was fading to is told.
+  light({ RGBCT, CT })
+  level(1, 0)
+  setColor(BLUE)
+  kelvin(3000, 10000)
+  run(1000)
+  level(0, 3000)
+  run(1650)
+  level(50, 2000)
+  run(500)
+  mark()
+  colorTarget(ON, 4000)
+  T.eq("a white told as a fade reaches off: the light is in it from then, none of the color lit", {
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_COLOR_MODE"),
+  }, { { 0.3 }, { CCT_MODE } })
+  -- A fade at either end of its time.
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  kelvin(3000, 6000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a fade to a white stopped as it begins: the color, in full, and told as the color",
+    { channels(), modesTold() },
+    { { RGBCT, 1, 0, false, false }, { FULL_MODE } }
+  )
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  kelvin(3000, 6000)
+  now = now + 6001
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a stop as the fade's time runs out: the white alone",
+    { channels(), kelvins(), modesTold() },
+    { { RGBCT, 0, 1, false, false }, { 3000 }, { CCT_MODE } }
+  )
+  run(100)
+  -- A scene step's fade is the light's too.
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  activate(
+    "<element><delay>0</delay><colorEnabled>true</colorEnabled><colorX>0.3</colorX><colorY>0.4</colorY>"
+      .. "<colorMode>1</colorMode><colorRate>6000</colorRate></element>"
+  )
+  run(3000)
+  mark()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq("a scene step from a color to a white, stopped half way: half of each", held(), { 0.5, 0.5 })
+  proxy("CLEAR_ALL_SCENES")
+  -- Another client's command starts the light's fade from where it is, over a time no report gives.
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  kelvin(3000, 4000)
+  run(2000)
+  state = taken()
+  state.color_brightness, state.white = 1, 0.5
+  pushed({ RGBCT, CT }, state)
+  kelvin(3000, 4000)
+  run(2000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("a fade after another client ended one: from what the light then reported", held(), { 0.5, 0.75 })
+
+  -- With cold and warm white the light works the two out for a white, and reports them.
+  light()
+  pushed({ RGBWW }, { state = true, brightness = 1.0 }, RANGE)
+  setColor(BLUE)
+  kelvin(4000, 6000)
+  run(50)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a light with cold and warm white, stopped ahead of its report of the two: as it last had them",
+    places(channels()),
+    places({ RGBWW, 1 - eased(50 / 6000), false, 0, 0 })
+  )
+  light()
+  pushed({ RGBWW }, { state = true, brightness = 1.0 }, RANGE)
+  setColor(BLUE)
+  kelvin(4000, 6000)
+  run(100)
+  state = taken()
+  state.cold_white, state.warm_white = 1, 0.8
+  pushed({ RGBWW }, state, RANGE)
+  run(2900)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "once it has reported them: half of each of the two, with half the color",
+    { channels(), kelvins() },
+    { { RGBWW, 0.5, false, 0.5, 0.4 }, { 4000 } }
+  )
+  T.eq("told as the color, which is level with the larger of the two", lastTold(), { BLUE[1], FULL_MODE })
+  pushed({ RGBWW }, taken(), RANGE)
+  T.eq("and its report of that tells nothing more", #colorsTold(), 1)
+
+  -- A fade from one color to another, or one white to another, is the light's own too.
+  light({ RGBCT, CT })
+  kelvin(3000, 0)
+  kelvin(5000, 6000)
+  run(3000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a fade between two whites: the white, at the color temperature half way between them in mireds",
+    { channels(), kelvins(), lastTold() },
+    { { RGBCT, 0, 1, false, false }, { 3750 }, { 0.375, CCT_MODE } }
+  )
+  for name, modes in pairs({
+    ["a color temperature beside its color"] = { RGBCT, CT },
+    ["a white beside its color"] = { RGBW },
+  }) do
+    light(modes)
+    blue = setColor(BLUE)
+    activate(colorStep(nil, ON, 4000))
+    run(2000)
+    mark()
+    proxy("SET_COLOR_STOP")
+    mixed, full = scaled((on[1] + blue[1]) / 2, (on[2] + blue[2]) / 2, (on[3] + blue[3]) / 2)
+    T.eq(
+      "a scene step's fade between two colors, a light with " .. name .. ": the mix, and the white off",
+      { places(colors()[1]), places(channels()) },
+      { places(mixed), places({ modes[1], full, 0, false, false }) }
+    )
+    proxy("CLEAR_ALL_SCENES")
+  end
+
+  -- A change of color mode is ESPHome's fade through off, with nothing of both to hold.
+  light({ RGBCT, CT })
+  pushed({ RGBCT, CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 300 }, RANGE)
+  colorTarget(BLUE, 3000)
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a color fade begun in the white-only mode: a color, with no white",
+    { lastCommand().has_color_temperature or false, channels() },
+    { false, { RGBCT, 1, 0, false, false } }
+  )
+  light({ RGBCT, CT })
+  pushed({ RGBCT, CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 300 }, RANGE)
+  kelvin(3000, 3000)
+  run(1500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a fade between two whites in the white-only mode: a color temperature alone",
+    { lastCommand().has_rgb or false, channels() },
+    { false, { false, false, false, false, false } }
+  )
+  for name, modes in pairs({
+    ["a color mode and a white mode"] = { RGB, CT },
+    ["no color temperature in its combined mode"] = { RGBW, CT },
+  }) do
+    light(modes)
+    setColor(BLUE)
+    kelvin(3000, 6000)
+    run(3000)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(
+      "a light with " .. name .. " is sent a color temperature, as before",
+      { lastCommand().has_rgb or false, channels(), modesTold() },
+      { false, { false, false, false, false, false }, { CCT_MODE } }
+    )
+  end
+end
+
 T.finish()

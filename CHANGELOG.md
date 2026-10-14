@@ -207,9 +207,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a color temperature set on an ESPHome light with its color and its white
   in one color mode leaving the color lit: asked for 3000 K while blue, the
   light stayed blue with a warm white beside it and was shown at 3000 K; the
-  color now fades out as the white fades in, and only the first color set on an
-  RGBCT light that is in its white-only mode, as it is after a restart, still
-  fades through off
+  color now fades out as the white fades in, a stop part way holds the light
+  where it is, and only the first color set on an RGBCT light that is in its
+  white-only mode, as it is after a restart, still fades through off
 - Fixed the white of an ESPHome light with its color and its white in one color
   mode, an RGBW light among them, staying lit beside every color the light was
   set to, which washed the color out; a color now turns the white off, and an
