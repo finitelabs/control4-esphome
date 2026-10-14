@@ -856,7 +856,7 @@ end
 -- Buttons
 ---------------------------------------------------------------------------
 
-local TOP, TOGGLE = 0, 2
+local TOP, BOTTOM, TOGGLE = 0, 1, 2
 local RELEASE_HOLD, PRESS, RELEASE_CLICK = 0, 1, 2
 
 T.section("a held Top or Toggle ramps toward full, past the Default On level, until released")
@@ -879,7 +879,7 @@ do
   proxy("SET_PRESET_LEVEL", { LEVEL = 100 })
 end
 
-local TOP_LINK = 300 -- the Top Button Link binding
+local TOP_LINK, TOGGLE_LINK = 300, 301 -- the Top and Toggle Button Link bindings
 
 --- Half way up a 5 s ramp from off: at 50 %, held as off by the driver.
 local function rising()
@@ -5183,6 +5183,480 @@ do
       { false, { false, false, false, false, false }, { CCT_MODE } }
     )
   end
+end
+
+---------------------------------------------------------------------------
+-- Max and Min On Level
+---------------------------------------------------------------------------
+
+local pb = require("protobuf")
+
+--- Set the light's Max and Min On Level, as Composer sends them.
+local function onLevels(max, min)
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = tostring(max) })
+  proxy("SET_MIN_ON_LEVEL", { LEVEL = tostring(min) })
+end
+
+--- Back to the range a light has until they are set, and the on level and hold rate these set.
+local function forgetOnLevels()
+  for _, key in ipairs({
+    "max_on_level",
+    "min_on_level",
+    "brightness_on_mode",
+    "brightness_on_mode_preset",
+    "hold_rate_down",
+  }) do
+    persist:delete(key)
+  end
+end
+
+--- `value` to nine places, as far as a command's serialized brightness keeps it.
+local function nine(value)
+  return math.floor(value * 1e9 + 0.5) / 1e9
+end
+
+--- The brightness a level goes out at with a Max On Level of 80 and a Min On Level of 20.
+local function at80(level)
+  return nine((20 + (level - 1) * 60 / 99) / 100)
+end
+
+--- The brightness of the last command sent since the mark: nil for none.
+local function brightnessSent()
+  local last = lastLevel()
+  return last and nine(last[1])
+end
+
+--- A brightness as the float ESPHome sends it.
+local function float(brightness)
+  return (pb.decode_float(pb.encode_float(brightness), 1))
+end
+
+--- A dimmer's report of its brightness; off for 0.
+local function reportAt(brightness)
+  pushed({ ColorMode.COLOR_MODE_BRIGHTNESS }, { state = brightness > 0, brightness = float(brightness) })
+end
+
+local function levelsTold()
+  return told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT")
+end
+
+T.section("Max and Min On Level remap every level the light is sent and reads back, as on a Control4 dimmer")
+do
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  onLevels(80, 20)
+  for _, level in ipairs({ 100, 1, 37 }) do
+    mark()
+    proxy("SET_LEVEL", { LEVEL = level })
+    T.eq(level .. " goes out at the light's " .. at80(level), brightnessSent(), at80(level))
+    reportAt(at80(level))
+    T.eq(level .. " is shown as sent, and the light's report of it tells nothing more", levelsTold(), { level })
+  end
+  mark()
+  reportAt(0.5)
+  T.eq("a brightness set elsewhere is read through the range", levelsTold(), { 51 })
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 0 })
+  T.eq("0 is off", { lastCommand().state, levelsTold() }, { false, { 0 } })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  T.eq("a ramp: to the Max On Level, over its rate", lastLevel(), { 0.8, 2000 })
+  run(100)
+  reportAt(0.8)
+  run(15000)
+  T.eq(
+    "the light's report of it is its own: shown at 100 at the ramp's end alone",
+    { levelsTold(), told("LIGHT_BRIGHTNESS_CHANGED", "at") },
+    { { 100 }, { 2000 } }
+  )
+  proxy("UPDATE_BRIGHTNESS_ON_MODE", { BRIGHTNESS_PRESET_ID = 1, BRIGHTNESS_PRESET_LEVEL = 50 })
+  proxy("OFF")
+  mark()
+  proxy("ON")
+  T.eq("an on goes to its on level on the range", brightnessSent(), at80(50))
+  mark()
+  activate(levelStep(37))
+  T.eq("a scene step's level too", brightnessSent(), at80(37))
+  proxy("CLEAR_ALL_SCENES")
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  T.eq("a held Top ramps to the Max On Level", brightnessSent(), 0.8)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_HOLD })
+
+  light({ ColorMode.COLOR_MODE_RGB })
+  onMode(ON, DIM)
+  onLevels(80, 20)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq(
+    "Dim-To-Warm: the level goes out on the range, in the mix for the level",
+    { brightnessSent(), told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X") },
+    { at80(50), { mix(50) } }
+  )
+  forgetOnLevels()
+
+  -- The light's report of the Max is a float a little over 0.8: not outside the range.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  onLevels(80, 20)
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  reportAt(0.8)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  T.eq("a Set Level to 100 once the light reports the Max On Level sends nothing", commands(), 0)
+  forgetOnLevels()
+
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  onLevels(100, 0)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 1 })
+  T.eq("a Min On Level of 0: level 1 goes out lit, at 0.01", { lastCommand().state, brightnessSent() }, { true, 0.01 })
+  forgetOnLevels()
+end
+
+T.section("a stop part way through a fade to or from off holds the light where it has got to, or at the Min On Level")
+do
+  -- ESPHome fades the brightness itself: from 0.8 to off, it is at 0.4 half way, level 34 on the range.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  onLevels(80, 20)
+  proxy("SET_HOLD_RATE_DOWN", { RATE = 4000 })
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  run(2000)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = RELEASE_HOLD })
+  T.eq("a held Bottom let go half way down", { brightnessSent(), levelsTold() }, { 0.4, { 34 } })
+  proxy("OFF")
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(2000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a fade up from off stopped half way", { brightnessSent(), levelsTold() }, { 0.4, { 34 } })
+  -- Under the Min On Level it stops at the Min, or off under half way there.
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  run(2730)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = RELEASE_HOLD })
+  T.eq("a held Bottom let go at 0.15 goes to the Min On Level", { brightnessSent(), levelsTold() }, { 0.2, { 1 } })
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  run(3200)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = RELEASE_HOLD })
+  T.eq("let go at 0.05, it goes off", { lastCommand().state, levelsTold() }, { false, { 0 } })
+  forgetOnLevels()
+end
+
+T.section("a toggle reads a light fading to or from off as on until it is half a level from off")
+do
+  -- A stop leaves the light off under 0.1, half way to a Min On Level of 20: a toggle turns it off.
+  local function fading()
+    light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+    onLevels(80, 20)
+    proxy("SET_LEVEL", { LEVEL = 100 })
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+    run(3000)
+    mark()
+  end
+  fading()
+  proxy("TOGGLE")
+  T.eq(
+    "the proxy's Toggle with the light at 0.083 on its way off",
+    { lastCommand().state, levelsTold() },
+    { false, { 0 } }
+  )
+  fading()
+  RFP.DO_CLICK(TOGGLE_LINK, "DO_CLICK", {})
+  T.eq("a Toggle Button Link's click with no push", { lastCommand().state, levelsTold() }, { false, { 0 } })
+
+  local function click()
+    proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS })
+    run(110)
+    proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = RELEASE_CLICK })
+  end
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+  onLevels(80, 20)
+  click()
+  run(60)
+  mark()
+  click()
+  run(15000)
+  local levels = levelsTold()
+  T.eq(
+    "a Toggle clicked again with the light at 0.015 on its way on",
+    { lastCommand().state, levels[#levels] },
+    { false, 0 }
+  )
+  forgetOnLevels()
+end
+
+T.section("a new Max or Min On Level shows the light where it is on the new range, and does not move it")
+do
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  reportAt(0.5)
+  mark()
+  onLevels(80, 20)
+  local levels = levelsTold()
+  T.eq("the light at 0.5 shows at 51", levels[#levels], 51)
+  T.eq("and is sent nothing", commands(), 0)
+  local echoes = {}
+  for _, s in ipairs(sent) do
+    if s.command == "MAX_ON" or s.command == "MIN_ON" then
+      echoes[#echoes + 1] = s.command .. " " .. s.params
+    end
+  end
+  T.eq("the proxy is told the two, as before", echoes, { "MAX_ON 80", "MIN_ON 20" })
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 51 })
+  T.eq("a Set Level to the level shown leaves it there", { commands(), levelsTold() }, { 0, { 51 } })
+  forgetOnLevels()
+
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  reportAt(0.5)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 80 })
+  onLevels(80, 20)
+  T.eq("set before the light reports a level, it reads the brightness sent: 0.8, 100", levelsTold(), { 80, 100 })
+  forgetOnLevels()
+
+  -- A light the new range leaves outside it reads back as the range's end, and goes there when asked.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  mark()
+  onLevels(80, 20)
+  T.eq("a light at full: still shown at 100, and not moved", { levelsTold(), commands() }, { {}, 0 })
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  T.eq("a Set Level to 100 takes it down to the Max On Level", { brightnessSent(), levelsTold() }, { 0.8, { 100 } })
+  reportAt(0.1)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 1 })
+  T.eq("one set elsewhere below the Min On Level: a Set Level to 1 takes it up to it", brightnessSent(), 0.2)
+  forgetOnLevels()
+
+  -- A ramp in flight ends at its target's place on the new range: 0.6 is 67 there.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 4000 })
+  run(1000)
+  mark()
+  onLevels(80, 20)
+  run(15000)
+  T.eq("a ramp in flight: nothing more is sent", commands(), 0)
+  T.eq("and at its end it is shown on the new range", { levelsTold(), told("LIGHT_BRIGHTNESS_CHANGED", "at") }, {
+    { 67 },
+    { 3000 },
+  })
+  forgetOnLevels()
+
+  -- Composer sends the two one at a time: the ramp's target is read from the brightness sent each time.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 20, RATE = 8000 })
+  run(1000)
+  mark()
+  onLevels(50, 10)
+  run(15000)
+  T.eq("a ramp to 0.2 as the range becomes 10 to 50 ends at 26 there", levelsTold(), { 26 })
+  forgetOnLevels()
+
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 20, RATE = 8000 })
+  run(1000)
+  mark()
+  onLevels(40, 60)
+  onLevels(100, 50)
+  run(15000)
+  T.eq("and through a range with no width to 50 to 100, below its Min, at 1", levelsTold(), { 1 })
+  forgetOnLevels()
+
+  -- A stop in a ramp a new range moved is where the light is: half way from off to full, 0.5.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(1000)
+  onLevels(80, 20)
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a stop half way after the range moved the ramp", { brightnessSent(), levelsTold() }, { at80(51), { 51 } })
+  forgetOnLevels()
+
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(1000)
+  onLevels(80, 20)
+  now = now + 3001
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a stop past its time, before its end is told, holds it at full", { brightnessSent(), levelsTold() }, {
+    1,
+    { 100 },
+  })
+  forgetOnLevels()
+
+  -- A color set in it after the range moved its target goes on to that target.
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(1000)
+  onLevels(80, 20)
+  run(1000)
+  colorTarget(BLUE, 2000)
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("and a stop half way through the color: at 0.75, 92", levelsTold(), { 92 })
+  forgetOnLevels()
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(1000)
+  onLevels(80, 20)
+  run(1000)
+  colorTarget(BLUE, 2000)
+  mark()
+  onLevels(100, 1)
+  run(15000)
+  T.eq("or the range set back after the color: it ends at full, 100", levelsTold(), { 100 })
+  forgetOnLevels()
+
+  -- One from a light outside the range starts where the light was.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  onLevels(80, 20)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  run(1000)
+  onLevels(100, 1)
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a fade from full stopped half way after the range is set back", brightnessSent(), 0.5)
+  forgetOnLevels()
+
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 4000 })
+  run(1000)
+  onLevels(80, 20)
+  mark()
+  proxy("GET_LIGHT_LEVEL")
+  T.eq("the level the proxy asks for in a ramp is its start's on the new range", levelsTold(), { 51 })
+  forgetOnLevels()
+end
+
+T.section("a light the range leaves outside it ramps from where it is, and a stop holds it there")
+do
+  -- At full under a new Max On Level of 80: ESPHome fades it from 1.0, not from 0.8.
+  local function quarterDown()
+    return nine(1 - eased(0.25))
+  end
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  onLevels(80, 20)
+  proxy("SET_HOLD_RATE_DOWN", { RATE = 4000 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  run(1000)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = RELEASE_HOLD })
+  T.eq("a held Bottom let go a quarter of the way", { brightnessSent(), levelsTold() }, { quarterDown(), { 100 } })
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  T.eq("shown at 100, a Set Level to 100 then takes it to the Max On Level", brightnessSent(), 0.8)
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  onLevels(80, 20)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = RELEASE_HOLD })
+  T.eq("one let go as it begins holds it at full", brightnessSent(), 1)
+
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  onLevels(80, 20)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  T.eq("a ramp to the 100 it shows goes to the Max On Level over its rate", lastLevel(), { 0.8, 2000 })
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("and a stop half way holds it at 0.9", { brightnessSent(), levelsTold() }, { 0.9, { 100 } })
+
+  -- One another client set below the Min On Level ramps up from there.
+  reportAt(0.05)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 4000 })
+  run(500)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "a ramp up from 0.05 stopped an eighth of the way holds it there, at 1",
+    { brightnessSent(), levelsTold() },
+    { nine(float(0.05) + (at80(50) - float(0.05)) * eased(0.125)), { 1 } }
+  )
+
+  -- A click starts where its press found the light.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  onLevels(80, 20)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  run(110)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = RELEASE_CLICK })
+  run(250)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a Bottom click from full stopped half way, at 0.5, holds it at 51", levelsTold(), { 51 })
+
+  -- A scene step to the 100 it shows ramps it there too.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  onLevels(80, 20)
+  activate(levelStep(100, 2000))
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a scene step to 100 stopped half way holds it at 0.9", brightnessSent(), 0.9)
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A color set in its ramp starts the level again from where it is, on to its target.
+  light({ ColorMode.COLOR_MODE_RGB })
+  onLevels(80, 20)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 4000 })
+  run(1000)
+  colorTarget(BLUE, 2000)
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a ramp from full re-timed by a color, stopped at 0.722", { brightnessSent(), levelsTold() }, {
+    at80(87),
+    { 87 },
+  })
+  local b = 1 - 0.2 * eased(0.25)
+  light({ ColorMode.COLOR_MODE_RGB })
+  onLevels(80, 20)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(1000)
+  colorTarget(BLUE, 2000)
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("one to the 100 it shows, still on its way there", brightnessSent(), nine(b + (0.8 - b) * eased(0.5)))
+  forgetOnLevels()
+end
+
+T.section("a Min On Level at or above the Max On Level puts every on level at the one brightness")
+do
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  onLevels(40, 60)
+  for _, level in ipairs({ 37, 80 }) do
+    mark()
+    proxy("SET_LEVEL", { LEVEL = level })
+    reportAt(0.6)
+    T.eq(level .. " goes out at 0.6, and is shown as sent", { brightnessSent(), levelsTold() }, { 0.6, { level } })
+  end
+  mark()
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = "30" })
+  T.eq("a new range that still has no width tells nothing", levelsTold(), {})
+  proxy("SET_LEVEL", { LEVEL = 0 })
+  mark()
+  reportAt(0.3)
+  T.eq("a light turned on elsewhere is told", levelsTold(), { 100 })
+  forgetOnLevels()
+
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  onLevels(40, 60)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  T.eq("a light it leaves at full: a Set Level to the 100 it shows takes it there", brightnessSent(), 0.6)
+  forgetOnLevels()
 end
 
 T.finish()

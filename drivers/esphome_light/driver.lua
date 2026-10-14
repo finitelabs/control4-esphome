@@ -156,7 +156,10 @@ local rampingBrightness = false
 local rampingColor = false
 
 -- Ramp metadata: { startTime, startLevel, targetLevel, durationMs } and, for
--- a ramp a scene step primed, that step. Cleared when no ramp is in flight.
+-- a ramp a scene step primed, that step. A brightness ramp also keeps the
+-- brightness it runs between (from, to), and the place on the range's line
+-- of an end outside the range (startAt, targetAt). Cleared when no ramp is in
+-- flight.
 local brightnessRamp = nil
 local colorRamp = nil
 
@@ -177,10 +180,14 @@ local currentBrightnessPresetId = nil
 -- LIGHT_COLOR_TARGET_PRESET_ID counterpart (spec _3.1).
 local currentColorPresetId = nil
 
--- The level and color the light last reported, then those it has been sent
--- since, oldest first: a report of any other is another client's.
-local sentLevels = {}
+-- The brightness and color the light last reported, then those it has been
+-- sent since, oldest first: a report of any other is another client's.
+local sentBrightness = {}
 local sentColors = {}
+
+-- The brightness the light is at, or going to: its last report, or what it
+-- has been sent since. nil before it reports.
+local lightBrightness = nil
 
 -- What the light is going to, or is at, of its color and its white: its last
 -- report, with what it has been sent since.
@@ -642,6 +649,76 @@ local function setButtonColors(buttonId, onColor, offColor)
 end
 
 ---------------------------------------------------------------------------
+-- Helpers: on-level range
+---------------------------------------------------------------------------
+
+-- The light's own brightness (percent) the levels 1 to 100 span: Max and Min
+-- On Level remap them there, as a Control4 dimmer that remaps its range does
+-- (MAX_ON).
+local function onRange()
+  local lo = math.max(1, tonumber(persist:get(P_MIN_ON_LEVEL, 1)) or 1)
+  return lo, math.max(lo, tonumber(persist:get(P_MAX_ON_LEVEL, 100)) or 100)
+end
+
+--- The brightness (0 to 1) at a place on the line the range draws through the
+--- levels: its 1 to 100 run between the Min and Max On Level (`lo`, `hi`,
+--- percent), and past them for a light outside the range.
+local function lineBrightness(at, lo, hi)
+  return (lo + (at - 1) * (hi - lo) / 99) / 100
+end
+
+--- The brightness a level (0 to 100) goes out at: 0 for off.
+local function toDevice(level, lo, hi)
+  return level > 0 and lineBrightness(level, lo, hi) or 0
+end
+
+--- Where a brightness (0 to 1) sits on the same line: nil for a range with no
+--- width.
+local function linePlace(brightness, lo, hi)
+  return hi > lo and 1 + (brightness * 100 - lo) * 99 / (hi - lo) or nil
+end
+
+--- The level (1 to 100) a light that is on at a brightness shows: the range's
+--- end past it.
+local function toLevel(brightness, lo, hi)
+  local level = linePlace(brightness, lo, hi) or 100
+  return math.max(1, math.min(100, math.floor(level + 0.5)))
+end
+
+--- The level a brightness the light reports, or is sent, reads back as: 0 for
+--- off.
+local function readLevel(brightness)
+  return brightness > 0 and toLevel(brightness, onRange()) or 0
+end
+
+-- Whether a level read back is the one shown: a range with no width reads
+-- every on level back as one.
+local function sameLevel(a, b)
+  local lo, hi = onRange()
+  return a == b or (a > 0 and b > 0 and hi == lo)
+end
+
+-- Where off sits on the line, at a brightness of 0: a fade to or from off runs
+-- along it, below level 1.
+local function offLevel()
+  return linePlace(0, onRange()) or 0
+end
+
+-- Whether a light at a brightness is on outside the range, as a new one can
+-- leave it: it reads back as the range's end, which it is not at. The margin
+-- is a float's error.
+local function outsideRange(brightness)
+  local lo, hi = onRange()
+  return brightness > 0 and (brightness < lo / 100 - 1e-5 or brightness > hi / 100 + 1e-5)
+end
+
+-- Where a light outside the range sits on the line, past level 1 or 100: nil
+-- inside it, or on a range with no width.
+local function outsideAt(brightness)
+  return outsideRange(brightness) and linePlace(brightness, onRange()) or nil
+end
+
+---------------------------------------------------------------------------
 -- Helpers: ESPHome light commands
 ---------------------------------------------------------------------------
 
@@ -686,8 +763,9 @@ local function sendLightCommand(opts)
   log:debug("sendLightCommand(%s)", opts)
   -- A light that is not connected reports nothing of what it is sent.
   if STATE and (opts.has_brightness or opts.state == false) then
-    -- As UPDATE_STATE reads the level back: 0 for off, and at least 1 for on.
-    sentLevels[#sentLevels + 1] = opts.state and math.max(1, math.floor(opts.brightness * 100 + 0.5)) or 0
+    -- As UPDATE_STATE takes the light's brightness: 0 for off.
+    sentBrightness[#sentBrightness + 1] = opts.state and opts.brightness or 0
+    lightBrightness = sentBrightness[#sentBrightness]
   end
   if STATE then
     -- ESPHome starts every channel again from where it is, over the command's
@@ -1292,7 +1370,8 @@ end
 -- Caller contract: only invoked when supportsDimming is true (lightOn/Off,
 -- rampToBrightness, scene apply, etc. all gate on it). On/off-only entities
 -- get a different code path that doesn't touch brightness.
-local function setESPHomeBrightness(level, rateMs, keepColor)
+--- @param at number|nil Where on the range's line to hold a light outside it.
+local function setESPHomeBrightness(level, rateMs, keepColor, at)
   local hasRate = rateMs and rateMs > 0
   local goingOn = level > 0 and currentBrightness == 0
 
@@ -1307,7 +1386,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
     has_state = true,
     state = level > 0,
     has_brightness = true,
-    brightness = (level > 0) and (level / 100.0) or 0,
+    brightness = at and lineBrightness(at, onRange()) or toDevice(level, onRange()),
     has_transition_length = true,
     -- A rate of 0 still gets sent so it cancels any in-flight transition on
     -- the device rather than falling back to its default_transition_length.
@@ -1397,7 +1476,7 @@ end
 -- ESPHome echoes one UPDATE_STATE per command it receives confirming the
 -- target. During a ramp we ignore those echoes (rampingBrightness=true): the
 -- ramp's end tells the level. A level the bulb reports that we never sent is
--- another client's, and ends the ramp (sentLevels).
+-- another client's, and ends the ramp (sentBrightness).
 
 local function cancelBrightnessRampTimers()
   CancelTimer("BrightnessRampFinish")
@@ -1414,20 +1493,36 @@ local function remaining(ramp)
   return math.max(0, ramp.durationMs - (C4:GetTime() - ramp.startTime))
 end
 
-local function interpolatedBrightness(now)
-  if not brightnessRamp or brightnessRamp.durationMs <= 0 then
+--- The level a ramp has the light at, and its place on the range's line where
+--- that is outside the range.
+--- @param toggle boolean|nil Read as a toggle does: on to half a level from off.
+local function interpolatedBrightness(now, toggle)
+  local ramp = brightnessRamp
+  if not ramp or ramp.durationMs <= 0 then
     return currentBrightness
   end
-  local elapsed = (now or C4:GetTime()) - brightnessRamp.startTime
+  local elapsed = (now or C4:GetTime()) - ramp.startTime
   if elapsed <= 0 then
-    return brightnessRamp.startLevel
+    return ramp.startLevel, ramp.startAt
   end
-  if elapsed >= brightnessRamp.durationMs then
-    return brightnessRamp.targetLevel
+  if elapsed >= ramp.durationMs then
+    return ramp.targetLevel, ramp.targetAt
   end
-  local progress = eased(elapsed / brightnessRamp.durationMs)
-  local span = brightnessRamp.targetLevel - brightnessRamp.startLevel
-  return math.floor(brightnessRamp.startLevel + span * progress + 0.5)
+  local progress = eased(elapsed / ramp.durationMs)
+  -- The light fades its brightness, so off is on the range's line: a stop
+  -- leaves it off under half way from there to level 1.
+  local off = offLevel()
+  local from = ramp.startLevel > 0 and (ramp.startAt or ramp.startLevel) or off
+  local to = ramp.targetLevel > 0 and (ramp.targetAt or ramp.targetLevel) or off
+  local at = from + (to - from) * progress
+  local lit = ramp.startLevel > 0 and ramp.targetLevel > 0
+  if not lit and at < (toggle and off + 0.5 or (1 + off) / 2) then
+    return 0
+  end
+  -- A light outside the range is held where it has got to; one fading to or
+  -- from off, below level 1, at the Min.
+  local outside = at > 100 or (lit and at < 1)
+  return math.max(1, math.min(100, math.floor(at + 0.5))), outside and at or nil
 end
 
 local function brightnessRampFinished(targetLevel)
@@ -1450,7 +1545,7 @@ local function brightnessRampStopped()
   if not rampingBrightness then
     return
   end
-  local stoppedAt = interpolatedBrightness()
+  local stoppedAt, at = interpolatedBrightness()
   -- A color ramping, or set during this ramp, is not the level's to replace.
   -- One a replaced ramp carried is the level's own.
   local keepColor = (rampingColor and not colorRamp.carried) or brightnessRamp.colorSet
@@ -1463,7 +1558,7 @@ local function brightnessRampStopped()
     -- No turn-on, whose pre-on has no transition either.
     currentBrightness = stoppedAt
   end
-  setESPHomeBrightness(stoppedAt, hold, keepColor)
+  setESPHomeBrightness(stoppedAt, hold, keepColor, at)
   notifyBrightnessChanged(stoppedAt)
 end
 
@@ -1485,21 +1580,32 @@ local function leaveMergedColor()
 end
 
 -- End a brightness ramp where it has got to, so what replaces it starts there
--- and a later stop interpolates from the right level. Returns the ramp ended.
+-- and a later stop interpolates from the right level. Returns the ramp ended,
+-- and the light's place on the range's line where it is outside the range.
 local function leaveBrightnessRamp(now)
   local ramp = rampingBrightness and brightnessRamp or nil
+  local outside = nil
   if rampingBrightness then
-    local at = interpolatedBrightness(now)
+    local at
+    at, outside = interpolatedBrightness(now)
     if at == 0 and currentBrightness > 0 then
       endOnCycle() -- a fade retargeted as it reaches off ends its on cycle
     end
     currentBrightness = at
     leaveMergedColor()
+  elseif supportsDimming then
+    outside = outsideAt(lightBrightness or 0)
   end
   cancelBrightnessRampTimers()
   rampingBrightness = false
   brightnessRamp = nil
-  return ramp
+  return ramp, outside
+end
+
+-- The brightness at a ramp's end: off, its level, or its place outside the
+-- range.
+local function endBrightness(level, at)
+  return at and lineBrightness(at, onRange()) or toDevice(level, onRange())
 end
 
 -- The same for a level on its way when a command sets a color alone: it goes
@@ -1507,11 +1613,12 @@ end
 --- @param held boolean|nil A stop's hold over the time the level has left: its end stays, and nothing is told.
 --- @param now number|nil When the command went out: the bulb starts again then, not once the proxy is told.
 local function retimeBrightness(ms, held, now)
-  local ramp = leaveBrightnessRamp(now)
+  local ramp, startAt = leaveBrightnessRamp(now)
   if not ramp then
     return
   end
-  if ms <= 0 or currentBrightness == ramp.targetLevel then
+  -- At its target's level a light outside the range can still be on its way.
+  if ms <= 0 or (currentBrightness == ramp.targetLevel and startAt == ramp.targetAt) then
     notifyBrightnessChanged(ramp.targetLevel)
     return
   end
@@ -1519,7 +1626,11 @@ local function retimeBrightness(ms, held, now)
   brightnessRamp = {
     startTime = now or C4:GetTime(),
     startLevel = currentBrightness,
+    startAt = startAt,
     targetLevel = ramp.targetLevel,
+    targetAt = ramp.targetAt,
+    from = endBrightness(currentBrightness, startAt),
+    to = ramp.to,
     durationMs = ms,
     colorSet = ramp.colorSet,
   }
@@ -1558,13 +1669,19 @@ local function rampToBrightness(level, rate, presetId, replaced)
   -- a stale value to the Daylight Agent.
   currentBrightnessPresetId = presetId
 
-  replaced = leaveBrightnessRamp() or replaced
+  local left, startAt = leaveBrightnessRamp()
+  if replaced and not left then
+    startAt = replaced.startAt -- a click starts where its press's ramp did
+  end
+  replaced = left or replaced
 
   local startingLevel = currentBrightness
-  if level == startingLevel then
-    -- Sent where the bulb is on its way to a replaced ramp's target, or with
-    -- Dim-To-Warm in a color set since: the level's own color goes with it.
-    if replaced or awayFromFadeColor(level) then
+  -- A light outside the range is not at the level it shows: it ramps there.
+  if level == startingLevel and not startAt then
+    -- Sent where the bulb is on its way to a replaced ramp's target, outside a
+    -- range with no width, or with Dim-To-Warm in a color set since: the
+    -- level's own color goes with it.
+    if replaced or outsideRange(lightBrightness or 0) or awayFromFadeColor(level) then
       setESPHomeBrightness(level, 0)
     end
     notifyBrightnessChanged(level)
@@ -1581,7 +1698,10 @@ local function rampToBrightness(level, rate, presetId, replaced)
   brightnessRamp = {
     startTime = C4:GetTime(),
     startLevel = startingLevel,
+    startAt = startAt,
     targetLevel = level,
+    from = endBrightness(startingLevel, startAt),
+    to = toDevice(level, onRange()),
     durationMs = rate,
   }
   -- Single ESPHome command - the bulb handles the physical transition.
@@ -1851,7 +1971,7 @@ local function lightOff(rate)
 end
 
 local function lightToggle(rate)
-  if interpolatedBrightness() > 0 then
+  if interpolatedBrightness(nil, true) > 0 then
     lightOff(rate)
   else
     lightOn(rate)
@@ -2039,9 +2159,32 @@ function RFP.SET_BRIGHTNESS_STOP(idBinding, strCommand, tParams, args)
   brightnessRampStopped()
 end
 
--- Spec _4 / _5: cap the on-level range. Stored in persist; rampToBrightness
--- doesn't enforce them today (ESPHome bulbs natively go 0-100), but we
--- echo the value back per-spec so the proxy and Composer track the setting.
+-- A new range shows the light where its brightness is on it: at once, or at
+-- the end of a ramp in flight. The light is not moved.
+local function remapLevel()
+  if not supportsDimming then
+    return
+  end
+  local ramp = rampingBrightness and brightnessRamp
+  if ramp then
+    -- The light fades on between the same brightnesses: their places move.
+    ramp.startLevel, ramp.startAt = readLevel(ramp.from), outsideAt(ramp.from)
+    ramp.targetLevel, ramp.targetAt = readLevel(ramp.to), outsideAt(ramp.to)
+    currentBrightness = ramp.startLevel
+    SetTimer("BrightnessRampFinish", math.max(1, remaining(ramp)), function()
+      brightnessRampFinished(ramp.targetLevel)
+    end, false)
+    return
+  end
+  local level = readLevel(lightBrightness or 0)
+  if not sameLevel(level, currentBrightness) then
+    notifyBrightnessChanged(level)
+  end
+end
+
+-- Spec _4 / _5: the on-level range, which every level sent and read back is
+-- remapped through (onRange); the echo tells the proxy and Composer the
+-- setting.
 function RFP.SET_MAX_ON_LEVEL(idBinding, strCommand, tParams, args)
   log:trace("RFP.SET_MAX_ON_LEVEL(%s, %s, %s)", idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
@@ -2050,6 +2193,7 @@ function RFP.SET_MAX_ON_LEVEL(idBinding, strCommand, tParams, args)
   local level = math.max(0, math.min(100, tointeger(Select(tParams, "LEVEL")) or 100))
   persist:set(P_MAX_ON_LEVEL, level)
   SendToProxy(PROXY_BINDING, "MAX_ON", tostring(level), "NOTIFY")
+  remapLevel()
 end
 
 function RFP.SET_MIN_ON_LEVEL(idBinding, strCommand, tParams, args)
@@ -2060,6 +2204,7 @@ function RFP.SET_MIN_ON_LEVEL(idBinding, strCommand, tParams, args)
   local level = math.max(0, math.min(100, tointeger(Select(tParams, "LEVEL")) or 0))
   persist:set(P_MIN_ON_LEVEL, level)
   SendToProxy(PROXY_BINDING, "MIN_ON", tostring(level), "NOTIFY")
+  remapLevel()
 end
 
 -- Halt an in-flight color transition at the current stepped XY/mode.
@@ -2199,7 +2344,7 @@ local function applySceneStep(step)
     cmd.state = step.level > 0
     if step.level > 0 and supportsDimming then
       cmd.has_brightness = true
-      cmd.brightness = step.level / 100.0
+      cmd.brightness = toDevice(step.level, onRange())
     end
     -- Scene step is driving brightness directly; clear any active preset id
     -- so subsequent CHANGED notifies don't echo a stale value. Color-only
@@ -2207,17 +2352,22 @@ local function applySceneStep(step)
     currentBrightnessPresetId = nil
     -- A level ends a ramp in flight where it has got to. A color-only step
     -- re-times it instead, below.
-    replaced = leaveBrightnessRamp()
+    local startAt
+    replaced, startAt = leaveBrightnessRamp()
     goingOn = level > 0 and currentBrightness == 0
-    -- Only prime a ramp when the level actually moves; an explicit step at
-    -- the current level with rate>0 would otherwise queue a pointless picker
-    -- animation and suppress the next echo for no reason.
-    if supportsDimming and rate > 0 and level ~= currentBrightness then
+    -- Only prime a ramp when the level actually moves, as it does for a light
+    -- outside the range; an explicit step at the current level with rate>0
+    -- would otherwise queue a pointless picker animation and suppress the
+    -- next echo for no reason.
+    if supportsDimming and rate > 0 and (level ~= currentBrightness or startAt) then
       rampingBrightness = true
       brightnessRamp = {
         startTime = startTime,
         startLevel = currentBrightness,
+        startAt = startAt,
         targetLevel = level,
+        from = endBrightness(currentBrightness, startAt),
+        to = toDevice(level, onRange()),
         durationMs = rate,
         step = step,
       }
@@ -2847,7 +2997,7 @@ local function rewindToPrePress()
   local snapshot = prePressBrightness
   prePressBrightness = nil
   if snapshot == nil then
-    return interpolatedBrightness()
+    return (interpolatedBrightness(nil, true))
   end
   local hold = rampingBrightness and brightnessRamp or nil
   cancelBrightnessRampTimers()
@@ -2867,7 +3017,7 @@ local function handleButtonAction(buttonId, action)
     -- a RELEASE_CLICK will arrive ~110ms later and the click's ramp starts
     -- from this snapshot.
     -- currentBrightness lags a ramp in flight, so take the light's own level.
-    prePressBrightness = interpolatedBrightness()
+    prePressBrightness = interpolatedBrightness(nil, true)
     if not supportsDimming then
       if buttonId == constants.ButtonIds.TOP then
         lightOn()
@@ -3022,8 +3172,9 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   mergedColorUntil = 0
   currentBrightnessPresetId = nil
   currentColorPresetId = nil
-  sentLevels = {}
+  sentBrightness = {}
   sentColors = {}
+  lightBrightness = nil
   lightTarget = {}
   lightFade = nil
   updateStatus("Disconnected", false)
@@ -3064,25 +3215,24 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     updateDynamicCapabilities(entity)
   end
 
-  -- Map ESPHome brightness (0.0-1.0) to C4 (0-100)
+  -- Map ESPHome brightness (0.0-1.0) to C4 (0-100) through the on-level range
   local newBrightness
+  local brightness = 0
   local isOn = Select(state, "state") or false
   if not isOn then
     newBrightness = 0
   elseif supportsDimming then
     -- ESPHome sends NaN for the brightness of a light that has not reported one.
-    local brightness = tofinite(Select(state, "brightness")) or 1.0
-    newBrightness = math.floor(brightness * 100 + 0.5)
-    newBrightness = math.max(0, math.min(100, newBrightness))
-    if newBrightness == 0 and isOn then
-      newBrightness = 1
-    end
+    brightness = tofinite(Select(state, "brightness")) or 1.0
+    newBrightness = toLevel(brightness, onRange())
   else
+    brightness = 1.0
     newBrightness = 100
   end
-  local ownLevel = isOwnReport(sentLevels, function(level)
-    return level == newBrightness
-  end, newBrightness)
+  local ownLevel = isOwnReport(sentBrightness, function(sent)
+    return readLevel(sent) == newBrightness
+  end, brightness)
+  lightBrightness = ownLevel and sentBrightness[#sentBrightness] or brightness
   local reported = {
     color_mode = tointeger(Select(state, "color_mode")),
     color_brightness = tofinite(Select(state, "color_brightness")) or 0,
@@ -3120,7 +3270,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     notifyBrightnessChanged(newBrightness)
   elseif rampingBrightness then
     log:trace("UPDATE_STATE brightness=%s ignored (ramping)", newBrightness)
-  elseif isFirstUpdate or newBrightness ~= currentBrightness then
+  elseif isFirstUpdate or not sameLevel(newBrightness, currentBrightness) then
     -- Spec note: LIGHT_BRIGHTNESS_CHANGED should always be sent when the
     -- driver starts and/or when the hardware comes online so the proxy is
     -- seeded with the actual brightness, even if it matches our default.
@@ -3183,8 +3333,9 @@ OBC[ESPHOME_BINDING] = function()
   mergedColorUntil = 0
   currentBrightnessPresetId = nil
   currentColorPresetId = nil
-  sentLevels = {}
+  sentBrightness = {}
   sentColors = {}
+  lightBrightness = nil
   lightTarget = {}
   lightFade = nil
   currentColorX = DEFAULT_COLOR_X
