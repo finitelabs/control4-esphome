@@ -3945,4 +3945,147 @@ do
   end
 end
 
+---------------------------------------------------------------------------
+-- Combined color modes
+---------------------------------------------------------------------------
+
+local function kelvin(target, rate)
+  proxy("SET_COLOR_TARGET", {
+    LIGHT_COLOR_TARGET_COLOR_CORRELATED_TEMPERATURE = target,
+    LIGHT_COLOR_TARGET_COLOR_RATE = rate,
+  })
+end
+
+T.section("a combined color mode's report is the color or the white, whichever is turned up further")
+do
+  -- ESPHome reports the white's color temperature beside the color, lit or not.
+  light({ RGBCT, CT })
+  onMode(PREVIOUS_ON)
+  local blue = setColor(BLUE)
+  mark()
+  pushed({ RGBCT, CT }, {
+    state = true,
+    brightness = 1.0,
+    color_mode = RGBCT,
+    color_brightness = 1,
+    red = blue[1],
+    green = blue[2],
+    blue = blue[3],
+    color_temperature = 333.3333,
+  })
+  T.eq("the color the light was sent, reported with a color temperature beside it: no white is told", colorsTold(), {})
+  proxy("OFF")
+  mark()
+  proxy("ON")
+  T.eq("and with Color On Mode set to Previous the light comes back on in the color", colors(), { blue })
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  mark()
+  pushed({ RGBCT, CT }, {
+    state = true,
+    brightness = 1.0,
+    color_mode = RGBCT,
+    red = blue[1],
+    green = blue[2],
+    blue = blue[3],
+    white = 1,
+    color_temperature = 333.3333,
+  })
+  T.eq("the color turned down and the white up: the white", { colorsTold(), modesTold() }, { { 0.3 }, { CCT_MODE } })
+  -- Both lit, as another client or a stop part way leaves them. A light in
+  -- this mode reports a cold and a warm white too, which are not its white.
+  for _, case in ipairs({
+    { "the color turned up further: the color", 0.6, 0.5, FULL_MODE },
+    { "the two level: the color, which the white cannot tell", 0.5, 0.5, FULL_MODE },
+    { "the white turned up further: the white", 0.4, 0.5, CCT_MODE },
+    { "the color at a hundredth beside the white at full: the white", 0.01, 1, CCT_MODE },
+  }) do
+    light({ RGBCT, CT })
+    kelvin(5000, 0)
+    mark()
+    pushed({ RGBCT, CT }, {
+      state = true,
+      brightness = 1.0,
+      color_mode = RGBCT,
+      color_brightness = case[2],
+      red = 1,
+      green = 0,
+      blue = 0,
+      white = case[3],
+      color_temperature = 333.3333,
+      cold_white = 1,
+      warm_white = 1,
+    })
+    T.eq("both lit, " .. case[1], modesTold(), { case[4] })
+  end
+  light({ RGBWW })
+  blue = setColor(BLUE)
+  mark()
+  pushed({ RGBWW }, {
+    state = true,
+    brightness = 1.0,
+    color_mode = RGBWW,
+    color_brightness = 1,
+    red = blue[1],
+    green = blue[2],
+    blue = blue[3],
+    color_temperature = 250,
+  })
+  T.eq("a light with cold and warm white, its color lit: no white is told", colorsTold(), {})
+  pushed({ RGBWW }, {
+    state = true,
+    brightness = 1.0,
+    color_mode = RGBWW,
+    red = blue[1],
+    green = blue[2],
+    blue = blue[3],
+    color_temperature = 250,
+    cold_white = 1,
+    warm_white = 0.92,
+  })
+  T.eq("its color off: the white", { colorsTold(), modesTold() }, { { 0.4 }, { CCT_MODE } })
+  for _, case in ipairs({
+    { "the warm white turned up further than the color: the white", 0.3, 0.6, CCT_MODE },
+    { "the cold white turned up further: the white", 0.6, 0.3, CCT_MODE },
+    { "neither turned up as far as the color: the color", 0.3, 0.4, FULL_MODE },
+  }) do
+    light({ RGBWW })
+    setColor(BLUE)
+    kelvin(5000, 0)
+    mark()
+    pushed({ RGBWW }, {
+      state = true,
+      brightness = 1.0,
+      color_mode = RGBWW,
+      color_brightness = 0.5,
+      red = 1,
+      green = 0,
+      blue = 0,
+      color_temperature = 250,
+      cold_white = case[2],
+      warm_white = case[3],
+    })
+    T.eq("both lit, " .. case[1], modesTold(), { case[4] })
+  end
+  -- A white-only mode keeps a color brightness and has no color to light.
+  light({ RGBCT, CT })
+  setColor(BLUE)
+  mark()
+  pushed({ RGBCT, CT }, {
+    state = true,
+    brightness = 1.0,
+    color_mode = CT,
+    color_brightness = 1,
+    red = 1,
+    green = 1,
+    blue = 1,
+    color_temperature = 250,
+  })
+  T.eq(
+    "a light put in its white-only mode elsewhere: the white",
+    { colorsTold(), modesTold() },
+    { { 0.4 }, { CCT_MODE } }
+  )
+end
+
 T.finish()

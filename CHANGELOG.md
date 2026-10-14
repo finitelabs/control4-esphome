@@ -198,6 +198,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   every level does with Dim-To-Warm: the driver split the color temperature into
   cold and warm white itself, where the light does it with its own gamma; the
   light now works the two out, as it does for a color temperature set by itself
+- Fixed a light with its color and its white in one color mode, as an ESPHome
+  RGBCT or RGBWW light built without `color_interlock` has, being shown in a
+  white a moment after any color was set on it: the white was then the color its
+  next fade was shown from, and the color it came back on in with Color On Mode
+  set to Previous; it is now shown in its color while the color is turned up at
+  least as far as the white, and in its white below that
 
 ### Changed
 

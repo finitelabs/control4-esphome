@@ -2836,7 +2836,23 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   if (supportsColor or supportsCCT) and not rampingColor and not merged then
     local activeMode = tointeger(Select(state, "color_mode"))
     local newX, newY, newColorMode
-    if activeMode and COLOR_MODES_SUPPORTING_CCT[activeMode] and Select(state, "color_temperature") then
+    -- A mode with a color and a color temperature shows the one turned up
+    -- further: the color while it is at least the white, and the white below that.
+    local colorLit = false
+    if activeMode and COLOR_MODES_SUPPORTING_RGB[activeMode] then
+      local color = tofinite(Select(state, "color_brightness")) or 0
+      local white = tofinite(Select(state, "white")) or 0
+      if activeMode == ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE then
+        white = math.max(tofinite(Select(state, "cold_white")) or 0, tofinite(Select(state, "warm_white")) or 0)
+      end
+      colorLit = color > 0 and color >= white
+    end
+    if
+      activeMode
+      and COLOR_MODES_SUPPORTING_CCT[activeMode]
+      and Select(state, "color_temperature")
+      and not colorLit
+    then
       local mireds = tonumber(Select(state, "color_temperature"))
       if mireds and mireds > 0 then
         local k = miredsToKelvin(mireds)
