@@ -456,6 +456,9 @@ local function updateDynamicCapabilities(entity)
     caps.color_correlated_temperature_max = miredsToKelvin(minMireds)
   end
   SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
+  -- The proxy lists a light's colors once it is told the light has color: a
+  -- new light's setup has none at start, and so no Color On Mode to read.
+  readProxySetup()
 
   -- Tell the proxy we have three virtual buttons (top/bottom/toggle). Sent as
   -- a string per the LIGHT_V2 NUMBER_BUTTONS notify format. Then emit a

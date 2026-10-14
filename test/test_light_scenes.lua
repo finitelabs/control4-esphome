@@ -98,15 +98,17 @@ function C4:GetDriverConfigInfo(section)
 end
 
 -- The light's proxy and its answer to GET_SETUP: an empty one unless a case
--- gives one, or false for none.
-local proxySetup = ""
+-- gives one, or false for none. A case may give another for a new light,
+-- which the proxy answers until it is told the light's capabilities.
+local proxySetup, newLightSetup = "", nil
+local capabilitiesTold = false
 function C4:GetProxyDevices()
   return 643
 end
 local uiRequest = C4.SendUIRequest
 function C4:SendUIRequest(id, request, params)
   if request == "GET_SETUP" then
-    return proxySetup or nil
+    return not capabilitiesTold and newLightSetup or proxySetup or nil
   end
   return uiRequest(self, id, request, params)
 end
@@ -115,9 +117,10 @@ end
 --- full unless `on` is false. Its state lives in the driver chunk's locals.
 --- @param modes table|nil The entity's supported_color_modes, or nil for a light yet to connect.
 local function restart(modes, on)
-  queue = {}
+  queue, capabilitiesTold = {}, false
   dofile(DRIVER)
   function SendToProxy(idBinding, strCommand, tParams)
+    capabilitiesTold = capabilitiesTold or strCommand == "DYNAMIC_CAPABILITIES_CHANGED"
     sent[#sent + 1] = { at = now - start, binding = idBinding, command = strCommand, params = tParams or {} }
   end
   OnDriverLateInit()
@@ -3719,6 +3722,31 @@ do
   )
   forgetSetup()
   proxySetup = ""
+end
+
+T.section("a new light's Color On Mode is read once the proxy is told the light's capabilities")
+do
+  -- A proxy lists a light's colors, its On Color and Dim Color among them,
+  -- once it is told the light has a color or a color temperature. The two
+  -- files are what a new light's proxy answered as its driver started, and
+  -- as the driver's first capabilities reached it.
+  forgetSetup()
+  newLightSetup, proxySetup = setupFile("setup-732-new.xml"), setupFile("setup-732.xml")
+  restart()
+  T.eq(
+    "as the driver starts the setup names the mode's presets and lists none: it has the rate and no mode",
+    { persist:get("brightness_rate_default", false), persist:get("color_on_mode", false) },
+    { 750, false }
+  )
+  forgetSetup()
+  restart({ CT }, false)
+  proxy("ON")
+  T.eq("once the light has connected an on is in the On Color", kelvins(), { 4234 })
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 40 })
+  T.eq("and a level carries the Dim-To-Warm color", kelvins(), { 4234 })
+  forgetSetup()
+  newLightSetup, proxySetup = nil, ""
 end
 
 T.finish()

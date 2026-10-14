@@ -1081,8 +1081,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   dimmed by a keypad button, an Advanced Lighting scene or a command with no
   ramp time, it took half a second and no on color, where Composer showed three
   quarters of a second and Dim-To-Warm; the driver now reads them from the
-  light's settings in the project when it starts, so a light turns on in its On
-  Color and dims with Dim-To-Warm from the first time it is used
+  light's settings in the project when it starts and when the light connects, so
+  a light turns on in its On Color and dims with Dim-To-Warm from the first time
+  it is used
 
 ### Changed
 
