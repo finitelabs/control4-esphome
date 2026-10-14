@@ -788,12 +788,15 @@ local function sendLightCommand(opts)
     elseif
       opts.state
       and currentBrightness == 0
-      and (
-        lightTarget.color_mode == nil
-        or lightTarget.color_mode == ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_UNKNOWN
-      )
+      and lightTarget.color_mode == ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_UNKNOWN
     then
-      aimLight({ color_mode = firstColorMode() })
+      -- A turn-on that names no mode gives a light with none its first, as
+      -- part of what it was sent.
+      local first = firstColorMode()
+      if first then
+        sentColors[#sentColors + 1] = { color_mode = first }
+        aimLight(sentColors[#sentColors])
+      end
     end
     local ms = opts.transition_length or 0
     lightFade = ms > 0 and { from = from, startTime = now, durationMs = ms, holds = opts.state == false } or nil
@@ -933,11 +936,7 @@ local isLogicallyOn -- defined with the on modes below
 local function whiteOnlyMode()
   local mode = lightTarget.color_mode
   -- A rated on's pre-on, which names none, is yet to go out.
-  if
-    (mode == nil or mode == ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_UNKNOWN)
-    and currentBrightness == 0
-    and isLogicallyOn()
-  then
+  if mode == ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_UNKNOWN and currentBrightness == 0 and isLogicallyOn() then
     mode = firstColorMode()
   end
   if supportedColorModes[mode] and COLOR_MODES_SUPPORTING_CCT[mode] and not COLOR_MODES_SUPPORTING_RGB[mode] then
@@ -3234,7 +3233,9 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end, brightness)
   lightBrightness = ownLevel and sentBrightness[#sentBrightness] or brightness
   local reported = {
-    color_mode = tointeger(Select(state, "color_mode")),
+    -- ESPHome leaves out the unknown mode of a light given none yet, as it does
+    -- any zero: it is compared as any other is.
+    color_mode = tointeger(Select(state, "color_mode")) or ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_UNKNOWN,
     color_brightness = tofinite(Select(state, "color_brightness")) or 0,
     red = tofinite(Select(state, "red")) or 0,
     green = tofinite(Select(state, "green")) or 0,

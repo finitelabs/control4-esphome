@@ -2900,11 +2900,11 @@ do
     { 100 }
   )
 
-  -- A float a light has nothing to report for comes as NaN.
+  -- A float a light has nothing to report for comes as NaN, in the mode it was in.
   light(dimmer)
   level(30, 10000)
   run(100)
-  push(dimmer, { state = true, brightness = 0.3 }, { 0 / 0, 0 / 0, 0 / 0 })
+  push(dimmer, { state = true, brightness = 0.3 }, { 0 / 0, 0 / 0, 0 / 0 }, ColorMode.COLOR_MODE_UNKNOWN)
   T.eq("a report whose color is no number, in a ramp: nothing is told", told("LIGHT_BRIGHTNESS_CHANGED", "at"), {})
 
   -- A report can come after the next command has gone out.
@@ -5657,6 +5657,96 @@ do
   proxy("SET_LEVEL", { LEVEL = 100 })
   T.eq("a light it leaves at full: a Set Level to the 100 it shows takes it there", brightnessSent(), 0.6)
   forgetOnLevels()
+end
+
+---------------------------------------------------------------------------
+-- A light's color modes after a restart, and a change between them
+---------------------------------------------------------------------------
+
+T.section("a light's first on after a restart with no color mode saved is not another client's")
+do
+  local UNKNOWN = ColorMode.COLOR_MODE_UNKNOWN
+  --- A light restored off with nothing saved, as it reports itself: in no color
+  --- mode, `mode` as the report gives it, every field at ESPHome's default and
+  --- the color temperature at the coldest of its range.
+  local function restored(modes, mode)
+    light()
+    pushed(modes, {
+      state = false,
+      brightness = 1.0,
+      color_mode = mode,
+      color_brightness = 1,
+      red = 1,
+      green = 1,
+      blue = 1,
+      white = 1,
+      color_temperature = RANGE[1],
+      cold_white = 1,
+      warm_white = 1,
+    }, RANGE)
+    mark()
+  end
+  --- Its report on at `brightness` in `mode`, every other field as it was.
+  local function onIn(modes, mode, brightness)
+    pushed(modes, {
+      state = true,
+      brightness = brightness,
+      color_mode = mode,
+      color_brightness = 1,
+      red = 1,
+      green = 1,
+      blue = 1,
+      white = 1,
+      color_temperature = RANGE[1],
+      cold_white = 1,
+      warm_white = 1,
+    }, RANGE)
+  end
+  -- ESPHome gives it the first of its modes at a turn-on that names none.
+  for name, kind in pairs({
+    ["a color temperature beside its color and a white-only mode"] = { { RGBCT, CT }, CT, RGBCT },
+    ["a color mode and a white mode"] = { { RGB, CWWW }, CWWW, RGB },
+  }) do
+    for _, given in ipairs({ { "unknown", UNKNOWN }, { "left out, as on the wire", nil } }) do
+      local modes, first, other = kind[1], kind[2], kind[3]
+      local which = "a light with " .. name .. ", its mode " .. given[1]
+      restored(modes, given[2])
+      proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+      run(100)
+      onIn(modes, first, 1.0)
+      run(5000)
+      T.eq(
+        which .. ": its report of a rated on in its first mode is the on's own, told at the on's end",
+        told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+        { 4000 }
+      )
+      restored(modes, given[2])
+      proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+      onIn(modes, first, 0.0039)
+      run(100)
+      onIn(modes, first, 1.0)
+      run(5000)
+      T.eq(which .. ": and so is its report of the pre-on by itself", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 4000 })
+      restored(modes, given[2])
+      proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+      run(100)
+      onIn(modes, other, 1.0)
+      T.eq(
+        which .. ": one in another mode is another client's, told at once",
+        told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+        { 100 }
+      )
+      restored(modes, given[2])
+      proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+      run(100)
+      onIn(modes, first, 0.5)
+      T.eq(
+        which .. ": as is a level set elsewhere",
+        told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+        { 50 }
+      )
+    end
+  end
 end
 
 T.finish()
