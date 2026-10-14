@@ -52,17 +52,18 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Bluetooth proxy or coordinator reported after the device had connected: a Yale
   lock abandoned its handshake, and a SwitchBot showed Connection Failed for a
   press that went through
-- Fixed a Yale lock dropping a lock or unlock tapped before its first connection
-  after a restart when an advertisement from the lock arrived: the driver
-  replaced it with a status read, and in Persistent mode sent another connection
-  request on every advertisement
+- Fixed a Yale lock dropping a lock or unlock tapped while it waited for its
+  first connection after a restart or a change of Connection Mode, when an
+  advertisement from the lock arrived: the driver replaced it with a status
+  read, and in Persistent mode sent another connection request on every
+  advertisement
 - Fixed a Yale lock newly bound to the Bluetooth coordinator staying on "Waiting
-  for data" without ever connecting; it now connects on the lock's next
+  for data" until it was locked or unlocked; it now connects on the lock's next
   advertisement
 - Fixed a Yale lock keeping the proxy's connection slot, and stopping polling or
-  reconnecting, when its notification subscription failed or went unanswered;
-  the driver now disconnects, frees the slot and handles it as a failed
-  connection
+  reconnecting, when either of its notification subscriptions failed or went
+  unanswered; the driver now disconnects, frees the slot and handles it as a
+  failed connection
 - Fixed Advanced Lighting scenes on an ESPHome light: a flash scene with no
   delay or ramp time hung the driver, Stop Scene Ramp did not stop the light,
   and a scene kept moving a light that was sent another command, or showed it
