@@ -248,4 +248,28 @@ H.test("a CONNECTION_FAILED that lands once connected leaves the link alone", fu
   T.truthy("and the handshake is still waiting on the lock", H.armed("HandshakeTimeout"))
 end)
 
+--- A forwarded advertisement from the lock.
+local function advertised()
+  H.rfp(ESPHOME, "BLE_ADVERTISEMENT", { mac = "AA:BB:CC:DD:EE:FF", advertisement = SerializeSafe({ rssi = -60 }) })
+end
+
+H.test("in Persistent mode advertisements cannot hold a connect timeout off", function()
+  H.boot(PERSISTENT)
+  H.rfp(PROXY, "UNLOCK")
+  T.eq("UNLOCK asks the parent to connect", H.count("CONNECT", ESPHOME), 1)
+  advertised()
+  advertised()
+  T.eq("the advertisements send no CONNECT", H.count("CONNECT", ESPHOME), 1)
+  T.truthy("the timeout fires", H.fire("ConnectionTimeout"))
+  T.eq("and retries the unlock", retryCommand(), "unlock")
+end)
+
+H.test("in Poll mode the first advertisement during a connect sends nothing", function()
+  H.boot({ ["Connection Mode"] = "Poll", ["Offline Key"] = OFFLINE_KEY })
+  H.rfp(PROXY, "UNLOCK")
+  T.eq("UNLOCK asks the parent to connect", H.count("CONNECT", ESPHOME), 1)
+  advertised()
+  T.eq("the advertisement sends no CONNECT", H.count("CONNECT", ESPHOME), 1)
+end)
+
 T.finish()

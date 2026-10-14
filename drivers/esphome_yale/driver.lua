@@ -1565,6 +1565,7 @@ function RFP.BLE_ADVERTISEMENT(idBinding, strCommand, tParams, args)
     if
       (driverStatus == "Disconnected" or driverStatus == "Listening")
       and handshakeState == HANDSHAKE_STATE.IDLE
+      and not pendingCommand
       and isAuthConfigured()
     then
       log:info("Auto-connecting to Yale lock (Persistent mode)")
@@ -1578,6 +1579,7 @@ function RFP.BLE_ADVERTISEMENT(idBinding, strCommand, tParams, args)
       not initialStatusTriggered
       and (driverStatus == "Disconnected" or driverStatus == "Listening")
       and handshakeState == HANDSHAKE_STATE.IDLE
+      and not pendingCommand
       and isAuthConfigured()
     then
       log:info("Initial status query (Poll mode)")

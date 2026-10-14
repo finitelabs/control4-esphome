@@ -949,6 +949,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   read, and a SwitchBot showed Connection Failed for a press that went through;
   a SwitchBot Bot that connects after the driver gave up now disconnects instead
   of keeping the proxy's connection slot
+- Fixed a Yale lock dropping a lock or unlock tapped while it was connecting
+  when an advertisement from the lock arrived: the driver replaced it with a
+  status read, and in Persistent mode sent another connection request on every
+  advertisement
 - Fixed Advanced Lighting scenes on an ESPHome light: a flash scene with no
   delay or ramp time hung the driver, Stop Scene Ramp did not stop the light,
   and a scene kept moving a light that was sent another command, or showed it
