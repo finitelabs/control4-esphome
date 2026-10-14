@@ -942,17 +942,24 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a SwitchBot Relay Switch with no encryption key staying Busy and keeping
   the proxy's connection slot when a connection came up without the device's
   Bluetooth characteristics; it now disconnects and frees the slot
+- Fixed a SwitchBot Bot bound to an ESPHome device holding one of the device's
+  Bluetooth connection slots from the bind, or from the device's reconnect,
+  until its next press; it now disconnects a few seconds after connecting
 - Fixed the SwitchBot and Yale drivers acting on a connection failure the
-  Bluetooth proxy or coordinator reported after the driver had stopped waiting
-  for it, or after the device had connected: a Yale lock in Persistent mode
-  spent a second reconnect attempt and retried a lock or unlock as a status
-  read, and a SwitchBot showed Connection Failed for a press that went through;
-  a SwitchBot Bot that connects after the driver gave up now disconnects instead
-  of keeping the proxy's connection slot
-- Fixed a Yale lock dropping a lock or unlock tapped while it was connecting
-  when an advertisement from the lock arrived: the driver replaced it with a
-  status read, and in Persistent mode sent another connection request on every
+  Bluetooth proxy or coordinator reported after the device had connected: a Yale
+  lock abandoned its handshake, and a SwitchBot showed Connection Failed for a
+  press that went through
+- Fixed a Yale lock dropping a lock or unlock tapped before its first connection
+  after a restart when an advertisement from the lock arrived: the driver
+  replaced it with a status read, and in Persistent mode sent another connection
+  request on every advertisement
+- Fixed a Yale lock newly bound to the Bluetooth coordinator staying on "Waiting
+  for data" without ever connecting; it now connects on the lock's next
   advertisement
+- Fixed a Yale lock keeping the proxy's connection slot, and stopping polling or
+  reconnecting, when its notification subscription failed or went unanswered;
+  the driver now disconnects, frees the slot and handles it as a failed
+  connection
 - Fixed Advanced Lighting scenes on an ESPHome light: a flash scene with no
   delay or ramp time hung the driver, Stop Scene Ramp did not stop the light,
   and a scene kept moving a light that was sent another command, or showed it
