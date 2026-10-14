@@ -1576,6 +1576,19 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
 
     log:info("Coordinator requested GATT connection to %s", mac)
 
+    local state = self._client:getBluetoothConnectionState()
+    if state.initialized and state.free <= 0 and not self._client:isBluetoothDeviceAllocated(mac) then
+      log:warn("No connection slots available for %s (0/%d free)", mac, state.limit)
+      SendToProxy(bindingId, "GATT_CONNECT_RESPONSE", {
+        proxyId = proxyId,
+        mac = mac,
+        requestId = requestId or "",
+        success = "false",
+        error = "No connection slots available",
+      }, "NOTIFY")
+      return
+    end
+
     self._client:bluetoothDeviceConnect(mac, addressType, false):next(function(result)
       -- Discover GATT services
       self._client:bluetoothGattGetServices(mac):next(function(services)

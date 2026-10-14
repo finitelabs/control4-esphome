@@ -899,11 +899,18 @@ function ESPHomeClient:bluetoothDeviceConnect(mac, addressType, withCache)
       end
       -- Ignore intermediate responses (connected=nil)
     end,
-    30 * ONE_SECOND, -- timeout for BLE connections
+    nil,
     function(err)
       d:reject(err or "Connection timeout")
     end
   )
+
+  -- Not the registry's timeout: that is disarmed by the first response, and an
+  -- intermediate one (or a proto3 connected=false with error 0) can be the last.
+  local connectTimer = C4:SetTimer(30 * ONE_SECOND, function()
+    log:warn("Bluetooth connection to %s not settled after 30s", mac)
+    d:reject("Connection timeout")
+  end)
 
   local requestType = (withCache == false)
       and ESPHomeProtoSchema.Enum.BluetoothDeviceRequestType.BLUETOOTH_DEVICE_REQUEST_TYPE_CONNECT_V3_WITHOUT_CACHE
@@ -926,9 +933,11 @@ function ESPHomeClient:bluetoothDeviceConnect(mac, addressType, withCache)
   end)
 
   return d:next(function(message)
+    connectTimer:Cancel()
     self:_unregisterCallback(callbackHandle)
     return message
   end, function(err)
+    connectTimer:Cancel()
     self:_unregisterCallback(callbackHandle)
     return reject(err)
   end)
@@ -947,25 +956,13 @@ function ESPHomeClient:bluetoothDeviceDisconnect(mac)
   })
 end
 
---- Get GATT services for a Bluetooth device.
---- Auto-connects if the device is not already connected.
+--- Get GATT services for a connected Bluetooth device.
+--- Unlike the other GATT operations it does not auto-connect: right after a
+--- connect succeeds, the allocated list can still be missing the device.
 --- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
---- @param addressType? BLEAddressType The address type for auto-connect (default: 0 = PUBLIC).
 --- @return Deferred<ProtoBluetoothGATTService[], string> result A promise that resolves with all services or rejects with error.
-function ESPHomeClient:bluetoothGattGetServices(mac, addressType)
+function ESPHomeClient:bluetoothGattGetServices(mac)
   log:trace("ESPHomeClient:bluetoothGattGetServices(%s)", mac)
-
-  -- Ensure device is connected before GATT operation
-  return self:_ensureBleConnected(mac, addressType):next(function()
-    return self:_bluetoothGattGetServicesInternal(mac)
-  end)
-end
-
---- Internal implementation of GATT service discovery (assumes device is connected).
---- @private
---- @param mac string MAC address in format "AA:BB:CC:DD:EE:FF".
---- @return Deferred<ProtoBluetoothGATTService[], string> result A promise that resolves with all services or rejects with error.
-function ESPHomeClient:_bluetoothGattGetServicesInternal(mac)
   local address = BLEAddress.fromString(mac)
   --- @type Deferred<ProtoBluetoothGATTService[], string>
   local d = deferred.new()
