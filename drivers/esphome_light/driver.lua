@@ -106,8 +106,9 @@ local P_COLOR_ON_MODE = "color_on_mode"
 local P_PREVIOUS_COLOR = "previous_color"
 local P_BRIGHTNESS_ON_MODE_PRESET = "brightness_on_mode_preset"
 local P_COLOR_ON_MODE_PRESET = "color_on_mode_preset"
--- The point of the white a light with a color was last sent, and the full color it was
--- picked as, which no report carries; a white mode with no color temperature reports neither.
+-- The point of the white a light was last sent, and the full color it was picked as or the color
+-- temperature beyond its range it was asked as, which no report carries; a white mode with no
+-- color temperature reports neither.
 local P_WHITE_POINT = "white_point"
 
 -- Color on-mode kinds. The proxy assigns presets with these origins/IDs to
@@ -888,10 +889,11 @@ local function holdsColor(state, color)
   return true
 end
 
-local takenColor -- defined with the white points below
+local takenColor, heldColor -- defined with the white points below
 
--- A white the light shows at a point: the color it was picked as, where it is
--- the white the driver last sent for one, or that point.
+-- A white the light shows at a point: the color it was picked as, or the color
+-- temperature asked for beyond its range, where it is the white the driver last
+-- sent for one, or that point.
 local function shownWhite(x, y)
   local point = persist:get(P_WHITE_POINT)
   local picked = point and point.picked
@@ -903,7 +905,7 @@ local function shownWhite(x, y)
     and point.y
     and sameColor(x, y, LIGHT_COLOR_MODE_CCT, point.x, point.y, LIGHT_COLOR_MODE_CCT)
   then
-    return picked.x, picked.y, LIGHT_COLOR_MODE_PICKED_WHITE
+    return picked.x, picked.y, picked.mode or LIGHT_COLOR_MODE_PICKED_WHITE
   end
   return x, y, LIGHT_COLOR_MODE_CCT
 end
@@ -1053,15 +1055,22 @@ local function buildColorCmdFields(x, y, mode, merged)
   if not (supportsColor or supportsCCT) or x == nil or y == nil then
     return nil
   end
-  -- A color picked as a white goes out as the white of its color temperature.
+  -- A color picked as a white goes out as the white of its color temperature,
+  -- and a color temperature beyond the light's range as the range's end.
   local pick = nil
   if mode == LIGHT_COLOR_MODE_PICKED_WHITE then
     pick = { x = x, y = y }
     x, y, mode = takenColor(x, y, LIGHT_COLOR_MODE_CCT)
+  elseif mode == LIGHT_COLOR_MODE_CCT then
+    local heldX, heldY = heldColor(x, y, mode)
+    if heldX ~= x or heldY ~= y then
+      pick = { x = x, y = y, mode = mode }
+      x, y = heldX, heldY
+    end
   end
-  -- A light with a color keeps the point of each white it is sent, and the color
-  -- picked for it, for the light's reports of that white to be read back at.
-  local point = supportsColor and mode == LIGHT_COLOR_MODE_CCT and { x = x, y = y, picked = pick } or nil
+  -- A light keeps the point of each white it is sent, and the color picked or
+  -- asked for it, for the light's reports of that white to be read back at.
+  local point = mode == LIGHT_COLOR_MODE_CCT and { x = x, y = y, picked = pick } or nil
   if mode == LIGHT_COLOR_MODE_CCT and supportsCCT then
     local k = tonumber(C4:ColorXYtoCCT(x, y))
     if not k or k <= 0 then
@@ -1180,11 +1189,21 @@ function takenColor(x, y, mode)
   if not hasWhiteForPoints() then
     return x, y, supportsColor and LIGHT_COLOR_MODE_FULL or mode
   end
+  -- One beyond the range is held at its end by a light with a color temperature, and told as asked.
   local k = tonumber(C4:ColorXYtoCCT(x, y))
   if k and k > 0 then
-    x, y = C4:ColorCCTtoXY(takenKelvin(k))
+    x, y = C4:ColorCCTtoXY(supportsCCT and k or takenKelvin(k))
   end
   return x, y, LIGHT_COLOR_MODE_CCT
+end
+
+-- Where a light holds a color it is told: a color temperature beyond its range at the range's end.
+function heldColor(x, y, mode)
+  local k = mode == LIGHT_COLOR_MODE_CCT and supportsCCT and tonumber(C4:ColorXYtoCCT(x, y))
+  if k and k > 0 and k ~= takenKelvin(k) then
+    return C4:ColorCCTtoXY(takenKelvin(k))
+  end
+  return x, y
 end
 
 -- Apply the dim-to-warm formula from spec _7.2:
@@ -1427,6 +1446,7 @@ local function carryColor(x, y, mode, ms, from, now)
     startTime = now or C4:GetTime(),
     startX = currentColorX,
     startY = currentColorY,
+    startMode = currentColorMode,
     targetX = x,
     targetY = y,
     targetMode = mode,
@@ -1715,8 +1735,10 @@ function leaveMergedColor()
   brightnessRamp.mergedColor = nil
   local elapsed = C4:GetTime() - brightnessRamp.startTime
   local progress = eased(math.min(1, elapsed / brightnessRamp.durationMs))
-  currentColorX = currentColorX + (merged.x - currentColorX) * progress
-  currentColorY = currentColorY + (merged.y - currentColorY) * progress
+  local fromX, fromY = heldColor(currentColorX, currentColorY, currentColorMode)
+  local toX, toY = heldColor(merged.x, merged.y, merged.mode)
+  currentColorX = fromX + (toX - fromX) * progress
+  currentColorY = fromY + (toY - fromY) * progress
   carryColor(merged.x, merged.y, merged.mode, remaining(brightnessRamp))
 end
 
@@ -2026,8 +2048,11 @@ local function interpolatedColor(now)
     return colorRamp.startX, colorRamp.startY, colorRamp.targetMode
   end
   local progress = eased(elapsed / colorRamp.durationMs)
-  local x = colorRamp.startX + (colorRamp.targetX - colorRamp.startX) * progress
-  local y = colorRamp.startY + (colorRamp.targetY - colorRamp.startY) * progress
+  -- The light fades between the ends it holds them at.
+  local fromX, fromY = heldColor(colorRamp.startX, colorRamp.startY, colorRamp.startMode)
+  local toX, toY = heldColor(colorRamp.targetX, colorRamp.targetY, colorRamp.targetMode)
+  local x = fromX + (toX - fromX) * progress
+  local y = fromY + (toY - fromY) * progress
   return x, y, colorRamp.targetMode
 end
 
@@ -2114,6 +2139,7 @@ local function rampToColor(targetX, targetY, targetMode, rate)
     startTime = now,
     startX = currentColorX,
     startY = currentColorY,
+    startMode = currentColorMode,
     targetX = targetX,
     targetY = targetY,
     targetMode = targetMode,
@@ -2304,7 +2330,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   local targetX, targetY, targetMode
 
   if kelvin and kelvin > 0 and supportsCCT then
-    targetX, targetY = C4:ColorCCTtoXY(takenKelvin(kelvin))
+    targetX, targetY = C4:ColorCCTtoXY(kelvin)
     targetMode = LIGHT_COLOR_MODE_CCT
   elseif incomingMode == LIGHT_COLOR_MODE_CCT and supportsCCT and x and y then
     local k = tonumber(C4:ColorXYtoCCT(x, y))
@@ -2641,6 +2667,7 @@ local function applySceneStep(step)
         startTime = startTime,
         startX = currentColorX,
         startY = currentColorY,
+        startMode = currentColorMode,
         targetX = color.x,
         targetY = color.y,
         targetMode = mode,

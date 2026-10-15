@@ -3278,9 +3278,9 @@ do
   mark()
   kelvin(1800, 10000)
   T.eq(
-    "a color temperature beyond the light's range: the proxy is told a fade to the range's end",
+    "a color temperature beyond the light's range: the proxy is told a fade to the one asked for",
     told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"),
-    { 2000 / 10000 }
+    { 1800 / 10000 }
   )
   run(100)
   push({ CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 500 })
@@ -3296,7 +3296,11 @@ do
   run(100)
   push({ CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 153 })
   run(15000)
-  T.eq("one beyond the other end: that end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 6536 / 10000 })
+  T.eq(
+    "one beyond the other end: the one asked for too",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { 8000 / 10000 }
+  )
   T.eq("told at the fade's end too", told("LIGHT_COLOR_CHANGED", "at"), { 10000 })
   light({ CT })
   mark()
@@ -3307,9 +3311,9 @@ do
     LIGHT_COLOR_TARGET_COLOR_RATE = 0,
   })
   T.eq(
-    "and one given as its point, as a preset is: the range's end",
+    "and one given as its point, as a preset is: the one asked for",
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { 2000 / 10000 }
+    { 1800 / 10000 }
   )
   C4.ColorCCTtoXY, C4.ColorXYtoCCT = toXY, toCCT
 end
@@ -4516,8 +4520,10 @@ do
       { whiteLit(), toldColors() },
       { true, PICKED }
     )
+    local own = taken()
+    own.color_mode = own.color_mode or kind[4]
     mark()
-    report(kind)
+    pushed(kind[2], own, kind[3])
     T.eq("and the light's report of that white is read back as the color picked", toldColors(), {})
     proxy("OFF")
     mark()
@@ -7094,6 +7100,264 @@ do
   activate(levelStep(60, 4000))
   T.eq("and one that sets a level alone: the On Color", carried(), { 0.0039, false, 3000, false })
   proxy("CLEAR_ALL_SCENES")
+end
+
+T.section(
+  "a color temperature beyond the light's range lights the range's end, and the proxy is told the one asked for"
+)
+do
+  -- The range is 6500 to 2700 K: the light holds 2200 K at 2700 K.
+  local KINDS = {
+    { "only a color temperature", { CT }, CT },
+    { "a color temperature beside its color", { RGBCT, CT } },
+    { "a color mode and a white mode", { RGB, CWWW }, CWWW },
+  }
+  local ASKED = { { 0.22, CCT_MODE } }
+  --- Each color the proxy was told since the mark: its x to six places, and its color mode.
+  local function toldOf()
+    local xs, modes = colorsTold(), modesTold()
+    local out = {}
+    for i = 1, #xs do
+      out[i] = { math.floor(xs[i] * 1e6 + 0.5) / 1e6, modes[i] }
+    end
+    return out
+  end
+  --- A light of `kind`, on unless `on` is false.
+  local function lightOf(kind, on)
+    light()
+    pushed(kind[2], { state = on ~= false, brightness = 1.0 }, RANGE)
+  end
+  --- The light's report of its last command, which is returned.
+  local function report(kind)
+    local state = taken()
+    state.color_mode = state.color_mode or kind[3]
+    pushed(kind[2], state, RANGE)
+    return state
+  end
+  --- The color temperature the light was last sent, in kelvin.
+  local function lastKelvin()
+    local k = kelvins()
+    return k[#k]
+  end
+
+  for _, kind in ipairs(KINDS) do
+    lightOf(kind)
+    onMode(PREVIOUS_ON)
+    mark()
+    kelvin(2200, 0)
+    T.eq(
+      "a light with " .. kind[1] .. ": 2200 K from Navigator lights 2700 K, told as 2200 K",
+      { kelvins(), toldOf() },
+      { { 2700 }, ASKED }
+    )
+    local state = taken()
+    state.color_mode = state.color_mode or kind[3]
+    mark()
+    pushed(kind[2], state, RANGE)
+    T.eq("and the light's report of the range's end reads back as 2200 K", toldOf(), {})
+    proxy("OFF")
+    mark()
+    proxy("ON")
+    T.eq("with Color On Mode set to Previous it comes back on at 2700 K, told as 2200 K", { lastKelvin(), toldOf() }, {
+      2700,
+      ASKED,
+    })
+    restart()
+    OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+    pushed(kind[2], state, RANGE)
+    T.eq("a restart of the driver with the light still at the range's end: 2200 K", toldOf(), ASKED)
+    mark()
+    state.color_temperature = 250
+    pushed(kind[2], state, RANGE)
+    state.color_temperature = 370.4
+    pushed(kind[2], state, RANGE)
+    T.eq(
+      "another client's 4000 K and then its white at the range's end: each as the light shows it",
+      toldOf(),
+      { { 0.4, CCT_MODE }, { 0.27, CCT_MODE } }
+    )
+
+    lightOf(kind)
+    kelvin(2200, 0)
+    report(kind)
+    mark()
+    kelvin(2700, 0)
+    report(kind)
+    T.eq("2700 K set after it, and its report: told 2700 K, once", toldOf(), { { 0.27, CCT_MODE } })
+    kelvin(4000, 0)
+    state = report(kind)
+    mark()
+    state.color_temperature = 370.4
+    pushed(kind[2], state, RANGE)
+    T.eq(
+      "and another client's white at the range's end after a white of the driver's own: that end",
+      toldOf(),
+      { { 0.27, CCT_MODE } }
+    )
+
+    lightOf(kind)
+    mark()
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = 0.22,
+      LIGHT_COLOR_TARGET_Y = 0.4,
+      LIGHT_COLOR_TARGET_MODE = CCT_MODE,
+      LIGHT_COLOR_TARGET_COLOR_RATE = 0,
+    })
+    T.eq("one given as its point, as a preset is: the same", { kelvins(), toldOf() }, { { 2700 }, ASKED })
+    lightOf(kind)
+    mark()
+    activate(
+      "<element><delay>0</delay><colorEnabled>true</colorEnabled><colorX>0.22</colorX><colorY>0.4</colorY>"
+        .. "<colorMode>1</colorMode><colorRate>0</colorRate></element>"
+    )
+    T.eq("a scene step's", { kelvins(), toldOf() }, { { 2700 }, ASKED })
+    proxy("CLEAR_ALL_SCENES")
+    lightOf(kind)
+    fadeMode({ 0.3, 0.4 }, { 0.2, 0.4 }, CCT_MODE)
+    mark()
+    proxy("SET_LEVEL", { LEVEL = 30 })
+    T.eq(
+      "Dim-To-Warm between 3000 K and 2000 K at 30 %: 2700 K, told as the mix, 2300 K",
+      { kelvins(), toldOf() },
+      { { 2700 }, { { 0.23, CCT_MODE } } }
+    )
+  end
+
+  -- The proxy's own copy of the color Previous carried is seen to be that color.
+  lightOf(KINDS[1])
+  onMode(PREVIOUS_ON)
+  kelvin(2200, 0)
+  proxy("OFF")
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
+  proxy("SET_COLOR_TARGET", {
+    LIGHT_COLOR_TARGET_X = 0.22,
+    LIGHT_COLOR_TARGET_Y = 0.4,
+    LIGHT_COLOR_TARGET_MODE = CCT_MODE,
+    LIGHT_COLOR_TARGET_COLOR_RATE = 750,
+  })
+  run(1000)
+  T.eq(
+    "Previous, and the proxy's own copy of it after the on: 2700 K, with the pre-on and the on alone, told as 2200 K",
+    { kelvins(), toldOf() },
+    { { 2700, 2700 }, ASKED }
+  )
+  lightOf(KINDS[1])
+  mark()
+  kelvin(8000, 0)
+  T.eq("beyond the other end: 6500 K, told as 8000 K", { kelvins(), toldOf() }, { { 6502 }, { { 0.8, CCT_MODE } } })
+  lightOf(KINDS[1])
+  mark()
+  kelvin(2200, 2000)
+  run(100)
+  report(KINDS[1])
+  run(2000)
+  T.eq(
+    "over a rate, with the light's report of the range's end on the way: told as 2200 K at the fade's end",
+    { toldOf(), told("LIGHT_COLOR_CHANGED", "at") },
+    { ASKED, { 2000 } }
+  )
+
+  -- A stop part way is told where the light is, on its way from or to the range's end.
+  for _, kind in ipairs({ KINDS[1], KINDS[3] }) do
+    lightOf(kind)
+    kelvin(2200, 0)
+    report(kind)
+    kelvin(5000, 4000)
+    run(2000)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(
+      "a light with " .. kind[1] .. ": from 2200 K to 5000 K, stopped half way: half way from 2700 K",
+      { kelvins(), toldOf() },
+      { { 3850 }, { { 0.385, CCT_MODE } } }
+    )
+    report(kind)
+    T.eq("and its report of that tells nothing more", #colorsTold(), 1)
+  end
+  lightOf(KINDS[1])
+  kelvin(5000, 0)
+  report(KINDS[1])
+  kelvin(2200, 4000)
+  run(2000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "from 5000 K to 2200 K, stopped half way: half way to 2700 K",
+    { kelvins(), toldOf() },
+    { { 3850 }, { { 0.385, CCT_MODE } } }
+  )
+  lightOf(KINDS[1])
+  kelvin(2200, 0)
+  report(KINDS[1])
+  activate(
+    "<element><delay>0</delay><colorEnabled>true</colorEnabled><colorX>0.5</colorX><colorY>0.4</colorY>"
+      .. "<colorMode>1</colorMode><colorRate>4000</colorRate></element>"
+  )
+  run(2000)
+  mark()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq(
+    "a scene step from 2200 K to 5000 K, stopped half way: half way from 2700 K",
+    { kelvins(), toldOf() },
+    { { 3850 }, { { 0.385, CCT_MODE } } }
+  )
+  proxy("CLEAR_ALL_SCENES")
+  lightOf(KINDS[1])
+  kelvin(2200, 0)
+  report(KINDS[1])
+  kelvin(5000, 4000)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 4000 })
+  run(2000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "from 2200 K to 5000 K with a level sent at the same moment, stopped half way: half way from 2700 K",
+    { kelvins(), toldOf() },
+    { { 3850 }, { { 0.385, CCT_MODE } } }
+  )
+  run(5000)
+  -- A color sent part way through a level carrying a Dim-To-Warm white to or from one beyond the range
+  -- is told from where the light is.
+  lightOf(KINDS[1])
+  fadeMode({ 0.3, 0.4 }, { 0.2, 0.4 }, CCT_MODE)
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 4000 })
+  run(2000)
+  mark()
+  kelvin(5000, 4000)
+  local from = told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X")
+  T.eq(
+    "a color temperature sent half way through a level from 3000 K toward 2300 K: told from 2850 K",
+    { #from, math.floor(from[1] * 1e6 + 0.5) / 1e6 },
+    { 1, 0.285 }
+  )
+  run(5000)
+  lightOf(KINDS[1])
+  fadeMode({ 0.3, 0.4 }, { 0.2, 0.4 }, CCT_MODE)
+  proxy("SET_LEVEL", { LEVEL = 20 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(2000)
+  mark()
+  kelvin(5000, 4000)
+  from = told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X")
+  T.eq(
+    "and half way through one from 2200 K toward 3000 K: told from 2850 K",
+    { #from, from[1] and math.floor(from[1] * 1e6 + 0.5) / 1e6 },
+    { 1, 0.285 }
+  )
+  run(5000)
+  -- A light with no color temperature is told a white as a full color, which beyond the range would light its color.
+  light()
+  pushed({ RGBW }, { state = true, brightness = 1.0 })
+  fadeMode({ 0.3, 0.4 }, { 0.18, 0.4 }, CCT_MODE)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 10 })
+  T.eq(
+    "an RGBW light, Dim-To-Warm between 3000 K and 1800 K at 10 %: its white, told as the range's end, 2000 K",
+    { lastCommand().white, lastCommand().color_brightness, toldOf() },
+    { 1, 0, { { 0.2, FULL_MODE } } }
+  )
 end
 
 T.finish()

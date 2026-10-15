@@ -1156,6 +1156,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   every side, so the middle of the wheel and the colors within 2 % of it light
   the white where their color temperature is in the range; an orange that lies
   on the line of whites, as some of up to 75 % do, is a warm white too
+- Fixed a color temperature beyond an ESPHome light's range, such as 2200 K set
+  by a scene or from Navigator on a light that goes no warmer than 2700 K, being
+  shown at the end of the range once the light reported it, so it no longer
+  matched what was set; the light still goes to the end of its range, and is now
+  shown at the color temperature that was set, which Color On Mode set to
+  Previous keeps
 
 ### Changed
 

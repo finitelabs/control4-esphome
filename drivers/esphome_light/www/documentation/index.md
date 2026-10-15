@@ -106,13 +106,14 @@ color-temperature, and full-color lights are all supported.
 > warm whites, lights the light's white where it has one, and is shown as the
 > color that was picked, or as that white on a light with only a white. On an
 > RGBW light, with or without `color_interlock`, that is the white channel, and
-> any other color uses red, green and blue. On a light built with
-> `color_interlock`, a fade between a color and a white goes dark for a moment
-> half way, because ESPHome changes between its color and white modes through
-> off. Stopped before half way, the light stays in the one it was fading from,
-> and after it in the one it was fading to, and comes back up to its level over
-> half a second. A ramped On comes up in its On color from the start, with no
-> such dip.
+> any other color uses red, green and blue. A color temperature beyond the
+> light's range lights the nearer end of it, and is shown as the one that was
+> set. On a light built with `color_interlock`, a fade between a color and a
+> white goes dark for a moment half way, because ESPHome changes between its
+> color and white modes through off. Stopped before half way, the light stays in
+> the one it was fading from, and after it in the one it was fading to, and
+> comes back up to its level over half a second. A ramped On comes up in its On
+> color from the start, with no such dip.
 
 # <span style="color:#17BCF2">Installer Setup</span>
 
