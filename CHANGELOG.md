@@ -75,6 +75,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   runs between them, as on a Control4 dimmer
 - Fixed a light's level or color set from elsewhere, such as Home Assistant,
   being undone when a Control4 ramp ended, or not shown while it was off
+- Fixed a light sent a level and then a color, such as from Programming, being
+  shown for a moment in the color it had before
 
 ### Changed
 
