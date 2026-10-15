@@ -198,6 +198,10 @@ local currentColorPresetId = nil
 local sentBrightness = {}
 local sentColors = {}
 
+-- ESPHome answers each command with a report of its own, seen within 250 ms.
+local SENT_COLOR_WAIT = 1000
+local sentColorUntil = 0
+
 -- Device brightness (0-1) the light is at or heading to; nil before a report.
 local lightBrightness = nil
 
@@ -812,6 +816,8 @@ local function sendLightCommand(opts)
         warm_white = opts.warm_white,
       }
       aimLight(sentColors[#sentColors], true)
+      sentColorUntil = now + SENT_COLOR_WAIT
+      CancelTimer("SentColor")
     elseif
       opts.state
       and currentBrightness == 0
@@ -3317,6 +3323,32 @@ end
 -- RFP: ESPHome state updates
 ---------------------------------------------------------------------------
 
+-- Tell the color a report's fields show, if it is not the one told or `force`.
+local function tellShownColor(fields, force)
+  local newX, newY, newColorMode = shownColor(fields)
+  -- Threshold matches xy round-trip drift through RGB / HSV (typically
+  -- 1-2e-3 in either coordinate). Tighter than this fires spurious notifies
+  -- and clears the active preset id when the bulb just echoes our own cmd
+  -- back. Looser than ~1e-2 starts missing visible changes.
+  local COLOR_ECHO_TOLERANCE = 5e-3
+  if
+    newX
+    and newY
+    and newColorMode
+    and (
+      force
+      or math.abs(newX - currentColorX) > COLOR_ECHO_TOLERANCE
+      or math.abs(newY - currentColorY) > COLOR_ECHO_TOLERANCE
+      or newColorMode ~= currentColorMode
+    )
+  then
+    -- Hardware-driven color change (out-of-band update): no preset is
+    -- driving this, so don't echo a stale preset id.
+    currentColorPresetId = nil
+    notifyColorChanged(newX, newY, newColorMode)
+  end
+end
+
 function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   log:trace("RFP.UPDATE_DISCONNECT(%s, %s)", idBinding, strCommand)
   if idBinding ~= ESPHOME_BINDING then
@@ -3464,28 +3496,18 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
   local merged = rampingBrightness and brightnessRamp and brightnessRamp.mergedColor
   if (supportsColor or supportsCCT) and not rampingColor and not merged then
-    local newX, newY, newColorMode = shownColor(reported)
-    -- Threshold matches xy round-trip drift through RGB / HSV (typically
-    -- 1-2e-3 in either coordinate). Tighter than this fires spurious notifies
-    -- and clears the active preset id when the bulb just echoes our own cmd
-    -- back. Looser than ~1e-2 starts missing visible changes.
-    local COLOR_ECHO_TOLERANCE = 5e-3
-    if
-      newX
-      and newY
-      and newColorMode
-      and (
-        isFirstUpdate
-        or taken
-        or math.abs(newX - currentColorX) > COLOR_ECHO_TOLERANCE
-        or math.abs(newY - currentColorY) > COLOR_ECHO_TOLERANCE
-        or newColorMode ~= currentColorMode
-      )
-    then
-      -- Hardware-driven color change (out-of-band update): no preset is
-      -- driving this, so don't echo a stale preset id.
-      currentColorPresetId = nil
-      notifyColorChanged(newX, newY, newColorMode)
+    -- A report from before the color last sent waits up to SENT_COLOR_WAIT for
+    -- the light's report of it; none by then means the light did not take it.
+    local wait = ownColor and #sentColors > 1 and sentColorUntil - C4:GetTime() or 0
+    if wait > 0 then
+      SetTimer("SentColor", wait, function()
+        if #sentColors > 1 then
+          tellShownColor(reported)
+        end
+      end)
+    else
+      CancelTimer("SentColor")
+      tellShownColor(reported, isFirstUpdate or taken)
     end
   end
 end

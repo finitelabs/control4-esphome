@@ -977,20 +977,25 @@ T.section("a color the light takes while off is its color, which a color ramp st
 do
   light({ ColorMode.COLOR_MODE_RGB }, false)
   local rgb = setColor({ 0.25, 0.4 })
-  setColor(BLUE)
+  local blue = setColor(BLUE)
   mark()
-  -- The device reports the color it was given elsewhere, still off.
-  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
-    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { ColorMode.COLOR_MODE_RGB } }),
-    state = SerializeSafe({
-      state = false,
-      brightness = 1.0,
-      color_mode = ColorMode.COLOR_MODE_RGB,
-      red = rgb[1],
-      green = rgb[2],
-      blue = rgb[3],
-    }),
-  })
+  --- The device's report, still off, in the color sent as `color`.
+  local function offIn(color)
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { ColorMode.COLOR_MODE_RGB } }),
+      state = SerializeSafe({
+        state = false,
+        brightness = 1.0,
+        color_mode = ColorMode.COLOR_MODE_RGB,
+        red = color[1],
+        green = color[2],
+        blue = color[3],
+      }),
+    })
+  end
+  -- The device reports blue, then the color it was given elsewhere.
+  offIn(blue)
+  offIn(rgb)
   local x = told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")[1]
   T.check(
     "the proxy is told it",
@@ -7340,6 +7345,171 @@ do
     "an RGBW light, Dim-To-Warm between 3000 K and 1800 K at 10 %: its white, told as the range's end, 2000 K",
     { lastCommand().white, lastCommand().color_brightness, toldOf() },
     { 1, 0, { { 0.2, FULL_MODE } } }
+  )
+end
+
+T.section("a level and a color sent 12 ms apart: the light's report of the level alone does not tell its old color")
+do
+  local SEPARATE = { RGB, CWWW }
+  -- Red is x 0 through the stubs, green x 1/3 and 4000 K x 0.4.
+  local RED, GREEN = { 0, 1 }, { 0, 1, 0 }
+  local FIELDS = {
+    "brightness",
+    "color_mode",
+    "color_brightness",
+    "red",
+    "green",
+    "blue",
+    "white",
+    "color_temperature",
+    "cold_white",
+    "warm_white",
+  }
+  --- What the light has, as ESPHome keeps it, and how many commands since the
+  --- mark it has answered.
+  local state, answered
+  --- A light with the Athom bulb's modes, on at full in 4000 K.
+  local function inWhite()
+    light()
+    state = {
+      state = true,
+      brightness = 1.0,
+      color_mode = CWWW,
+      color_brightness = 1,
+      red = 1,
+      green = 0,
+      blue = 0,
+      white = 1,
+      color_temperature = 250,
+      cold_white = 0.95,
+      warm_white = 1,
+    }
+    pushed(SEPARATE, state, RANGE)
+    mark()
+    answered = 0
+  end
+  --- The light's report of the next command since the mark, which it takes:
+  --- each field as last sent, or the level alone if `levelOnly`.
+  local function answer(levelOnly)
+    answered = answered + 1
+    local n = 0
+    for _, s in ipairs(sent) do
+      if s.binding == ESPHOME and s.command == "ENTITY_COMMAND" then
+        n = n + 1
+        local cmd = n == answered and DeserializeSafe(s.params.body)
+        for _, field in ipairs(cmd and (levelOnly and { "brightness" } or FIELDS) or {}) do
+          state[field] = cmd[field] or state[field]
+        end
+      end
+    end
+    pushed(SEPARATE, state, RANGE)
+  end
+  local function levelThenRed()
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 0 })
+    run(12)
+    colorTarget(RED, 0)
+  end
+
+  -- ESPHome answers each command by itself, 100 to 250 ms after it is sent.
+  inWhite()
+  levelThenRed()
+  run(150)
+  answer()
+  run(100)
+  answer()
+  run(2000)
+  T.eq(
+    "a level then red, each reported by itself: the proxy is told red once and never 4000 K",
+    { colorsTold(), told("LIGHT_COLOR_CHANGED", "at") },
+    { { 0 }, { 12 } }
+  )
+  T.eq("and the level once", levelsTold(), { 50 })
+  inWhite()
+  fadeMode({ 0.3, 0.4 }, { 0.2, 0.4 }, CCT_MODE)
+  mark()
+  answered = 0
+  levelThenRed()
+  local mix = colorsTold()[1]
+  run(150)
+  answer()
+  run(100)
+  answer()
+  run(2000)
+  T.eq(
+    "a level that carries the Dim-To-Warm white, then red: each told once, the white not again after red",
+    { colorsTold(), told("LIGHT_COLOR_CHANGED", "at") },
+    { { mix, 0 }, { 0, 12 } }
+  )
+
+  -- A color neither the one before nor the one sent is another client's.
+  inWhite()
+  levelThenRed()
+  run(150)
+  answer()
+  run(50)
+  state.color_mode, state.red, state.green, state.blue = RGB, GREEN[1], GREEN[2], GREEN[3]
+  pushed(SEPARATE, state, RANGE)
+  T.eq("green set elsewhere before the light reports red: told at once", colorsTold(), { 0, 1 / 3 })
+  run(50)
+  answer()
+  run(2000)
+  T.eq("and red once the light reports it", colorsTold(), { 0, 1 / 3, 0 })
+
+  -- A light that does not show red within a second of it is told as it is.
+  inWhite()
+  levelThenRed()
+  run(150)
+  answer()
+  run(100)
+  answer(true)
+  T.eq("a light that does not take red: nothing more is told while its report may be on the way", colorsTold(), { 0 })
+  run(2000)
+  T.eq(
+    "then its 4000 K, a second after red was sent",
+    { colorsTold(), told("LIGHT_COLOR_CHANGED", "at") },
+    { { 0, 0.4 }, { 12, 1012 } }
+  )
+  inWhite()
+  levelThenRed()
+  run(150)
+  answer()
+  run(1350)
+  answer()
+  T.eq(
+    "a light whose report of red comes 1.5 s after it: 4000 K at 1 s, then red",
+    { colorsTold(), told("LIGHT_COLOR_CHANGED", "at") },
+    { { 0, 0.4, 0 }, { 12, 1012, 1512 } }
+  )
+
+  -- A color sent after red waits its own second, not what is left of red's.
+  inWhite()
+  levelThenRed()
+  run(150)
+  answer()
+  run(100)
+  answer(true)
+  run(650)
+  colorTarget({ 1 / 3, 1 }, 0)
+  run(200)
+  answer()
+  run(2000)
+  T.eq(
+    "green sent 0.9 s after a red the light did not take: 4000 K is not told while green's report is on the way",
+    { colorsTold(), told("LIGHT_COLOR_CHANGED", "at") },
+    { { 0, 1 / 3 }, { 12, 912 } }
+  )
+
+  -- A wait begun before a disconnect tells nothing after it.
+  inWhite()
+  levelThenRed()
+  run(150)
+  answer()
+  RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
+  run(2000)
+  T.eq(
+    "a disconnect while red's report may be on the way: its 4000 K is not told after it",
+    { colorsTold(), told("LIGHT_COLOR_CHANGED", "at") },
+    { { 0 }, { 12 } }
   )
 end
 
