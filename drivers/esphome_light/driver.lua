@@ -183,6 +183,78 @@ local sentLevels = {}
 local sentColors = {}
 
 ---------------------------------------------------------------------------
+-- The proxy's setup
+---------------------------------------------------------------------------
+
+--- The attributes of the element in `list` with this id, and this origin
+--- where one is given.
+local function setupPreset(list, id, origin)
+  list = list or {}
+  for _, element in ipairs(IsList(list) and list or { list }) do
+    local attr = element._attr or {}
+    if tointeger(attr.id) == id and (origin == nil or tointeger(attr.origin) == origin) then
+      return attr
+    end
+  end
+end
+
+-- The proxy sends its on modes and default rates only when they change, never
+-- at start. Its setup holds them, and it is the authority.
+local function readProxySetup()
+  local ok, setup = pcall(function()
+    return Select(ParseXml(SendUIRequest(C4:GetProxyDevices(), "GET_SETUP", {})), "setup")
+  end)
+  if not ok or type(setup) ~= "table" then
+    log:warn("The proxy's setup could not be read: %s", ok and "no setup in its answer" or setup)
+    return
+  end
+
+  -- A preset id means one preset only with its origin: the device's own and
+  -- the Color Agent's both count from 1.
+  local colors = Select(setup, "colors", "color")
+  local onId, onOrigin =
+    tointeger(setup.light_color_on_mode_preset_id), tointeger(setup.light_color_on_mode_preset_origin)
+  local fadeId = tointeger(setup.light_color_on_mode_fade_preset_id)
+  local fadeOrigin = tointeger(setup.light_color_on_mode_fade_preset_origin)
+  local on = onId and onOrigin and setupPreset(colors, onId, onOrigin)
+  local fade = fadeId and (fadeOrigin or 0) > 0 and setupPreset(colors, fadeId, fadeOrigin) or nil
+  if on and fadeOrigin and (fadeOrigin == 0 or fade) then
+    fade = fade or {}
+    RFP.UPDATE_COLOR_ON_MODE(PROXY_BINDING, "UPDATE_COLOR_ON_MODE", {
+      COLOR_PRESET_ID = onId,
+      COLOR_PRESET_ORIGIN = onOrigin,
+      COLOR_PRESET_COLOR_X = on.color_x,
+      COLOR_PRESET_COLOR_Y = on.color_y,
+      COLOR_PRESET_COLOR_MODE = on.color_mode,
+      COLOR_FADE_PRESET_ID = fadeId,
+      COLOR_FADE_PRESET_ORIGIN = fadeOrigin,
+      COLOR_FADE_PRESET_COLOR_X = fade.color_x,
+      COLOR_FADE_PRESET_COLOR_Y = fade.color_y,
+      COLOR_FADE_PRESET_COLOR_MODE = fade.color_mode,
+    })
+  end
+
+  local levelId = tointeger(setup.light_brightness_on_mode_preset_id)
+  local level = levelId and setupPreset(Select(setup, "brightnesses", "level"), levelId)
+  if level and tonumber(level.level) then
+    RFP.UPDATE_BRIGHTNESS_ON_MODE(
+      PROXY_BINDING,
+      "UPDATE_BRIGHTNESS_ON_MODE",
+      { BRIGHTNESS_PRESET_ID = levelId, BRIGHTNESS_PRESET_LEVEL = level.level }
+    )
+  end
+
+  local rate = tointeger(setup.light_brightness_rate_default)
+  if rate then
+    RFP.UPDATE_BRIGHTNESS_RATE_DEFAULT(PROXY_BINDING, "UPDATE_BRIGHTNESS_RATE_DEFAULT", { RATE = rate })
+  end
+  rate = tointeger(setup.light_color_rate_default)
+  if rate then
+    RFP.UPDATE_COLOR_RATE_DEFAULT(PROXY_BINDING, "UPDATE_COLOR_RATE_DEFAULT", { RATE = rate })
+  end
+end
+
+---------------------------------------------------------------------------
 -- Driver lifecycle
 ---------------------------------------------------------------------------
 
@@ -222,6 +294,7 @@ function OnDriverLateInit()
   updateStatus("Disconnected", false)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
+  readProxySetup()
 end
 
 ---------------------------------------------------------------------------
@@ -383,6 +456,9 @@ local function updateDynamicCapabilities(entity)
     caps.color_correlated_temperature_max = miredsToKelvin(minMireds)
   end
   SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
+  -- The proxy lists a light's colors once it is told the light has color: a
+  -- new light's setup has none at start, and so no Color On Mode to read.
+  readProxySetup()
 
   -- Tell the proxy we have three virtual buttons (top/bottom/toggle). Sent as
   -- a string per the LIGHT_V2 NUMBER_BUTTONS notify format. Then emit a
@@ -661,6 +737,11 @@ local function kelvinToCoolWarmSplit(kelvin)
   return 1 - ratio, ratio
 end
 
+--- Whether the light gives a range for its color temperature, in mireds.
+local function givesMiredsRange()
+  return (tonumber(Select(ENTITY, "min_mireds")) or 0) > 0 and (tonumber(Select(ENTITY, "max_mireds")) or 0) > 0
+end
+
 -- Convert an XY/mode color into the right ESPHome cmd fields. Returns the
 -- partial cmd table or nil if the bulb doesn't support color/CCT or the
 -- provided values can't be mapped.
@@ -687,13 +768,13 @@ local function buildColorCmdFields(x, y, mode, merged)
       fields.has_color_mode = true
       fields.color_mode = pickedMode
     end
-    -- For RGBCW / cold-warm-white capable bulbs, also drive the cold/warm
-    -- channels directly. ESPHome would compute these internally from
-    -- color_temperature, but sending them ourselves removes ambiguity in
-    -- min_mireds/max_mireds reading and keeps the channel split exactly
-    -- where we expect it.
+    -- ESPHome works the cold and warm white out from a color temperature, with
+    -- the light's own gamma. A light that gives no range for it cannot, and is sent them.
     local CM = ESPHomeProtoSchema.Enum.ColorMode
-    if supportedColorModes[CM.COLOR_MODE_COLD_WARM_WHITE] or supportedColorModes[CM.COLOR_MODE_RGB_COLD_WARM_WHITE] then
+    if
+      not givesMiredsRange()
+      and (supportedColorModes[CM.COLOR_MODE_COLD_WARM_WHITE] or supportedColorModes[CM.COLOR_MODE_RGB_COLD_WARM_WHITE])
+    then
       local cw, ww = kelvinToCoolWarmSplit(k)
       fields.has_cold_white = true
       fields.cold_white = cw
@@ -721,10 +802,21 @@ local function takenKelvin(k)
   return math.max(miredsToKelvin(maxMireds), math.min(miredsToKelvin(minMireds), k))
 end
 
+-- Whether a full color is a color temperature's own point, inside the light's
+-- range: a light with a white for it shows it in that white.
+local function isWhitePoint(x, y)
+  local k = supportsCCT and tonumber(C4:ColorXYtoCCT(x, y))
+  if not k or k <= 0 or k ~= takenKelvin(k) then
+    return false
+  end
+  local whiteX, whiteY = C4:ColorCCTtoXY(k)
+  return sameColor(x, y, LIGHT_COLOR_MODE_CCT, whiteX, whiteY, LIGHT_COLOR_MODE_CCT)
+end
+
 -- A color as the light takes it, which its reports then read as: its color
 -- temperature's point, or a full color on a light with no color temperature.
 local function takenColor(x, y, mode)
-  if mode ~= LIGHT_COLOR_MODE_CCT then
+  if mode ~= LIGHT_COLOR_MODE_CCT and not isWhitePoint(x, y) then
     return x, y, mode
   end
   if not supportsCCT then
@@ -734,7 +826,7 @@ local function takenColor(x, y, mode)
   if k and k > 0 then
     x, y = C4:ColorCCTtoXY(takenKelvin(k))
   end
-  return x, y, mode
+  return x, y, LIGHT_COLOR_MODE_CCT
 end
 
 -- Apply the dim-to-warm formula from spec _7.2:
@@ -757,11 +849,17 @@ local function computeFadeColor(brightness)
     return nil
   end
   local b = math.max(0, math.min(100, brightness)) * 0.01
-  local x, y, colorMode = takenColor(
-    dimPreset.x + (onPreset.x - dimPreset.x) * b,
-    dimPreset.y + (onPreset.y - dimPreset.y) * b,
-    onPreset.mode or LIGHT_COLOR_MODE_FULL
-  )
+  local x = dimPreset.x + (onPreset.x - dimPreset.x) * b
+  local y = dimPreset.y + (onPreset.y - dimPreset.y) * b
+  local colorMode = onPreset.mode or LIGHT_COLOR_MODE_FULL
+  -- Two full colors that are each a white's point fade between whites. The mix
+  -- is not asked: a line between two colors can cross a white's point at one level.
+  if isWhitePoint(onPreset.x, onPreset.y) and isWhitePoint(dimPreset.x, dimPreset.y) then
+    colorMode = LIGHT_COLOR_MODE_CCT
+  end
+  if colorMode == LIGHT_COLOR_MODE_CCT then
+    x, y, colorMode = takenColor(x, y, colorMode)
+  end
   return { x = x, y = y, mode = colorMode }
 end
 
@@ -1615,7 +1713,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
     end
     targetX, targetY, targetMode = takenColor(x, y, LIGHT_COLOR_MODE_CCT)
   elseif x and y and supportsColor then
-    targetX, targetY, targetMode = x, y, LIGHT_COLOR_MODE_FULL
+    targetX, targetY, targetMode = takenColor(x, y, LIGHT_COLOR_MODE_FULL)
   else
     log:warn(
       "SET_COLOR_TARGET ignored (kelvin=%s x=%s y=%s mode=%s color=%s cct=%s)",
@@ -2207,6 +2305,9 @@ function RFP.UPDATE_BRIGHTNESS_ON_MODE(idBinding, strCommand, tParams, args)
   local presetId = tointeger(Select(tParams, "BRIGHTNESS_PRESET_ID"))
   local presetLevel = tonumber(Select(tParams, "BRIGHTNESS_PRESET_LEVEL")) or DEFAULT_PRESET_LEVEL
   persist:set(P_ON_MODE, { id = presetId, level = presetLevel })
+  -- The preset whose edits the on level follows, as UPDATE_BRIGHTNESS_PRESET
+  -- brings them.
+  persist:set(P_BRIGHTNESS_ON_MODE_PRESET, presetId)
 end
 
 -- Per spec _21.2: SET_BRIGHTNESS_ON_MODE is sent by the proxy to tell the

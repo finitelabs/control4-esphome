@@ -88,23 +88,58 @@ local function mark()
   sent, start = {}, now
 end
 
---- A fresh light, on at full unless `on` is false. Its state lives in the
---- driver chunk's locals, and its Color On Mode in the process-wide store.
+-- Late init goes no further without a minimum OS version, and the shim has none.
+local config = C4.GetDriverConfigInfo
+function C4:GetDriverConfigInfo(section)
+  if section == "minimum_os_version" then
+    return "3.3.0"
+  end
+  return config(self, section)
+end
+
+-- The light's proxy and its answer to GET_SETUP: an empty one unless a case
+-- gives one, or false for none. A case may give another for a new light,
+-- which the proxy answers until it is told the light's capabilities.
+local proxySetup, newLightSetup = "", nil
+local capabilitiesTold = false
+function C4:GetProxyDevices()
+  return 643
+end
+local uiRequest = C4.SendUIRequest
+function C4:SendUIRequest(id, request, params)
+  if request == "GET_SETUP" then
+    return not capabilitiesTold and newLightSetup or proxySetup or nil
+  end
+  return uiRequest(self, id, request, params)
+end
+
+--- The driver started over what it has stored, and its first state: on at
+--- full unless `on` is false. Its state lives in the driver chunk's locals.
+--- @param modes table|nil The entity's supported_color_modes, or nil for a light yet to connect.
+local function restart(modes, on)
+  queue, capabilitiesTold = {}, false
+  dofile(DRIVER)
+  function SendToProxy(idBinding, strCommand, tParams)
+    capabilitiesTold = capabilitiesTold or strCommand == "DYNAMIC_CAPABILITIES_CHANGED"
+    sent[#sent + 1] = { at = now - start, binding = idBinding, command = strCommand, params = tParams or {} }
+  end
+  OnDriverLateInit()
+  if modes then
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = modes }),
+      state = SerializeSafe({ state = on ~= false, brightness = 1.0 }),
+    })
+  end
+  mark()
+end
+
+--- A fresh light, whose Color On Mode is in the process-wide store.
 --- @param modes table The entity's supported_color_modes.
 local function light(modes, on)
-  queue = {}
   for _, key in ipairs({ "color_on_mode", "color_presets", "previous_color" }) do
     persist:delete(key)
   end
-  dofile(DRIVER)
-  function SendToProxy(idBinding, strCommand, tParams)
-    sent[#sent + 1] = { at = now - start, binding = idBinding, command = strCommand, params = tParams or {} }
-  end
-  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
-    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = modes }),
-    state = SerializeSafe({ state = on ~= false, brightness = 1.0 }),
-  })
-  mark()
+  restart(modes, on)
 end
 
 local function proxy(command, params)
@@ -194,6 +229,11 @@ end
 -- xy as hue and saturation over their ranges: the shim converts no colors.
 function C4:ColorXYtoHSV(x, y)
   return x * 360, y * 100
+end
+
+-- No xy is a color temperature's point until a section gives the two a form.
+function C4:ColorXYtoCCT()
+  return nil
 end
 
 -- An On Color preset, a Dim-To-Warm dim color and another color, as xy.
@@ -3369,6 +3409,540 @@ do
     { 100, fadeLevel(100, 20, 760 / 1500) }
   )
   proxy("CLEAR_ALL_SCENES")
+end
+
+---------------------------------------------------------------------------
+-- The proxy's setup
+---------------------------------------------------------------------------
+
+--- An answer the proxy gave GET_SETUP on OS 4.3.0, as it came.
+local function setupFile(name)
+  local f = assert(io.open(HERE .. "/light_setup/" .. name, "rb"))
+  local xml = f:read("*a")
+  f:close()
+  return xml
+end
+
+--- `xml` with the text of each tag in `tags` replaced, or the tag taken out
+--- where it is given false.
+local function withTags(xml, tags)
+  for tag, value in pairs(tags) do
+    xml =
+      xml:gsub("<" .. tag .. ">.-</" .. tag .. ">", value and ("<" .. tag .. ">" .. value .. "</" .. tag .. ">") or "")
+  end
+  return xml
+end
+
+local SETUP_KEYS = {
+  "color_on_mode",
+  "brightness_on_mode",
+  "brightness_on_mode_preset",
+  "brightness_rate_default",
+  "color_rate_default",
+}
+
+--- Forget what the driver stores of the proxy's on modes, presets and rates.
+local function forgetSetup()
+  for _, key in ipairs({ "color_presets", "brightness_presets", "previous_color" }) do
+    persist:delete(key)
+  end
+  for _, key in ipairs(SETUP_KEYS) do
+    persist:delete(key)
+  end
+end
+
+--- The color temperature, in kelvin, of each command since the mark that had one.
+local function kelvins()
+  local out = {}
+  for _, s in ipairs(sent) do
+    local cmd = s.binding == ESPHOME and s.command == "ENTITY_COMMAND" and DeserializeSafe(s.params.body)
+    if cmd and cmd.has_color_temperature then
+      out[#out + 1] = math.floor(1e6 / cmd.color_temperature + 0.5)
+    end
+  end
+  return out
+end
+
+--- The x of each color the proxy was told as arrived since the mark.
+local function colorsTold()
+  return told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")
+end
+
+-- A light with a color and a color temperature, as the one setup-643.xml is of.
+local RGBCT, CT = ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE, ColorMode.COLOR_MODE_COLOR_TEMPERATURE
+local CCT_MODE = 1
+
+-- Kelvin as x over a fixed y, so a preset's color temperature is its x.
+function C4:ColorCCTtoXY(kelvin)
+  return kelvin / 10000, 0.4
+end
+function C4:ColorXYtoCCT(x)
+  return x * 10000
+end
+
+T.section("a light the proxy never sent its Color On Mode reads it from the proxy's setup at start")
+do
+  -- The proxy sends a mode when it changes and a preset when it is made: a
+  -- light left in the mode it was made with has its presets and no mode.
+  forgetSetup()
+  proxySetup = ""
+  light({ RGBCT, CT }, false)
+  for _, p in ipairs({
+    { 1, "On Color", 0.380438, 0.376746 },
+    { 2, "Dim Color", 0.526676, 0.413297 },
+    { 10, "Previous On", 0.497642, 0.415248 },
+  }) do
+    proxy(
+      "UPDATE_COLOR_PRESET",
+      { COMMAND = "ADDED", ID = p[1], NAME = p[2], COLOR_X = p[3], COLOR_Y = p[4], COLOR_MODE = CCT_MODE }
+    )
+  end
+  proxy("UPDATE_BRIGHTNESS_PRESET", { COMMAND = "ADDED", ID = 10, NAME = "Previous On", LEVEL = 20 })
+  proxySetup = setupFile("setup-607.xml")
+  restart({ RGBCT, CT }, false)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  -- Dim-To-Warm between the device's On Color and Dim Color: 3804 K and
+  -- 5267 K here, 4536 K half way.
+  T.eq("a level carries the Dim-To-Warm mix as a color temperature", kelvins(), { 4536 })
+  T.eq("and the proxy is told it", colorsTold(), { 0.453557 })
+  proxy(
+    "UPDATE_COLOR_PRESET",
+    { COMMAND = "MODIFIED", ID = 1, NAME = "On Color", COLOR_X = 0.3, COLOR_Y = 0.4, COLOR_MODE = CCT_MODE }
+  )
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  T.eq("an edit of the On Color alone then moves the on color", kelvins(), { 3000 })
+  T.eq("which the proxy is told", colorsTold(), { 0.3 })
+end
+
+T.section("a preset the setup names is found by its id and its origin together")
+do
+  -- This light's Dim-To-Warm is between the Color Agent's Sunset (8) and Blue
+  -- Bonnet (10), and the device's own preset 10 is Previous On, which the
+  -- driver has stored.
+  forgetSetup()
+  proxySetup = ""
+  light({ RGBCT, CT }, false)
+  proxy(
+    "UPDATE_COLOR_PRESET",
+    { COMMAND = "ADDED", ID = 10, NAME = "Previous On", COLOR_X = 0.305692, COLOR_Y = 0.189781, COLOR_MODE = 0 }
+  )
+  local mixX, mixY = 0.142639 + (0.608506 - 0.142639) * 0.5, 0.0993936 + (0.357644 - 0.0993936) * 0.5
+  local between = setColor({ mixX, mixY })
+  proxySetup = setupFile("setup-626.xml")
+  restart({ RGBCT, CT }, false)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq("the mix is between the Color Agent's two", colors(), { between })
+  T.eq("which the proxy is told", colorsTold(), { mixX })
+end
+
+T.section("a setup with no fade preset is Previous for the device's preset 10 and a preset for any other")
+do
+  local noFade = { light_color_on_mode_fade_preset_id = 0, light_color_on_mode_fade_preset_origin = 0 }
+  --- A light started with `setup`, on in green and then off: the green it
+  --- was sent.
+  local function offInGreen(setup)
+    forgetSetup()
+    proxySetup = setup
+    restart({ RGBCT, CT })
+    local green = setColor({ 0.3, 0.6 })
+    proxy("OFF")
+    mark()
+    return green
+  end
+  local setup = withTags(setupFile("setup-607.xml"), noFade)
+  local green = offInGreen(withTags(setup, { light_color_on_mode_preset_id = 10 }))
+  proxy("ON")
+  T.eq("Previous: an on is in the color the light went off in", colors(), { green })
+  offInGreen(setup)
+  proxy("ON")
+  T.eq("a preset: an on is in the On Color", { kelvins(), colors() }, { { 3804 }, {} })
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq("and a level after it carries no color", { kelvins(), colors() }, { {}, {} })
+end
+
+T.section("a setup that cannot be read, or that names no on mode, leaves what the driver has stored")
+do
+  --- What the driver has stored under each key the setup can write.
+  local function stored()
+    local out = {}
+    for _, key in ipairs(SETUP_KEYS) do
+      out[key] = persist:get(key, false)
+    end
+    return out
+  end
+  forgetSetup()
+  proxySetup = ""
+  light({ RGBCT, CT }, false)
+  onMode(ON, DIM)
+  proxy("UPDATE_BRIGHTNESS_ON_MODE", { BRIGHTNESS_PRESET_ID = 3, BRIGHTNESS_PRESET_LEVEL = 40 })
+  proxy("UPDATE_BRIGHTNESS_RATE_DEFAULT", { RATE = 1234 })
+  local before = stored()
+  local setup, none = setupFile("setup-607.xml"), {}
+  for _, tag in ipairs({
+    "light_color_on_mode_preset_id",
+    "light_color_on_mode_preset_origin",
+    "light_color_on_mode_fade_preset_id",
+    "light_color_on_mode_fade_preset_origin",
+    "light_brightness_on_mode_preset_id",
+    "light_brightness_rate_default",
+    "light_color_rate_default",
+  }) do
+    none[tag] = false
+  end
+  for _, c in ipairs({
+    { "no answer", false },
+    { "an empty answer", "" },
+    { "an answer that is not whole", setup:sub(1, 2000) },
+    { "a setup with none of the tags", withTags(setup, none) },
+  }) do
+    proxySetup = c[2]
+    restart({ RGBCT, CT }, false)
+    T.eq(c[1] .. ": nothing stored changes", stored(), before)
+  end
+  -- A preset the setup names and does not list has no color or level to
+  -- store: the mode stored stands.
+  for _, c in ipairs({
+    { "an on preset that is not listed", "color_on_mode", { light_color_on_mode_preset_id = 99 } },
+    { "a fade preset that is not listed", "color_on_mode", { light_color_on_mode_fade_preset_id = 99 } },
+    { "no on origin", "color_on_mode", { light_color_on_mode_preset_origin = false } },
+    { "no fade origin", "color_on_mode", { light_color_on_mode_fade_preset_origin = false } },
+    { "a brightness preset that is not listed", "brightness_on_mode", { light_brightness_on_mode_preset_id = 99 } },
+  }) do
+    local had = persist:get(c[2], false)
+    proxySetup = withTags(setup, c[3])
+    restart({ RGBCT, CT }, false)
+    T.eq(c[1] .. ": the mode stored stands", persist:get(c[2], false), had)
+  end
+end
+
+T.section("the brightness on mode and the default rates are read from the proxy's setup too")
+do
+  -- The mode as Previous On, whose level the proxy has at 20 %, and both
+  -- rates at 750 ms.
+  forgetSetup()
+  proxySetup = withTags(setupFile("setup-607.xml"), { light_brightness_on_mode_preset_id = 10 })
+  restart({ RGBCT, CT }, false)
+  proxy("ON")
+  T.eq("an on goes to the level of the mode's preset", lastLevel(), { 20 / 100, 0 })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80 })
+  T.eq("a target with no rate ramps at the proxy's default", lengths(), { 750 })
+  run(1000)
+  mark()
+  proxy("SET_COLOR_TARGET", { LIGHT_COLOR_TARGET_X = 0.5, LIGHT_COLOR_TARGET_Y = 0.5 })
+  T.eq("and a color with no rate fades at it", lengths(), { 750 })
+  run(1000)
+  -- The proxy sends the mode when it changes, and a preset when it is edited:
+  -- the on level follows both.
+  --- An edit of preset 10 and then its removal, on a light whose mode is that
+  --- preset `how`.
+  local function follows(how)
+    proxy("UPDATE_BRIGHTNESS_PRESET", { COMMAND = "MODIFIED", ID = 10, NAME = "Previous On", LEVEL = 35 })
+    proxy("OFF")
+    mark()
+    proxy("ON")
+    T.eq("a mode " .. how .. ": an edit of its preset moves the on level", lastLevel(), { 35 / 100, 0 })
+    proxy("UPDATE_BRIGHTNESS_PRESET", { COMMAND = "REMOVED", ID = 10 })
+    proxy("OFF")
+    mark()
+    proxy("ON")
+    T.eq("a mode " .. how .. ": with its preset removed an on goes to the Default On level", lastLevel(), { 1, 0 })
+  end
+  follows("read from the setup")
+  forgetSetup()
+  proxySetup = ""
+  light({ RGBCT, CT }, false)
+  proxy("UPDATE_BRIGHTNESS_ON_MODE", { BRIGHTNESS_PRESET_ID = 10, BRIGHTNESS_PRESET_LEVEL = 20 })
+  follows("sent by the proxy")
+  -- The two default rates are one setting to this light, so either of the
+  -- setup's is both.
+  for _, tag in ipairs({ "light_brightness_rate_default", "light_color_rate_default" }) do
+    forgetSetup()
+    proxySetup = withTags(setupFile("setup-607.xml"), { [tag] = false })
+    restart({ RGBCT, CT }, false)
+    T.eq(
+      "a setup without " .. tag .. ": both rates are the other's",
+      { persist:get("brightness_rate_default", false), persist:get("color_rate_default", false) },
+      { 750, 750 }
+    )
+  end
+end
+
+T.section("a setup that lists one color or one level, and a preset listed with no level")
+do
+  --- A setup whose Color On Mode is its one color, and whose brightness on mode is its one level.
+  local function setupOfOne(level)
+    return "<setup><light_color_on_mode_preset_id>1</light_color_on_mode_preset_id>"
+      .. "<light_color_on_mode_preset_origin>1</light_color_on_mode_preset_origin>"
+      .. "<light_color_on_mode_fade_preset_id>0</light_color_on_mode_fade_preset_id>"
+      .. "<light_color_on_mode_fade_preset_origin>0</light_color_on_mode_fade_preset_origin>"
+      .. "<light_brightness_on_mode_preset_id>1</light_brightness_on_mode_preset_id>"
+      .. '<brightnesses><level name="On" id="1"'
+      .. (level and (' level="' .. level .. '"') or "")
+      .. "/></brightnesses>"
+      .. '<colors><color name="On Color" id="1" origin="1" color_x="0.3" color_y="0.4" color_mode="1"/></colors></setup>'
+  end
+  forgetSetup()
+  proxySetup = setupOfOne(70)
+  restart({ RGBCT, CT }, false)
+  proxy("ON")
+  T.eq("one color and one level: both are found", { kelvins(), lastLevel() }, { { 3000 }, { 0.7, 0 } })
+  forgetSetup()
+  proxySetup = setupOfOne(nil)
+  restart({ RGBCT, CT }, false)
+  T.eq(
+    "a preset listed with no level leaves the brightness on mode as it is",
+    persist:get("brightness_on_mode", false),
+    false
+  )
+  forgetSetup()
+  proxySetup = ""
+end
+
+T.section("an ESPHome light's own proxy: Dim-To-Warm between two presets of one color, and rates of 750 ms")
+do
+  -- setup-643.xml is what the proxy of a color and color temperature light
+  -- answered with nothing in it ever edited, where the driver held no Color
+  -- On Mode and no default rate. Both presets are 3200 K, 4234 K as read here.
+  forgetSetup()
+  proxySetup = setupFile("setup-643.xml")
+  restart({ RGBCT, CT }, false)
+  proxy("ON")
+  T.eq("an on is at full", lastLevel(), { 1, 0 })
+  T.eq("in the On Color, a color temperature", kelvins(), { 4234 })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30 })
+  T.eq("a level with no rate goes out over the proxy's 750 ms", lastLevel(), { 30 / 100, 750 })
+  T.eq("in the Dim-To-Warm color", kelvins(), { 4234 })
+  -- The setup is read as the driver starts, whether or not its light is there.
+  forgetSetup()
+  restart()
+  local mode = persist:get("color_on_mode", {})
+  T.eq(
+    "a driver whose light has yet to connect has the rate and the mode's two presets",
+    { persist:get("brightness_rate_default", false), (mode.onPreset or {}).id, (mode.fadePreset or {}).id },
+    { 750, 1, 2 }
+  )
+  forgetSetup()
+  proxySetup = ""
+end
+
+T.section("a new light's Color On Mode is read once the proxy is told the light's capabilities")
+do
+  -- A proxy lists a light's colors, its On Color and Dim Color among them,
+  -- once it is told the light has a color or a color temperature. The two
+  -- files are what a new light's proxy answered as its driver started, and
+  -- as the driver's first capabilities reached it.
+  forgetSetup()
+  newLightSetup, proxySetup = setupFile("setup-732-new.xml"), setupFile("setup-732.xml")
+  restart()
+  T.eq(
+    "as the driver starts the setup names the mode's presets and lists none: it has the rate and no mode",
+    { persist:get("brightness_rate_default", false), persist:get("color_on_mode", false) },
+    { 750, false }
+  )
+  forgetSetup()
+  restart({ CT }, false)
+  proxy("ON")
+  T.eq("once the light has connected an on is in the On Color", kelvins(), { 4234 })
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 40 })
+  T.eq("and a level carries the Dim-To-Warm color", kelvins(), { 4234 })
+  forgetSetup()
+  newLightSetup, proxySetup = nil, ""
+end
+
+---------------------------------------------------------------------------
+-- A light with a white beside its color
+---------------------------------------------------------------------------
+
+-- The white is its own color mode, or one mode holds it with the color, as a
+-- light built with no color_interlock has: RGB with a color temperature
+-- (RGBCT above), or with cold and warm white.
+local RGB, CWWW = ColorMode.COLOR_MODE_RGB, ColorMode.COLOR_MODE_COLD_WARM_WHITE
+local RGBWW = ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE
+local FULL_MODE = 0
+
+--- A report from a light of kind `modes`.
+--- @param range table|nil The range its entity gives for its color temperature, in mireds.
+local function pushed(modes, state, range)
+  range = range or {}
+  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+    entity = SerializeSafe({
+      key = 1,
+      name = "Light",
+      supported_color_modes = modes,
+      min_mireds = range[1],
+      max_mireds = range[2],
+    }),
+    state = SerializeSafe(state),
+  })
+end
+
+-- 6500 to 2700 K.
+local RANGE = { 153.8, 370.4 }
+
+--- Set the Color On Mode to Dim-To-Warm between an On Color and a Dim Color, each an xy in `mode`.
+local function fadeMode(on, dim, mode)
+  proxy("UPDATE_COLOR_ON_MODE", {
+    COLOR_PRESET_ID = 1,
+    COLOR_PRESET_ORIGIN = 1,
+    COLOR_PRESET_COLOR_X = on[1],
+    COLOR_PRESET_COLOR_Y = on[2],
+    COLOR_PRESET_COLOR_MODE = mode,
+    COLOR_FADE_PRESET_ID = 2,
+    COLOR_FADE_PRESET_ORIGIN = 1,
+    COLOR_FADE_PRESET_COLOR_X = dim[1],
+    COLOR_FADE_PRESET_COLOR_Y = dim[2],
+    COLOR_FADE_PRESET_COLOR_MODE = mode,
+  })
+end
+
+--- The color mode the proxy was told with each color since the mark.
+local function modesTold()
+  return told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE")
+end
+
+--- The last command the device was sent since the mark, empty if it was sent none.
+local function lastCommand()
+  for i = #sent, 1, -1 do
+    if sent[i].binding == ESPHOME and sent[i].command == "ENTITY_COMMAND" then
+      return DeserializeSafe(sent[i].params.body)
+    end
+  end
+  return {}
+end
+
+T.section("a full color that is a color temperature's own point lights the white of a light that has one")
+do
+  -- A new color light's proxy makes its On Color and Dim Color one white
+  -- point, 3200 K, and stores it as a full color (setup-626.xml's two).
+  local POINT = { 0.32, 0.4 }
+  for name, modes in pairs({
+    ["cold and warm white beside its color"] = { RGBWW },
+    ["a color temperature beside its color"] = { RGBCT, CT },
+    ["a color mode and a white mode"] = { RGB, CWWW },
+  }) do
+    light()
+    pushed(modes, { state = false, brightness = 1.0 }, RANGE)
+    fadeMode(POINT, POINT, FULL_MODE)
+    mark()
+    proxy("ON")
+    T.eq(
+      "a light with " .. name .. ": an on is in that white, with no red, green or blue",
+      { kelvins(), colors() },
+      { { 3200 }, {} }
+    )
+    T.eq("which the proxy is told as a color temperature", { colorsTold(), modesTold() }, { { 0.32 }, { CCT_MODE } })
+    mark()
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
+    T.eq("and so is a level after it", { kelvins(), colors() }, { { 3200 }, {} })
+  end
+  light({ RGB }, false)
+  fadeMode(POINT, POINT, FULL_MODE)
+  mark()
+  proxy("ON")
+  T.eq("a light with a color alone has only its color for it", { kelvins(), #colors() }, { {}, 1 })
+
+  -- The same color from each place a full color comes from.
+  light()
+  pushed({ RGBCT, CT }, { state = false, brightness = 1.0 }, RANGE)
+  onMode({ POINT[1], POINT[2], id = 1 })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
+  colorTarget(POINT, 750)
+  T.eq(
+    "an On Color preset, and the proxy's own copy of it after the on: the white, once",
+    { kelvins(), colors() },
+    { { 3200 }, {} }
+  )
+  run(1000)
+  light()
+  pushed({ RGBCT, CT }, { state = true, brightness = 1.0 }, RANGE)
+  mark()
+  colorTarget(POINT, 0)
+  T.eq("a color the proxy sets: the white", { kelvins(), colors(), modesTold() }, { { 3200 }, {}, { CCT_MODE } })
+  activate(colorStep(nil, POINT, 0))
+  T.eq("a scene step's: the white", { kelvins(), colors() }, { { 3200 }, {} })
+  proxy("CLEAR_ALL_SCENES")
+  mark()
+  colorTarget({ 0.2, 0.4 }, 0)
+  T.eq("the point of a white beyond the light's range stays a color", { kelvins(), #colors() }, { {}, 1 })
+  mark()
+  colorTarget({ 0.32, 0.41 }, 0)
+  T.eq("and so does a color beside a white's point", { kelvins(), #colors() }, { {}, 1 })
+
+  -- Dim-To-Warm is between its two ends: both a white's point, or a color.
+  light()
+  pushed({ RGBCT, CT }, { state = true, brightness = 1.0 }, RANGE)
+  fadeMode({ 0.5, 0.6 }, { 0.3, 0.2 }, FULL_MODE)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq(
+    "between two colors, at the level whose mix crosses a white's point: a color still",
+    { kelvins(), #colors() },
+    { {}, 1 }
+  )
+  -- Kelvin as x over a y that curves as the locus does, so the mix of two whites lies off it.
+  local toXY = C4.ColorCCTtoXY
+  function C4:ColorCCTtoXY(k)
+    return k / 10000, 0.4 - (k / 10000 - 0.45) ^ 2
+  end
+  light()
+  pushed({ RGBCT, CT }, { state = true, brightness = 1.0 }, RANGE)
+  fadeMode({ C4:ColorCCTtoXY(6000) }, { C4:ColorCCTtoXY(3000) }, FULL_MODE)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq(
+    "between two whites given as full colors: a white at every level, its mix off their line or not",
+    { kelvins(), colors() },
+    { { 4500 }, {} }
+  )
+  C4.ColorCCTtoXY = toXY
+end
+
+T.section("the color temperature a level carries is left to a light that can work its cold and warm white out")
+do
+  -- ESPHome splits a color temperature into cold and warm white with the
+  -- light's gamma, for a light that gives a range for it.
+  for name, modes in pairs({
+    ["cold and warm white alone"] = { CWWW },
+    ["a color mode beside its cold and warm white"] = { RGB, CWWW },
+    ["cold and warm white beside its color"] = { RGBWW },
+  }) do
+    light()
+    pushed(modes, { state = false, brightness = 1.0 }, RANGE)
+    fadeMode({ 0.32, 0.4 }, { 0.32, 0.4 }, CCT_MODE)
+    mark()
+    proxy("ON")
+    local cmd = lastCommand()
+    T.eq(
+      "a light with " .. name .. ": the color temperature, and neither cold nor warm white",
+      { kelvins(), cmd.color_mode, cmd.has_cold_white or false, cmd.has_warm_white or false },
+      { { 3200 }, modes[#modes], false, false }
+    )
+  end
+  -- 3200 K between the driver's own 153 and 500 mireds, or the end the light gives.
+  for name, case in pairs({
+    ["no range"] = { {}, (312.5 - 153) / (500 - 153) },
+    ["one end of a range"] = { { 153.8, 0 }, (312.5 - 153.8) / (500 - 153.8) },
+    ["the other end"] = { { 0, 370.4 }, (312.5 - 153) / (370.4 - 153) },
+  }) do
+    local warm = case[2]
+    light()
+    pushed({ CWWW }, { state = false, brightness = 1.0 }, case[1])
+    fadeMode({ 0.32, 0.4 }, { 0.32, 0.4 }, CCT_MODE)
+    mark()
+    proxy("ON")
+    local cmd = lastCommand()
+    T.check(
+      "one that gives " .. name .. " cannot, and is sent the two as the driver splits them",
+      cmd.color_mode == CWWW and math.abs(cmd.cold_white - (1 - warm)) < 1e-9 and math.abs(cmd.warm_white - warm) < 1e-9,
+      T.show(cmd)
+    )
+  end
 end
 
 T.finish()

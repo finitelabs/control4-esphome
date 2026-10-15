@@ -1076,6 +1076,25 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Assistant, set to a level or color while it was ramping from Control4 being
   put back at the ramp's level or color when the ramp's time was up; the change
   is now kept, and shown as soon as the light reports it
+- Fixed a light ignoring its Color On Mode, the level it turns on to and its
+  default ramp rate until one of them was next changed in Composer: turned on or
+  dimmed by a keypad button, an Advanced Lighting scene or a command with no
+  ramp time, it took half a second and no on color, where Composer showed three
+  quarters of a second and Dim-To-Warm; the driver now reads them from the
+  light's settings in the project when it starts and when the light connects, so
+  a light turns on in its On Color and dims with Dim-To-Warm from the first time
+  it is used
+- Fixed a light that has a white as well as a color making a white On Color out
+  of its red, green and blue: the On Color and Dim Color a new color light is
+  given are 3200 K stored as a color, so the light turned on and dimmed in a mix
+  of the three; a color that is a color temperature's own point, in the Color On
+  Mode, a scene or a color set from Navigator, now lights the light's white at
+  that color temperature
+- Fixed a cold and warm white light coming on, or dimming, at a third of its
+  light and warmer than asked when the level carried a color temperature, as
+  every level does with Dim-To-Warm: the driver split the color temperature into
+  cold and warm white itself, where the light does it with its own gamma; the
+  light now works the two out, as it does for a color temperature set by itself
 
 ### Changed
 
