@@ -100,15 +100,15 @@ color-temperature, and full-color lights are all supported.
 </div>
 
 > **Note:** Control4 sets a light to a color or to a color temperature, never
-> both. On an RGBW light built without `color_interlock`, a white picked as a
+> both. On an RGBW light, with or without `color_interlock`, a white picked as a
 > color, such as the On Color a new light is given, lights the white channel;
-> any other color, and every color on one built with it, uses red, green and
-> blue. On a light built with `color_interlock`, a fade between a color and a
-> white goes dark for a moment half way, because ESPHome changes between its
-> color and white modes through off. Stopped before half way, the light stays in
-> the one it was fading from, and after it in the one it was fading to, and
-> comes back up to its level over half a second. A ramped On comes up in its On
-> color from the start, with no such dip.
+> any other color uses red, green and blue. On a light built with
+> `color_interlock`, a fade between a color and a white goes dark for a moment
+> half way, because ESPHome changes between its color and white modes through
+> off. Stopped before half way, the light stays in the one it was fading from,
+> and after it in the one it was fading to, and comes back up to its level over
+> half a second. A ramped On comes up in its On color from the start, with no
+> such dip.
 
 # <span style="color:#17BCF2">Installer Setup</span>
 

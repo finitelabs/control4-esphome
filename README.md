@@ -1141,6 +1141,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Color, or with Dim-To-Warm, from a light last in a color was dark for most of
   its ramp; the light now comes up in its On color from the start, as ESPHome
   brings up a light turned on from off, and is shown in it at once
+- Fixed an ESPHome RGBW light built with `color_interlock` never lighting its
+  white: its white is a color mode of its own, which the driver never named, so
+  the On Color a new light is given and a white picked on the color wheel went
+  out in its red, green and blue; a color that is the point of a color
+  temperature from about 2000 to 6500 K now lights the white alone, as on an
+  RGBW light built without `color_interlock`, and a fade between two whites
+  stays in the white
 
 ### Changed
 

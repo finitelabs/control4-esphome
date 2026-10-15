@@ -136,7 +136,7 @@ end
 --- A fresh light, whose Color On Mode is in the process-wide store.
 --- @param modes table The entity's supported_color_modes.
 local function light(modes, on)
-  for _, key in ipairs({ "color_on_mode", "color_presets", "previous_color" }) do
+  for _, key in ipairs({ "color_on_mode", "color_presets", "previous_color", "white_point" }) do
     persist:delete(key)
   end
   restart(modes, on)
@@ -4143,16 +4143,178 @@ do
   elsewhere.color_brightness = 1
   pushed({ RGBW }, elsewhere)
   T.eq("with its color turned up further: that color", ysTold(), { 1 })
+end
 
-  -- color_interlock makes the white a mode of its own, which a color never names.
-  light({ RGB, ColorMode.COLOR_MODE_WHITE })
+T.section("a full color that is a white's own point lights the white mode of a light whose white is a mode of its own")
+do
+  -- An RGBW light built with color_interlock: its white is a mode with no color
+  -- temperature, which takes no color beside it, so its point is the driver's to keep.
+  local POINT, WARMER = { 0.32, 0.4 }, { 0.4, 0.4 }
+  local W = ColorMode.COLOR_MODE_WHITE
+  local INTERLOCKED = { RGB, W }
+  -- What the last command lit: its color mode, white, and whether it set red, green and blue.
+  local WHITE, COLOR = { W, 1, false, false }, { RGB, false, true, false }
+  local function lit()
+    local cmd = lastCommand()
+    return {
+      cmd.color_mode,
+      cmd.has_white and cmd.white or false,
+      cmd.has_rgb or false,
+      cmd.has_color_brightness or false,
+    }
+  end
+  --- The color mode of each command the device was sent since the mark.
+  local function modesSent()
+    local out = {}
+    for _, s in ipairs(sent) do
+      local cmd = s.binding == ESPHOME and s.command == "ENTITY_COMMAND" and DeserializeSafe(s.params.body)
+      if cmd then
+        out[#out + 1] = cmd.color_mode or false
+      end
+    end
+    return out
+  end
+  --- `values` to six places.
+  local function sixPlaces(values)
+    local out = {}
+    for i, value in ipairs(values) do
+      out[i] = math.floor(value * 1e6 + 0.5) / 1e6
+    end
+    return out
+  end
+  --- A report of the light in its white, as another client leaves it, with blue's red, green and blue kept.
+  local function inWhite()
+    pushed(INTERLOCKED, { state = true, brightness = 1.0, color_mode = W, white = 1, red = 0, green = 0.4, blue = 1 })
+  end
+
+  light(INTERLOCKED, false)
+  fadeMode(POINT, POINT, FULL_MODE)
+  mark()
+  proxy("ON")
+  T.eq("an on in a new light's On Color: the white mode, the white at full and nothing of the color", lit(), WHITE)
+  T.check("the light is sent no point", lastCommand().point == nil, T.show(lastCommand()))
+  T.eq("the proxy is told that color", { colorsTold(), modesTold() }, { { 0.32 }, { FULL_MODE } })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
+  T.eq("and a level after it stays in the white mode", lit(), WHITE)
+  run(2000)
+
+  light(INTERLOCKED)
+  setColor(BLUE)
   mark()
   colorTarget(POINT, 0)
+  T.eq("a white set from Navigator: the white mode", lit(), WHITE)
+  pushed(INTERLOCKED, taken())
+  T.eq("and the light's report of it, in a mode that has no point, tells nothing more", colorsTold(), { 0.32 })
+  mark()
+  pushed(INTERLOCKED, { state = true, brightness = 1.0, color_mode = RGB, color_brightness = 1, red = 1 })
+  inWhite()
   T.eq(
-    "a light with a color mode and a white mode that has no color temperature: its red, green and blue, as before",
-    { lastCommand().color_mode, colors() },
-    { RGB, { point } }
+    "another client's red and then its white: the white read at the point the driver last sent",
+    { colorsTold(), modesTold() },
+    { { 0, 0.32 }, { FULL_MODE, FULL_MODE } }
   )
+  mark()
+  colorTarget({ 0.15, 0.4 }, 0)
+  local warmer = lit()
+  colorTarget({ 0.7, 0.4 }, 0)
+  T.eq("the point of a white beyond the default range: its color", { warmer, lit() }, { COLOR, COLOR })
+  colorTarget({ 0.32, 0.43 }, 0)
+  T.eq("a color beside a white's point: its color", lit(), COLOR)
+  activate(colorStep(nil, POINT, 0))
+  T.eq("a scene step's white: the white mode", lit(), WHITE)
+  proxy("CLEAR_ALL_SCENES")
+  light(INTERLOCKED, false)
+  mark()
+  colorTarget(POINT, 0)
+  T.eq("a white for a light that is off names the white mode, which it stays off in", {
+    lastCommand().state,
+    lit(),
+  }, { false, WHITE })
+
+  -- Dim-To-Warm is between its two ends, as on every light with a white.
+  light(INTERLOCKED)
+  fadeMode(POINT, WARMER, FULL_MODE)
+  local each = {}
+  for _, level in ipairs({ 20, 50, 80 }) do
+    proxy("SET_LEVEL", { LEVEL = level })
+    each[#each + 1] = lit()
+  end
+  T.eq("Dim-To-Warm between two whites: the white mode at every level", each, { WHITE, WHITE, WHITE })
+  light(INTERLOCKED)
+  fadeMode(POINT, BLUE, FULL_MODE)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq("between a white and a color: the color, the mix not asked", lit(), COLOR)
+
+  -- Another client's white has no point the driver sent: it is read at the default white's.
+  light(INTERLOCKED)
+  onMode(PREVIOUS_ON)
+  setColor(BLUE)
+  mark()
+  inWhite()
+  T.eq("another client's white, from a color: the default white's point", {
+    sixPlaces(colorsTold()),
+    modesTold(),
+  }, { { 0.3127 }, { FULL_MODE } })
+  proxy("OFF")
+  mark()
+  proxy("ON")
+  T.eq("with Color On Mode set to Previous the light comes back on in its white mode", lit(), WHITE)
+
+  -- The point is stored, and outlives a bind as at a controller's start, but not an unbind.
+  light(INTERLOCKED)
+  colorTarget(WARMER, 0)
+  restart()
+  OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+  inWhite()
+  T.eq("a white, then a restart of the driver with the light still in it: the proxy is told that white", {
+    colorsTold(),
+    modesTold(),
+  }, { { 0.4 }, { FULL_MODE } })
+  OBC[ESPHOME](ESPHOME, "ESPHOME", false)
+  OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+  mark()
+  inWhite()
+  T.eq("and bound to another light in its white: the default white's point", sixPlaces(colorsTold()), { 0.3127 })
+
+  -- Every white is the one channel, so a fade between two never leaves the white mode.
+  light(INTERLOCKED)
+  colorTarget(POINT, 0)
+  pushed(INTERLOCKED, taken())
+  mark()
+  colorTarget(WARMER, 4000)
+  run(1000)
+  proxy("SET_COLOR_STOP")
+  T.eq("a fade between two whites, stopped a quarter of the way: the white mode throughout", modesSent(), { W, W })
+  T.eq(
+    "told where the fade had got to",
+    { sixPlaces(colorsTold()), modesTold() },
+    { sixPlaces({ 0.32 + 0.08 * eased(0.25) }), { FULL_MODE } }
+  )
+  pushed(INTERLOCKED, taken())
+  T.eq("and the light's report of the stop tells nothing more", #colorsTold(), 1)
+
+  -- Between the white and the color the light changes mode, which ESPHome fades through off.
+  for _, case in ipairs({
+    { POINT, BLUE, "from the white to blue", 1000, "a quarter", WHITE, 0.32 },
+    { POINT, BLUE, "from the white to blue", 3000, "three quarters", COLOR, BLUE[1] },
+    -- A hold in the color names its color brightness too.
+    { BLUE, POINT, "from blue to the white", 1000, "a quarter", { RGB, false, true, true }, BLUE[1] },
+    { BLUE, POINT, "from blue to the white", 3000, "three quarters", WHITE, 0.32 },
+  }) do
+    light(INTERLOCKED)
+    colorTarget(case[1], 0)
+    pushed(INTERLOCKED, taken())
+    colorTarget(case[2], 4000)
+    run(case[4])
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(
+      case[3] .. ", stopped " .. case[5] .. " of the way: held in the mode the light is in",
+      { lit(), sixPlaces(colorsTold()) },
+      { case[6], sixPlaces({ case[7] }) }
+    )
+  end
 end
 
 T.section("the color temperature a level carries is left to a light that can work its cold and warm white out")

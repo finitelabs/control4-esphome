@@ -106,6 +106,9 @@ local P_COLOR_ON_MODE = "color_on_mode"
 local P_PREVIOUS_COLOR = "previous_color"
 local P_BRIGHTNESS_ON_MODE_PRESET = "brightness_on_mode_preset"
 local P_COLOR_ON_MODE_PRESET = "color_on_mode_preset"
+-- The point of the white last sent to a white mode with no color temperature,
+-- which the light's reports cannot carry.
+local P_WHITE_POINT = "white_point"
 
 -- Color on-mode kinds. The proxy assigns presets with these origins/IDs to
 -- distinguish dim-to-warm pairs from previous-color tracking.
@@ -774,6 +777,12 @@ local function firstColorMode()
 end
 
 local function sendLightCommand(opts)
+  -- A white's point rides with its command for the driver alone, not the light,
+  -- and is stored so a restart reads the light's white at it.
+  if opts.point then
+    persist:set(P_WHITE_POINT, opts.point)
+    opts.point = nil
+  end
   log:debug("sendLightCommand(%s)", opts)
   -- A light that is not connected reports nothing of what it is sent.
   if STATE and (opts.has_brightness or opts.state == false) then
@@ -860,11 +869,21 @@ end
 
 local takenColor -- defined with the white points below
 
+-- The mode of a white with no color temperature that is a mode of its own
+-- beside the color, as an RGBW light built with color_interlock has: nil for any other.
+local function ownWhiteMode()
+  local white = ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_WHITE
+  if supportsColor and supportedColorModes[white] then
+    return white
+  end
+end
+
 -- The color a light's fields show, as an xy and its color mode: nil for none.
 -- A mode with a color and a white shows the one turned up further, the color
 -- while it is at least the white, and the white below that: at its color
 -- temperature's point, or for a white with none, at the white's point of the
--- red, green and blue a white is sent beside.
+-- red, green and blue a white is sent beside. A white mode of its own shows the
+-- point it was last sent, or with none sent the default white's.
 local function shownColor(fields)
   local CM = ESPHomeProtoSchema.Enum.ColorMode
   local mode = fields.color_mode
@@ -885,6 +904,14 @@ local function shownColor(fields)
       return takenColor(x, y, LIGHT_COLOR_MODE_CCT)
     end
     return x, y, LIGHT_COLOR_MODE_FULL
+  end
+  if mode and mode == ownWhiteMode() then
+    local point = persist:get(P_WHITE_POINT)
+    if point and point.x and point.y then
+      return point.x, point.y, LIGHT_COLOR_MODE_CCT
+    end
+    local x, y = takenColor(DEFAULT_COLOR_X, DEFAULT_COLOR_Y, LIGHT_COLOR_MODE_CCT)
+    return x, y, LIGHT_COLOR_MODE_CCT
   end
 end
 
@@ -1048,6 +1075,12 @@ local function buildColorCmdFields(x, y, mode, merged)
       -- green and blue beside it for the light's report to be read back at.
       return combinedFields(fields, combined, mode == LIGHT_COLOR_MODE_CCT or nil)
     end
+    -- A white that is a mode of its own is lit alone, at full, and keeps its
+    -- point for the light's reports, which have none to read back.
+    local white = mode == LIGHT_COLOR_MODE_CCT and ownWhiteMode()
+    if white then
+      return { has_color_mode = true, color_mode = white, has_white = true, white = 1, point = { x = x, y = y } }
+    end
     -- Named, or a light that is off in a mode with no color drops the color.
     local pickedMode = pickColorMode("rgb")
     if pickedMode then
@@ -1066,9 +1099,9 @@ local function takenKelvin(k)
 end
 
 -- Whether the light has a white for a white's own point: one at a color
--- temperature, or one with none beside its color, as an RGBW light has.
+-- temperature, or one with none beside its color or as a mode of its own, as an RGBW light has.
 local function hasWhiteForPoints()
-  return supportsCCT or combinedColorMode() ~= nil
+  return supportsCCT or combinedColorMode() ~= nil or ownWhiteMode() ~= nil
 end
 
 -- Whether a full color is a color temperature's own point, inside the light's
@@ -3426,7 +3459,7 @@ end
 -- Binding change
 ---------------------------------------------------------------------------
 
-OBC[ESPHOME_BINDING] = function()
+OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   ENTITY = nil
   STATE = nil
   dynamicCapsSent = false
@@ -3449,6 +3482,10 @@ OBC[ESPHOME_BINDING] = function()
   lightBrightness = nil
   lightTarget = {}
   lightFade = nil
+  -- Only an unbind can leave the point another light's: a bind may come at a controller's start.
+  if not isBound then
+    persist:delete(P_WHITE_POINT)
+  end
   currentColorX = DEFAULT_COLOR_X
   currentColorY = DEFAULT_COLOR_Y
   currentColorMode = LIGHT_COLOR_MODE_CCT
