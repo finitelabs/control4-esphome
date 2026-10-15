@@ -1254,7 +1254,7 @@ test("A driver that has never seen a device still reports itself offline", funct
 end)
 
 test("Heat engages on a water heater that has never stored a mode", function()
-  -- persist:get returns an EMPTY sentinel, not nil; it must not restore as {} and be sent as an enum.
+  -- A mode never stored reads as nil; Heat must still send an enum.
   C4:PersistDeleteValue("LastWaterHeaterMode")
   package.loaded["lib.persist"] = nil
   dofile(DRIVER)
@@ -1271,7 +1271,7 @@ test("Heat engages on a water heater that has never stored a mode", function()
   local body = lastCommandBody()
   T.check("a water heater command is sent", body ~= nil)
   if body then
-    T.eq("and the mode is an enum, not the persist sentinel table", type(body.mode), "number")
+    T.eq("and the mode is an enum", type(body.mode), "number")
   end
 end)
 
@@ -1615,7 +1615,7 @@ test("Preset lists that differ only in where a preset ends are told apart", func
 end)
 
 test("A fresh install does not forward a bound sensor before the proxy enables it", function()
-  -- persist:get's EMPTY sentinel is truthy; a fresh install must not read as in use.
+  -- Nothing is stored on a fresh install, which must not read as in use.
   package.loaded["lib.persist"] = nil
   dofile(DRIVER)
   OnDriverLateInit()
