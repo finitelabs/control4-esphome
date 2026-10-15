@@ -3934,7 +3934,7 @@ do
   colorTarget({ 0.2, 0.4 }, 0)
   T.eq("the point of a white beyond the light's range stays a color", { kelvins(), #colors() }, { {}, 1 })
   mark()
-  colorTarget({ 0.32, 0.41 }, 0)
+  colorTarget({ 0.32, 0.42 }, 0)
   T.eq("and so does a color beside a white's point", { kelvins(), #colors() }, { {}, 1 })
 
   -- Dim-To-Warm is between its two ends: both a white's point, or a color.
@@ -4033,7 +4033,7 @@ do
   T.eq("a scene step's", lit(), WHITE)
   proxy("CLEAR_ALL_SCENES")
   mark()
-  colorTarget({ 0.32, 0.41 }, 0)
+  colorTarget({ 0.32, 0.42 }, 0)
   T.eq("a color beside a white's point: its red, green and blue alone", lit(), COLOR)
   colorTarget(BLUE, 0)
   T.eq("and any other color", lit(), COLOR)
@@ -4313,6 +4313,89 @@ do
       case[3] .. ", stopped " .. case[5] .. " of the way: held in the mode the light is in",
       { lit(), sixPlaces(colorsTold()) },
       { case[6], sixPlaces({ case[7] }) }
+    )
+  end
+end
+
+T.section("a full color is a white's own point within one distance of the whites, the same on every side")
+do
+  local KINDS = {
+    { "a color temperature beside its color", { RGBCT, CT }, RANGE },
+    { "cold and warm white beside its color", { RGBWW }, RANGE },
+    { "a color mode and a white mode", { RGB, CWWW }, RANGE },
+    { "a white with no color temperature beside its color", { RGBW } },
+    { "a white mode with no color temperature", { RGB, ColorMode.COLOR_MODE_WHITE } },
+  }
+  --- Whether the last command lit the light's white: its color temperature, or its white alone.
+  local function whiteLit()
+    local cmd = lastCommand()
+    return cmd.has_color_temperature or (cmd.white == 1 and (cmd.color_brightness or 0) == 0) or false
+  end
+  --- Whether each of `colors` is lit as a white, set in turn on a light of `kind`.
+  local function whites(kind, colors)
+    light()
+    pushed(kind[2], { state = true, brightness = 1.0 }, kind[3])
+    local out = {}
+    for _, xy in ipairs(colors) do
+      colorTarget(xy, 0)
+      out[#out + 1] = whiteLit()
+    end
+    return out
+  end
+
+  -- C4's own answers on a controller (OS 4.3.0) for picks on the color wheel: each pick's xy,
+  -- the color temperature C4 gives it, whose point is the one nearest it, and that point.
+  local WHEEL = {
+    { 0.3127100, 0.3290200, 6360, 0.3157647, 0.3257940 }, -- its middle, 0.0044 from the point
+    { 0.3117924, 0.3320290, 6300, 0.3167600, 0.3267477 }, -- 1 % toward green (hue 120), 0.0073
+    { 0.3108568, 0.3350972, 6240, 0.3177775, 0.3277168 }, -- 2 %, 0.0101
+    { 0.3099028, 0.3382255, 6180, 0.3188177, 0.3287015 }, -- 3 %, 0.0130
+    { 0.3632250, 0.3545299, 4580, 0.3580381, 0.3615429 }, -- 20 % toward orange (hue 30), 0.0087
+    { 0.5277968, 0.4362199, 2020, 0.5245015, 0.4136185 }, -- an orange at 80 % (hue 39), 0.0228
+    { 0.708, 0.292, 1000, 0.6527501, 0.3444622 }, -- red, at the 1000 K end of the whites, 0.0762
+  }
+  local toXY, toCCT = C4.ColorCCTtoXY, C4.ColorXYtoCCT
+  function C4:ColorXYtoCCT(x, y)
+    for _, pick in ipairs(WHEEL) do
+      if (x == pick[1] and y == pick[2]) or (x == pick[4] and y == pick[5]) then
+        return pick[3]
+      end
+    end
+  end
+  function C4:ColorCCTtoXY(k)
+    for _, pick in ipairs(WHEEL) do
+      if pick[3] == k then
+        return pick[4], pick[5]
+      end
+    end
+  end
+  local picks = {}
+  for i = 1, 6 do
+    picks[i] = WHEEL[i]
+  end
+  for _, kind in ipairs(KINDS) do
+    T.eq(
+      "a light with "
+        .. kind[1]
+        .. ": the wheel's middle, 1 and 2 % toward green and 20 % toward orange are whites; 3 % toward green and"
+        .. " an orange at 80 % are not",
+      whites(kind, picks),
+      { true, true, true, false, true, false }
+    )
+  end
+  T.eq(
+    "red, for a light whose range reaches 1000 K: not a white",
+    whites({ nil, { RGBCT, CT }, { 153.8, 1000 } }, { WHEEL[7] }),
+    { false }
+  )
+  C4.ColorCCTtoXY, C4.ColorXYtoCCT = toXY, toCCT
+
+  -- Through the stubs the whites run along y = 0.4.
+  for _, kind in ipairs(KINDS) do
+    T.eq(
+      "a light with " .. kind[1] .. ": 0.011 from a white's point on either side is a white, and 0.013 is not",
+      whites(kind, { { 0.32, 0.411 }, { 0.32, 0.389 }, { 0.32, 0.413 }, { 0.32, 0.387 } }),
+      { true, true, false, false }
     )
   end
 end

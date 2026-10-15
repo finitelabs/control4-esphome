@@ -1104,6 +1104,10 @@ local function hasWhiteForPoints()
   return supportsCCT or combinedColorMode() ~= nil or ownWhiteMode() ~= nil
 end
 
+-- How far in xy a color may lie from the line of whites, on any side, and be one: C4 gives a color the
+-- temperature whose point is nearest. It holds the color wheel's middle and every pick 2 % around it in range.
+local WHITE_TOLERANCE = 0.012
+
 -- Whether a full color is a color temperature's own point, inside the light's
 -- range: a light with a white for it shows it in that white.
 local function isWhitePoint(x, y)
@@ -1112,7 +1116,7 @@ local function isWhitePoint(x, y)
     return false
   end
   local whiteX, whiteY = C4:ColorCCTtoXY(k)
-  return sameColor(x, y, LIGHT_COLOR_MODE_CCT, whiteX, whiteY, LIGHT_COLOR_MODE_CCT)
+  return math.sqrt((x - whiteX) ^ 2 + (y - whiteY) ^ 2) <= WHITE_TOLERANCE
 end
 
 -- A color as the light takes it, which its reports then read as: a white at its

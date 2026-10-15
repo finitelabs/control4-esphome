@@ -251,6 +251,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   temperature from about 2000 to 6500 K now lights the white alone, as on an
   RGBW light built without `color_interlock`, and a fade between two whites
   stays in the white
+- Fixed a white picked on the color wheel 1 % from its middle toward green going
+  out as a mix of red, green and blue on an ESPHome light with a white beside
+  its color, or being dropped by one with only a white, where one 16 % toward
+  orange lit the white: a color now counts as the white of a color temperature
+  inside the light's range when it is within the same distance of that white on
+  every side, so the middle of the wheel and the colors within 2 % of it light
+  the white where their color temperature is in the range; an orange that lies
+  on the line of whites, as some of up to 75 % do, is a warm white too
 
 ### Changed
 
