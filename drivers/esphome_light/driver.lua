@@ -177,6 +177,11 @@ local currentBrightnessPresetId = nil
 -- LIGHT_COLOR_TARGET_PRESET_ID counterpart (spec _3.1).
 local currentColorPresetId = nil
 
+-- The level and color the light last reported, then those it has been sent
+-- since, oldest first: a report of any other is another client's.
+local sentLevels = {}
+local sentColors = {}
+
 ---------------------------------------------------------------------------
 -- Driver lifecycle
 ---------------------------------------------------------------------------
@@ -511,12 +516,9 @@ end
 -- Rate" setting; the brightness and color defaults are the same value. If
 -- nothing has been persisted yet for color we fall back to the brightness
 -- default rather than the hard-coded constant so the two can never drift.
+-- Read as a number: a key never stored reads as an empty table, not nil.
 local function getDefaultColorRate()
-  local colorRate = persist:get(P_COLOR_RATE_DEFAULT)
-  if colorRate ~= nil then
-    return colorRate
-  end
-  return getDefaultRate()
+  return tointeger(persist:get(P_COLOR_RATE_DEFAULT)) or getDefaultRate()
 end
 
 local function getClickRateUp()
@@ -561,9 +563,57 @@ end
 
 local function sendLightCommand(opts)
   log:debug("sendLightCommand(%s)", opts)
+  -- A light that is not connected reports nothing of what it is sent.
+  if STATE and (opts.has_brightness or opts.state == false) then
+    -- As UPDATE_STATE reads the level back: 0 for off, and at least 1 for on.
+    sentLevels[#sentLevels + 1] = opts.state and math.max(1, math.floor(opts.brightness * 100 + 0.5)) or 0
+  end
+  if STATE and (opts.has_rgb or opts.has_color_temperature) then
+    sentColors[#sentColors + 1] = {
+      color_mode = opts.color_mode,
+      red = opts.red,
+      green = opts.green,
+      blue = opts.blue,
+      color_temperature = opts.color_temperature,
+    }
+  end
   SendToProxy(ESPHOME_BINDING, "ENTITY_COMMAND", {
     body = SerializeSafe(opts),
   })
+end
+
+--- Whether a report `matches` a value in `sent`: the light's last report
+--- again, or a value sent since. Either way it is the last from then, kept
+--- as `reported`, and what was sent before it is forgotten.
+local function isOwnReport(sent, matches, reported)
+  local own = false
+  for i, value in ipairs(sent) do
+    if matches(value) then
+      for _ = 2, i do
+        table.remove(sent, 1)
+      end
+      -- A repeat of it sent next adds nothing.
+      while sent[2] and matches(sent[2]) do
+        table.remove(sent, 2)
+      end
+      own = true
+      break
+    end
+  end
+  sent[1] = reported
+  return own
+end
+
+--- Whether a light's state holds the fields of a color it was sent, to the
+--- tolerance colors are compared at: a fraction of a field above 1, as mireds.
+local function holdsColor(state, color)
+  for field, value in pairs(color) do
+    local tolerance = COLOR_TOLERANCE * math.max(1, math.abs(value))
+    if not (math.abs((tofinite(state[field]) or 0) - value) <= tolerance) then
+      return false
+    end
+  end
+  return true
 end
 
 -- Pick the most specific ESPHome color mode the bulb supports for a given
@@ -614,7 +664,8 @@ end
 -- Convert an XY/mode color into the right ESPHome cmd fields. Returns the
 -- partial cmd table or nil if the bulb doesn't support color/CCT or the
 -- provided values can't be mapped.
-local function buildColorCmdFields(x, y, mode)
+--- @param merged boolean|nil The color a level command carries, whose color temperature names its mode too.
+local function buildColorCmdFields(x, y, mode, merged)
   if not (supportsColor or supportsCCT) or x == nil or y == nil then
     return nil
   end
@@ -627,6 +678,9 @@ local function buildColorCmdFields(x, y, mode)
       has_color_temperature = true,
       color_temperature = kelvinToMireds(k),
     }
+    if not merged then
+      return fields
+    end
     -- Set color_mode explicitly so ESPHome doesn't have to infer.
     local pickedMode = pickColorMode("cct")
     if pickedMode then
@@ -651,6 +705,7 @@ local function buildColorCmdFields(x, y, mode)
   if supportsColor then
     local r, g, b = xyToRGB(x, y)
     local fields = { has_rgb = true, red = r, green = g, blue = b }
+    -- Named, or a light that is off in a mode with no color drops the color.
     local pickedMode = pickColorMode("rgb")
     if pickedMode then
       fields.has_color_mode = true
@@ -659,6 +714,11 @@ local function buildColorCmdFields(x, y, mode)
     return fields
   end
   return nil
+end
+
+-- A color temperature as the light takes it: held to the light's own range.
+local function takenKelvin(k)
+  return math.max(miredsToKelvin(maxMireds), math.min(miredsToKelvin(minMireds), k))
 end
 
 -- A color as the light takes it, which its reports then read as: its color
@@ -672,7 +732,7 @@ local function takenColor(x, y, mode)
   end
   local k = tonumber(C4:ColorXYtoCCT(x, y))
   if k and k > 0 then
-    x, y = C4:ColorCCTtoXY(k)
+    x, y = C4:ColorCCTtoXY(takenKelvin(k))
   end
   return x, y, mode
 end
@@ -730,13 +790,11 @@ local function getColorOnModeKind()
   return COLOR_ON_MODE_NONE
 end
 
--- The bulb is "logically on" if either we already think it's on or a ramp
--- is in flight targeting an on-state. Used so a SET_COLOR_TARGET arriving
--- mid-ramp from off→on doesn't send state=false (which kills the brightness
--- fade by reverting the bulb to off).
+-- On when a ramp in flight is heading for an on level, or with none in flight when we think it is.
+-- A color command sends this state: the other would cancel a fade up, or turn a fade to off full on.
 local function isLogicallyOn()
-  if rampingBrightness and brightnessRamp and (brightnessRamp.targetLevel or 0) > 0 then
-    return true
+  if rampingBrightness and brightnessRamp then
+    return (brightnessRamp.targetLevel or 0) > 0
   end
   return currentBrightness > 0
 end
@@ -876,21 +934,31 @@ local leaveColorRamp, colorRampFinished -- defined with the color ramps below
 
 -- Track a color the bulb goes on to with no command of its own, for `ms`:
 -- its end tells the proxy and sends nothing.
-local function carryColor(x, y, mode, ms)
+--- @param from table|nil The ramp the color was already in, whose marks it keeps.
+--- @param now number|nil When it began, if a command was sent since.
+local function carryColor(x, y, mode, ms, from, now)
+  local told = from and from.told
+  if told then
+    -- Told at an off, the color is the one the bulb is in when next seen.
+    currentColorX, currentColorY, currentColorMode = x, y, mode
+  end
   if ms <= 0 then
-    notifyColorChanged(x, y, mode)
+    if not told then
+      notifyColorChanged(x, y, mode)
+    end
     return
   end
   rampingColor = true
   colorRamp = {
-    startTime = C4:GetTime(),
+    startTime = now or C4:GetTime(),
     startX = currentColorX,
     startY = currentColorY,
     targetX = x,
     targetY = y,
     targetMode = mode,
     durationMs = ms,
-    carried = true,
+    carried = not from or from.carried,
+    told = told,
   }
   SetTimer("ColorRampFinish", ms, function()
     colorRampFinished(x, y, mode)
@@ -898,12 +966,18 @@ local function carryColor(x, y, mode, ms)
 end
 
 -- ESPHome runs one transition for every channel, so a command with no color
--- moves a carried color on over its own transition, and at once with none.
-local function retimeCarriedColor(ms)
+-- moves a color on its way on over its own transition, and at once with none.
+--- @param held boolean|nil A stop's hold over the time the color has left: its end stays, and nothing is told.
+--- @param now number|nil When the command went out: the bulb starts again then, not once the proxy is told.
+local function retimeColor(ms, held, now)
   local ramp = colorRamp
-  if ramp and ramp.carried then
-    leaveColorRamp()
-    carryColor(ramp.targetX, ramp.targetY, ramp.targetMode, ms)
+  if not ramp then
+    return
+  end
+  leaveColorRamp(now)
+  carryColor(ramp.targetX, ramp.targetY, ramp.targetMode, ms, ramp, now)
+  if rampingColor and not ramp.told and not held then
+    notifyColorChanging(ramp.targetX, ramp.targetY, ramp.targetMode, ms)
   end
 end
 
@@ -964,7 +1038,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
   --      the SET_COLOR_TARGET handler skip a redundant ESPHome cmd that
   --      would otherwise cancel and restart the in-flight transition.
   local mergedColor = nil
-  -- A ramp's end, and a stop after a color was set, re-send the level alone.
+  -- A stop that keeps a color sends the level alone.
   if not keepColor then
     if level > 0 and getColorOnModeKind() == COLOR_ON_MODE_FADE then
       mergedColor = computeFadeColor(level)
@@ -974,7 +1048,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
   end
   local mergedColorApplied = false
   if mergedColor then
-    local colorFields = buildColorCmdFields(mergedColor.x, mergedColor.y, mergedColor.mode)
+    local colorFields = buildColorCmdFields(mergedColor.x, mergedColor.y, mergedColor.mode, true)
     if colorFields then
       for k, v in pairs(colorFields) do
         cmd[k] = v
@@ -1004,6 +1078,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
       end
     end
   end
+  local now = C4:GetTime()
   sendLightCommand(cmd)
   -- Emit color CHANGING/CHANGED to mirror the brightness side: the proxy
   -- doesn't always issue a SET_COLOR_TARGET (e.g. fade mode drives color
@@ -1011,8 +1086,8 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
   -- driver has to push these notifies for the picker to track.
   if mergedColorApplied then
     -- The color sent last is where the light goes, so a color ramp in flight
-    -- ends here: its end would report, and re-send, a color it has left.
-    leaveColorRamp()
+    -- ends here: its end would report a color it has left.
+    leaveColorRamp(now)
     if hasRate then
       -- CHANGING reports the color left: the ramp's end sets the target.
       notifyColorChanging(mergedColor.x, mergedColor.y, mergedColor.mode, rateMs)
@@ -1020,7 +1095,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
       notifyColorChanged(mergedColor.x, mergedColor.y, mergedColor.mode)
     end
   else
-    retimeCarriedColor(cmd.transition_length)
+    retimeColor(cmd.transition_length, keepColor, now)
   end
 end
 
@@ -1033,27 +1108,37 @@ end
 -- interpolate the device's current level mid-ramp using C4:GetTime() (ms).
 --
 -- ESPHome echoes one UPDATE_STATE per command it receives confirming the
--- target. During a ramp we ignore those echoes (rampingBrightness=true).
--- After the ramp ends we ignore brightness echoes for an additional grace
--- window in case stale echoes from a prior cmd arrive late and would
--- otherwise re-mutate currentBrightness and bounce the UI.
+-- target. During a ramp we ignore those echoes (rampingBrightness=true): the
+-- ramp's end tells the level. A level the bulb reports that we never sent is
+-- another client's, and ends the ramp (sentLevels).
 
 local function cancelBrightnessRampTimers()
   CancelTimer("BrightnessRampFinish")
 end
 
-local function interpolatedBrightness()
+-- ESPHome eases a transition (LightTransformer::smoothed_progress): a ramp
+-- is 10 % of its way a quarter through its time, and half way at the half.
+local function eased(p)
+  return p * p * p * (p * (p * 6 - 15) + 10)
+end
+
+--- The time a ramp has left, in ms.
+local function remaining(ramp)
+  return math.max(0, ramp.durationMs - (C4:GetTime() - ramp.startTime))
+end
+
+local function interpolatedBrightness(now)
   if not brightnessRamp or brightnessRamp.durationMs <= 0 then
     return currentBrightness
   end
-  local elapsed = C4:GetTime() - brightnessRamp.startTime
+  local elapsed = (now or C4:GetTime()) - brightnessRamp.startTime
   if elapsed <= 0 then
     return brightnessRamp.startLevel
   end
   if elapsed >= brightnessRamp.durationMs then
     return brightnessRamp.targetLevel
   end
-  local progress = elapsed / brightnessRamp.durationMs
+  local progress = eased(elapsed / brightnessRamp.durationMs)
   local span = brightnessRamp.targetLevel - brightnessRamp.startLevel
   return math.floor(brightnessRamp.startLevel + span * progress + 0.5)
 end
@@ -1082,11 +1167,16 @@ local function brightnessRampStopped()
   -- A color ramping, or set during this ramp, is not the level's to replace.
   -- One a replaced ramp carried is the level's own.
   local keepColor = (rampingColor and not colorRamp.carried) or brightnessRamp.colorSet
+  -- With no transition the stop would put the color at its target too, so a
+  -- color kept on its way has the level held over the time it has left.
+  local hold = keepColor and rampingColor and remaining(colorRamp) or 0
   rampingBrightness = false
   brightnessRamp = nil
-  -- Cancel ESPHome's in-flight transition by sending a 0-transition cmd at
-  -- the interpolated level. The bulb halts here.
-  setESPHomeBrightness(stoppedAt, 0, keepColor)
+  if hold > 0 and stoppedAt > 0 then
+    -- No turn-on, whose pre-on has no transition either.
+    currentBrightness = stoppedAt
+  end
+  setESPHomeBrightness(stoppedAt, hold, keepColor)
   notifyBrightnessChanged(stoppedAt)
 end
 
@@ -1101,18 +1191,18 @@ local function leaveMergedColor()
   end
   brightnessRamp.mergedColor = nil
   local elapsed = C4:GetTime() - brightnessRamp.startTime
-  local progress = math.min(1, elapsed / brightnessRamp.durationMs)
+  local progress = eased(math.min(1, elapsed / brightnessRamp.durationMs))
   currentColorX = currentColorX + (merged.x - currentColorX) * progress
   currentColorY = currentColorY + (merged.y - currentColorY) * progress
-  carryColor(merged.x, merged.y, merged.mode, brightnessRamp.durationMs - elapsed)
+  carryColor(merged.x, merged.y, merged.mode, remaining(brightnessRamp))
 end
 
 -- End a brightness ramp where it has got to, so what replaces it starts there
 -- and a later stop interpolates from the right level. Returns the ramp ended.
-local function leaveBrightnessRamp()
+local function leaveBrightnessRamp(now)
   local ramp = rampingBrightness and brightnessRamp or nil
   if rampingBrightness then
-    local at = interpolatedBrightness()
+    local at = interpolatedBrightness(now)
     if at == 0 and currentBrightness > 0 then
       endOnCycle() -- a fade retargeted as it reaches off ends its on cycle
     end
@@ -1123,6 +1213,35 @@ local function leaveBrightnessRamp()
   rampingBrightness = false
   brightnessRamp = nil
   return ramp
+end
+
+-- The same for a level on its way when a command sets a color alone: it goes
+-- on to its target over that command's transition.
+--- @param held boolean|nil A stop's hold over the time the level has left: its end stays, and nothing is told.
+--- @param now number|nil When the command went out: the bulb starts again then, not once the proxy is told.
+local function retimeBrightness(ms, held, now)
+  local ramp = leaveBrightnessRamp(now)
+  if not ramp then
+    return
+  end
+  if ms <= 0 or currentBrightness == ramp.targetLevel then
+    notifyBrightnessChanged(ramp.targetLevel)
+    return
+  end
+  rampingBrightness = true
+  brightnessRamp = {
+    startTime = now or C4:GetTime(),
+    startLevel = currentBrightness,
+    targetLevel = ramp.targetLevel,
+    durationMs = ms,
+    colorSet = ramp.colorSet,
+  }
+  if not held then
+    notifyBrightnessChanging(ramp.targetLevel, ms)
+  end
+  SetTimer("BrightnessRampFinish", ms, function()
+    brightnessRampFinished(ramp.targetLevel)
+  end, false)
 end
 
 local function awayFromFadeColor(level)
@@ -1181,11 +1300,9 @@ local function rampToBrightness(level, rate, presetId, replaced)
   -- Single ESPHome command - the bulb handles the physical transition.
   setESPHomeBrightness(level, rate)
   notifyBrightnessChanging(level, rate)
+  -- Nothing is sent at the end: the bulb is there, and a level with no
+  -- transition would put every other channel at its target too.
   SetTimer("BrightnessRampFinish", rate, function()
-    -- Belt-and-suspenders: snap state with a 0-transition cmd at target so
-    -- our state matches the bulb's even if the transition completed slightly
-    -- before/after our timer.
-    setESPHomeBrightness(level, 0, true)
     brightnessRampFinished(level)
   end, false)
 end
@@ -1203,50 +1320,37 @@ end
 
 -- Build and send an ESPHome light_command reflecting the given color state.
 local function sendColor(x, y, mode, rateMs)
-  if not (supportsColor or supportsCCT) then
+  local cmd = buildColorCmdFields(x, y, mode)
+  if not cmd then
     return
   end
-  -- isLogicallyOn so that a SET_COLOR_TARGET arriving mid-ramp from off→on
-  -- doesn't send state=false (which would cancel the brightness transition).
-  local cmd = { has_state = true, state = isLogicallyOn() }
-  if mode == LIGHT_COLOR_MODE_CCT and supportsCCT then
-    local k = tonumber(C4:ColorXYtoCCT(x, y))
-    if k and k > 0 then
-      cmd.has_color_temperature = true
-      cmd.color_temperature = kelvinToMireds(k)
-    end
-  elseif supportsColor then
-    local r, g, b = xyToRGB(x, y)
-    cmd.has_rgb = true
-    cmd.red = r
-    cmd.green = g
-    cmd.blue = b
-  end
+  cmd.has_state = true
+  cmd.state = isLogicallyOn()
   cmd.has_transition_length = true
   cmd.transition_length = (rateMs and rateMs > 0) and rateMs or 0
   sendLightCommand(cmd)
 end
 
-local function interpolatedColor()
+local function interpolatedColor(now)
   if not colorRamp or colorRamp.durationMs <= 0 then
     return currentColorX, currentColorY, currentColorMode
   end
-  local elapsed = C4:GetTime() - colorRamp.startTime
+  local elapsed = (now or C4:GetTime()) - colorRamp.startTime
   if elapsed <= 0 then
     return colorRamp.startX, colorRamp.startY, colorRamp.targetMode
   end
   if elapsed >= colorRamp.durationMs then
     return colorRamp.targetX, colorRamp.targetY, colorRamp.targetMode
   end
-  local progress = elapsed / colorRamp.durationMs
+  local progress = eased(elapsed / colorRamp.durationMs)
   local x = colorRamp.startX + (colorRamp.targetX - colorRamp.startX) * progress
   local y = colorRamp.startY + (colorRamp.targetY - colorRamp.startY) * progress
   return x, y, colorRamp.targetMode
 end
 
 -- End a color ramp where it has got to: what replaces it starts there.
-function leaveColorRamp()
-  currentColorX, currentColorY, currentColorMode = interpolatedColor()
+function leaveColorRamp(now)
+  currentColorX, currentColorY, currentColorMode = interpolatedColor(now)
   cancelColorRampTimers()
   rampingColor = false
   colorRamp = nil
@@ -1268,18 +1372,20 @@ local function colorRampStopped()
   if not rampingColor then
     return
   end
+  local now = C4:GetTime()
   local x, y, mode = interpolatedColor()
+  -- The mirror of a level's stop: held over the time a level ramp has left.
+  local hold = rampingBrightness and remaining(brightnessRamp) or 0
   rampingColor = false
   colorRamp = nil
-  sendColor(x, y, mode, 0)
-  currentColorX = x
-  currentColorY = y
-  currentColorMode = mode
+  sendColor(x, y, mode, hold)
   notifyColorChanged(x, y, mode)
+  retimeBrightness(hold, true, now)
 end
 
 local function rampToColor(targetX, targetY, targetMode, rate)
   rate = math.max(0, tointeger(rate) or 0)
+  local now = C4:GetTime()
 
   -- Drop the on color a brightness ramp carries, or its end would report it.
   leaveMergedColor()
@@ -1289,18 +1395,26 @@ local function rampToColor(targetX, targetY, targetMode, rate)
     brightnessRamp.colorSet = true
   end
 
-  if rate == 0 then
+  -- A light that is off, or fading to off, has no color fade to show: this is
+  -- the color it next comes on in, sent over what a fade to off has left.
+  local off = not isLogicallyOn()
+  if off then
+    rate = rampingBrightness and remaining(brightnessRamp) or 0
+  end
+
+  if rate == 0 or off then
     currentColorX = targetX
     currentColorY = targetY
     currentColorMode = targetMode
-    sendColor(targetX, targetY, targetMode, 0)
+    sendColor(targetX, targetY, targetMode, rate)
     notifyColorChanged(targetX, targetY, targetMode)
+    retimeBrightness(rate, off, now)
     return
   end
 
   rampingColor = true
   colorRamp = {
-    startTime = C4:GetTime(),
+    startTime = now,
     startX = currentColorX,
     startY = currentColorY,
     targetX = targetX,
@@ -1313,12 +1427,9 @@ local function rampToColor(targetX, targetY, targetMode, rate)
   -- Mode change is logically instantaneous; mid-ramp we're interpolating XY.
   currentColorMode = targetMode
   SetTimer("ColorRampFinish", rate, function()
-    sendColor(targetX, targetY, targetMode, 0)
-    currentColorX = targetX
-    currentColorY = targetY
-    currentColorMode = targetMode
     colorRampFinished(targetX, targetY, targetMode)
   end, false)
+  retimeBrightness(rate, nil, now)
 end
 
 ---------------------------------------------------------------------------
@@ -1494,7 +1605,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   local targetX, targetY, targetMode
 
   if kelvin and kelvin > 0 and supportsCCT then
-    targetX, targetY = C4:ColorCCTtoXY(kelvin)
+    targetX, targetY = C4:ColorCCTtoXY(takenKelvin(kelvin))
     targetMode = LIGHT_COLOR_MODE_CCT
   elseif incomingMode == LIGHT_COLOR_MODE_CCT and supportsCCT and x and y then
     local k = tonumber(C4:ColorXYtoCCT(x, y))
@@ -1712,8 +1823,8 @@ local function applySceneStep(step)
     -- so subsequent CHANGED notifies don't echo a stale value. Color-only
     -- steps don't touch this so a brightness preset can survive across them.
     currentBrightnessPresetId = nil
-    -- A color-only step leaves a brightness ramp running, as the bulb does:
-    -- only a level replaces it.
+    -- A level ends a ramp in flight where it has got to. A color-only step
+    -- re-times it instead, below.
     replaced = leaveBrightnessRamp()
     goingOn = level > 0 and currentBrightness == 0
     -- Only prime a ramp when the level actually moves; an explicit step at
@@ -1738,9 +1849,19 @@ local function applySceneStep(step)
   local color = nil
   if step.colorEnabled and step.colorX and step.colorY then
     local x, y, mode = takenColor(step.colorX, step.colorY, step.colorMode or LIGHT_COLOR_MODE_FULL)
-    color = { x = x, y = y, mode = mode }
+    -- A color the light cannot take is none of the step's: nothing of it is sent or told.
+    if buildColorCmdFields(x, y, mode) then
+      color = { x = x, y = y, mode = mode }
+    end
   end
   local ownColor = color
+  -- A color alone, for a light that is off or fading to off, is the color it
+  -- next comes on in, as a color command's is: the step does not turn it on.
+  if ownColor and level == nil and not isLogicallyOn() then
+    currentColorPresetId = nil
+    rampToColor(color.x, color.y, color.mode, rate)
+    return rate
+  end
   -- A step that sets a level alone takes the color a level command would.
   if not color and (level or 0) > 0 then
     if getColorOnModeKind() == COLOR_ON_MODE_FADE then
@@ -1750,7 +1871,13 @@ local function applySceneStep(step)
     end
   end
   local colorAtOnce = nil
+  -- An on color the light cannot take builds no fields: the step then sets none.
+  local colorFields = nil
   if color and not turningOff then
+    colorFields = buildColorCmdFields(color.x, color.y, color.mode or LIGHT_COLOR_MODE_FULL)
+  end
+  local setsColor = colorFields ~= nil
+  if setsColor then
     -- The step's color replaces the on color a brightness ramp carries and a
     -- color ramp in flight, each from where it has got to.
     leaveMergedColor()
@@ -1760,18 +1887,8 @@ local function applySceneStep(step)
       brightnessRamp.colorSet = true
     end
     local mode = color.mode or LIGHT_COLOR_MODE_FULL
-    if mode == LIGHT_COLOR_MODE_CCT and supportsCCT then
-      local k = tonumber(C4:ColorXYtoCCT(color.x, color.y))
-      if k and k > 0 then
-        cmd.has_color_temperature = true
-        cmd.color_temperature = kelvinToMireds(k)
-      end
-    elseif supportsColor then
-      local r, g, b = xyToRGB(color.x, color.y)
-      cmd.has_rgb = true
-      cmd.red = r
-      cmd.green = g
-      cmd.blue = b
+    for k, v in pairs(colorFields) do
+      cmd[k] = v
     end
     cmd.has_state = true
     cmd.state = true
@@ -1806,8 +1923,15 @@ local function applySceneStep(step)
     if goingOn and rate > 0 and supportsDimming then
       sendPreOn()
     end
+    local now = C4:GetTime()
     sendLightCommand(cmd)
-    retimeCarriedColor(rate)
+    -- The fade the step sets nothing of goes on over the step's transition.
+    if not setsColor then
+      retimeColor(rate, nil, now)
+    end
+    if level == nil then
+      retimeBrightness(rate, nil, now)
+    end
     -- A step taken at once is where the light is: what follows starts there.
     -- One landing where a replaced ramp had got to is told too, as its end.
     if level ~= nil and not rampingBrightness and (level ~= currentBrightness or replaced) then
@@ -2513,6 +2637,8 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   mergedColorUntil = 0
   currentBrightnessPresetId = nil
   currentColorPresetId = nil
+  sentLevels = {}
+  sentColors = {}
   updateStatus("Disconnected", false)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   notifyBrightnessChanged(0)
@@ -2567,15 +2693,30 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   else
     newBrightness = 100
   end
+  local ownLevel = isOwnReport(sentLevels, function(level)
+    return level == newBrightness
+  end, newBrightness)
+  local ownColor = isOwnReport(sentColors, function(color)
+    return holdsColor(state, color)
+  end, {
+    color_mode = tointeger(Select(state, "color_mode")),
+    red = tofinite(Select(state, "red")) or 0,
+    green = tofinite(Select(state, "green")) or 0,
+    blue = tofinite(Select(state, "blue")) or 0,
+    color_temperature = tofinite(Select(state, "color_temperature")) or 0,
+  })
 
-  -- During a ramp, ESPHome's echo confirms the target value (not the
-  -- interpolated physical value), so we ignore it - rampingBrightness will
-  -- be cleared in brightnessRampFinished or brightnessRampStopped, both of
-  -- which set currentBrightness to the appropriate value before the snap
-  -- cmd's echo can arrive. Outside a ramp, the echo's target equals what
-  -- we last set, so processing it is a no-op (newBrightness already
-  -- matches currentBrightness).
-  if rampingBrightness then
+  -- A level or color the light did not last report and the driver never sent
+  -- is another client's command: at the bulb that ends both fades.
+  local fading = rampingColor or (rampingBrightness and brightnessRamp and brightnessRamp.mergedColor)
+  local taken = not (ownLevel and ownColor)
+
+  -- During a ramp ESPHome's echo confirms the level the ramp is heading for,
+  -- not where the bulb is, so it is ignored: the ramp's end tells the level.
+  if rampingBrightness and taken then
+    leaveBrightnessRamp()
+    notifyBrightnessChanged(newBrightness)
+  elseif rampingBrightness then
     log:trace("UPDATE_STATE brightness=%s ignored (ramping)", newBrightness)
   elseif isFirstUpdate or newBrightness ~= currentBrightness then
     -- Spec note: LIGHT_BRIGHTNESS_CHANGED should always be sent when the
@@ -2584,8 +2725,12 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     notifyBrightnessChanged(newBrightness)
   end
 
-  -- A light keeps its color while off, so read it whether or not it is lit.
-  -- A ramp tells its own color, or the one it carries, at its end.
+  -- A light keeps its color while off, so read it lit or not. A ramp tells its
+  -- color, or the one it carries, at its end, unless another client ended it.
+  taken = taken and fading
+  if taken then
+    leaveColorRamp()
+  end
   local merged = rampingBrightness and brightnessRamp and brightnessRamp.mergedColor
   if (supportsColor or supportsCCT) and not rampingColor and not merged then
     local activeMode = tointeger(Select(state, "color_mode"))
@@ -2618,6 +2763,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
       and newColorMode
       and (
         isFirstUpdate
+        or taken
         or math.abs(newX - currentColorX) > COLOR_ECHO_TOLERANCE
         or math.abs(newY - currentColorY) > COLOR_ECHO_TOLERANCE
         or newColorMode ~= currentColorMode
@@ -2653,6 +2799,8 @@ OBC[ESPHOME_BINDING] = function()
   mergedColorUntil = 0
   currentBrightnessPresetId = nil
   currentColorPresetId = nil
+  sentLevels = {}
+  sentColors = {}
   currentColorX = DEFAULT_COLOR_X
   currentColorY = DEFAULT_COLOR_Y
   currentColorMode = LIGHT_COLOR_MODE_CCT

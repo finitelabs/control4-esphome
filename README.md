@@ -1040,6 +1040,42 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   before the bulb had reached it
 - Fixed a light turned off while its color was still fading coming back on, with
   Color On Mode set to Previous, in the color the fade began in
+- Fixed a light that was stopped part way through a ramp stepping to another
+  level, by up to 15 % of the ramp, and a ramp, fade or stop that took over from
+  a ramp still running being shown from the wrong level or color: an ESPHome
+  light eases into and out of a ramp, and the driver took it to move at a steady
+  rate
+- Fixed a light that was ramping and fading to a color at the same time jumping
+  to the end of both when the first of the two ran out: a slow color fade begun
+  during a short ramp sat almost still and then snapped to its color and level,
+  and a light turned off during a color fade and faded back on jumped to full
+  when the color fade would have ended
+- Fixed a light that was sent a level while its color was fading, or a color
+  while it was ramping, being shown as still changing for seconds after it had
+  arrived: an ESPHome light takes a fade already running along with the new
+  command, over that command's ramp time, and the driver now follows it and
+  shows both finishing together, at once when the command has no ramp time
+- Fixed a light that was told to stop ramping while its color was still fading
+  jumping to the color the fade was heading for, and one told to stop a color
+  fade while it was ramping jumping to the level the ramp was heading for; a
+  stop now holds what it stops where the light is and leaves the other to finish
+  in the time it had left
+- Fixed a color set on a light that was off being dropped when the light had
+  last been on in a color temperature: it was shown in the color and came on
+  white
+- Fixed a color sent to a light that was fading to off turning it full on in
+  that color until the fade's time was up, and a color set over a ramp time on a
+  light that was off making a ramped On after it jump to full early; a light
+  that is off or fading to off now keeps the color for when it next comes on,
+  and is shown in it at once, and an Advanced Lighting scene that sets a color
+  and no level no longer turns it on
+- Fixed a color change sent with no ramp time snapping to the color at once on a
+  light whose default ramp rate had never been set; it now fades over the
+  default half second, as a level change does
+- Fixed a light that another controller of the ESPHome device, such as Home
+  Assistant, set to a level or color while it was ramping from Control4 being
+  put back at the ramp's level or color when the ramp's time was up; the change
+  is now kept, and shown as soon as the light reports it
 
 ### Changed
 
