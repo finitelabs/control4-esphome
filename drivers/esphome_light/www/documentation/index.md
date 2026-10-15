@@ -100,20 +100,12 @@ color-temperature, and full-color lights are all supported.
 </div>
 
 > **Note:** Control4 sets a light to a color or to a color temperature, never
-> both. A color picked close to the white of a color temperature inside the
-> light's range, 2000 to 6536 K on an RGBW light, such as the On Color a new
-> light is given, the middle of the color wheel or an orange that lies along the
-> warm whites, lights the light's white where it has one, and is shown as the
-> color that was picked, or as that white on a light with only a white. On an
-> RGBW light, with or without `color_interlock`, that is the white channel, and
-> any other color uses red, green and blue. A color temperature beyond the
-> light's range lights the nearer end of it, and is shown as the one that was
-> set. On a light built with `color_interlock`, a fade between a color and a
-> white goes dark for a moment half way, because ESPHome changes between its
-> color and white modes through off. Stopped before half way, the light stays in
-> the one it was fading from, and after it in the one it was fading to, and
-> comes back up to its level over half a second. A ramped On comes up in its On
-> color from the start, with no such dip.
+> both. A color picked close to a white, such as the On Color a new light is
+> given, lights the light's white where it has one and is shown as the color
+> that was picked. A color temperature outside the light's range lights the
+> nearer end of it. On a light built with `color_interlock`, a fade between a
+> color and a white goes dark for a moment half way, because ESPHome changes
+> between its color and white modes through off.
 
 # <span style="color:#17BCF2">Installer Setup</span>
 
