@@ -1096,7 +1096,7 @@ test("Reset Driver releases a live connection and forgets the device", function(
   T.eq("status", Properties["Driver Status"], "Disconnected")
   T.eq("properties return to their defaults", Properties["Power"], "Unknown")
   T.eq("the Connected variable is gone", variable("Connected"), nil)
-  -- persist:get returns a shared empty table for a missing key, so ask for a sentinel
+  -- A key that is not stored reads as the call's default, so false shows it is gone
   T.eq("persisted state is gone", persist:get("deviceState", false), false)
   T.falsy("no poll outlives it", armed("PollCycle"))
   T.check(

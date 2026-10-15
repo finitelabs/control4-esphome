@@ -775,7 +775,7 @@ local function sendLightCommand(opts)
   local point = opts.point
   if point then
     opts.point = nil
-    local stored = persist:get(P_WHITE_POINT)
+    local stored = persist:get(P_WHITE_POINT, {})
     local picked, was = point.picked or {}, stored.picked or {}
     -- Skip a plain white unless it clears an old pick or the light's reports
     -- carry no point (ownWhiteMode).
