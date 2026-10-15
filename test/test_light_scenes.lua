@@ -7480,6 +7480,37 @@ do
     { colorsTold(), told("LIGHT_COLOR_CHANGED", "at") },
     { { 0, 0.4, 0 }, { 12, 1012, 1512 } }
   )
+
+  -- A color sent after red waits its own second, not what is left of red's.
+  inWhite()
+  levelThenRed()
+  run(150)
+  answer()
+  run(100)
+  answer(true)
+  run(650)
+  colorTarget({ 1 / 3, 1 }, 0)
+  run(200)
+  answer()
+  run(2000)
+  T.eq(
+    "green sent 0.9 s after a red the light did not take: 4000 K is not told while green's report is on the way",
+    { colorsTold(), told("LIGHT_COLOR_CHANGED", "at") },
+    { { 0, 1 / 3 }, { 12, 912 } }
+  )
+
+  -- A wait begun before a disconnect tells nothing after it.
+  inWhite()
+  levelThenRed()
+  run(150)
+  answer()
+  RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
+  run(2000)
+  T.eq(
+    "a disconnect while red's report may be on the way: its 4000 K is not told after it",
+    { colorsTold(), told("LIGHT_COLOR_CHANGED", "at") },
+    { { 0 }, { 12 } }
+  )
 end
 
 T.finish()
