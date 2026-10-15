@@ -56,7 +56,8 @@ then pull the change in with `copier update`.
 
 - `preprocess.py`: C-style `#ifdef`/`#ifndef` preprocessor for Lua, XML, and
   Markdown
-- `docs.py`: documentation generation (Markdown -> HTML -> PDF, plus README)
+- `docs.py`: documentation generation (Markdown -> HTML -> PDF, plus README) and
+  the Markdown formatting `make fmt` runs
 - `package.py`: packaging helpers (driver.xml stamping, zip bundling)
 - `deps.py`: build preflight, checks the `.venv` against `requirements.txt`
 - `gen-squishy.lua`: auto-generates squishy files from driver.c4zproj
@@ -90,6 +91,12 @@ then pull the change in with `copier update`.
 from the driver's `www/documentation/index.md`, so edit the source doc, not the
 README.
 
+Driver docs can use GitHub's alerts: a quote whose first line is `[!NOTE]`,
+`[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`. The README, the HTML doc
+and the PDF all show them as GitHub does. The marker goes alone on its line, and
+the quote must not sit inside a list or another quote; otherwise it stays a
+plain quote that shows the marker.
+
 ## Updating Shared Code
 
 Copier is only needed for this occasional sync. It is **not** a build dependency
@@ -110,7 +117,9 @@ each one.
 ## Build System
 
 This project uses `make` for build orchestration. All tooling is Python (in a
-local `.venv`) plus a few standalone binaries, with no Node/npm.
+local `.venv`) plus a few standalone binaries, with no Node/npm. A repo that
+adds Node tooling of its own pins the version in `.node-version`, which nodenv
+reads locally and the Build workflow sets up in CI.
 
 ### Prerequisites
 
@@ -166,7 +175,7 @@ on a clean tree until something has populated `build/`.
 1. **Update driver.xml**: stamp version date and modified timestamp
 1. **Generate docs**: Markdown -> HTML -> PDF, plus README
 1. **Package**: run driverpackager to create .c4z files
-1. **Zip**: bundle the c4z, docs and source folders per distribution
+1. **Zip**: bundle the c4z and docs folders per distribution
 
 The driver.xml step stamps today's date as the version unless `DRIVER_VERSION`
 is set. On a tag build CI sets it to the tag's date, so the tag must be
@@ -174,7 +183,9 @@ is set. On a tag build CI sets it to the tag's date, so the tag must be
 
 Each distribution's outputs are grouped by type under `dist/<distribution>/`:
 `c4z/` (packaged drivers), `docs/` (generated PDFs) and `source/` (the squished
-per-driver Lua). `<repo>.zip` sits alongside them and contains all three.
+per-driver Lua). `<repo>.zip` sits alongside them and contains `c4z/` and
+`docs/` only: `source/` is the driver's unencrypted Lua, which an encrypted
+driver must not ship.
 
 Step 1 rewrites tracked files in place. Formatting covers `tools/*.py`, all Lua
 under `drivers/`, `src/`, `test/`, `tools/` and `vendor/`, and every Markdown
@@ -318,3 +329,7 @@ these into multiple driver directories with substituted values, generating one
 Substitute a variant value with `__NAME__`, or with `%%NAME%%` in Markdown,
 where `__NAME__` would render as bold instead. In `.c4zproj` files,
 `--#variant-filenames <template>` emits one filename line per generated variant.
+
+`readme_driver_slug` may name a generated variant, e.g. `<driver>_<suffix>`.
+`make build` takes the README and its images from the build output, where only
+the generated variants exist.
