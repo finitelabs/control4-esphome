@@ -299,8 +299,24 @@ do
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
   colorTarget(ON, 750)
   run(15000)
-  T.eq("the On color goes out once", #colors(), 1)
-  T.eq("and the proxy is told it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  T.eq("the On color goes out with the pre-on and the on alone", #colors(), 2)
+  T.eq("and the proxy is told it once", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  -- The Control4 app's own send names the On color's preset, which the light is then told in.
+  offInBlue()
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
+  proxy("SET_COLOR_TARGET", {
+    LIGHT_COLOR_TARGET_X = ON[1],
+    LIGHT_COLOR_TARGET_Y = ON[2],
+    LIGHT_COLOR_TARGET_COLOR_RATE = 750,
+    LIGHT_COLOR_TARGET_PRESET_ID = ON.id,
+  })
+  run(15000)
+  T.eq(
+    "with its preset: the light is sent nothing more, and the proxy is told the On color again in that preset",
+    { #colors(), told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ID") },
+    { 2, { ON.id } }
+  )
   offInBlue()
   local asked = setColor({ 0.2, 0.5 })
   setColor(BLUE)
@@ -310,7 +326,11 @@ do
   run(15000)
   local out = colors()
   T.eq("another color is the last the light is sent", out[#out], asked)
-  T.eq("and the proxy is told it alone", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
+  T.eq(
+    "and the proxy is told it after the On color",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1], 0.2 }
+  )
 end
 
 --- The x of the Dim-To-Warm mix for a level, as the driver computes it.
@@ -318,15 +338,20 @@ local function mix(level)
   return DIM[1] + (ON[1] - DIM[1]) * (level * 0.01)
 end
 
-T.section("a rated on or dim that changes the color tells the proxy the color the light is leaving")
+T.section(
+  "a rated dim that changes the color tells the proxy the color the light is leaving, a rated on the On color at once"
+)
 do
   offInBlue()
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
-  T.eq("a rated on: from the color it had", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
-  T.eq("to the On color", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { ON[1] })
+  T.eq(
+    "a rated on: the On color at once, which its pre-on brings the light up in",
+    { told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X") },
+    { { ON[1] }, {} }
+  )
   run(15000)
-  T.eq("which it is told at the ramp's end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  T.eq("and nothing at the ramp's end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
   -- Dim-To-Warm at 100 %, where the mix is the On color.
   light({ ColorMode.COLOR_MODE_RGB }, false)
   onMode(ON, DIM)
@@ -387,14 +412,13 @@ do
   run(100)
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
-  T.eq("a rated on: from the color set while off", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), { 0.3 })
   run(15000)
   T.eq(
-    "the proxy is then told the On color and nothing else",
+    "a rated on: the proxy is then told the On color and nothing else",
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
     { ON[1] }
   )
-  T.eq("at the on's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+  T.eq("at once, as its pre-on brings the light up in it", told("LIGHT_COLOR_CHANGED", "at"), { 0 })
   -- With Dim-To-Warm a color lasts until the level next changes.
   light({ ColorMode.COLOR_MODE_RGB }, false)
   onMode(ON, DIM)
@@ -510,7 +534,11 @@ do
     run(15000)
     local out = colors()
     T.eq(name .. ": it is the last color the light is sent", out[#out], asked)
-    T.eq(name .. ": and the proxy is told it once", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
+    T.eq(
+      name .. ": and the proxy is told it once, after the on's own",
+      told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+      { ON[1], 0.2 }
+    )
   end
 end
 
@@ -1391,7 +1419,7 @@ do
         toldOnce(pointX, pointY, CCT),
         T.show(sent)
       )
-      T.eq(name .. ": at the on's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+      T.eq(name .. ": at once, as the pre-on brings the light up in it", told("LIGHT_COLOR_CHANGED", "at"), { 0 })
     end
     -- 0.8 of the way from 2700 K to 6500 K on the line: the point of 5740 K.
     light({ kind })
@@ -1432,7 +1460,7 @@ do
     LIGHT_COLOR_TARGET_COLOR_RATE = 4000,
   })
   run(20000)
-  T.eq("an On color: the proxy's send of it puts no second color out", #colors(), 1)
+  T.eq("an On color goes out with the pre-on and the on: the proxy's send of it puts no third out", #colors(), 2)
   T.check("an On color: the proxy is told it once, as a color", toldOnce(onX, onY, FULL), T.show(sent))
   local stepX, stepY = C4:ColorCCTtoXY(4000)
   local step = "<element><delay>0</delay><colorEnabled>true</colorEnabled><colorX>%s</colorX><colorY>%s</colorY>"
@@ -1577,7 +1605,7 @@ do
   run(30000)
   T.eq("and nothing at the fade's own end", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 30 })
   proxy("CLEAR_ALL_SCENES")
-  -- A rated on from off carries the On color, which the step's replaces.
+  -- A rated on from off brings the light up in the On color, which the step's replaces.
   offInBlue()
   proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(nil, other, 500) })
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 20000 })
@@ -1602,9 +1630,9 @@ do
   proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
   run(30000)
   T.eq(
-    "a rated on left to run after the step: the proxy is told the step's color alone",
+    "a rated on left to run after the step: the proxy is told the step's color after the On color",
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { other[1] }
+    { ON[1], other[1] }
   )
   proxy("CLEAR_ALL_SCENES")
 end
@@ -1764,19 +1792,14 @@ do
   local onColor = offInBlue()
   activate(levelStep(60, 10000))
   T.eq("it is sent a pre-on ahead of its fade", commands(), 2)
-  T.eq("which carries the On color", colors(), { onColor })
+  T.eq("both carry the On color, the pre-on so the light comes on in it", colors(), { onColor, onColor })
   T.eq(
-    "the proxy is told a color ramp from the blue",
-    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
-    { BLUE[1] }
+    "the proxy is told the On color at once, and no color ramp",
+    { told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X") },
+    { { ON[1] }, {} }
   )
-  T.eq("to the On color", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { ON[1] })
   run(20000)
-  T.eq(
-    "at the step's end the proxy is told the On color",
-    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { ON[1] }
-  )
+  T.eq("and nothing at the step's end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
   T.eq("and the step's level", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 60 })
   proxy("CLEAR_ALL_SCENES")
   onColor = offInBlue()
@@ -1789,7 +1812,7 @@ do
   local own = setColor({ 0.3, 0.6 })
   setColor(BLUE)
   activate(colorStep(60, { 0.3, 0.6 }, 3000))
-  T.eq("a step from off with a color of its own: it is sent that color", colors(), { own })
+  T.eq("a step from off with a color of its own: it is sent that color, with its pre-on", colors(), { own, own })
   run(15000)
   T.eq("which the proxy is told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.3 })
   proxy("CLEAR_ALL_SCENES")
@@ -1876,13 +1899,12 @@ do
   mark()
   proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_CLICK })
   T.eq(
-    "a click from off: its color ramp is from the blue the press found",
-    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
-    { BLUE[1] }
+    "a click from off: the On color at once, which its pre-on brings the light up in",
+    { told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X") },
+    { { ON[1] }, {} }
   )
-  T.eq("to the On color", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { ON[1] })
   run(15000)
-  T.eq("which the proxy is then told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  T.eq("and nothing after", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
   -- With Dim-To-Warm at 50 % the press heads for the mix at 100 %.
   light({ ColorMode.COLOR_MODE_RGB }, false)
   onMode(ON, DIM)
@@ -1925,9 +1947,9 @@ do
       colorTarget(other, 1000)
     end
     T.eq(
-      replace .. " a quarter into a rated on: from where a quarter of its time has got to, toward the On color",
+      replace .. " a quarter into a rated on: from the On color, which its pre-on brought the light up in",
       told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
-      { BLUE[1] + (ON[1] - BLUE[1]) * eased(0.25) }
+      { ON[1] }
     )
     run(15000)
     T.eq(
@@ -1941,24 +1963,24 @@ do
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   activate(colorStep(nil, BLUE, 2000))
   T.eq(
-    "a step back to the color a rated on began from, as it begins: the proxy is told it at once",
-    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { BLUE[1] }
+    "a step back to the color a rated on began from, as it begins: a fade from the On color the light came up in",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] }
   )
   run(15000)
-  T.eq("and nothing after", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
+  T.eq("which the proxy is told at its end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
   proxy("CLEAR_ALL_SCENES")
-  -- With a level too, the step leaves the on's ramp before reading its color.
+  -- With a level too the step finds the light still off, and sends a pre-on of its own.
   offInBlue()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   activate(colorStep(80, BLUE, 2000))
   T.eq(
-    "the same step with a level: the proxy is told the color at once",
-    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { BLUE[1] }
+    "the same step with a level: blue at once, which its own pre-on brings the light up in",
+    { told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X") },
+    { { BLUE[1] }, {} }
   )
   run(15000)
-  T.eq("with a level: and no color after", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
+  T.eq("with a level: and nothing after", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
   proxy("CLEAR_ALL_SCENES")
   light({ ColorMode.COLOR_MODE_RGB }, false)
   onMode(ON, DIM)
@@ -1973,18 +1995,17 @@ do
   run(15000)
   T.eq("Dim-To-Warm: and no color after", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { mix(100) })
   proxy("CLEAR_ALL_SCENES")
-  -- Until its end a rated on tells its own color: a device report is no news.
+  -- A rated on tells its own color: a device report of it is no news.
   local onColor = offInBlue()
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   report(onColor, 1.0)
-  T.eq(
-    "a report during a rated on: the proxy is told no color yet",
-    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    {}
-  )
   run(15000)
-  T.eq("and the On color once, at the on's end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  T.eq(
+    "a report during a rated on: the proxy is told the On color once, at the on",
+    { told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), told("LIGHT_COLOR_CHANGED", "at") },
+    { { ON[1] }, { 0 } }
+  )
   -- A light starts in color temperature.
   light({ ColorMode.COLOR_MODE_RGB })
   mark()
@@ -2051,7 +2072,7 @@ do
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
   colorTarget(green, 750)
-  T.eq("a rated on carries that color, and the proxy's own send of it adds none", #colors(), 1)
+  T.eq("a rated on carries that color, with its pre-on, and the proxy's own send of it adds none", #colors(), 2)
   run(15000)
   T.eq("which the proxy is told once", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { green[1] })
 
@@ -2079,8 +2100,8 @@ do
     local got = told(command, field)
     T.check(name, #got == 1 and math.abs(got[1] - want) < 1e-9, T.show(got))
   end
-  --- A light off in blue, half way through a 10 s on that carries the On
-  --- color. Returns the red, green and blue the On color is sent as.
+  --- A light off in blue, half way through a 10 s on that its pre-on brought
+  --- up in the On color. Returns the red, green and blue the On color is sent as.
   local function fading()
     local onColor = offInBlue()
     proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
@@ -2089,65 +2110,58 @@ do
     return onColor
   end
   --- A Dim-To-Warm light half way through a 10 s fade from 50 % to 100 %,
-  --- as a 4 s fade to off is sent.
-  local function fadingOff()
+  --- which carries the mix for 100 %.
+  local function fadingUp()
     light({ ColorMode.COLOR_MODE_RGB }, false)
     onMode(ON, DIM)
     proxy("SET_LEVEL", { LEVEL = 50 })
     proxy("RAMP_TO_LEVEL", { LEVEL = 100, TIME = 10000 })
     run(5000)
+    mark()
+  end
+  --- The same, as a 4 s fade to off is sent.
+  local function fadingOff()
+    fadingUp()
     proxy("RAMP_TO_LEVEL", { LEVEL = 0, TIME = 4000 })
     run(2000)
     mark()
   end
 
   -- With no transition ESPHome puts every channel at its target at once.
+  fadingUp()
+  proxy("OFF")
+  T.eq("an off in a fade that carries a color: it is sent with no color", #colors(), 0)
+  T.eq("the proxy is told the color with it", toldColors(), { mix(100) })
+  run(15000)
+  T.eq("and nothing after", toldColors(), { mix(100) })
+  -- A rated on carries none: its pre-on brought the light up in the On color, told at the on.
   for _, c in ipairs({ { "a level at once", "SET_LEVEL", { LEVEL = 50 }, 0.5 }, { "an off", "OFF", nil, 0 } }) do
     local onColor = fading()
     proxy(c[2], c[3])
     T.eq(c[1] .. " in a rated on: it is sent with no color", #colors(), 0)
-    T.eq(c[1] .. ": the proxy is told the On color with it", toldColors(), { ON[1] })
     report(onColor, c[4])
     run(15000)
-    T.eq(c[1] .. ": and nothing after, the device's report included", toldColors(), { ON[1] })
+    T.eq(c[1] .. ": and the proxy is told no color, the device's report included", toldColors(), {})
   end
-
-  -- Over a transition the color goes on to its target with the level.
   local onColor = fading()
   proxy("RAMP_TO_LEVEL", { LEVEL = 20, TIME = 4000 })
   report(onColor, 0.2)
-  run(3900)
-  T.eq("a rated level in a rated on: no color is told on the way", toldColors(), {})
-  run(200)
-  T.eq("the On color is told", toldColors(), { ON[1] })
-  T.eq("at the level ramp's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
-
-  -- Half way through the on the color is half way; 2 s into the 4 s ramp
-  -- that replaced it, half of the rest.
+  run(15000)
+  T.eq("a rated level in a rated on: no color is told", toldColors(), {})
   fading()
   proxy("RAMP_TO_LEVEL", { LEVEL = 20, TIME = 4000 })
   run(2000)
   mark()
   proxy("SET_COLOR_STOP")
-  near(
-    "Set Color Stop in a carried color: the proxy is told where it has got to",
-    "LIGHT_COLOR_CHANGED",
-    "LIGHT_COLOR_CURRENT_X",
-    BLUE[1] + (ON[1] - BLUE[1]) * 0.75
-  )
-  T.eq("which the bulb is sent", #colors(), 1)
-  run(15000)
-  T.eq("and no color after", #toldColors(), 1)
-
+  T.eq("Set Color Stop in it: the light, in the On color, is sent nothing", commands(), 0)
   fading()
   proxy("RAMP_TO_LEVEL", { LEVEL = 20, TIME = 4000 })
   run(2000)
   mark()
   proxy("SET_BRIGHTNESS_STOP")
   T.eq("a stop of the ramp that replaced a rated on: the level is sent alone", #colors(), 0)
-  T.eq("and the proxy is told the On color with it", toldColors(), { ON[1] })
   run(15000)
-  T.eq("and nothing after", toldColors(), { ON[1] })
+  T.eq("and the proxy is told no color", toldColors(), {})
 
   fadingOff()
   proxy("RAMP_TO_LEVEL", { LEVEL = 100, TIME = 4000 })
@@ -2172,10 +2186,8 @@ do
     onColor = fading()
     activate(levelStep(20, rate))
     report(onColor, 0.2)
-    run(rate - 100)
-    T.eq(name .. " in a rated on: the On color is told at its end", toldColors(), rate > 0 and {} or { ON[1] })
     run(15000)
-    T.eq(name .. ": once", told("LIGHT_COLOR_CHANGED", "at"), { rate })
+    T.eq(name .. " in a rated on: the proxy is told no color", toldColors(), {})
     proxy("CLEAR_ALL_SCENES")
   end
 
@@ -2187,8 +2199,11 @@ do
   end)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   run(15000)
-  T.eq("a level as a rated on's time is up: the proxy is told the On color", toldColors(), { ON[1] })
-  T.eq("with the level, at the on's last millisecond", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+  T.eq(
+    "a level as a rated on's time is up: the proxy is told the On color at the on alone",
+    { toldColors(), told("LIGHT_COLOR_CHANGED", "at") },
+    { { ON[1] }, { 0 } }
+  )
 end
 
 T.section("a ramp part way through its time is where the light's easing has taken it, not a straight line")
@@ -2275,7 +2290,11 @@ do
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   run(15000)
   T.eq("a rated on that carries the On color: nothing is sent at its end", lengths(), { 0, 4000 })
-  T.eq("where the proxy is told the color", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+  T.eq(
+    "nor told: the color is told at once, as the pre-on brings the light up in it",
+    told("LIGHT_COLOR_CHANGED", "at"),
+    { 0 }
+  )
 end
 
 T.section("a command re-times the fade it sets nothing of, and the proxy is told")
@@ -2900,11 +2919,11 @@ do
     { 100 }
   )
 
-  -- A float a light has nothing to report for comes as NaN.
+  -- A float a light has nothing to report for comes as NaN, in the mode it was in.
   light(dimmer)
   level(30, 10000)
   run(100)
-  push(dimmer, { state = true, brightness = 0.3 }, { 0 / 0, 0 / 0, 0 / 0 })
+  push(dimmer, { state = true, brightness = 0.3 }, { 0 / 0, 0 / 0, 0 / 0 }, ColorMode.COLOR_MODE_UNKNOWN)
   T.eq("a report whose color is no number, in a ramp: nothing is told", told("LIGHT_BRIGHTNESS_CHANGED", "at"), {})
 
   -- A report can come after the next command has gone out.
@@ -3155,33 +3174,33 @@ do
     { 1 / 3 }
   )
 
-  -- A rated on that carries the On color.
+  -- A rated on whose pre-on brings the light up in the On color.
   local onColor = offInBlue()
   push({ RGB }, { state = false }, foreign)
   mark()
   level(100, 4000)
-  push({ RGB }, { state = true, brightness = 0.0039 }, foreign)
+  push({ RGB }, { state = true, brightness = 0.0039 }, onColor)
   push({ RGB }, { state = true, brightness = 1.0 }, onColor)
   run(15000)
   T.eq(
-    "a rated on's pre-on reported in a color the light was given elsewhere: the proxy is told the on's end alone",
+    "a rated on of a light given another color elsewhere while off: the proxy is told the on's end alone",
     told("LIGHT_BRIGHTNESS_CHANGED", "at"),
     { 4000 }
   )
-  T.eq("with its On color", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+  T.eq("with its On color at the on", told("LIGHT_COLOR_CHANGED", "at"), { 0 })
   offInBlue()
   mark()
   level(100, 4000)
   run(1000)
   push({ RGB }, { state = true, brightness = 1.0 }, foreign)
   T.eq(
-    "a color set elsewhere in a rated on: the proxy is told it",
+    "a color set elsewhere in a rated on: the proxy is told it, after the On color",
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { 1 / 3 }
+    { ON[1], 1 / 3 }
   )
   T.eq("and the level the on was heading for", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 100 })
   run(15000)
-  T.eq("and not the On color at the on's end", told("LIGHT_COLOR_CHANGED", "at"), { 1000 })
+  T.eq("and not the On color at the on's end", told("LIGHT_COLOR_CHANGED", "at"), { 0, 1000 })
   T.eq("nor the level again", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 1000 })
   offInBlue()
   mark()
@@ -3193,9 +3212,12 @@ do
     told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
     { 40 }
   )
-  T.eq("and the On color with it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
   run(15000)
-  T.eq("and not again when the on's time is up", told("LIGHT_COLOR_CHANGED", "at"), { 1000 })
+  T.eq(
+    "and the On color at the on alone",
+    { told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), told("LIGHT_COLOR_CHANGED", "at") },
+    { { ON[1] }, { 0 } }
+  )
 
   -- A color temperature goes out in mireds, 2700 K as 370.37.
   local CT = ColorMode.COLOR_MODE_COLOR_TEMPERATURE
@@ -3877,9 +3899,9 @@ do
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
   colorTarget(POINT, 750)
   T.eq(
-    "an On Color preset, and the proxy's own copy of it after the on: the white, once",
+    "an On Color preset, and the proxy's own copy of it after the on: the white, with the pre-on and the on alone",
     { kelvins(), colors() },
-    { { 3200 }, {} }
+    { { 3200, 3200 }, {} }
   )
   run(1000)
   light({ RGB })
@@ -3895,9 +3917,9 @@ do
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
   colorTarget(POINT, 750)
   T.eq(
-    "Previous, of a light read in its color at a white's point, and the proxy's own copy of it: the white, once",
+    "Previous, of a light read in its color at a white's point, and the proxy's own copy of it: the white, as the same",
     { kelvins(), colors() },
-    { { 3200 }, {} }
+    { { 3200, 3200 }, {} }
   )
   run(1000)
   light()
@@ -4032,9 +4054,9 @@ do
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
   colorTarget(POINT, 750)
   T.eq(
-    "and one read in its color at a white's point, with the proxy's own copy of Previous: the white, once",
+    "and one read in its color at a white's point, with the proxy's own copy of Previous: the white, as the same",
     { #colors(), lit() },
-    { 1, WHITE }
+    { 2, WHITE }
   )
   run(1000)
 
@@ -4572,15 +4594,16 @@ do
     { false, false, false, false, false }
   )
   -- ESPHome gives a light that has no mode yet, as after a restart with none
-  -- restored, its first at a turn-on that names none: a rated on's pre-on.
+  -- restored, its first at a turn-on that names none, as a rated on's pre-on
+  -- with no color is.
   light({ RGBCT, CT }, false)
   fadeMode({ 0.5, 0.4 }, { 0.27, 0.4 }, CCT_MODE)
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 3000 })
   T.eq(
-    "a light with no mode yet, ramped on with Dim-To-Warm: the white-only mode its pre-on gives it",
+    "a light with no mode yet, ramped on with Dim-To-Warm: the combined mode, which its pre-on names too",
     { kelvins(), channels() },
-    { { 5000 }, { CT, false, false, false, false } }
+    { { 5000, 5000 }, { RGBCT, 0, 1, false, false } }
   )
   light({ RGBCT, CT }, false)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 3000 })
@@ -4606,9 +4629,9 @@ do
       .. "<colorEnabled>true</colorEnabled><colorX>0.3</colorX><colorY>0.4</colorY><colorMode>1</colorMode></element>"
   )
   T.eq(
-    "and a scene step that ramps it on in a color temperature, built ahead of its pre-on: the same",
-    channels(),
-    { false, false, false, false, false }
+    "and a scene step that ramps it on in a color temperature: the combined mode, with its pre-on",
+    { kelvins(), channels() },
+    { { 3000, 3000 }, { RGBCT, 0, 1, false, false } }
   )
   proxy("CLEAR_ALL_SCENES")
 end
@@ -4966,24 +4989,18 @@ do
     { places({ 0.5 * (1 - eased(0.25)), 1 - 0.5 * (1 - eased(0.25)) }), { 3000 } }
   )
 
-  -- The color a level command carries fades under the level, and is handed on with the ramp.
-  light({ RGBCT, CT }, false)
-  proxy("UPDATE_COLOR_ON_MODE", {
-    COLOR_PRESET_ID = 1,
-    COLOR_PRESET_ORIGIN = 1,
-    COLOR_PRESET_COLOR_X = 0.3,
-    COLOR_PRESET_COLOR_Y = 0.4,
-    COLOR_PRESET_COLOR_MODE = CCT_MODE,
-    COLOR_FADE_PRESET_ID = 0,
-    COLOR_FADE_PRESET_ORIGIN = 0,
-  })
-  setColor(BLUE)
-  level(100, 6000)
+  -- The color a level command carries fades under the level, and is handed on
+  -- with the ramp to a level that carries none.
+  light({ RGBCT, CT })
+  blue = setColor(BLUE)
+  fadeMode({ 0.3, 0.4 }, { 0.3, 0.4 }, CCT_MODE)
+  level(50, 6000)
   run(2000)
+  onMode(ON)
   mark()
-  level(50, 4000)
+  level(40, 4000)
   T.eq(
-    "a white preset coming up under a rated on from a color: a second level tells it from the color, still lit",
+    "Dim-To-Warm's white coming up under a level from a color: a level with none tells it from the color, still lit",
     places({
       told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X")[1],
       told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_COLOR_MODE")[1],
@@ -4998,6 +5015,35 @@ do
     "and a stop half way through that holds what the light has, told as the white it is mostly in",
     { held(), colors(), lastTold() },
     { places({ left, 1 - left }), { blue }, { 0.3, CCT_MODE } }
+  )
+  -- A rated on brings the light up in the color it carries, with its pre-on.
+  light({ RGBCT, CT }, false)
+  proxy("UPDATE_COLOR_ON_MODE", {
+    COLOR_PRESET_ID = 1,
+    COLOR_PRESET_ORIGIN = 1,
+    COLOR_PRESET_COLOR_X = 0.3,
+    COLOR_PRESET_COLOR_Y = 0.4,
+    COLOR_PRESET_COLOR_MODE = CCT_MODE,
+    COLOR_FADE_PRESET_ID = 0,
+    COLOR_FADE_PRESET_ORIGIN = 0,
+  })
+  setColor(BLUE)
+  mark()
+  level(100, 6000)
+  T.eq(
+    "a white preset a rated on from a color brings the light up in: told at once",
+    { places(channels()), lastTold() },
+    { { RGBCT, 0, 1, false, false }, { 0.3, CCT_MODE } }
+  )
+  run(2000)
+  mark()
+  level(50, 4000)
+  run(2000)
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a second level tells no color, and a color stop in it has nothing to hold",
+    { colorsTold(), #colors() },
+    { {}, 0 }
   )
   -- A fade to off holds the color and the white where they were, and a level back up goes on from there.
   light({ RGBCT, CT })
@@ -5125,6 +5171,7 @@ do
     { channels(), kelvins(), lastTold() },
     { { RGBCT, 0, 1, false, false }, { 3750 }, { 0.375, CCT_MODE } }
   )
+  T.eq("held at once, with no change of mode to come back from", lengths(), { 0 })
   for name, modes in pairs({
     ["a color temperature beside its color"] = { RGBCT, CT },
     ["a white beside its color"] = { RGBW },
@@ -5144,7 +5191,8 @@ do
     proxy("CLEAR_ALL_SCENES")
   end
 
-  -- A change of color mode is ESPHome's fade through off, with nothing of both to hold.
+  -- A change of color mode is ESPHome's fade through off, with nothing of both to
+  -- hold: up to half way the light is in the mode it left, and from then in the other.
   light({ RGBCT, CT })
   pushed({ RGBCT, CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 300 }, RANGE)
   colorTarget(BLUE, 3000)
@@ -5152,9 +5200,22 @@ do
   mark()
   proxy("SET_COLOR_STOP")
   T.eq(
-    "a color fade begun in the white-only mode: a color, with no white",
-    { lastCommand().has_color_temperature or false, channels() },
-    { false, { RGBCT, 1, 0, false, false } }
+    "a color fade begun in the white-only mode, a third of the way: that white, in that mode",
+    { lastCommand().has_rgb or false, channels(), kelvins(), lastTold() },
+    { false, { CT, false, false, false, false }, { 3333 }, { 0.3333, CCT_MODE } }
+  )
+  T.eq("eased back up to its level from the dip through off, over half a second", lengths(), { 500 })
+  light({ RGBCT, CT })
+  pushed({ RGBCT, CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 300 }, RANGE)
+  colorTarget(BLUE, 3000)
+  blue = colors()[1]
+  run(2000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "two thirds of the way: the color, in the combined mode",
+    { colors(), channels(), lastTold() },
+    { { blue }, { RGBCT, 1, 0, false, false }, { BLUE[1], FULL_MODE } }
   )
   light({ RGBCT, CT })
   pushed({ RGBCT, CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 300 }, RANGE)
@@ -5178,9 +5239,9 @@ do
     mark()
     proxy("SET_COLOR_STOP")
     T.eq(
-      "a light with " .. name .. " is sent a color temperature, as before",
-      { lastCommand().has_rgb or false, channels(), modesTold() },
-      { false, { false, false, false, false, false }, { CCT_MODE } }
+      "a light with " .. name .. ", from a color to a white, half way: the white",
+      { lastCommand().has_rgb or false, channels(), kelvins(), modesTold() },
+      { false, { false, false, false, false, false }, { 3000 }, { CCT_MODE } }
     )
   end
 end
@@ -5657,6 +5718,842 @@ do
   proxy("SET_LEVEL", { LEVEL = 100 })
   T.eq("a light it leaves at full: a Set Level to the 100 it shows takes it there", brightnessSent(), 0.6)
   forgetOnLevels()
+end
+
+---------------------------------------------------------------------------
+-- A light's color modes after a restart, and a change between them
+---------------------------------------------------------------------------
+
+T.section("a light's first on after a restart with no color mode saved is not another client's")
+do
+  local UNKNOWN = ColorMode.COLOR_MODE_UNKNOWN
+  --- A light restored off with nothing saved, as it reports itself: in no color
+  --- mode, `mode` as the report gives it, every field at ESPHome's default and
+  --- the color temperature at the coldest of its range.
+  local function restored(modes, mode)
+    light()
+    pushed(modes, {
+      state = false,
+      brightness = 1.0,
+      color_mode = mode,
+      color_brightness = 1,
+      red = 1,
+      green = 1,
+      blue = 1,
+      white = 1,
+      color_temperature = RANGE[1],
+      cold_white = 1,
+      warm_white = 1,
+    }, RANGE)
+    mark()
+  end
+  --- Its report on at `brightness` in `mode`, every other field as it was.
+  local function onIn(modes, mode, brightness)
+    pushed(modes, {
+      state = true,
+      brightness = brightness,
+      color_mode = mode,
+      color_brightness = 1,
+      red = 1,
+      green = 1,
+      blue = 1,
+      white = 1,
+      color_temperature = RANGE[1],
+      cold_white = 1,
+      warm_white = 1,
+    }, RANGE)
+  end
+  -- ESPHome gives it the first of its modes at a turn-on that names none.
+  for name, kind in pairs({
+    ["a color temperature beside its color and a white-only mode"] = { { RGBCT, CT }, CT, RGBCT },
+    ["a color mode and a white mode"] = { { RGB, CWWW }, CWWW, RGB },
+  }) do
+    for _, given in ipairs({ { "unknown", UNKNOWN }, { "left out, as on the wire", nil } }) do
+      local modes, first, other = kind[1], kind[2], kind[3]
+      local which = "a light with " .. name .. ", its mode " .. given[1]
+      restored(modes, given[2])
+      proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+      run(100)
+      onIn(modes, first, 1.0)
+      run(5000)
+      T.eq(
+        which .. ": its report of a rated on in its first mode is the on's own, told at the on's end",
+        told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+        { 4000 }
+      )
+      restored(modes, given[2])
+      proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+      onIn(modes, first, 0.0039)
+      run(100)
+      onIn(modes, first, 1.0)
+      run(5000)
+      T.eq(which .. ": and so is its report of the pre-on by itself", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 4000 })
+      restored(modes, given[2])
+      proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+      run(100)
+      onIn(modes, other, 1.0)
+      T.eq(
+        which .. ": one in another mode is another client's, told at once",
+        told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+        { 100 }
+      )
+      restored(modes, given[2])
+      proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+      run(100)
+      onIn(modes, first, 0.5)
+      T.eq(
+        which .. ": as is a level set elsewhere",
+        told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+        { 50 }
+      )
+    end
+  end
+end
+
+T.section(
+  "a fade between a color and a white on a light with separate modes, stopped part way, holds the mode it is in"
+)
+do
+  -- Red, x 0 through the stubs.
+  local RED = { 0, 1 }
+  local FIELDS = {
+    "brightness",
+    "color_mode",
+    "color_brightness",
+    "red",
+    "green",
+    "blue",
+    "white",
+    "color_temperature",
+    "cold_white",
+    "warm_white",
+  }
+  --- What the light has, as ESPHome keeps it: each field as it was last sent.
+  local state
+  --- A light with a color mode and a white mode, on at full in red.
+  --- @param range table|nil The range it gives for its color temperature: RANGE if nil.
+  local function inRed(modes, range)
+    light()
+    state = {
+      state = true,
+      brightness = 1.0,
+      color_mode = RGB,
+      color_brightness = 1,
+      red = 1,
+      green = 0,
+      blue = 0,
+      white = 1,
+      color_temperature = RANGE[1],
+      cold_white = 1,
+      warm_white = 1,
+    }
+    pushed(modes, state, range or RANGE)
+  end
+  --- The light's report of its last command, in `mode` where the command names none.
+  local function reported(modes, mode)
+    local cmd = lastCommand()
+    for _, field in ipairs(FIELDS) do
+      state[field] = cmd[field] or state[field]
+    end
+    state.color_mode = cmd.color_mode or mode
+    pushed(modes, state, RANGE)
+  end
+  --- The color the proxy was last told since the mark: its x and its color mode.
+  local function lastTold()
+    local xs, modes = colorsTold(), modesTold()
+    return { math.floor(xs[#xs] * 1e6 + 0.5) / 1e6, modes[#modes] }
+  end
+  local function level(target, rate)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = target, RATE = rate })
+  end
+
+  -- ESPHome fades the color it leaves to off over the first half of the time,
+  -- and the white it was sent up from off over the second (transformers.h).
+  for name, kind in pairs({
+    ["a color mode and a white mode with a color temperature"] = { RGB, CT },
+    ["a color mode and a cold and warm white mode, as the Athom bulb has"] = { RGB, CWWW },
+  }) do
+    local white = kind[2]
+    inRed(kind)
+    kelvin(4000, 4000)
+    run(150)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(
+      "a light with " .. name .. ", from red to 4000 K, stopped at 150 ms: red, in its color mode",
+      { lastCommand().color_mode, colors(), kelvins(), lastTold() },
+      { RGB, { { 1, 0, 0 } }, {}, { 0, FULL_MODE } }
+    )
+    T.eq("at the level it was", lastCommand().has_brightness or false, false)
+    T.eq("eased back up to it from the dip through off over half a second", lengths(), { 500 })
+    reported(kind)
+    T.eq("and the light's report of the stop tells nothing more", #colorsTold(), 1)
+    run(1000)
+    T.eq(
+      "nor is anything told of the level",
+      #told("LIGHT_BRIGHTNESS_CHANGING", "at") + #told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+      0
+    )
+    inRed(kind)
+    kelvin(4000, 4000)
+    run(3000)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(
+      "three quarters of the way: the white, at 4000 K",
+      { colors(), kelvins(), lastTold() },
+      { {}, { 4000 }, { 0.4, CCT_MODE } }
+    )
+    T.eq("over half a second too", lengths(), { 500 })
+    reported(kind, white)
+    T.eq("and the light's report of that tells nothing more", #colorsTold(), 1)
+    inRed(kind)
+    kelvin(4000, 4000)
+    run(2000)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq("from half way: the white", { colors(), kelvins(), lastTold() }, { {}, { 4000 }, { 0.4, CCT_MODE } })
+
+    -- From a white to a color the white is left first.
+    inRed(kind)
+    kelvin(3000, 0)
+    reported(kind, white)
+    colorTarget(RED, 4000)
+    run(1000)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(
+      "from 3000 K to red, a quarter of the way: 3000 K, in its white mode, the light working out its whites",
+      { channels(), kelvins(), colors(), lastTold() },
+      { { white, false, false, false, false }, { 3000 }, {}, { 0.3, CCT_MODE } }
+    )
+    T.eq("eased back up over half a second", lengths(), { 500 })
+    -- Sent a color temperature alone, ESPHome gives the light the first of its modes that has one.
+    inRed(kind)
+    kelvin(3000, 0)
+    colorTarget(RED, 4000)
+    run(1000)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(
+      "the same before the light reports 3000 K: 3000 K, in its white mode",
+      { channels()[1], kelvins(), colors(), lastTold() },
+      { white, { 3000 }, {}, { 0.3, CCT_MODE } }
+    )
+    inRed(kind)
+    kelvin(3000, 0)
+    reported(kind, white)
+    colorTarget(RED, 4000)
+    run(3000)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(
+      "three quarters of the way: red, in its color mode",
+      { lastCommand().color_mode, colors(), kelvins(), lastTold() },
+      { RGB, { { 1, 0, 0 } }, {}, { 0, FULL_MODE } }
+    )
+  end
+
+  -- A command that takes the fade on starts ESPHome's change of mode again from the mode the light is in.
+  inRed({ RGB, CWWW })
+  kelvin(4000, 4000)
+  run(1000)
+  mark()
+  level(50, 2000)
+  T.eq("a level sent a quarter of the way: the fade is told again from red, which the light is still in", {
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_COLOR_MODE"),
+  }, { { 0 }, { FULL_MODE } })
+  run(500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "and a stop a quarter through that: red, over the time the level has left",
+    { lastCommand().color_mode, colors(), lengths(), lastTold() },
+    { RGB, { { 1, 0, 0 } }, { 1500 }, { 0, FULL_MODE } }
+  )
+  inRed({ RGB, CWWW })
+  kelvin(4000, 4000)
+  run(1000)
+  level(50, 2000)
+  run(1500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a stop three quarters through that: the white, the light having changed mode over the level's time",
+    { colors(), kelvins(), lastTold() },
+    { {}, { 4000 }, { 0.4, CCT_MODE } }
+  )
+  inRed({ RGB, CWWW })
+  kelvin(4000, 4000)
+  run(1000)
+  level(50, 1200)
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  run(1000)
+  T.eq(
+    "a stop with less than half a second of the level left: over half a second, the level told at its end",
+    { kelvins(), lengths(), told("LIGHT_BRIGHTNESS_CHANGED", "at") },
+    { { 4000 }, { 500 }, { 500 } }
+  )
+  inRed({ RGB, CWWW })
+  kelvin(4000, 4000)
+  run(3000)
+  level(50, 2000)
+  run(500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "one sent three quarters of the way: the light is in the white from then",
+    { colors(), kelvins(), lastTold() },
+    { {}, { 4000 }, { 0.4, CCT_MODE } }
+  )
+  -- A fade within the one mode has no dip to come back from.
+  inRed({ RGB, CT })
+  colorTarget(BLUE, 4000)
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a fade from red to another color, stopped a quarter of the way: held at once, as before",
+    { lastCommand().color_mode, lengths() },
+    { RGB, { 0 } }
+  )
+  -- Dim-To-Warm's white for a level, carried by the level command, takes the light out of its color mode too.
+  for _, case in ipairs({ { 1000, "a quarter", 0, FULL_MODE }, { 3000, "three quarters", 0.45, CCT_MODE } }) do
+    inRed({ RGB, CWWW })
+    fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+    level(50, 4000)
+    run(case[1])
+    mark()
+    colorTarget(BLUE, 2000)
+    T.eq(
+      "a color sent "
+        .. case[2]
+        .. " into a level carrying a Dim-To-Warm white from red: told from the one the light is in",
+      {
+        told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+        told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_COLOR_MODE"),
+      },
+      { { case[3] }, { case[4] } }
+    )
+    run(5000)
+  end
+  -- A level's stop part way through that change of mode is held as a color's is.
+  for name, kind in pairs({
+    ["a color temperature white mode"] = { RGB, CT },
+    ["a cold and warm white mode"] = { RGB, CWWW },
+  }) do
+    inRed(kind)
+    fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+    level(50, 4000)
+    run(1000)
+    mark()
+    proxy("SET_BRIGHTNESS_STOP")
+    T.eq(
+      "a light with a color mode and "
+        .. name
+        .. ", a level carrying a Dim-To-Warm white from red stopped a quarter of the way: red, at the level stopped at",
+      {
+        lastCommand().color_mode,
+        colors(),
+        kelvins(),
+        lastCommand().has_brightness,
+        brightnessSent(),
+        lastTold(),
+        levelsTold(),
+      },
+      { RGB, { { 1, 0, 0 } }, {}, true, 0.95, { 0, FULL_MODE }, { 95 } }
+    )
+    T.eq("eased back up to it from the dip over half a second, in the one command", lengths(), { 500 })
+    reported(kind)
+    T.eq("and the light's report of the stop tells nothing more", { #colorsTold(), #levelsTold() }, { 1, 1 })
+    inRed(kind)
+    fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+    level(50, 4000)
+    run(3000)
+    mark()
+    proxy("SET_BRIGHTNESS_STOP")
+    T.eq(
+      "three quarters of the way: the level's white, which the light is in, at the level stopped at, over half a second",
+      { colors(), kelvins(), brightnessSent(), lengths(), lastTold(), levelsTold() },
+      { {}, { 4500 }, 0.55, { 500 }, { 0.45, CCT_MODE }, { 55 } }
+    )
+    reported(kind, kind[2])
+    T.eq("and the light's report of that tells nothing more", { #colorsTold(), #levelsTold() }, { 1, 1 })
+  end
+  -- One above its Max On Level is held where it has got to on the range's line.
+  inRed({ RGB, CT })
+  onLevels(80, 20)
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  level(50, 4000)
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "with a Max On Level of 80, from red at full, a quarter of the way: red, where it has got to above the Max",
+    { lastCommand().color_mode, brightnessSent(), lengths() },
+    { RGB, nine(1 + (at80(50) - 1) * eased(0.25)), { 500 } }
+  )
+  forgetOnLevels()
+  -- A keypad hold let go and a scene's ramp stopped are level stops too.
+  inRed({ RGB, CWWW })
+  state.brightness = 0.3
+  pushed({ RGB, CWWW }, state, RANGE)
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(1000)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_HOLD })
+  T.eq(
+    "Top held from 30 % in red with Dim-To-Warm, let go a third of the way up: red, at 45 %, over half a second",
+    { lastCommand().color_mode, colors(), brightnessSent(), lengths(), lastTold() },
+    { RGB, { { 1, 0, 0 } }, 0.45, { 500 }, { 0, FULL_MODE } }
+  )
+  inRed({ RGB, CWWW })
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  level(50, 4000)
+  run(1000)
+  mark()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq(
+    "a scene's ramp stopped a quarter of the way: red, over half a second",
+    { lastCommand().color_mode, colors(), lengths() },
+    { RGB, { { 1, 0, 0 } }, { 500 } }
+  )
+  inRed({ RGB, CWWW })
+  state.state = false
+  pushed({ RGB, CWWW }, state, RANGE)
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  level(50, 4000)
+  run(3000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "a ramp up from off in red, stopped three quarters of the way: the light is held on, at 45 %",
+    { lastCommand().state, brightnessSent(), levelsTold() },
+    { true, 0.45, { 45 } }
+  )
+  inRed({ RGB, CWWW })
+  state.state = false
+  pushed({ RGB, CWWW }, state, RANGE)
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  level(50, 4000)
+  run(100)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "and one stopped before it is lit: off, at once, as before",
+    { lastCommand().state, lengths(), levelsTold() },
+    { false, { 0 }, { 0 } }
+  )
+  -- A fade sent part way through the change in the mode the light is then in starts
+  -- from the dip: stopped, it is brought back up from there too.
+  local FOUR_K = "<colorEnabled>true</colorEnabled><colorX>0.4</colorX><colorY>0.4</colorY><colorMode>1</colorMode>"
+  inRed({ RGB, CWWW })
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  level(50, 4000)
+  run(2500)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(1000)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_HOLD })
+  T.eq(
+    "Top held past half way through a level carrying a Dim-To-Warm white from red, let go a second later: the white, over half a second",
+    { lastCommand().color_mode, colors(), brightnessSent(), lengths() },
+    { CWWW, {}, fadeLevel(fadeLevel(100, 50, 2500 / 4000), 100, 1000 / 3000) / 100, { 500 } }
+  )
+  for name, color in pairs({ ["a level, with Dim-To-Warm,"] = "", ["a level and 4000 K"] = FOUR_K }) do
+    inRed({ RGB, CWWW })
+    if color == "" then
+      fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+    end
+    activate(
+      "<element><delay>0</delay><rate>4000</rate><brightnessEnabled>true</brightnessEnabled>"
+        .. "<brightness>50</brightness>"
+        .. color
+        .. "</element>"
+    )
+    run(3000)
+    mark()
+    proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+    T.eq(
+      "a scene step of "
+        .. name
+        .. " from red, stopped three quarters of the way: the level over the step's time left, then the white over half a second",
+      { lengths(), lastCommand().color_mode },
+      { { 1000, 500 }, CWWW }
+    )
+    proxy("CLEAR_ALL_SCENES")
+  end
+  inRed({ RGB, CWWW })
+  activate(
+    "<element><delay>0</delay><rate>4000</rate><brightnessEnabled>true</brightnessEnabled>"
+      .. "<brightness>50</brightness>"
+      .. FOUR_K
+      .. "</element>"
+  )
+  run(3000)
+  proxy("RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 4000 })
+  run(1000)
+  mark()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq(
+    "Ramp Scene Up past half way through that step, stopped a second later: the white, over half a second",
+    { lengths(), lastCommand().color_mode },
+    { { 3000, 500 }, CWWW }
+  )
+  proxy("CLEAR_ALL_SCENES")
+  -- Before half way the light is still in the mode it left, and a fade back into it starts from the dip.
+  inRed({ RGB, CWWW })
+  kelvin(4000, 0)
+  reported({ RGB, CWWW }, CWWW)
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  colorTarget(RED, 4000)
+  run(1000)
+  level(50, 4000)
+  run(500)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "from 4000 K to red, a level carrying a Dim-To-Warm white sent a quarter of the way, stopped half a second later: in the white, over half a second",
+    { lastCommand().color_mode, colors(), lengths() },
+    { CWWW, {}, { 500 } }
+  )
+  inRed({ RGB, CWWW })
+  kelvin(4000, 0)
+  reported({ RGB, CWWW }, CWWW)
+  colorTarget(RED, 4000)
+  run(1000)
+  kelvin(4000, 4000)
+  run(500)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "and 4000 K sent back a quarter of the way, stopped half a second later: 4000 K, over half a second",
+    { lastCommand().color_mode, kelvins(), lengths() },
+    { CWWW, { 4000 }, { 500 } }
+  )
+  -- A fade to off keeps the mode the light is in, and it is held in that.
+  inRed({ RGB, CWWW })
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  level(50, 4000)
+  run(1000)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  run(1000)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = RELEASE_HOLD })
+  T.eq(
+    "Bottom held a quarter of the way through a level carrying a Dim-To-Warm white from red, let go a second later: red, over half a second",
+    { lastCommand().color_mode, colors(), brightnessSent(), lengths(), lastTold() },
+    {
+      RGB,
+      { { 1, 0, 0 } },
+      fadeLevel(fadeLevel(100, 50, 1000 / 4000), 0, 1000 / 3000) / 100,
+      { 500 },
+      { 0, FULL_MODE },
+    }
+  )
+  -- Once such a fade has run its time the light is back up: the next has no dip.
+  inRed({ RGB, CWWW })
+  kelvin(4000, 4000)
+  run(3000)
+  level(50, 500)
+  run(1500)
+  kelvin(3000, 4000)
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("a fade from 4000 K to 3000 K after it, stopped part way: at once", lengths(), { 0 })
+  -- A level's stop within one mode has no dip to come back from.
+  inRed({ RGB, CWWW })
+  fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
+  kelvin(4000, 0)
+  level(50, 4000)
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "a level carrying a Dim-To-Warm white from a white, stopped a quarter of the way: the stopped level's white, at once, as before",
+    { kelvins(), brightnessSent(), lengths() },
+    { { 4950 }, 0.95, { 0 } }
+  )
+  -- A color sent since is not the level's to hold: it goes on through the change.
+  inRed({ RGB, CWWW })
+  kelvin(4000, 4000)
+  run(1000)
+  level(50, 2000)
+  run(500)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "a level stopped part way through a color's fade from red to 4000 K: the level alone, over the time the color has left, as before",
+    { lastCommand().has_color_mode or false, colors(), kelvins(), brightnessSent(), lengths(), levelsTold() },
+    { false, {}, {}, 0.95, { 1500 }, { 95 } }
+  )
+  -- Nor is one sent while the light faded to off: the light goes on to it through off.
+  inRed({ RGB, CWWW })
+  level(0, 4000)
+  run(1000)
+  kelvin(4000, 2000)
+  level(50, 2000)
+  run(500)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "4000 K sent to a light fading to off from red, then a level stopped a quarter of the way: the level alone, over half a second",
+    {
+      lastCommand().has_color_mode or false,
+      colors(),
+      kelvins(),
+      brightnessSent(),
+      lengths(),
+      #colorsTold(),
+      levelsTold(),
+    },
+    { false, {}, {}, 0.86, { 500 }, 0, { 86 } }
+  )
+  -- A scene step's fade is the light's too.
+  inRed({ RGB, CWWW })
+  activate(
+    "<element><delay>0</delay><colorEnabled>true</colorEnabled><colorX>0.4</colorX><colorY>0.4</colorY>"
+      .. "<colorMode>1</colorMode><colorRate>4000</colorRate></element>"
+  )
+  run(1000)
+  mark()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq(
+    "a scene step from red to 4000 K, stopped a quarter of the way: red",
+    { lastCommand().color_mode, colors(), lastTold() },
+    { RGB, { { 1, 0, 0 } }, { 0, FULL_MODE } }
+  )
+  T.eq("over half a second", lengths(), { 500 })
+  proxy("CLEAR_ALL_SCENES")
+  inRed({ RGB, CWWW })
+  activate(
+    "<element><delay>0</delay><colorEnabled>true</colorEnabled><colorX>0.4</colorX><colorY>0.4</colorY>"
+      .. "<colorMode>1</colorMode><colorRate>4000</colorRate></element>"
+  )
+  run(3000)
+  level(50, 2000)
+  run(500)
+  mark()
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq(
+    "one a level took on three quarters of the way, stopped: the white",
+    { colors(), kelvins(), lastTold() },
+    { {}, { 4000 }, { 0.4, CCT_MODE } }
+  )
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A white with no color temperature, as an RGB light built with color_interlock has.
+  local WHITE = ColorMode.COLOR_MODE_WHITE
+  inRed({ RGB, WHITE })
+  state.color_mode, state.green, state.blue = WHITE, 1, 1
+  pushed({ RGB, WHITE }, state)
+  level(50, 4000)
+  colorTarget(RED, 4000)
+  run(1000)
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a light with a color mode and a white mode with no color temperature, from that white to red, a quarter of the way: its white",
+    channels(),
+    { WHITE, false, 1, false, false }
+  )
+  mark()
+  state.brightness, state.green, state.blue = 0.5, 0, 0
+  pushed({ RGB, WHITE }, state)
+  run(5000)
+  T.eq(
+    "and the light's report of that is the stop's own: the level is told at its ramp's end",
+    told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+    { 3000 }
+  )
+  -- One that gives no range for its color temperature has its cold and warm white to keep.
+  inRed({ RGB, CWWW }, {})
+  state.color_mode, state.color_temperature, state.cold_white, state.warm_white = CWWW, 0, 0.25, 0.75
+  pushed({ RGB, CWWW }, state)
+  colorTarget(RED, 4000)
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a light with a color mode and a cold and warm white mode that gives no range, a quarter of the way to red: its cold and warm white",
+    { channels(), kelvins(), colors() },
+    { { CWWW, false, false, 0.25, 0.75 }, {}, {} }
+  )
+end
+
+T.section("a ramped on that changes the color brings the light up in it from its pre-on")
+do
+  local RED, WARM = { 0, 1 }, { 0.3, 0.4, id = 1 }
+  --- The command the light was sent first since the mark: a ramped on's pre-on.
+  local function preOn()
+    for _, s in ipairs(sent) do
+      if s.binding == ESPHOME and s.command == "ENTITY_COMMAND" then
+        return DeserializeSafe(s.params.body)
+      end
+    end
+    return {}
+  end
+  --- What that pre-on sets: its brightness, color mode, color temperature in
+  --- kelvin and red, green and blue, false for each it does not set.
+  local function carried()
+    local cmd = preOn()
+    return {
+      cmd.brightness,
+      cmd.has_color_mode and cmd.color_mode or false,
+      cmd.has_color_temperature and math.floor(1e6 / cmd.color_temperature + 0.5) or false,
+      cmd.has_rgb and { cmd.red, cmd.green, cmd.blue } or false,
+    }
+  end
+  --- A light of kind `modes` that is off, in `mode` with `fields` lit.
+  local function offIn(modes, mode, fields)
+    light()
+    local state = {
+      state = false,
+      brightness = 1.0,
+      color_mode = mode,
+      color_brightness = 1,
+      red = 1,
+      green = 1,
+      blue = 1,
+      white = 1,
+      color_temperature = RANGE[1],
+      cold_white = 1,
+      warm_white = 1,
+    }
+    for field, value in pairs(fields) do
+      state[field] = value
+    end
+    pushed(modes, state, RANGE)
+    return state
+  end
+  local function rampedOn()
+    mark()
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  end
+  local inRed = { red = 1, green = 0, blue = 0 }
+
+  -- ESPHome brings a light up from off in the color it is turned on in
+  -- (transformers.h); one already on at the pre-on changes mode through off.
+  local SEPARATE = { RGB, CWWW }
+  offIn(SEPARATE, RGB, inRed)
+  onMode(WARM)
+  rampedOn()
+  T.eq(
+    "a light with a color mode and a white mode, off in red, a white On Color: the pre-on is in that white, in its mode",
+    carried(),
+    { 0.0039, CWWW, 3000, false }
+  )
+  T.eq("as the on is, so the light changes no mode", lastCommand().color_mode, CWWW)
+  offIn(SEPARATE, RGB, inRed)
+  fadeMode({ 0.5, 0.4 }, { 0.27, 0.4 }, CCT_MODE)
+  rampedOn()
+  T.eq("with Dim-To-Warm: its white for the level", carried(), { 0.0039, CWWW, 5000, false })
+  offIn(SEPARATE, CWWW, { color_temperature = 333.3 })
+  onMode({ RED[1], RED[2], id = 1 })
+  rampedOn()
+  T.eq(
+    "off in a white, a red On Color: the pre-on is red, in the color mode",
+    carried(),
+    { 0.0039, RGB, false, { 1, 0, 0 } }
+  )
+  offIn(SEPARATE, RGB, inRed)
+  rampedOn()
+  T.eq("with no Color On Mode: the pre-on carries no color, as before", carried(), { 0.0039, false, false, false })
+
+  -- What the light then shows from the start, and is told.
+  offIn(SEPARATE, RGB, inRed)
+  onMode(WARM)
+  rampedOn()
+  T.eq(
+    "the proxy is told the white at once, and no fade from the red the light went off in",
+    { colorsTold(), modesTold(), told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X") },
+    { { 0.3 }, { CCT_MODE }, {} }
+  )
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
+  T.eq("a level a quarter into that on tells no color", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), {})
+  offIn(SEPARATE, RGB, inRed)
+  onMode(WARM)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 2000 })
+  T.eq("nor does an off", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), {})
+  -- The light's report of the pre-on by itself is of the driver's own command.
+  local state = offIn(SEPARATE, RGB, inRed)
+  onMode(WARM)
+  rampedOn()
+  state.state, state.brightness = true, 0.0039
+  state.color_mode, state.color_temperature = preOn().color_mode, preOn().color_temperature
+  pushed(SEPARATE, state, RANGE)
+  run(100)
+  state.brightness = 1.0
+  pushed(SEPARATE, state, RANGE)
+  run(5000)
+  T.eq(
+    "its reports of the pre-on and of the on: the level told at the on's end alone, and the color at the on",
+    { told("LIGHT_BRIGHTNESS_CHANGED", "at"), told("LIGHT_COLOR_CHANGED", "at") },
+    { { 4000 }, { 0 } }
+  )
+
+  -- A light in its combined mode, and one with no mode yet.
+  offIn({ RGBCT, CT }, RGBCT, { red = 0, green = 0, blue = 1, white = 0 })
+  onMode(WARM)
+  rampedOn()
+  T.eq(
+    "an RGBCT light off in blue, a white On Color: the pre-on lights the white alone, in the combined mode",
+    { carried()[2], carried()[3], preOn().color_brightness, preOn().white },
+    { RGBCT, 3000, 0, 1 }
+  )
+  offIn({ RGBCT, CT }, nil, {})
+  onMode({ RED[1], RED[2], id = 1 })
+  rampedOn()
+  T.eq(
+    "one with no mode yet and a red On Color: the pre-on names the combined mode, not the first a bare one would give",
+    carried()[2],
+    RGBCT
+  )
+  -- Every path that sends a pre-on: a scene step that turns the light on over its time.
+  offIn(SEPARATE, RGB, inRed)
+  mark()
+  proxy("PUSH_SCENE", {
+    SCENE_ID = 7,
+    ELEMENTS = "<element><delay>0</delay><rate>4000</rate><brightnessEnabled>true</brightnessEnabled>"
+      .. "<brightness>60</brightness><colorEnabled>true</colorEnabled><colorX>0.3</colorX><colorY>0.4</colorY>"
+      .. "<colorMode>1</colorMode></element>",
+  })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq(
+    "a scene step from off in a white: the pre-on carries it as the step does, which turns the light on in its white mode",
+    { carried(), lastCommand().has_color_mode or false },
+    { { 0.0039, false, 3000, false }, false }
+  )
+  T.eq(
+    "told at once, with no fade from red",
+    { colorsTold(), modesTold(), told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X") },
+    { { 0.3 }, { CCT_MODE }, {} }
+  )
+  run(1000)
+  colorTarget(RED, 4000)
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq(
+    "a color sent before the light reports the step's white, stopped a quarter of the way: that white, in its mode",
+    { lastCommand().color_mode, kelvins(), colors(), colorsTold(), modesTold() },
+    { CWWW, { 3000 }, {}, { 0.3 }, { CCT_MODE } }
+  )
+  proxy("CLEAR_ALL_SCENES")
+  offIn(SEPARATE, RGB, inRed)
+  onMode(WARM)
+  activate(levelStep(60, 4000))
+  T.eq("and one that sets a level alone: the On Color", carried(), { 0.0039, false, 3000, false })
+  proxy("CLEAR_ALL_SCENES")
 end
 
 T.finish()

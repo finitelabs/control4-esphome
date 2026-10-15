@@ -947,8 +947,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a color sent to a light right after it was ramped on, as programming
   that turns a light on and sets its color does, being dropped; the light now
   takes it and keeps it when the ramp ends
-- Fixed a ramp that also changes a light's color, as a ramp to on or a
-  Dim-To-Warm dim does, reporting the new color as the one the fade starts from
+- Fixed a ramp that also changes a light's color, as a Dim-To-Warm dim does,
+  reporting the new color as the one the fade starts from
 - Fixed a light showing a scene's color, or going back to a color set while it
   was off, after turning on or changing level had given it its on color or
   Dim-To-Warm color
@@ -1106,7 +1106,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   light stayed blue with a warm white beside it and was shown at 3000 K; the
   color now fades out as the white fades in, a stop part way holds the light
   where it is, and only the first color set on an RGBCT light that is in its
-  white-only mode, as it is after a restart, still fades through off
+  white-only mode, as one turned on with no Color On Mode after a restart is,
+  still fades through off
 - Fixed the white of an ESPHome light with its color and its white in one color
   mode, an RGBW light among them, staying lit beside every color the light was
   set to, which washed the color out; a color now turns the white off, and an
@@ -1123,6 +1124,23 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   to 100 % now runs between the two, as on a Control4 dimmer, for every level it
   is sent and shown, and a change of either leaves the light where it is until
   its next command, shown at its level on the new range
+- Fixed a stop part way through a fade between a color and a white, on an
+  ESPHome light whose color and white are separate color modes, as one built
+  with `color_interlock` has, sending the light a color temperature read off a
+  point between the two: stopped 150 ms into a fade from red to 4000 K, the
+  light went to its warmest white; it now stays in the color or white it is in,
+  the one it was fading from up to half way and the one it was fading to after,
+  comes back up to its level from the dip over half a second, and is shown in
+  it; a level stopped part way through a ramp from a color with Dim-To-Warm, as
+  when a keypad hold is let go, went to the white at once, and a fade sent part
+  way through either, as by a keypad hold pressed then, came back up to its
+  level at once when stopped; both now do the same
+- Fixed a ramped On that changes a light's color starting in the color the light
+  went off in: on an ESPHome light whose color and white are separate color
+  modes, as one built with `color_interlock` has, a ramped On into a white On
+  Color, or with Dim-To-Warm, from a light last in a color was dark for most of
+  its ramp; the light now comes up in its On color from the start, as ESPHome
+  brings up a light turned on from off, and is shown in it at once
 
 ### Changed
 
