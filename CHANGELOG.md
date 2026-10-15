@@ -45,235 +45,42 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a SwitchBot Relay Switch with no encryption key staying Busy and keeping
   the proxy's connection slot when a connection came up without the device's
   Bluetooth characteristics; it now disconnects and frees the slot
-- Fixed an Advanced Lighting scene set to flash, with no delay or ramp time on
-  any step, hanging the light's driver; it now runs its steps once and stops
-- Fixed a color sent to a light right after it was ramped on, as programming
-  that turns a light on and sets its color does, being dropped; the light now
-  takes it and keeps it when the ramp ends
-- Fixed a ramp that also changes a light's color, as a Dim-To-Warm dim does,
-  reporting the new color as the one the fade starts from
-- Fixed a light showing a scene's color, or going back to a color set while it
-  was off, after turning on or changing level had given it its on color or
-  Dim-To-Warm color
-- Fixed an Advanced Lighting scene carrying on with a light after the light was
-  turned on or off, set to a level or ramped: a later step of the scene took the
-  light back, and a scene that flashes the light kept flashing it; the command
-  now takes the light out of the scene
-- Fixed a ramp or color fade started while a scene was still fading a light
-  showing as finished when the scene's fade ended, while the light was still
-  moving; it now shows as finished when the light gets there
-- Fixed a color set on a light during a ramp being replaced by its Dim-To-Warm
-  color when the ramp ended
-- Fixed Color On Mode set to a color preset not being applied: the light turned
-  on in the color it last went off in, as if the mode were Previous, and with no
-  color of its own before it had been off once; it now turns on in the preset's
-  color and follows an edit of that preset
-- Fixed a light with Color On Mode set to Previous that was faded off, not
-  switched off at once, turning back on in the color it had before the fade, not
-  the one it faded off in
-- Fixed a light that was told to stop ramping during an Advanced Lighting scene
-  being moved again by the scene's next step; the stop now takes the light out
-  of the scene
-- Fixed a light that was told to stop ramping while its color was still fading
-  being put in its Dim-To-Warm color, or the color it turns on in, with the fade
-  cut short; the stop now holds the level and leaves the color fade to finish
-- Fixed a light that was stopped during a ramp losing a color set since the ramp
-  began
-- Fixed a scene step that sets only a level leaving a light in its old color
-  with Dim-To-Warm; the step now takes the Dim-To-Warm color for its level
-- Fixed Stop Scene Ramp not stopping a light: the light carried on to the end of
-  its ramp and was shown as still ramping; it now holds the light where the ramp
-  has got to
-- Fixed a held Top or Toggle button ramping a light toward its Default On level,
-  which dimmed a brighter light; a hold now ramps toward full until released
-- Fixed a button pressed, clicked or toggled while a light was ramping acting on
-  the level the ramp began from: a light on its way up could be switched off and
-  faded up again, or toggled the wrong way
-- Fixed a scene step with no ramp time not being shown for a light, in level or
-  color, until the light reported it, so the step, command or color fade after
-  it started from the old one
-- Fixed a color a light took while it was off not being picked up until it was
-  next on
-- Fixed Ramp Scene Up and Down, on a light already ramping, starting from the
-  level that ramp began at: the light could drop to its minimum and climb, or
-  not move at all
-- Fixed a light that was ramping not stopping when a command asked for the level
-  it had just reached: the light carried on to the end of its ramp while it was
-  shown at the level asked for
-- Fixed a light with Dim-To-Warm between two color temperatures being shown in
-  two colors at every brightness change, the one it was sent and then the one it
-  reported, and being sent the level again by a command for the level it was
-  already at
-- Fixed a ramped on of a color light with no color temperature restarting a
-  moment in, when the light turns on in a color temperature preset
-- Fixed an Advanced Lighting scene that was deactivated, cleared or removed
-  while one of its steps was fading a light leaving the light shown as still
-  ramping, at the level and color it had before the fade: a command for that
-  level then did nothing, and a stop found nothing to stop; the fade now runs on
-  and shows as finished when the light gets there
-- Fixed a scene step that sets only a color, run while a light was ramping,
-  making the driver lose track of the ramp: a stop then did nothing, and the
-  level the light ramped to was never shown; the ramp now carries on for a stop
-  to hold
-- Fixed a scene step that sets a level, run while a light was ramping, starting
-  from the level that ramp began at: the step's fade was shown from the wrong
-  level and a stop held the light at the wrong one, and a step back to the level
-  the ramp began at left the light shown as still ramping
-- Fixed a scene step run while a light's color was fading: a step with a color
-  of its own showed its fade from the color the earlier fade began at, and a
-  step that sets only a level left the earlier fade's end never shown
-- Fixed a scene step with a ramp time showing an On/Off-only light ramping to
-  the step's level, and at that level when the ramp time had passed; the light
-  switches at once and is now shown on or off as it does
-- Fixed a scene step that turns a light on over a ramp time not fading it up
-  from off as a ramped On does, and a step that sets only a level turning the
-  light on without its Color On Mode color
-- Fixed a light that was stopped during a scene step's fade, with Dim-To-Warm,
-  losing the color the step set when the light was already in that color
-- Fixed a scene step with no ramp time fading a light over the device's own
-  default transition time; it is now sent as an immediate change, as a level
-  command with no ramp time is
-- Fixed a ramp that took over from one still changing a light's color, as a
-  button's click does from its press, showing its color fade from the color the
-  first ramp was heading for
-- Fixed a ramped On cut short by a level command leaving the light shown as
-  still changing color
-- Fixed a light that was fading to a color when a ramped level change, a ramped
-  Off or a scene step with no color took over being shown in that color at once,
-  before the bulb had reached it
-- Fixed a light turned off while its color was still fading coming back on, with
-  Color On Mode set to Previous, in the color the fade began in
-- Fixed a light that was stopped part way through a ramp stepping to another
-  level, by up to 15 % of the ramp, and a ramp, fade or stop that took over from
-  a ramp still running being shown from the wrong level or color: an ESPHome
-  light eases into and out of a ramp, and the driver took it to move at a steady
-  rate
-- Fixed a light that was ramping and fading to a color at the same time jumping
-  to the end of both when the first of the two ran out: a slow color fade begun
-  during a short ramp sat almost still and then snapped to its color and level,
-  and a light turned off during a color fade and faded back on jumped to full
-  when the color fade would have ended
-- Fixed a light that was sent a level while its color was fading, or a color
-  while it was ramping, being shown as still changing for seconds after it had
-  arrived: an ESPHome light takes a fade already running along with the new
-  command, over that command's ramp time, and the driver now follows it and
-  shows both finishing together, at once when the command has no ramp time
-- Fixed a light that was told to stop ramping while its color was still fading
-  jumping to the color the fade was heading for, and one told to stop a color
-  fade while it was ramping jumping to the level the ramp was heading for; a
-  stop now holds what it stops where the light is and leaves the other to finish
-  in the time it had left
-- Fixed a color set on a light that was off being dropped when the light had
-  last been on in a color temperature: it was shown in the color and came on
-  white
-- Fixed a color sent to a light that was fading to off turning it full on in
-  that color until the fade's time was up, and a color set over a ramp time on a
-  light that was off making a ramped On after it jump to full early; a light
-  that is off or fading to off now keeps the color for when it next comes on,
-  and is shown in it at once, and an Advanced Lighting scene that sets a color
-  and no level no longer turns it on
-- Fixed a color change sent with no ramp time snapping to the color at once on a
-  light whose default ramp rate had never been set; it now fades over the
-  default half second, as a level change does
-- Fixed a light that another controller of the ESPHome device, such as Home
-  Assistant, set to a level or color while it was ramping from Control4 being
-  put back at the ramp's level or color when the ramp's time was up; the change
-  is now kept, and shown as soon as the light reports it
-- Fixed a light ignoring its Color On Mode, the level it turns on to and its
-  default ramp rate until one of them was next changed in Composer: turned on or
-  dimmed by a keypad button, an Advanced Lighting scene or a command with no
-  ramp time, it took half a second and no on color, where Composer showed three
-  quarters of a second and Dim-To-Warm; the driver now reads them from the
-  light's settings in the project when it starts and when the light connects, so
-  a light turns on in its On Color and dims with Dim-To-Warm from the first time
-  it is used
-- Fixed a light that has a white as well as a color making a white On Color out
-  of its red, green and blue: the On Color and Dim Color a new color light is
-  given are 3200 K stored as a color, so the light turned on and dimmed in a mix
-  of the three; a color that is a color temperature's own point, in the Color On
-  Mode, a scene or a color set from Navigator, now lights the light's white, at
-  that color temperature where the white has one
-- Fixed a cold and warm white light coming on, or dimming, at a third of its
-  light and warmer than asked when the level carried a color temperature, as
-  every level does with Dim-To-Warm: the driver split the color temperature into
-  cold and warm white itself, where the light does it with its own gamma; the
-  light now works the two out, as it does for a color temperature set by itself
-- Fixed a light with its color and its white in one color mode, as an ESPHome
-  RGBCT or RGBWW light built without `color_interlock` has, being shown in a
-  white a moment after any color was set on it: the white was then the color its
-  next fade was shown from, and the color it came back on in with Color On Mode
-  set to Previous; it is now shown in its color while the color is turned up at
-  least as far as the white, and in its white below that
-- Fixed a color temperature set on an ESPHome light with its color and its white
-  in one color mode leaving the color lit: asked for 3000 K while blue, the
-  light stayed blue with a warm white beside it and was shown at 3000 K; the
-  color now fades out as the white fades in, a stop part way holds the light
-  where it is, and only the first color set on an RGBCT light that is in its
-  white-only mode, as one turned on with no Color On Mode after a restart is,
-  still fades through off
-- Fixed the white of an ESPHome light with its color and its white in one color
-  mode, an RGBW light among them, staying lit beside every color the light was
-  set to, which washed the color out; a color now turns the white off, and an
-  RGBW light, which has no color temperature for Control4 to set, lights its
-  white alone for a color that is the point of a color temperature from about
-  2000 to 6500 K, such as the On Color a new light is given or a white picked on
-  the color wheel, and its red, green and blue alone for any other color
-- Fixed a color temperature set on a light that was off in a color being dropped
-  by an ESPHome light whose color and white are separate color modes, as one
-  built with `color_interlock` has: the light was shown at the color temperature
-  and came back on in the color; it now comes on in that white
-- Fixed Max On Level and Min On Level, set on a light in Composer, having no
-  effect: a light set to a Max On Level of 80 still went to 100 %; the light's 1
-  to 100 % now runs between the two, as on a Control4 dimmer, for every level it
-  is sent and shown, and a change of either leaves the light where it is until
-  its next command, shown at its level on the new range
-- Fixed a stop part way through a fade between a color and a white, on an
-  ESPHome light whose color and white are separate color modes, as one built
-  with `color_interlock` has, sending the light a color temperature read off a
-  point between the two: stopped 150 ms into a fade from red to 4000 K, the
-  light went to its warmest white; it now stays in the color or white it is in,
-  the one it was fading from up to half way and the one it was fading to after,
-  comes back up to its level from the dip over half a second, and is shown in
-  it; a level stopped part way through a ramp from a color with Dim-To-Warm, as
-  when a keypad hold is let go, went to the white at once, and a fade sent part
-  way through either, as by a keypad hold pressed then, came back up to its
-  level at once when stopped; both now do the same
-- Fixed a ramped On that changes a light's color starting in the color the light
-  went off in: on an ESPHome light whose color and white are separate color
-  modes, as one built with `color_interlock` has, a ramped On into a white On
-  Color, or with Dim-To-Warm, from a light last in a color was dark for most of
-  its ramp; the light now comes up in its On color from the start, as ESPHome
-  brings up a light turned on from off, and is shown in it at once
-- Fixed an ESPHome RGBW light built with `color_interlock` never lighting its
-  white: its white is a color mode of its own, which the driver never named, so
-  the On Color a new light is given and a white picked on the color wheel went
-  out in its red, green and blue; a color that is the point of a color
-  temperature from about 2000 to 6500 K now lights the white alone, as on an
-  RGBW light built without `color_interlock`, and a fade between two whites
-  stays in the white
-- Fixed a white picked on the color wheel 1 % from its middle toward green going
-  out as a mix of red, green and blue on an ESPHome light with a white beside
-  its color, or being dropped by one with only a white, where one 16 % toward
-  orange lit the white: a color now counts as the white of a color temperature
-  inside the light's range when it is within the same distance of that white on
-  every side, so the middle of the wheel and the colors within 2 % of it light
-  the white where their color temperature is in the range; an orange that lies
-  on the line of whites, as some of up to 75 % do, is a warm white too
-- Fixed a color temperature beyond an ESPHome light's range, such as 2200 K set
-  by a scene or from Navigator on a light that goes no warmer than 2700 K, being
-  shown at the end of the range once the light reported it, so it no longer
-  matched what was set; the light still goes to the end of its range, and is now
-  shown at the color temperature that was set, which Color On Mode set to
-  Previous keeps
+- Fixed Advanced Lighting scenes on an ESPHome light: a flash scene with no
+  delay or ramp time hung the driver, Stop Scene Ramp did not stop the light,
+  and a scene kept moving a light that was sent another command, or showed it
+  ramping after the scene was deactivated; a step now starts where the light is,
+  fades over its own ramp time and takes Color On Mode and Dim-To-Warm
+- Fixed overlapping ramps, fades, scene steps and stops starting from, jumping
+  to or being shown at the wrong level or color, or not stopping the light; a
+  stop now holds the light where it is and lets a fade it did not stop finish
+- Fixed a ramped On that changes a light's color starting in the old color,
+  which kept some lights dark for most of the ramp, or restarting a moment in,
+  and a color sent right after it being dropped
+- Fixed a held Top or Toggle button ramping toward the Default On level instead
+  of full, and a button pressed during a ramp acting on the level it began from
+- Fixed a light ignoring its Color On Mode, on level and default ramp rate until
+  one was changed in Composer, and Color On Mode not applying a color preset or
+  the right Previous color; a color sent while the light is off or fading off
+  now waits for its next on instead of turning it on or being lost
+- Fixed a cold and warm white light coming on dimmer and warmer than asked with
+  Dim-To-Warm, a Dim-To-Warm light being shown in two colors at every level
+  change, and a light's On or Dim-To-Warm color being undone by a scene's color
+  or one set while it was off
+- Fixed ESPHome lights with a white beside their color, such as RGBW and RGBCT
+  lights, keeping the white lit or shown under a color and the color lit under a
+  color temperature, and making whites out of red, green and blue; a color at or
+  near a white, such as a new light's On Color, now lights the white, and a
+  color temperature beyond the light's range is shown as set
+- Fixed Max On Level and Min On Level having no effect; a light's 1 to 100 % now
+  runs between them, as on a Control4 dimmer
+- Fixed a light's level or color set from elsewhere, such as Home Assistant,
+  being undone when a Control4 ramp ended, or not shown while it was off
 
 ### Changed
 
 - Changed how long a color set on a light with Dim-To-Warm lasts: it now lasts
-  until the brightness next changes, when the light takes its Dim-To-Warm color
-  again, instead of until the light is turned off
-- Changed a brightness command for the level a light with Dim-To-Warm is already
-  at: it now returns a color set on the light to its Dim-To-Warm color instead
-  of doing nothing
+  until the next brightness command, even one for the level the light is already
+  at, instead of until the light is turned off
 
 ## v20260926 - 2026-09-26
 
