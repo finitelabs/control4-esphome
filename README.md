@@ -974,6 +974,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   being undone when a Control4 ramp ended, or not shown while it was off
 - Fixed a light sent a level and then a color, such as from Programming, being
   shown for a moment in the color it had before
+- Fixed a light turned on over a ramp time being shown as off until the ramp
+  ended; Control4 now shows it on from the start
 
 ### Changed
 
