@@ -106,6 +106,10 @@ local P_COLOR_ON_MODE = "color_on_mode"
 local P_PREVIOUS_COLOR = "previous_color"
 local P_BRIGHTNESS_ON_MODE_PRESET = "brightness_on_mode_preset"
 local P_COLOR_ON_MODE_PRESET = "color_on_mode_preset"
+-- The point of the white a light was last sent, and the full color it was picked as or the color
+-- temperature beyond its range it was asked as, which no report carries; a white mode with no
+-- color temperature reports neither.
+local P_WHITE_POINT = "white_point"
 
 -- Color on-mode kinds. The proxy assigns presets with these origins/IDs to
 -- distinguish dim-to-warm pairs from previous-color tracking.
@@ -129,6 +133,9 @@ local MODE_STOP_RATE = 500
 
 local LIGHT_COLOR_MODE_FULL = 0
 local LIGHT_COLOR_MODE_CCT = 1
+-- The driver's own, never the proxy's: a full color lit as the white it is a
+-- point of, and told as the color it was picked as.
+local LIGHT_COLOR_MODE_PICKED_WHITE = 2
 
 -- D65 whitepoint, used as a sane chromaticity default before any state is known
 local DEFAULT_COLOR_X = 0.3127
@@ -773,7 +780,31 @@ local function firstColorMode()
   return first
 end
 
+-- The mode of a white with no color temperature that is a mode of its own
+-- beside the color, as an RGBW light built with color_interlock has: nil for any other.
+local function ownWhiteMode()
+  local white = ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_WHITE
+  if supportsColor and supportedColorModes[white] then
+    return white
+  end
+end
+
 local function sendLightCommand(opts)
+  -- A white's point, and the color picked for it, ride with its command for the
+  -- driver alone, not the light, and are stored so a restart reads the light's white back at them.
+  local point = opts.point
+  if point then
+    opts.point = nil
+    local stored = persist:get(P_WHITE_POINT)
+    local picked, was = point.picked or {}, stored.picked or {}
+    -- Where a report carries the point, a white with no pick needs storing only to drop one.
+    if
+      (point.picked or stored.picked or ownWhiteMode())
+      and not (point.x == stored.x and point.y == stored.y and picked.x == was.x and picked.y == was.y)
+    then
+      persist:set(P_WHITE_POINT, point)
+    end
+  end
   log:debug("sendLightCommand(%s)", opts)
   -- A light that is not connected reports nothing of what it is sent.
   if STATE and (opts.has_brightness or opts.state == false) then
@@ -858,13 +889,34 @@ local function holdsColor(state, color)
   return true
 end
 
-local takenColor -- defined with the white points below
+local takenColor, heldColor -- defined with the white points below
+
+-- A white the light shows at a point: the color it was picked as, or the color
+-- temperature asked for beyond its range, where it is the white the driver last
+-- sent for one, or that point.
+local function shownWhite(x, y)
+  local point = persist:get(P_WHITE_POINT)
+  local picked = point and point.picked
+  if
+    picked
+    and picked.x
+    and picked.y
+    and point.x
+    and point.y
+    and sameColor(x, y, LIGHT_COLOR_MODE_CCT, point.x, point.y, LIGHT_COLOR_MODE_CCT)
+  then
+    return picked.x, picked.y, picked.mode or LIGHT_COLOR_MODE_PICKED_WHITE
+  end
+  return x, y, LIGHT_COLOR_MODE_CCT
+end
 
 -- The color a light's fields show, as an xy and its color mode: nil for none.
 -- A mode with a color and a white shows the one turned up further, the color
 -- while it is at least the white, and the white below that: at its color
 -- temperature's point, or for a white with none, at the white's point of the
--- red, green and blue a white is sent beside.
+-- red, green and blue a white is sent beside. A white mode of its own shows the
+-- point it was last sent, or with none sent the default white's. A white sent
+-- for a color picked as it shows that color.
 local function shownColor(fields)
   local CM = ESPHomeProtoSchema.Enum.ColorMode
   local mode = fields.color_mode
@@ -875,16 +927,24 @@ local function shownColor(fields)
   end
   local inWhite = not (hasColor and fields.color_brightness > 0 and fields.color_brightness >= white)
   if inWhite and mode and COLOR_MODES_SUPPORTING_CCT[mode] and fields.color_temperature > 0 then
-    local x, y = C4:ColorCCTtoXY(miredsToKelvin(fields.color_temperature))
-    return x, y, LIGHT_COLOR_MODE_CCT
+    return shownWhite(C4:ColorCCTtoXY(miredsToKelvin(fields.color_temperature)))
   end
   if hasColor and math.max(fields.red, fields.green, fields.blue) > 0 then
     local h, s = rgbToHSV(fields.red, fields.green, fields.blue)
     local x, y = C4:ColorHSVtoXY(h, s, 100)
     if inWhite and mode == CM.COLOR_MODE_RGB_WHITE then
-      return takenColor(x, y, LIGHT_COLOR_MODE_CCT)
+      x, y = takenColor(x, y, LIGHT_COLOR_MODE_CCT)
+      return shownWhite(x, y)
     end
     return x, y, LIGHT_COLOR_MODE_FULL
+  end
+  if mode and mode == ownWhiteMode() then
+    local point = persist:get(P_WHITE_POINT)
+    if point and point.x and point.y then
+      return shownWhite(point.x, point.y)
+    end
+    local x, y = takenColor(DEFAULT_COLOR_X, DEFAULT_COLOR_Y, LIGHT_COLOR_MODE_CCT)
+    return x, y, LIGHT_COLOR_MODE_CCT
   end
 end
 
@@ -995,6 +1055,22 @@ local function buildColorCmdFields(x, y, mode, merged)
   if not (supportsColor or supportsCCT) or x == nil or y == nil then
     return nil
   end
+  -- A color picked as a white goes out as the white of its color temperature,
+  -- and a color temperature beyond the light's range as the range's end.
+  local pick = nil
+  if mode == LIGHT_COLOR_MODE_PICKED_WHITE then
+    pick = { x = x, y = y }
+    x, y, mode = takenColor(x, y, LIGHT_COLOR_MODE_CCT)
+  elseif mode == LIGHT_COLOR_MODE_CCT then
+    local heldX, heldY = heldColor(x, y, mode)
+    if heldX ~= x or heldY ~= y then
+      pick = { x = x, y = y, mode = mode }
+      x, y = heldX, heldY
+    end
+  end
+  -- A light keeps the point of each white it is sent, and the color picked or
+  -- asked for it, for the light's reports of that white to be read back at.
+  local point = mode == LIGHT_COLOR_MODE_CCT and { x = x, y = y, picked = pick } or nil
   if mode == LIGHT_COLOR_MODE_CCT and supportsCCT then
     local k = tonumber(C4:ColorXYtoCCT(x, y))
     if not k or k <= 0 then
@@ -1003,6 +1079,7 @@ local function buildColorCmdFields(x, y, mode, merged)
     local fields = {
       has_color_temperature = true,
       color_temperature = kelvinToMireds(k),
+      point = point,
     }
     local combined = combinedColorMode()
     local pickedMode = pickColorMode("cct")
@@ -1046,7 +1123,14 @@ local function buildColorCmdFields(x, y, mode, merged)
     if combined then
       -- A white that has no color temperature is lit alone, with its point's red,
       -- green and blue beside it for the light's report to be read back at.
+      fields.point = point
       return combinedFields(fields, combined, mode == LIGHT_COLOR_MODE_CCT or nil)
+    end
+    -- A white that is a mode of its own is lit alone, at full, and keeps its
+    -- point for the light's reports, which have none to read back.
+    local white = mode == LIGHT_COLOR_MODE_CCT and ownWhiteMode()
+    if white then
+      return { has_color_mode = true, color_mode = white, has_white = true, white = 1, point = point }
     end
     -- Named, or a light that is off in a mode with no color drops the color.
     local pickedMode = pickColorMode("rgb")
@@ -1066,10 +1150,14 @@ local function takenKelvin(k)
 end
 
 -- Whether the light has a white for a white's own point: one at a color
--- temperature, or one with none beside its color, as an RGBW light has.
+-- temperature, or one with none beside its color or as a mode of its own, as an RGBW light has.
 local function hasWhiteForPoints()
-  return supportsCCT or combinedColorMode() ~= nil
+  return supportsCCT or combinedColorMode() ~= nil or ownWhiteMode() ~= nil
 end
+
+-- How far in xy a color may lie from the line of whites, on any side, and be one: C4 gives a color the
+-- temperature whose point is nearest. It holds the color wheel's middle and every pick 2 % around it in range.
+local WHITE_TOLERANCE = 0.012
 
 -- Whether a full color is a color temperature's own point, inside the light's
 -- range: a light with a white for it shows it in that white.
@@ -1079,23 +1167,43 @@ local function isWhitePoint(x, y)
     return false
   end
   local whiteX, whiteY = C4:ColorCCTtoXY(k)
-  return sameColor(x, y, LIGHT_COLOR_MODE_CCT, whiteX, whiteY, LIGHT_COLOR_MODE_CCT)
+  return math.sqrt((x - whiteX) ^ 2 + (y - whiteY) ^ 2) <= WHITE_TOLERANCE
 end
 
 -- A color as the light takes it, which its reports then read as: a white at its
--- color temperature's point, or a full color on a light with no white.
+-- color temperature's point, or a full color on a light with no white. A full
+-- color at a white's point is that white, told as picked on a light with a color:
+-- the proxy matches a scene's color to the one it is told.
 function takenColor(x, y, mode)
-  if mode ~= LIGHT_COLOR_MODE_CCT and not isWhitePoint(x, y) then
-    return x, y, mode
+  if mode == LIGHT_COLOR_MODE_PICKED_WHITE then
+    mode = LIGHT_COLOR_MODE_FULL
+  end
+  if mode ~= LIGHT_COLOR_MODE_CCT then
+    if not isWhitePoint(x, y) then
+      return x, y, mode
+    end
+    if supportsColor then
+      return x, y, LIGHT_COLOR_MODE_PICKED_WHITE
+    end
   end
   if not hasWhiteForPoints() then
     return x, y, supportsColor and LIGHT_COLOR_MODE_FULL or mode
   end
+  -- One beyond the range is held at its end by a light with a color temperature, and told as asked.
   local k = tonumber(C4:ColorXYtoCCT(x, y))
   if k and k > 0 then
-    x, y = C4:ColorCCTtoXY(takenKelvin(k))
+    x, y = C4:ColorCCTtoXY(supportsCCT and k or takenKelvin(k))
   end
   return x, y, LIGHT_COLOR_MODE_CCT
+end
+
+-- Where a light holds a color it is told: a color temperature beyond its range at the range's end.
+function heldColor(x, y, mode)
+  local k = mode == LIGHT_COLOR_MODE_CCT and supportsCCT and tonumber(C4:ColorXYtoCCT(x, y))
+  if k and k > 0 and k ~= takenKelvin(k) then
+    return C4:ColorCCTtoXY(takenKelvin(k))
+  end
+  return x, y
 end
 
 -- Apply the dim-to-warm formula from spec _7.2:
@@ -1121,10 +1229,14 @@ local function computeFadeColor(brightness)
   local x = dimPreset.x + (onPreset.x - dimPreset.x) * b
   local y = dimPreset.y + (onPreset.y - dimPreset.y) * b
   local colorMode = onPreset.mode or LIGHT_COLOR_MODE_FULL
-  -- Two full colors that are each a white's point fade between whites. The mix
-  -- is not asked: a line between two colors can cross a white's point at one level.
+  -- Two full colors that are each a white's point fade between whites, told as their mix where that is one
+  -- too. What is lit is not asked of the mix: a line between two colors can cross a white's point at one level.
   if isWhitePoint(onPreset.x, onPreset.y) and isWhitePoint(dimPreset.x, dimPreset.y) then
-    colorMode = LIGHT_COLOR_MODE_CCT
+    colorMode = colorMode ~= LIGHT_COLOR_MODE_CCT
+        and supportsColor
+        and isWhitePoint(x, y)
+        and LIGHT_COLOR_MODE_PICKED_WHITE
+      or LIGHT_COLOR_MODE_CCT
   end
   if colorMode == LIGHT_COLOR_MODE_CCT then
     x, y, colorMode = takenColor(x, y, colorMode)
@@ -1270,9 +1382,12 @@ end
 ---------------------------------------------------------------------------
 
 -- The proxy of a light whose white has no color temperature has none to be
--- told: a white is a full color to it.
+-- told: a white is a full color to it, as a color picked for a white is to any.
 local function toldMode(mode)
-  if mode == LIGHT_COLOR_MODE_CCT and not supportsCCT and hasWhiteForPoints() then
+  if
+    mode == LIGHT_COLOR_MODE_PICKED_WHITE
+    or (mode == LIGHT_COLOR_MODE_CCT and not supportsCCT and hasWhiteForPoints())
+  then
     return LIGHT_COLOR_MODE_FULL
   end
   return mode
@@ -1331,6 +1446,7 @@ local function carryColor(x, y, mode, ms, from, now)
     startTime = now or C4:GetTime(),
     startX = currentColorX,
     startY = currentColorY,
+    startMode = currentColorMode,
     targetX = x,
     targetY = y,
     targetMode = mode,
@@ -1619,8 +1735,10 @@ function leaveMergedColor()
   brightnessRamp.mergedColor = nil
   local elapsed = C4:GetTime() - brightnessRamp.startTime
   local progress = eased(math.min(1, elapsed / brightnessRamp.durationMs))
-  currentColorX = currentColorX + (merged.x - currentColorX) * progress
-  currentColorY = currentColorY + (merged.y - currentColorY) * progress
+  local fromX, fromY = heldColor(currentColorX, currentColorY, currentColorMode)
+  local toX, toY = heldColor(merged.x, merged.y, merged.mode)
+  currentColorX = fromX + (toX - fromX) * progress
+  currentColorY = fromY + (toY - fromY) * progress
   carryColor(merged.x, merged.y, merged.mode, remaining(brightnessRamp))
 end
 
@@ -1930,8 +2048,11 @@ local function interpolatedColor(now)
     return colorRamp.startX, colorRamp.startY, colorRamp.targetMode
   end
   local progress = eased(elapsed / colorRamp.durationMs)
-  local x = colorRamp.startX + (colorRamp.targetX - colorRamp.startX) * progress
-  local y = colorRamp.startY + (colorRamp.targetY - colorRamp.startY) * progress
+  -- The light fades between the ends it holds them at.
+  local fromX, fromY = heldColor(colorRamp.startX, colorRamp.startY, colorRamp.startMode)
+  local toX, toY = heldColor(colorRamp.targetX, colorRamp.targetY, colorRamp.targetMode)
+  local x = fromX + (toX - fromX) * progress
+  local y = fromY + (toY - fromY) * progress
   return x, y, colorRamp.targetMode
 end
 
@@ -1963,6 +2084,10 @@ function colorRampStopped(level, at)
   end
   local now = C4:GetTime()
   local x, y, mode = interpolatedColor(now)
+  -- Held part way to a white, a light is lit in one: off the line of whites, it is told as that white's point.
+  if mode == LIGHT_COLOR_MODE_CCT or (mode == LIGHT_COLOR_MODE_PICKED_WHITE and not isWhitePoint(x, y)) then
+    x, y, mode = takenColor(x, y, LIGHT_COLOR_MODE_CCT)
+  end
   -- A light in its combined mode is held with what it has of its color and of
   -- its white, each as far as it is lit, and one changing mode in the mode it is in.
   local fields = fadedFields(now)
@@ -2014,6 +2139,7 @@ local function rampToColor(targetX, targetY, targetMode, rate)
     startTime = now,
     startX = currentColorX,
     startY = currentColorY,
+    startMode = currentColorMode,
     targetX = targetX,
     targetY = targetY,
     targetMode = targetMode,
@@ -2204,7 +2330,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   local targetX, targetY, targetMode
 
   if kelvin and kelvin > 0 and supportsCCT then
-    targetX, targetY = C4:ColorCCTtoXY(takenKelvin(kelvin))
+    targetX, targetY = C4:ColorCCTtoXY(kelvin)
     targetMode = LIGHT_COLOR_MODE_CCT
   elseif incomingMode == LIGHT_COLOR_MODE_CCT and supportsCCT and x and y then
     local k = tonumber(C4:ColorXYtoCCT(x, y))
@@ -2541,6 +2667,7 @@ local function applySceneStep(step)
         startTime = startTime,
         startX = currentColorX,
         startY = currentColorY,
+        startMode = currentColorMode,
         targetX = color.x,
         targetY = color.y,
         targetMode = mode,
@@ -3355,9 +3482,17 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     cold_white = tofinite(Select(state, "cold_white")) or 0,
     warm_white = tofinite(Select(state, "warm_white")) or 0,
   }
+  local known = #sentColors > 0
   local ownColor = isOwnReport(sentColors, function(color)
     return holdsColor(state, color)
   end, reported)
+  -- A white is no longer the driver's for a color picked once another client's
+  -- color is reported; the first report since a start cannot tell, and keeps it.
+  local point = known and not ownColor and persist:get(P_WHITE_POINT)
+  if point and point.picked then
+    point.picked = nil
+    persist:set(P_WHITE_POINT, point)
+  end
   -- Its own, a report is of a command with others sent since. Another
   -- client's is where the light now goes, whatever it was sent before.
   lightTarget = {}
@@ -3426,7 +3561,7 @@ end
 -- Binding change
 ---------------------------------------------------------------------------
 
-OBC[ESPHOME_BINDING] = function()
+OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   ENTITY = nil
   STATE = nil
   dynamicCapsSent = false
@@ -3449,6 +3584,10 @@ OBC[ESPHOME_BINDING] = function()
   lightBrightness = nil
   lightTarget = {}
   lightFade = nil
+  -- Only an unbind can leave the point another light's: a bind may come at a controller's start.
+  if not isBound then
+    persist:delete(P_WHITE_POINT)
+  end
   currentColorX = DEFAULT_COLOR_X
   currentColorY = DEFAULT_COLOR_Y
   currentColorMode = LIGHT_COLOR_MODE_CCT
