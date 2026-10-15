@@ -88,7 +88,7 @@ local function mark()
   sent, start = {}, now
 end
 
--- Late init goes no further without a minimum OS version, and the shim has none.
+-- Late init stops without a minimum OS version, which the shim lacks.
 local config = C4.GetDriverConfigInfo
 function C4:GetDriverConfigInfo(section)
   if section == "minimum_os_version" then
@@ -97,9 +97,8 @@ function C4:GetDriverConfigInfo(section)
   return config(self, section)
 end
 
--- The light's proxy and its answer to GET_SETUP: an empty one unless a case
--- gives one, or false for none. A case may give another for a new light,
--- which the proxy answers until it is told the light's capabilities.
+-- GET_SETUP answers proxySetup (false for none), or newLightSetup until the
+-- proxy is told the light's capabilities.
 local proxySetup, newLightSetup = "", nil
 local capabilitiesTold = false
 function C4:GetProxyDevices()
@@ -113,9 +112,9 @@ function C4:SendUIRequest(id, request, params)
   return uiRequest(self, id, request, params)
 end
 
---- The driver started over what it has stored, and its first state: on at
---- full unless `on` is false. Its state lives in the driver chunk's locals.
---- @param modes table|nil The entity's supported_color_modes, or nil for a light yet to connect.
+--- Reload the driver over its stored state (kept in the chunk's locals) and
+--- report the light on at full, or off if `on` is false.
+--- @param modes table|nil supported_color_modes; nil: not yet connected.
 local function restart(modes, on)
   queue, capabilitiesTold = {}, false
   dofile(DRIVER)
@@ -133,8 +132,8 @@ local function restart(modes, on)
   mark()
 end
 
---- A fresh light, whose Color On Mode is in the process-wide store.
---- @param modes table The entity's supported_color_modes.
+--- A fresh light: clears what the process-wide store holds of the last one.
+--- @param modes table supported_color_modes.
 local function light(modes, on)
   for _, key in ipairs({ "color_on_mode", "color_presets", "previous_color", "white_point" }) do
     persist:delete(key)
@@ -174,13 +173,12 @@ local function commands()
   return count
 end
 
---- ESPHome's easing of a transition: how far along it is at fraction `p` of
---- its time (LightTransformer::smoothed_progress).
+--- ESPHome's transition easing (LightTransformer::smoothed_progress).
 local function eased(p)
   return p * p * p * (p * (p * 6 - 15) + 10)
 end
 
---- The level a fade from `from` to `to` has got to at fraction `p` of its time.
+--- Level a fade from `from` to `to` reaches at fraction `p` of its time.
 local function fadeLevel(from, to, p)
   return math.floor(from + (to - from) * eased(p) + 0.5)
 end
@@ -301,7 +299,7 @@ do
   run(15000)
   T.eq("the On color goes out with the pre-on and the on alone", #colors(), 2)
   T.eq("and the proxy is told it once", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
-  -- The Control4 app's own send names the On color's preset, which the light is then told in.
+  -- The Control4 app's own send names the On color's preset.
   offInBlue()
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
@@ -1605,7 +1603,7 @@ do
   run(30000)
   T.eq("and nothing at the fade's own end", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 30 })
   proxy("CLEAR_ALL_SCENES")
-  -- A rated on from off brings the light up in the On color, which the step's replaces.
+  -- A rated on lights the On color at once; the step's color replaces it.
   offInBlue()
   proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(nil, other, 500) })
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 20000 })
@@ -1970,7 +1968,7 @@ do
   run(15000)
   T.eq("which the proxy is told at its end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
   proxy("CLEAR_ALL_SCENES")
-  -- With a level too the step finds the light still off, and sends a pre-on of its own.
+  -- With a level, the step finds the light off and sends its own pre-on.
   offInBlue()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   activate(colorStep(80, BLUE, 2000))
@@ -2100,8 +2098,8 @@ do
     local got = told(command, field)
     T.check(name, #got == 1 and math.abs(got[1] - want) < 1e-9, T.show(got))
   end
-  --- A light off in blue, half way through a 10 s on that its pre-on brought
-  --- up in the On color. Returns the red, green and blue the On color is sent as.
+  --- A light off in blue, half way through a 10 s on in the On color (lit by
+  --- its pre-on). Returns the On color's red, green and blue.
   local function fading()
     local onColor = offInBlue()
     proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
@@ -2134,7 +2132,7 @@ do
   T.eq("the proxy is told the color with it", toldColors(), { mix(100) })
   run(15000)
   T.eq("and nothing after", toldColors(), { mix(100) })
-  -- A rated on carries none: its pre-on brought the light up in the On color, told at the on.
+  -- A rated on's color was lit by its pre-on and told at the on.
   for _, c in ipairs({ { "a level at once", "SET_LEVEL", { LEVEL = 50 }, 0.5 }, { "an off", "OFF", nil, 0 } }) do
     local onColor = fading()
     proxy(c[2], c[3])
@@ -2613,7 +2611,7 @@ end
 T.section("a full color goes out with its color mode named, so a light off in a white mode takes it")
 do
   local RGBCT, CT = ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE, ColorMode.COLOR_MODE_COLOR_TEMPERATURE
-  --- The color mode each command since the mark named, false where it named none.
+  --- Color mode each command since the mark named; false where none.
   local function modes()
     local out = {}
     for _, s in ipairs(sent) do
@@ -2801,7 +2799,7 @@ end
 
 T.section("a scene step's color that the light cannot take is none: nothing of it is sent or told")
 do
-  -- The step's fields are built from the light's modes, and a dimmer has none for a color.
+  -- A dimmer has no mode to build a color step's fields from.
   light({ ColorMode.COLOR_MODE_BRIGHTNESS })
   activate(colorStep(nil, { 0.3, 0.6 }, 3000))
   T.eq("a color alone, on a light with no color: no command", commands(), 0)
@@ -2814,7 +2812,7 @@ do
   run(4000)
   T.eq("so none is left with no end", told("LIGHT_COLOR_CHANGED", "at"), {})
   T.eq("and the level's is told", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 3000 })
-  -- A light that is off holds a color for its next on, but not one it cannot take.
+  -- An off light holds a color for its next on, but not one it cannot take.
   light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
   activate(colorStep(nil, { 0.3, 0.6 }, 3000))
   T.eq("a color alone, on such a light that is off: no command", commands(), 0)
@@ -2919,7 +2917,7 @@ do
     { 100 }
   )
 
-  -- A float a light has nothing to report for comes as NaN, in the mode it was in.
+  -- A field with nothing to report comes as NaN, in the mode the light was in.
   light(dimmer)
   level(30, 10000)
   run(100)
@@ -3323,8 +3321,8 @@ do
   local function level(target, rate)
     proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = target, RATE = rate })
   end
-  --- A color light on at full in the On color, with Dim-To-Warm if `warm`, on
-  --- a controller that takes 10 ms over each message to the device or the proxy.
+  --- A color light on at full in the On color (Dim-To-Warm if `warm`), on a
+  --- controller that takes 10 ms per message to the device or the proxy.
   local function slowLight(warm)
     light({ ColorMode.COLOR_MODE_RGB })
     if warm then
@@ -3345,7 +3343,7 @@ do
     return told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT")
   end
 
-  -- Half way through 1.5 s a fade is at its steepest: 20 ms is 2 % of 100 to 20.
+  -- A 1.5 s fade is steepest half way: 20 ms there is 2 % of 100 to 20.
   slowLight()
   level(20, 1500)
   run(730)
@@ -3377,7 +3375,7 @@ do
     { half + (BLUE[1] - half) * eased(750 / 1500) }
   )
 
-  -- With Dim-To-Warm the level carries a color of its own, which replaces the fade.
+  -- With Dim-To-Warm the level carries its own color, replacing the fade.
   slowLight(true)
   colorTarget(BLUE, 1500)
   run(730)
@@ -3478,7 +3476,7 @@ local function forgetSetup()
   end
 end
 
---- The color temperature, in kelvin, of each command since the mark that had one.
+--- Kelvin of each command since the mark that had a color temperature.
 local function kelvins()
   local out = {}
   for _, s in ipairs(sent) do
@@ -3544,9 +3542,8 @@ end
 
 T.section("a preset the setup names is found by its id and its origin together")
 do
-  -- This light's Dim-To-Warm is between the Color Agent's Sunset (8) and Blue
-  -- Bonnet (10), and the device's own preset 10 is Previous On, which the
-  -- driver has stored.
+  -- Dim-To-Warm runs between the Color Agent's Sunset (8) and Blue Bonnet
+  -- (10); the device's own preset 10 is the stored Previous On.
   forgetSetup()
   proxySetup = ""
   light({ RGBCT, CT }, false)
@@ -3661,10 +3658,9 @@ do
   proxy("SET_COLOR_TARGET", { LIGHT_COLOR_TARGET_X = 0.5, LIGHT_COLOR_TARGET_Y = 0.5 })
   T.eq("and a color with no rate fades at it", lengths(), { 750 })
   run(1000)
-  -- The proxy sends the mode when it changes, and a preset when it is edited:
-  -- the on level follows both.
-  --- An edit of preset 10 and then its removal, on a light whose mode is that
-  --- preset `how`.
+  -- The proxy sends the mode on change and a preset on edit: the on level
+  -- follows both.
+  --- Edit preset 10, then remove it; `how` names where the mode came from.
   local function follows(how)
     proxy("UPDATE_BRIGHTNESS_PRESET", { COMMAND = "MODIFIED", ID = 10, NAME = "Previous On", LEVEL = 35 })
     proxy("OFF")
@@ -3699,7 +3695,7 @@ end
 
 T.section("a setup that lists one color or one level, and a preset listed with no level")
 do
-  --- A setup whose Color On Mode is its one color, and whose brightness on mode is its one level.
+  --- A setup with one color and one level, each its on mode.
   local function setupOfOne(level)
     return "<setup><light_color_on_mode_preset_id>1</light_color_on_mode_preset_id>"
       .. "<light_color_on_mode_preset_origin>1</light_color_on_mode_preset_origin>"
@@ -3730,9 +3726,8 @@ end
 
 T.section("an ESPHome light's own proxy: Dim-To-Warm between two presets of one color, and rates of 750 ms")
 do
-  -- setup-643.xml is what the proxy of a color and color temperature light
-  -- answered with nothing in it ever edited, where the driver held no Color
-  -- On Mode and no default rate. Both presets are 3200 K, 4234 K as read here.
+  -- setup-643.xml: an unedited RGBCT light's proxy, nothing stored by the
+  -- driver. Both presets are 3200 K, read as 4234 K through the stubs.
   forgetSetup()
   proxySetup = setupFile("setup-643.xml")
   restart({ RGBCT, CT }, false)
@@ -3758,10 +3753,8 @@ end
 
 T.section("a new light's Color On Mode is read once the proxy is told the light's capabilities")
 do
-  -- A proxy lists a light's colors, its On Color and Dim Color among them,
-  -- once it is told the light has a color or a color temperature. The two
-  -- files are what a new light's proxy answered as its driver started, and
-  -- as the driver's first capabilities reached it.
+  -- The proxy lists colors (On and Dim Color too) only once told the light
+  -- has color. The two files are its answers before and after that.
   forgetSetup()
   newLightSetup, proxySetup = setupFile("setup-732-new.xml"), setupFile("setup-732.xml")
   restart()
@@ -3785,16 +3778,14 @@ end
 -- A light with a white beside its color
 ---------------------------------------------------------------------------
 
--- The white is its own color mode, or one mode holds it with the color, as a
--- light built with no color_interlock has: RGB with a color temperature
--- (RGBCT above), with cold and warm white, or with a white that has no color
--- temperature.
+-- The white is its own mode, or shares one with the color (no
+-- color_interlock): RGBCT above, RGB with cold/warm white, or RGBW.
 local RGB, CWWW = ColorMode.COLOR_MODE_RGB, ColorMode.COLOR_MODE_COLD_WARM_WHITE
 local RGBWW, RGBW = ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE, ColorMode.COLOR_MODE_RGB_WHITE
 local FULL_MODE = 0
 
 --- A report from a light of kind `modes`.
---- @param range table|nil The range its entity gives for its color temperature, in mireds.
+--- @param range table|nil The entity's color temperature range, in mireds.
 local function pushed(modes, state, range)
   range = range or {}
   RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
@@ -3812,7 +3803,7 @@ end
 -- 6500 to 2700 K.
 local RANGE = { 153.8, 370.4 }
 
---- Set the Color On Mode to Dim-To-Warm between an On Color and a Dim Color, each an xy in `mode`.
+--- Dim-To-Warm between an On and a Dim Color, each an xy in `mode`.
 local function fadeMode(on, dim, mode)
   proxy("UPDATE_COLOR_ON_MODE", {
     COLOR_PRESET_ID = 1,
@@ -3833,7 +3824,7 @@ local function modesTold()
   return told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE")
 end
 
---- The last command the device was sent since the mark, empty if it was sent none.
+--- The last command sent since the mark, or an empty table.
 local function lastCommand()
   for i = #sent, 1, -1 do
     if sent[i].binding == ESPHOME and sent[i].command == "ENTITY_COMMAND" then
@@ -3952,7 +3943,7 @@ do
     { kelvins(), #colors() },
     { {}, 1 }
   )
-  -- Kelvin as x over a y that curves as the locus does, so the mix of two whites lies off it.
+  -- Kelvin as x over a y curving like the locus: a mix of two whites is off it.
   local toXY = C4.ColorCCTtoXY
   function C4:ColorCCTtoXY(k)
     return k / 10000, 0.4 - (k / 10000 - 0.45) ^ 2
@@ -3974,8 +3965,8 @@ T.section(
   "a full color that is a white's own point lights the white alone of a light whose white has no color temperature"
 )
 do
-  -- An RGBW light built with no color_interlock: its white is any white in the default
-  -- range, 2000 to 6536 K, and goes out with the point's red, green and blue beside it.
+  -- RGBW without color_interlock: any white in the default 2000-6536 K range,
+  -- sent with the point's red, green and blue beside it.
   local POINT = { 0.32, 0.4 }
   local WHITE, COLOR = { RGBW, 0, 1 }, { RGBW, 1, 0 }
   --- What the last command lit: its color mode, color brightness and white.
@@ -3987,7 +3978,6 @@ do
   local function ysTold()
     return told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_Y")
   end
-  --- `values` to six places.
   local function places(values)
     local out = {}
     for i, value in ipairs(values) do
@@ -4064,7 +4054,7 @@ do
   )
   run(1000)
 
-  -- Dim-To-Warm is between its two ends, as on a light with a color temperature.
+  -- Dim-To-Warm runs between its two ends, as on a CCT light.
   light({ RGBW })
   fadeMode({ 0.5, 0.6 }, { 0.3, 0.2 }, FULL_MODE)
   mark()
@@ -4136,7 +4126,7 @@ do
   proxy("ON")
   T.eq("with Color On Mode set to Previous it comes back on in the white alone", lit(), WHITE)
 
-  -- Another client's command: the color at a hundredth beside the white at full.
+  -- Another client's command: color at a hundredth beside the white at full.
   light({ RGBW })
   onMode(PREVIOUS_ON)
   setColor(BLUE)
@@ -4167,12 +4157,12 @@ end
 
 T.section("a full color that is a white's own point lights the white mode of a light whose white is a mode of its own")
 do
-  -- An RGBW light built with color_interlock: its white is a mode with no color
-  -- temperature, which takes no color beside it, so its point is the driver's to keep.
+  -- RGBW with color_interlock: the white is a mode of its own with no color
+  -- temperature, so the driver keeps its point.
   local POINT, WARMER = { 0.32, 0.4 }, { 0.4, 0.4 }
   local W = ColorMode.COLOR_MODE_WHITE
   local INTERLOCKED = { RGB, W }
-  -- What the last command lit: its color mode, white, and whether it set red, green and blue.
+  -- What the last command lit: color mode, white, and whether it set RGB.
   local WHITE, COLOR = { W, 1, false, false }, { RGB, false, true, false }
   local function lit()
     local cmd = lastCommand()
@@ -4194,7 +4184,6 @@ do
     end
     return out
   end
-  --- `values` to six places.
   local function sixPlaces(values)
     local out = {}
     for i, value in ipairs(values) do
@@ -4202,7 +4191,7 @@ do
     end
     return out
   end
-  --- A report of the light in its white, as another client leaves it, with blue's red, green and blue kept.
+  --- The light in its white as another client leaves it, blue's RGB kept.
   local function inWhite()
     pushed(INTERLOCKED, { state = true, brightness = 1.0, color_mode = W, white = 1, red = 0, green = 0.4, blue = 1 })
   end
@@ -4266,7 +4255,7 @@ do
   proxy("SET_LEVEL", { LEVEL = 50 })
   T.eq("between a white and a color: the color, the mix not asked", lit(), COLOR)
 
-  -- Another client's white has no point the driver sent: it is read at the default white's.
+  -- Another client's white has no point we sent: read at the default white.
   light(INTERLOCKED)
   onMode(PREVIOUS_ON)
   setColor(BLUE)
@@ -4281,7 +4270,7 @@ do
   proxy("ON")
   T.eq("with Color On Mode set to Previous the light comes back on in its white mode", lit(), WHITE)
 
-  -- The point is stored, and outlives a bind as at a controller's start, but not an unbind.
+  -- The stored point survives a bind (controller start) but not an unbind.
   light(INTERLOCKED)
   colorTarget(WARMER, 0)
   restart()
@@ -4297,7 +4286,7 @@ do
   inWhite()
   T.eq("and bound to another light in its white: the default white's point", sixPlaces(colorsTold()), { 0.3127 })
 
-  -- Every white is the one channel, so a fade between two never leaves the white mode.
+  -- Every white is one channel: a fade between two stays in the white mode.
   light(INTERLOCKED)
   colorTarget(POINT, 0)
   pushed(INTERLOCKED, taken())
@@ -4314,7 +4303,7 @@ do
   pushed(INTERLOCKED, taken())
   T.eq("and the light's report of the stop tells nothing more", #colorsTold(), 1)
 
-  -- Between the white and the color the light changes mode, which ESPHome fades through off.
+  -- White to color changes mode, which ESPHome fades through off.
   for _, case in ipairs({
     { POINT, BLUE, "from the white to blue", 1000, "a quarter", WHITE, 0.32 },
     { POINT, BLUE, "from the white to blue", 3000, "three quarters", COLOR, BLUE[1] },
@@ -4336,7 +4325,7 @@ do
     )
   end
 
-  -- Two whites far apart on a line that curves, as the locus does: the line between them leaves it.
+  -- Two whites far apart on a curved locus: the line between them leaves it.
   local toXY = C4.ColorCCTtoXY
   function C4:ColorCCTtoXY(k)
     return k / 10000, 0.4 - (k / 10000 - 0.45) ^ 2
@@ -4382,12 +4371,12 @@ do
     { "a white with no color temperature beside its color", { RGBW } },
     { "a white mode with no color temperature", { RGB, ColorMode.COLOR_MODE_WHITE } },
   }
-  --- Whether the last command lit the light's white: its color temperature, or its white alone.
+  --- Whether the last command lit the white (a CCT, or a plain white alone).
   local function whiteLit()
     local cmd = lastCommand()
     return cmd.has_color_temperature or (cmd.white == 1 and (cmd.color_brightness or 0) == 0) or false
   end
-  --- Whether each of `colors` is lit as a white, set in turn on a light of `kind`.
+  --- Whether each of `colors`, set in turn on a `kind` light, lights a white.
   local function whites(kind, colors)
     light()
     pushed(kind[2], { state = true, brightness = 1.0 }, kind[3])
@@ -4399,8 +4388,8 @@ do
     return out
   end
 
-  -- C4's own answers on a controller (OS 4.3.0) for picks on the color wheel: each pick's xy,
-  -- the color temperature C4 gives it, whose point is the one nearest it, and that point.
+  -- C4's answers on a controller (OS 4.3.0) for color wheel picks: the pick's
+  -- xy, the temperature C4 gives it (the nearest point's), and that point.
   local WHEEL = {
     { 0.3127100, 0.3290200, 6360, 0.3157647, 0.3257940 }, -- its middle, 0.0044 from the point
     { 0.3117924, 0.3320290, 6300, 0.3167600, 0.3267477 }, -- 1 % toward green (hue 120), 0.0073
@@ -4462,9 +4451,8 @@ do
   -- outside the tolerance a color the light reports is compared at.
   local PICK, POINT = { 0.32, 0.41 }, { 0.32, 0.4 }
   local W = ColorMode.COLOR_MODE_WHITE
-  -- Each kind, its range, the mode its white is reported in where a command names
-  -- none, another client's white beside the one it was sent, how a white's point
-  -- is told, and the 4000 K white as the light reports it, where a report can tell one.
+  -- Each kind: modes, range, the white's mode when unnamed, another client's
+  -- white, the mode a white's point is told in, and its 4000 K report.
   local AT_4000, RGB_4000 = { color_temperature = 250 }, { red = 0.6, green = 1, blue = 0.76 }
   local KINDS = {
     {
@@ -4481,12 +4469,12 @@ do
     { "a white with no color temperature beside its color", { RGBW }, nil, nil, { white = 0.5 }, FULL_MODE, RGB_4000 },
     { "a white mode with no color temperature", { RGB, W }, nil, nil, { white = 0.5 }, FULL_MODE },
   }
-  --- Whether the last command lit the light's white: its color temperature, or its white alone.
+  --- Whether the last command lit the white (a CCT, or a plain white alone).
   local function whiteLit()
     local cmd = lastCommand()
     return cmd.has_color_temperature or (cmd.white == 1 and (cmd.color_brightness or 0) == 0) or false
   end
-  --- Each color the proxy was told since the mark: its x and y to six places, and its color mode.
+  --- Each color told since the mark: x and y to six places, and its mode.
   local function toldColors()
     local xs, ys, modes = colorsTold(), told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_Y"), modesTold()
     local out = {}
@@ -4496,7 +4484,6 @@ do
     return out
   end
   local PICKED, AT_POINT = { { 0.32, 0.41, FULL_MODE } }, { { 0.32, 0.4, FULL_MODE } }
-  --- A light of `kind`, on unless `on` is false.
   local function lightOf(kind, on)
     light()
     pushed(kind[2], { state = on ~= false, brightness = 1.0 }, kind[3])
@@ -4615,7 +4602,7 @@ do
     { true, PICKED }
   )
 
-  -- The proxy's own copy of the color an on carried is seen to be that color.
+  -- The proxy's own copy of the color an on carried reads as that color.
   lightOf(KINDS[1])
   onMode(PREVIOUS_ON)
   colorTarget(PICK, 0)
@@ -4641,7 +4628,7 @@ do
   report(KINDS[1])
   T.eq("a color temperature set at that white, and its report: its point", toldColors(), { { 0.32, 0.4, CCT_MODE } })
 
-  -- On a light with separate modes a stop part way to another white is told at the white it holds.
+  -- Separate modes: a stop part way to another white is told at the one held.
   lightOf(KINDS[3])
   colorTarget(PICK, 0)
   report(KINDS[3])
@@ -4662,7 +4649,7 @@ do
     { { 0.4 }, { CCT_MODE } }
   )
 
-  -- Previous keeps the color picked, which is a color once its white leaves the light's range.
+  -- Previous keeps the color picked: a color once its white leaves the range.
   lightOf(KINDS[1])
   onMode(PREVIOUS_ON)
   colorTarget(PICK, 0)
@@ -4678,7 +4665,7 @@ do
     { false, 1, PICKED }
   )
 
-  -- A light with no color has its white alone, and a proxy with no color to be told.
+  -- A light without color has only its white, and a proxy told no color.
   light()
   pushed({ CT }, { state = false, brightness = 1.0 }, RANGE)
   onMode({ PICK[1], PICK[2], id = 1 })
@@ -4722,7 +4709,7 @@ do
       { { 3200 }, modes[#modes], false, false }
     )
   end
-  -- 3200 K between the driver's own 153 and 500 mireds, or the end the light gives.
+  -- 3200 K between the default 153 and 500 mireds, or the light's own end.
   for name, case in pairs({
     ["no range"] = { {}, (312.5 - 153) / (500 - 153) },
     ["one end of a range"] = { { 153.8, 0 }, (312.5 - 153.8) / (500 - 153.8) },
@@ -4901,7 +4888,7 @@ end
 
 T.section("a color temperature for a light in a combined color mode turns the color down, in that mode")
 do
-  --- Set the Color On Mode to a color temperature preset, with a dim one for Dim-To-Warm.
+  --- Color On Mode: a color temperature preset, and a dim one for Dim-To-Warm.
   local function onModeKelvin(on, dim)
     proxy("UPDATE_COLOR_ON_MODE", {
       COLOR_PRESET_ID = 1,
@@ -5056,8 +5043,7 @@ end
 
 T.section("a color temperature for a light in its white-only mode leaves it in that mode")
 do
-  -- As a restart of the light, another client or a build that named this
-  -- mode for a white leaves an RGBCT light.
+  -- How a restart of the light or another client can leave an RGBCT light.
   local WHITE_ONLY = {
     state = true,
     brightness = 1.0,
@@ -5112,7 +5098,7 @@ do
     channels(),
     { RGBCT, 0, 1, false, false }
   )
-  -- Another client puts the light back, with the driver's color long since reported.
+  -- Another client puts the light back after our color was long reported.
   whiteOnly()
   colorTarget(BLUE, 0)
   pushed({ RGBCT, CT }, taken(), RANGE)
@@ -5139,9 +5125,8 @@ do
     channels(),
     { false, false, false, false, false }
   )
-  -- ESPHome gives a light that has no mode yet, as after a restart with none
-  -- restored, its first at a turn-on that names none, as a rated on's pre-on
-  -- with no color is.
+  -- ESPHome gives a mode-less light its first mode at a turn-on naming none,
+  -- such as a rated on's pre-on with no color.
   light({ RGBCT, CT }, false)
   fadeMode({ 0.5, 0.4 }, { 0.27, 0.4 }, CCT_MODE)
   mark()
@@ -5309,7 +5294,7 @@ end
 
 T.section("a fade on a light in its combined color mode, stopped part way, is held where the light is")
 do
-  --- `values` to six places: a fade's easing leaves them just off a round figure.
+  --- Six places: a fade's easing leaves values just off a round figure.
   local function places(values)
     local out = {}
     for i, value in ipairs(values) do
@@ -5321,7 +5306,7 @@ do
   local function held()
     return places({ lastCommand().color_brightness, lastCommand().white })
   end
-  --- The color the proxy was last told since the mark: its x and its color mode.
+  --- The last color told since the mark: its x and its color mode.
   local function lastTold()
     local xs, modes = colorsTold(), modesTold()
     return places({ xs[#xs], modes[#modes] })
@@ -5329,15 +5314,14 @@ do
   local function level(target, rate)
     proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = target, RATE = rate })
   end
-  --- A color as the light scales it: its largest channel at full, and that scale.
+  --- A color scaled as the light does: largest channel at full, and the scale.
   local function scaled(r, g, b)
     local full = math.max(r, g, b)
     return { r / full, g / full, b / full }, full
   end
 
-  -- ESPHome fades every field of the light's color and white from where it is
-  -- to where it was sent: the color down as the white comes up. Half way
-  -- through its time a fade is half way along.
+  -- ESPHome fades each color/white field to its target (color down, white up);
+  -- half way through its time a fade is half way along.
   light({ RGBCT, CT })
   local blue = setColor(BLUE)
   kelvin(3000, 6000)
@@ -5393,7 +5377,7 @@ do
   proxy("SET_COLOR_STOP")
   T.eq("six tenths through a fade to a color: the color", lastTold(), { BLUE[1], FULL_MODE })
 
-  -- The white's color temperature and the color fade too, each from where the light had it.
+  -- The white's CCT and the color fade too, each from where the light had it.
   light({ RGBCT, CT })
   setColor(BLUE)
   local state = taken()
@@ -5424,7 +5408,7 @@ do
     { places(mixed), places({ 0.5 * full, 0.5 }) }
   )
 
-  -- Any command starts the light's fade again from where it is, over its own time.
+  -- Any command restarts the light's fade from where it is, over its own time.
   light({ RGBCT, CT })
   setColor(BLUE)
   kelvin(3000, 6000)
@@ -5448,7 +5432,7 @@ do
   mark()
   proxy("SET_COLOR_STOP")
   T.eq("the same of a white fading to a color", held(), { 0.75, 0.25 })
-  -- On a controller that takes 10 ms over each message, as of when the level went out.
+  -- With 10 ms per message, timed from when the level went out.
   light({ RGBCT, CT })
   setColor(BLUE)
   local send = SendToProxy
@@ -5508,7 +5492,7 @@ do
     held(),
     places({ first + (1 - first) * 0.5, (1 - first) * 0.5 })
   )
-  -- A level's stop holds the level over the time the color has left, and the fade starts again there too.
+  -- A level stop holds over the color's remaining time, restarting the fade.
   light({ RGBCT, CT })
   setColor(BLUE)
   level(40, 6000)
@@ -5591,7 +5575,7 @@ do
     { colorsTold(), #colors() },
     { {}, 0 }
   )
-  -- A fade to off holds the color and the white where they were, and a level back up goes on from there.
+  -- A fade to off holds color and white; a level back up continues from there.
   light({ RGBCT, CT })
   setColor(BLUE)
   kelvin(3000, 10000)
@@ -5607,7 +5591,7 @@ do
     held(),
     places({ (1 - eased(0.1)) * 0.5, 1 - (1 - eased(0.1)) * 0.5 })
   )
-  -- From 1 % a fade to off reads 0 half way, where the white it was fading to is told.
+  -- From 1 % a fade to off reads 0 half way, where its target white is told.
   light({ RGBCT, CT })
   level(1, 0)
   setColor(BLUE)
@@ -5658,7 +5642,7 @@ do
   proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
   T.eq("a scene step from a color to a white, stopped half way: half of each", held(), { 0.5, 0.5 })
   proxy("CLEAR_ALL_SCENES")
-  -- Another client's command starts the light's fade from where it is, over a time no report gives.
+  -- Another client's command restarts the fade over a time no report gives.
   light({ RGBCT, CT })
   setColor(BLUE)
   kelvin(3000, 4000)
@@ -5672,7 +5656,7 @@ do
   proxy("SET_COLOR_STOP")
   T.eq("a fade after another client ended one: from what the light then reported", held(), { 0.5, 0.75 })
 
-  -- With cold and warm white the light works the two out for a white, and reports them.
+  -- A cold/warm white light works out both for a white, and reports them.
   light()
   pushed({ RGBWW }, { state = true, brightness = 1.0 }, RANGE)
   setColor(BLUE)
@@ -5705,7 +5689,7 @@ do
   pushed({ RGBWW }, taken(), RANGE)
   T.eq("and its report of that tells nothing more", #colorsTold(), 1)
 
-  -- A fade from one color to another, or one white to another, is the light's own too.
+  -- A color-to-color or white-to-white fade is the light's own too.
   light({ RGBCT, CT })
   kelvin(3000, 0)
   kelvin(5000, 6000)
@@ -5737,8 +5721,8 @@ do
     proxy("CLEAR_ALL_SCENES")
   end
 
-  -- A change of color mode is ESPHome's fade through off, with nothing of both to
-  -- hold: up to half way the light is in the mode it left, and from then in the other.
+  -- A mode change fades through off with nothing of both to hold: before half
+  -- way the light is in the mode it left, after it in the other.
   light({ RGBCT, CT })
   pushed({ RGBCT, CT }, { state = true, brightness = 1.0, color_mode = CT, color_temperature = 300 }, RANGE)
   colorTarget(BLUE, 3000)
@@ -5804,7 +5788,7 @@ local function onLevels(max, min)
   proxy("SET_MIN_ON_LEVEL", { LEVEL = tostring(min) })
 end
 
---- Back to the range a light has until they are set, and the on level and hold rate these set.
+--- Reset the range, and the on level and hold rate these cases set.
 local function forgetOnLevels()
   for _, key in ipairs({
     "max_on_level",
@@ -5817,12 +5801,12 @@ local function forgetOnLevels()
   end
 end
 
---- `value` to nine places, as far as a command's serialized brightness keeps it.
+--- `value` to nine places, as far as a serialized brightness keeps it.
 local function nine(value)
   return math.floor(value * 1e9 + 0.5) / 1e9
 end
 
---- The brightness a level goes out at with a Max On Level of 80 and a Min On Level of 20.
+--- Device brightness for a level with Max On Level 80 and Min On Level 20.
 local function at80(level)
   return nine((20 + (level - 1) * 60 / 99) / 100)
 end
@@ -5901,7 +5885,7 @@ do
   )
   forgetOnLevels()
 
-  -- The light's report of the Max is a float a little over 0.8: not outside the range.
+  -- The Max reports as a float just over 0.8, which is not outside the range.
   light({ ColorMode.COLOR_MODE_BRIGHTNESS })
   onLevels(80, 20)
   proxy("SET_LEVEL", { LEVEL = 100 })
@@ -5921,7 +5905,7 @@ end
 
 T.section("a stop part way through a fade to or from off holds the light where it has got to, or at the Min On Level")
 do
-  -- ESPHome fades the brightness itself: from 0.8 to off, it is at 0.4 half way, level 34 on the range.
+  -- ESPHome fades brightness itself: 0.8 to off is 0.4 half way, level 34.
   light({ ColorMode.COLOR_MODE_BRIGHTNESS })
   onLevels(80, 20)
   proxy("SET_HOLD_RATE_DOWN", { RATE = 4000 })
@@ -5955,7 +5939,8 @@ end
 
 T.section("a toggle reads a light fading to or from off as on until it is half a level from off")
 do
-  -- A stop leaves the light off under 0.1, half way to a Min On Level of 20: a toggle turns it off.
+  -- Under 0.1 (half way to a Min of 20) a stop reads off, but a toggle still
+  -- reads it as on and turns it off.
   local function fading()
     light({ ColorMode.COLOR_MODE_BRIGHTNESS })
     onLevels(80, 20)
@@ -6027,7 +6012,7 @@ do
   T.eq("set before the light reports a level, it reads the brightness sent: 0.8, 100", levelsTold(), { 80, 100 })
   forgetOnLevels()
 
-  -- A light the new range leaves outside it reads back as the range's end, and goes there when asked.
+  -- Outside a new range a light reads as the end, and goes there when asked.
   light({ ColorMode.COLOR_MODE_BRIGHTNESS })
   mark()
   onLevels(80, 20)
@@ -6041,7 +6026,7 @@ do
   T.eq("one set elsewhere below the Min On Level: a Set Level to 1 takes it up to it", brightnessSent(), 0.2)
   forgetOnLevels()
 
-  -- A ramp in flight ends at its target's place on the new range: 0.6 is 67 there.
+  -- A ramp in flight ends at its target on the new range: 0.6 is level 67.
   light({ ColorMode.COLOR_MODE_BRIGHTNESS })
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 4000 })
   run(1000)
@@ -6055,7 +6040,7 @@ do
   })
   forgetOnLevels()
 
-  -- Composer sends the two one at a time: the ramp's target is read from the brightness sent each time.
+  -- Composer sends Max and Min one at a time; each re-reads the ramp's target.
   light({ ColorMode.COLOR_MODE_BRIGHTNESS })
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 20, RATE = 8000 })
   run(1000)
@@ -6075,7 +6060,7 @@ do
   T.eq("and through a range with no width to 50 to 100, below its Min, at 1", levelsTold(), { 1 })
   forgetOnLevels()
 
-  -- A stop in a ramp a new range moved is where the light is: half way from off to full, 0.5.
+  -- A stop after a range change is where the light is: half way, 0.5.
   light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   run(1000)
@@ -6099,7 +6084,7 @@ do
   })
   forgetOnLevels()
 
-  -- A color set in it after the range moved its target goes on to that target.
+  -- A color set after the range moved the target goes on to that target.
   light({ ColorMode.COLOR_MODE_RGB }, false)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   run(1000)
@@ -6148,7 +6133,7 @@ end
 
 T.section("a light the range leaves outside it ramps from where it is, and a stop holds it there")
 do
-  -- At full under a new Max On Level of 80: ESPHome fades it from 1.0, not from 0.8.
+  -- At full under a new Max of 80, ESPHome fades from 1.0, not 0.8.
   local function quarterDown()
     return nine(1 - eased(0.25))
   end
@@ -6213,7 +6198,7 @@ do
   T.eq("a scene step to 100 stopped half way holds it at 0.9", brightnessSent(), 0.9)
   proxy("CLEAR_ALL_SCENES")
 
-  -- A color set in its ramp starts the level again from where it is, on to its target.
+  -- A color set mid-ramp restarts the level from where it is to its target.
   light({ ColorMode.COLOR_MODE_RGB })
   onLevels(80, 20)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 4000 })
@@ -6273,9 +6258,8 @@ end
 T.section("a light's first on after a restart with no color mode saved is not another client's")
 do
   local UNKNOWN = ColorMode.COLOR_MODE_UNKNOWN
-  --- A light restored off with nothing saved, as it reports itself: in no color
-  --- mode, `mode` as the report gives it, every field at ESPHome's default and
-  --- the color temperature at the coldest of its range.
+  --- A light restored off with nothing saved: no color mode (`mode` as
+  --- reported), default fields, and the coldest color temperature.
   local function restored(modes, mode)
     light()
     pushed(modes, {
@@ -6377,7 +6361,7 @@ do
   --- What the light has, as ESPHome keeps it: each field as it was last sent.
   local state
   --- A light with a color mode and a white mode, on at full in red.
-  --- @param range table|nil The range it gives for its color temperature: RANGE if nil.
+  --- @param range table|nil Its color temperature range; RANGE if nil.
   local function inRed(modes, range)
     light()
     state = {
@@ -6395,7 +6379,7 @@ do
     }
     pushed(modes, state, range or RANGE)
   end
-  --- The light's report of its last command, in `mode` where the command names none.
+  --- The light's report of its last command; `mode` if the command names none.
   local function reported(modes, mode)
     local cmd = lastCommand()
     for _, field in ipairs(FIELDS) do
@@ -6404,7 +6388,7 @@ do
     state.color_mode = cmd.color_mode or mode
     pushed(modes, state, RANGE)
   end
-  --- The color the proxy was last told since the mark: its x and its color mode.
+  --- The last color told since the mark: its x and its color mode.
   local function lastTold()
     local xs, modes = colorsTold(), modesTold()
     return { math.floor(xs[#xs] * 1e6 + 0.5) / 1e6, modes[#modes] }
@@ -6474,7 +6458,7 @@ do
       { { white, false, false, false, false }, { 3000 }, {}, { 0.3, CCT_MODE } }
     )
     T.eq("eased back up over half a second", lengths(), { 500 })
-    -- Sent a color temperature alone, ESPHome gives the light the first of its modes that has one.
+    -- A lone color temperature moves ESPHome to its first CCT-capable mode.
     inRed(kind)
     kelvin(3000, 0)
     colorTarget(RED, 4000)
@@ -6500,7 +6484,7 @@ do
     )
   end
 
-  -- A command that takes the fade on starts ESPHome's change of mode again from the mode the light is in.
+  -- A command mid-fade restarts the mode change from the mode the light is in.
   inRed({ RGB, CWWW })
   kelvin(4000, 4000)
   run(1000)
@@ -6566,7 +6550,7 @@ do
     { lastCommand().color_mode, lengths() },
     { RGB, { 0 } }
   )
-  -- Dim-To-Warm's white for a level, carried by the level command, takes the light out of its color mode too.
+  -- A level carrying a Dim-To-Warm white takes the light out of color mode too.
   for _, case in ipairs({ { 1000, "a quarter", 0, FULL_MODE }, { 3000, "three quarters", 0.45, CCT_MODE } }) do
     inRed({ RGB, CWWW })
     fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
@@ -6586,7 +6570,7 @@ do
     )
     run(5000)
   end
-  -- A level's stop part way through that change of mode is held as a color's is.
+  -- A level stop mid mode change is held as a color stop is.
   for name, kind in pairs({
     ["a color temperature white mode"] = { RGB, CT },
     ["a cold and warm white mode"] = { RGB, CWWW },
@@ -6629,7 +6613,7 @@ do
     reported(kind, kind[2])
     T.eq("and the light's report of that tells nothing more", { #colorsTold(), #levelsTold() }, { 1, 1 })
   end
-  -- One above its Max On Level is held where it has got to on the range's line.
+  -- Above its Max On Level it is held where it has got to on the line.
   inRed({ RGB, CT })
   onLevels(80, 20)
   fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
@@ -6694,8 +6678,8 @@ do
     { lastCommand().state, lengths(), levelsTold() },
     { false, { 0 }, { 0 } }
   )
-  -- A fade sent part way through the change in the mode the light is then in starts
-  -- from the dip: stopped, it is brought back up from there too.
+  -- A fade sent mid-change, in the light's current mode, starts from the dip;
+  -- a stop brings it back up from there too.
   local FOUR_K = "<colorEnabled>true</colorEnabled><colorX>0.4</colorX><colorY>0.4</colorY><colorMode>1</colorMode>"
   inRed({ RGB, CWWW })
   fadeMode({ 0.5, 0.4 }, { 0.4, 0.4 }, CCT_MODE)
@@ -6751,7 +6735,7 @@ do
     { { 3000, 500 }, CWWW }
   )
   proxy("CLEAR_ALL_SCENES")
-  -- Before half way the light is still in the mode it left, and a fade back into it starts from the dip.
+  -- Before half way it is in the mode it left; a fade back starts at the dip.
   inRed({ RGB, CWWW })
   kelvin(4000, 0)
   reported({ RGB, CWWW }, CWWW)
@@ -6801,7 +6785,7 @@ do
       { 0, FULL_MODE },
     }
   )
-  -- Once such a fade has run its time the light is back up: the next has no dip.
+  -- Once such a fade has run, the light is back up: the next has no dip.
   inRed({ RGB, CWWW })
   kelvin(4000, 4000)
   run(3000)
@@ -6825,7 +6809,7 @@ do
     { kelvins(), brightnessSent(), lengths() },
     { { 4950 }, 0.95, { 0 } }
   )
-  -- A color sent since is not the level's to hold: it goes on through the change.
+  -- A color sent since is not the level's to hold; it goes on through it.
   inRed({ RGB, CWWW })
   kelvin(4000, 4000)
   run(1000)
@@ -6838,7 +6822,7 @@ do
     { lastCommand().has_color_mode or false, colors(), kelvins(), brightnessSent(), lengths(), levelsTold() },
     { false, {}, {}, 0.95, { 1500 }, { 95 } }
   )
-  -- Nor is one sent while the light faded to off: the light goes on to it through off.
+  -- Nor one sent during a fade to off: the light goes on to it through off.
   inRed({ RGB, CWWW })
   level(0, 4000)
   run(1000)
@@ -6893,7 +6877,7 @@ do
   )
   proxy("CLEAR_ALL_SCENES")
 
-  -- A white with no color temperature, as an RGB light built with color_interlock has.
+  -- A plain white, as an RGBW light built with color_interlock has.
   local WHITE = ColorMode.COLOR_MODE_WHITE
   inRed({ RGB, WHITE })
   state.color_mode, state.green, state.blue = WHITE, 1, 1
@@ -6916,7 +6900,7 @@ do
     told("LIGHT_BRIGHTNESS_CHANGED", "at"),
     { 3000 }
   )
-  -- One that gives no range for its color temperature has its cold and warm white to keep.
+  -- Without a mireds range, its cold and warm white must be kept too.
   inRed({ RGB, CWWW }, {})
   state.color_mode, state.color_temperature, state.cold_white, state.warm_white = CWWW, 0, 0.25, 0.75
   pushed({ RGB, CWWW }, state)
@@ -7064,7 +7048,7 @@ do
     carried()[2],
     RGBCT
   )
-  -- Every path that sends a pre-on: a scene step that turns the light on over its time.
+  -- Every path that sends a pre-on: a scene step that ramps the light on.
   offIn(SEPARATE, RGB, inRed)
   mark()
   proxy("PUSH_SCENE", {
@@ -7113,7 +7097,7 @@ do
     { "a color mode and a white mode", { RGB, CWWW }, CWWW },
   }
   local ASKED = { { 0.22, CCT_MODE } }
-  --- Each color the proxy was told since the mark: its x to six places, and its color mode.
+  --- Each color told since the mark: x to six places, and its mode.
   local function toldOf()
     local xs, modes = colorsTold(), modesTold()
     local out = {}
@@ -7122,7 +7106,6 @@ do
     end
     return out
   end
-  --- A light of `kind`, on unless `on` is false.
   local function lightOf(kind, on)
     light()
     pushed(kind[2], { state = on ~= false, brightness = 1.0 }, RANGE)
@@ -7134,7 +7117,6 @@ do
     pushed(kind[2], state, RANGE)
     return state
   end
-  --- The color temperature the light was last sent, in kelvin.
   local function lastKelvin()
     local k = kelvins()
     return k[#k]
@@ -7223,7 +7205,7 @@ do
     )
   end
 
-  -- The proxy's own copy of the color Previous carried is seen to be that color.
+  -- The proxy's own copy of the color Previous carried reads as that color.
   lightOf(KINDS[1])
   onMode(PREVIOUS_ON)
   kelvin(2200, 0)
@@ -7258,7 +7240,7 @@ do
     { ASKED, { 2000 } }
   )
 
-  -- A stop part way is told where the light is, on its way from or to the range's end.
+  -- A stop part way is told where the light is, to or from the range's end.
   for _, kind in ipairs({ KINDS[1], KINDS[3] }) do
     lightOf(kind)
     kelvin(2200, 0)
@@ -7317,8 +7299,8 @@ do
     { { 3850 }, { { 0.385, CCT_MODE } } }
   )
   run(5000)
-  -- A color sent part way through a level carrying a Dim-To-Warm white to or from one beyond the range
-  -- is told from where the light is.
+  -- A color sent mid-level carrying a Dim-To-Warm white beyond the range is
+  -- told from where the light is.
   lightOf(KINDS[1])
   fadeMode({ 0.3, 0.4 }, { 0.2, 0.4 }, CCT_MODE)
   proxy("SET_LEVEL", { LEVEL = 100 })
@@ -7347,7 +7329,8 @@ do
     { 1, 0.285 }
   )
   run(5000)
-  -- A light with no color temperature is told a white as a full color, which beyond the range would light its color.
+  -- A light without CCT is told a white as a full color; out of range that
+  -- would light its color.
   light()
   pushed({ RGBW }, { state = true, brightness = 1.0 })
   fadeMode({ 0.3, 0.4 }, { 0.18, 0.4 }, CCT_MODE)

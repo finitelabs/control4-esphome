@@ -47,7 +47,7 @@ T.check("the esphome_light source was read", src ~= nil, "missing")
 local handlerSrc = src and src:match("\n(function RFP%.UPDATE_STATE%s*%b()\n.-\nend)\n")
 T.check("RFP.UPDATE_STATE was cut out", handlerSrc ~= nil, "no match")
 
--- The on-level range's helpers, which the handler reads a brightness through.
+-- The handler reads brightness through these.
 local rangeSrc = src and src:match("\n(local function onRange%(%)\n.-)\n%-%-%-%-%-")
 T.check("the on-level range's helpers were cut out", rangeSrc ~= nil, "no match")
 
