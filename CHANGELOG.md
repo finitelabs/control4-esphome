@@ -45,6 +45,35 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a SwitchBot Relay Switch with no encryption key staying Busy and keeping
   the proxy's connection slot when a connection came up without the device's
   Bluetooth characteristics; it now disconnects and frees the slot
+- Fixed an Advanced Lighting scene set to flash, with no delay or ramp time on
+  any step, hanging the light's driver; it now runs its steps once and stops
+- Fixed a color sent to a light right after it was ramped on, as programming
+  that turns a light on and sets its color does, being dropped; the light now
+  takes it and keeps it when the ramp ends
+- Fixed a ramp that also changes a light's color, on to the color it turns on in
+  or with Dim-To-Warm, reporting the new color as the one the fade starts from
+- Fixed a light being shown in a scene's color, or going back to a color set
+  while it was off, after a level change or a turn-on had given it its
+  Dim-To-Warm color or the color it turns on in
+- Fixed an Advanced Lighting scene carrying on with a light after the light was
+  turned on or off, set to a level or ramped: a later step of the scene took the
+  light back, and a scene that flashes the light kept flashing it; the command
+  now takes the light out of the scene
+- Fixed a ramp or color fade started while a scene was still fading a light
+  showing as finished when the scene's fade ended, while the light was still
+  moving; it now shows as finished when the light gets there
+- Fixed a color set on a light during a ramp being replaced by its Dim-To-Warm
+  color when the ramp ended
+- Fixed Color On Mode set to a color preset not being applied: the light turned
+  on in the color it last went off in, as if the mode were Previous, and with no
+  color of its own before it had been off once; it now turns on in the preset's
+  color and follows an edit of that preset
+- Fixed a light with Color On Mode set to Previous that was faded off, not
+  switched off at once, turning back on in the color it had before the fade, not
+  the one it faded off in
+- Fixed a light that was told to stop ramping during an Advanced Lighting scene
+  being moved again by the scene's next step; the stop now takes the light out
+  of the scene
 
 ## v20260926 - 2026-09-26
 

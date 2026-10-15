@@ -107,6 +107,9 @@ local COLOR_ON_MODE_FADE = 1 -- Dim-To-Warm
 local COLOR_ON_MODE_PREVIOUS = 2
 local COLOR_ON_MODE_PRESET = 3
 
+local PRESET_ORIGIN_DEVICE = 1
+local PREVIOUS_ON_PRESET_ID = 10
+
 local SCENE_TIMER_PREFIX = "Scene_"
 local SCENE_RAMP_TIMER = "SceneRamp"
 
@@ -472,6 +475,13 @@ local function xyToRGB(x, y)
   return r, g, b
 end
 
+-- How far apart two xy colors still read as one: a round trip through RGB / HSV drifts 1-2e-3.
+local COLOR_TOLERANCE = 5e-3
+
+local function sameColor(x1, y1, mode1, x2, y2, mode2)
+  return mode1 == mode2 and math.abs(x1 - x2) <= COLOR_TOLERANCE and math.abs(y1 - y2) <= COLOR_TOLERANCE
+end
+
 ---------------------------------------------------------------------------
 -- Helpers: persistence
 ---------------------------------------------------------------------------
@@ -699,12 +709,11 @@ local function getColorOnModeKind()
     -- Origin > 0 indicates fade is enabled (spec _21: origin 1=device, 2=agent).
     return COLOR_ON_MODE_FADE
   end
-  -- If no fade is configured but we have a stored previous color, treat as
-  -- previous mode.
-  if persist:get(P_PREVIOUS_COLOR) then
+  local onPreset = mode.onPreset
+  if onPreset and onPreset.id == PREVIOUS_ON_PRESET_ID and onPreset.origin == PRESET_ORIGIN_DEVICE then
     return COLOR_ON_MODE_PREVIOUS
   end
-  if mode.onPreset and mode.onPreset.x then
+  if onPreset and onPreset.x then
     return COLOR_ON_MODE_PRESET
   end
   return COLOR_ON_MODE_NONE
@@ -758,23 +767,28 @@ local mergedColorUntil = 0
 -- Helpers: brightness notifications
 ---------------------------------------------------------------------------
 
+-- The light has gone from on to off.
+local function endOnCycle()
+  -- Snapshot the current color so color_on_mode_previous can restore it on the
+  -- next on. Spec _7.4: "the proxy tracks the last color reported by a driver
+  -- before a BRIGHTNESS_CHANGED notification occurs with a level of 0." We
+  -- mirror that locally for non-proxy paths.
+  persist:set(P_PREVIOUS_COLOR, {
+    x = currentColorX,
+    y = currentColorY,
+    mode = currentColorMode,
+  })
+  -- A new on cycle is fresh: clear any prior dim-to-warm override so the
+  -- formula is re-applied next time the light turns on. Also drop any
+  -- color preset id; whatever drove the previous on-cycle's color no
+  -- longer applies after the light returns to off.
+  fadeOverride = false
+  currentColorPresetId = nil
+end
+
 local function notifyBrightnessChanged(level)
-  -- Snapshot the current color before the light goes off so color_on_mode_
-  -- previous can restore it on the next on. Spec _7.4: "the proxy tracks the
-  -- last color reported by a driver before a BRIGHTNESS_CHANGED notification
-  -- occurs with a level of 0." We mirror that locally for non-proxy paths.
   if level == 0 and currentBrightness > 0 then
-    persist:set(P_PREVIOUS_COLOR, {
-      x = currentColorX,
-      y = currentColorY,
-      mode = currentColorMode,
-    })
-    -- A new on cycle is fresh: clear any prior dim-to-warm override so the
-    -- formula is re-applied next time the light turns on. Also drop any
-    -- color preset id; whatever drove the previous on-cycle's color no
-    -- longer applies after the light returns to off.
-    fadeOverride = false
-    currentColorPresetId = nil
+    endOnCycle()
   end
   currentBrightness = level
   log:debug("LIGHT_BRIGHTNESS_CHANGED: %s", level)
@@ -842,10 +856,12 @@ local function notifyColorChanging(targetX, targetY, mode, rate)
   }, "NOTIFY", true)
 end
 
+local leaveColorRamp -- defined with the color ramp helpers below
+
 -- Caller contract: only invoked when supportsDimming is true (lightOn/Off,
 -- rampToBrightness, scene apply, etc. all gate on it). On/off-only entities
 -- get a different code path that doesn't touch brightness.
-local function setESPHomeBrightness(level, rateMs)
+local function setESPHomeBrightness(level, rateMs, keepColor)
   local hasRate = rateMs and rateMs > 0
   local goingOn = level > 0 and currentBrightness == 0
 
@@ -894,7 +910,9 @@ local function setESPHomeBrightness(level, rateMs)
   --      the SET_COLOR_TARGET handler skip a redundant ESPHome cmd that
   --      would otherwise cancel and restart the in-flight transition.
   local mergedColor = nil
-  if level > 0 and not fadeOverride and getColorOnModeKind() == COLOR_ON_MODE_FADE then
+  if keepColor then
+    -- A ramp's end holds the level alone: it is no brightness command, so it puts no color over one set since.
+  elseif level > 0 and not fadeOverride and getColorOnModeKind() == COLOR_ON_MODE_FADE then
     mergedColor = computeFadeColor(level)
   elseif goingOn then
     mergedColor = resolveOnColor(level)
@@ -906,9 +924,6 @@ local function setESPHomeBrightness(level, rateMs)
       for k, v in pairs(colorFields) do
         cmd[k] = v
       end
-      currentColorX = mergedColor.x
-      currentColorY = mergedColor.y
-      currentColorMode = mergedColor.mode
       mergedColorApplied = true
       -- Window during which a follow-up SET_COLOR_TARGET targeting the same
       -- color is treated as already applied. 250ms covers the proxy's
@@ -940,10 +955,17 @@ local function setESPHomeBrightness(level, rateMs)
   -- from the formula, not from a separate proxy-initiated cmd), so the
   -- driver has to push these notifies for the picker to track.
   if mergedColorApplied then
+    -- The color sent last is the one the light goes to, so a color ramp in flight ends here: its
+    -- end would tell the proxy, and re-send, a color the light has left.
+    leaveColorRamp()
     if hasRate then
-      notifyColorChanging(currentColorX, currentColorY, currentColorMode, rateMs)
+      -- CHANGING carries the color the light is leaving, so the target is current only after it.
+      notifyColorChanging(mergedColor.x, mergedColor.y, mergedColor.mode, rateMs)
+      currentColorX = mergedColor.x
+      currentColorY = mergedColor.y
+      currentColorMode = mergedColor.mode
     else
-      notifyColorChanged(currentColorX, currentColorY, currentColorMode)
+      notifyColorChanged(mergedColor.x, mergedColor.y, mergedColor.mode)
     end
   end
 end
@@ -1008,15 +1030,18 @@ local function brightnessRampStopped()
   -- Cancel ESPHome's in-flight transition by sending a 0-transition cmd at
   -- the interpolated level. The bulb halts here.
   setESPHomeBrightness(stoppedAt, 0)
-  currentBrightness = stoppedAt
   notifyBrightnessChanged(stoppedAt)
 end
+
+local stopSceneSteps -- defined with the scene support below
 
 local function rampToBrightness(level, rate, presetId)
   level = math.max(0, math.min(100, math.floor((level or 0) + 0.5)))
   rate = math.max(0, tointeger(rate) or 0)
 
   log:debug("rampToBrightness(%s, %s) from %s", level, rate, currentBrightness)
+
+  stopSceneSteps()
 
   -- Single source of truth for the active brightness preset id. SET_BRIGHTNESS_
   -- TARGET passes the proxy's id through; everywhere else (buttons, scenes,
@@ -1028,7 +1053,11 @@ local function rampToBrightness(level, rate, presetId)
   -- before starting the new ramp so CHANGING tracks correctly and a future
   -- STOP would interpolate from the right starting point.
   if rampingBrightness then
-    currentBrightness = interpolatedBrightness()
+    local at = interpolatedBrightness()
+    if at == 0 and currentBrightness > 0 then
+      endOnCycle() -- a fade retargeted as it reaches off has ended its on cycle
+    end
+    currentBrightness = at
   end
 
   cancelBrightnessRampTimers()
@@ -1061,8 +1090,7 @@ local function rampToBrightness(level, rate, presetId)
     -- Belt-and-suspenders: snap state with a 0-transition cmd at target so
     -- our state matches the bulb's even if the transition completed slightly
     -- before/after our timer.
-    setESPHomeBrightness(level, 0)
-    currentBrightness = level
+    setESPHomeBrightness(level, 0, true)
     brightnessRampFinished(level)
   end, false)
 end
@@ -1121,6 +1149,14 @@ local function interpolatedColor()
   return x, y, colorRamp.targetMode
 end
 
+-- End a color ramp where it has got to: what replaces it starts there.
+function leaveColorRamp()
+  currentColorX, currentColorY, currentColorMode = interpolatedColor()
+  cancelColorRampTimers()
+  rampingColor = false
+  colorRamp = nil
+end
+
 local function colorRampFinished(targetX, targetY, targetMode)
   cancelColorRampTimers()
   rampingColor = false
@@ -1146,15 +1182,11 @@ end
 local function rampToColor(targetX, targetY, targetMode, rate)
   rate = math.max(0, tointeger(rate) or 0)
 
-  if rampingColor then
-    local x, y, _ = interpolatedColor()
-    currentColorX = x
-    currentColorY = y
+  -- The target replaces the on color a brightness ramp carries, which would otherwise show at its end.
+  if brightnessRamp then
+    brightnessRamp.mergedColor = nil
   end
-
-  cancelColorRampTimers()
-  rampingColor = false
-  colorRamp = nil
+  leaveColorRamp()
 
   if rate == 0 then
     currentColorX = targetX
@@ -1192,11 +1224,19 @@ end
 -- Helpers: on / off / toggle
 ---------------------------------------------------------------------------
 
+-- An On/Off-only light switches at once: the command replaces the ramp a scene step primed.
+local function switchLight(on)
+  stopSceneSteps()
+  rampingBrightness = false
+  brightnessRamp = nil
+  sendLightCommand({ has_state = true, state = on })
+  notifyBrightnessChanged(on and 100 or 0)
+end
+
 local function lightOn(rate)
   local level = getOnBrightness()
   if not supportsDimming then
-    sendLightCommand({ has_state = true, state = true })
-    notifyBrightnessChanged(100)
+    switchLight(true)
     return
   end
   -- color_on_mode_previous/preset/fade are all handled by the merged-color
@@ -1211,8 +1251,7 @@ local function lightOff(rate)
   if supportsDimming then
     rampToBrightness(0, rate or 0)
   else
-    sendLightCommand({ has_state = true, state = false })
-    notifyBrightnessChanged(0)
+    switchLight(false)
   end
 end
 
@@ -1393,11 +1432,13 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   -- will emit notifyColorChanged when the ramp completes - so there is
   -- nothing to notify here, just suppress the redundant ESPHome cmd.
   local now = C4:GetTime()
-  if now < mergedColorUntil and rampingBrightness then
+  local merged = rampingBrightness and brightnessRamp and brightnessRamp.mergedColor
+  if now < mergedColorUntil and merged and sameColor(merged.x, merged.y, merged.mode, targetX, targetY, targetMode) then
     log:debug("SET_COLOR_TARGET deduped (%sms remaining in merged-color window)", mergedColorUntil - now)
     currentColorX = targetX
     currentColorY = targetY
     currentColorMode = targetMode
+    brightnessRamp.mergedColor = { x = targetX, y = targetY, mode = targetMode }
     return
   end
 
@@ -1410,6 +1451,7 @@ function RFP.SET_BRIGHTNESS_STOP(idBinding, strCommand, tParams, args)
   if idBinding ~= PROXY_BINDING then
     return
   end
+  stopSceneSteps() -- a light told to stop is not then moved by a later step
   brightnessRampStopped()
 end
 
@@ -1527,6 +1569,12 @@ end
 -- from running, so each step closure captures the generation it was born under
 -- and bails out if it has changed.
 local sceneGeneration = 0
+
+-- A level command takes the light out of a scene, as on Control4's own lights: no later step runs.
+-- The step in flight still ends the ramps of its own that the command left.
+function stopSceneSteps()
+  sceneGeneration = sceneGeneration + 1
+end
 
 local function stopAllScenes()
   sceneGeneration = sceneGeneration + 1
@@ -1656,13 +1704,16 @@ local function runScene(sceneId, generation)
   local timerName = SCENE_TIMER_PREFIX .. tostring(sceneId)
   CancelTimer(timerName)
 
+  -- Steps run here without waiting: a flash scene whose every step has no delay or rate ends
+  -- after one pass, where it would otherwise loop here forever.
+  local ran = 0
   while true do
     if gen ~= sceneGeneration then
       return
     end
     local idx = scene.state + 1
     if idx > #scene.elements then
-      if scene.flash then
+      if scene.flash and ran < #scene.elements then
         scene.state = 0
         idx = 1
       else
@@ -1678,17 +1729,19 @@ local function runScene(sceneId, generation)
     scenes[tostring(sceneId)] = scene
     saveScenes(scenes)
 
-    -- When a step's ramp elapses, finalise any in-flight ramp metadata so
-    -- rampingBrightness/rampingColor are cleared and CHANGED notifies fire
-    -- before we apply the next step.
-    local function finishRampsAndAdvance()
-      if brightnessRamp and brightnessRamp.targetLevel ~= nil then
-        brightnessRampFinished(brightnessRamp.targetLevel)
-      end
-      if colorRamp and colorRamp.targetX and colorRamp.targetY and colorRamp.targetMode then
-        colorRampFinished(colorRamp.targetX, colorRamp.targetY, colorRamp.targetMode)
-      end
-      runScene(sceneId, gen)
+    -- When the step's ramp elapses, finish the ramps it primed so their CHANGED notifies fire before
+    -- the next step is applied. One a command has since replaced is that command's to finish.
+    local function advanceAfter(rampMs)
+      local level, color = brightnessRamp, colorRamp
+      SetTimer(timerName, rampMs, function()
+        if level and brightnessRamp == level then
+          brightnessRampFinished(level.targetLevel)
+        end
+        if color and colorRamp == color then
+          colorRampFinished(color.targetX, color.targetY, color.targetMode)
+        end
+        runScene(sceneId, gen)
+      end)
     end
 
     if delay > 0 then
@@ -1698,7 +1751,7 @@ local function runScene(sceneId, generation)
         end
         local rampMs = applySceneStep(step)
         if rampMs > 0 then
-          SetTimer(timerName, rampMs, finishRampsAndAdvance)
+          advanceAfter(rampMs)
         else
           runScene(sceneId, gen)
         end
@@ -1708,10 +1761,11 @@ local function runScene(sceneId, generation)
 
     local rampMs = applySceneStep(step)
     if rampMs > 0 then
-      SetTimer(timerName, rampMs, finishRampsAndAdvance)
+      advanceAfter(rampMs)
       return
     end
     -- otherwise loop synchronously to the next element
+    ran = ran + 1
   end
 end
 
@@ -1996,6 +2050,16 @@ function RFP.UPDATE_COLOR_PRESET(idBinding, strCommand, tParams, args)
     }
   end
   persist:set(P_COLOR_PRESETS, presets)
+  -- The on and dim colors follow an edit of the device preset the on mode names.
+  local onMode = persist:get(P_COLOR_ON_MODE)
+  if onMode and presets[key] then
+    for _, p in ipairs({ onMode.onPreset, onMode.fadePreset }) do
+      if p.id == presetId and p.origin == PRESET_ORIGIN_DEVICE then
+        p.x, p.y, p.mode = presets[key].x, presets[key].y, presets[key].mode
+      end
+    end
+    persist:set(P_COLOR_ON_MODE, onMode)
+  end
 end
 
 -- Per spec _20.4: UPDATE_COLOR_ON_MODE carries the active On preset (and a
