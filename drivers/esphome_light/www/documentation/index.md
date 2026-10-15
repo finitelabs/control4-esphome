@@ -103,9 +103,10 @@ color-temperature, and full-color lights are all supported.
 > both. A color picked close to the white of a color temperature inside the
 > light's range, 2000 to 6536 K on an RGBW light, such as the On Color a new
 > light is given, the middle of the color wheel or an orange that lies along the
-> warm whites, lights the light's white where it has one, and is shown as that
-> white. On an RGBW light, with or without `color_interlock`, that is the white
-> channel, and any other color uses red, green and blue. On a light built with
+> warm whites, lights the light's white where it has one, and is shown as the
+> color that was picked, or as that white on a light with only a white. On an
+> RGBW light, with or without `color_interlock`, that is the white channel, and
+> any other color uses red, green and blue. On a light built with
 > `color_interlock`, a fade between a color and a white goes dark for a moment
 > half way, because ESPHome changes between its color and white modes through
 > off. Stopped before half way, the light stays in the one it was fading from,
