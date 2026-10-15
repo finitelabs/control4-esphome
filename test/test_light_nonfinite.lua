@@ -47,6 +47,10 @@ T.check("the esphome_light source was read", src ~= nil, "missing")
 local handlerSrc = src and src:match("\n(function RFP%.UPDATE_STATE%s*%b()\n.-\nend)\n")
 T.check("RFP.UPDATE_STATE was cut out", handlerSrc ~= nil, "no match")
 
+-- The on-level range's helpers, which the handler reads a brightness through.
+local rangeSrc = src and src:match("\n(local function onRange%(%)\n.-)\n%-%-%-%-%-")
+T.check("the on-level range's helpers were cut out", rangeSrc ~= nil, "no match")
+
 local function newLog()
   return setmetatable({}, {
     __index = function()
@@ -76,7 +80,13 @@ local function compileHandler(source)
     currentBrightness = -1,
     COLOR_MODES_SUPPORTING_CCT = {},
     COLOR_MODES_SUPPORTING_RGB = {},
-    sentLevels = {},
+    -- The range a light has until Max and Min On Level are set.
+    persist = {
+      get = function(_, _, default)
+        return default
+      end,
+    },
+    sentBrightness = {},
     sentColors = {},
     isOwnReport = function()
       return true
@@ -92,7 +102,7 @@ local function compileHandler(source)
   end
   setmetatable(env, { __index = _G })
 
-  local chunk, err = loadstring(source, "light_update_state")
+  local chunk, err = loadstring(rangeSrc .. "\n" .. source, "light_update_state")
   T.check("the cut handler compiles", chunk ~= nil, err)
   setfenv(chunk, env)
   chunk()

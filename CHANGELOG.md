@@ -221,6 +221,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   by an ESPHome light whose color and white are separate color modes, as one
   built with `color_interlock` has: the light was shown at the color temperature
   and came back on in the color; it now comes on in that white
+- Fixed Max On Level and Min On Level, set on a light in Composer, having no
+  effect: a light set to a Max On Level of 80 still went to 100 %; the light's 1
+  to 100 % now runs between the two, as on a Control4 dimmer, for every level it
+  is sent and shown, and a change of either leaves the light where it is until
+  its next command, shown at its level on the new range
 
 ### Changed
 
