@@ -1003,6 +1003,38 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   already at
 - Fixed a ramped on of a color light with no color temperature restarting a
   moment in, when the light turns on in a color temperature preset
+- Fixed an Advanced Lighting scene that was deactivated, cleared or removed
+  while one of its steps was fading a light leaving the light shown as still
+  ramping, at the level and color it had before the fade: a command for that
+  level then did nothing, and a stop found nothing to stop; the fade now runs on
+  and shows as finished when the light gets there
+- Fixed a scene step that sets only a color, run while a light was ramping,
+  making the driver lose track of the ramp: a stop then did nothing, and the
+  level the light ramped to was never shown; the ramp now carries on for a stop
+  to hold
+- Fixed a scene step that sets a level, run while a light was ramping, starting
+  from the level that ramp began at: the step's fade was shown from the wrong
+  level and a stop held the light at the wrong one, and a step back to the level
+  the ramp began at left the light shown as still ramping
+- Fixed a scene step run while a light's color was fading: a step with a color
+  of its own showed its fade from the color the earlier fade began at, and a
+  step that sets only a level left the earlier fade's end never shown
+- Fixed a scene step with a ramp time showing an On/Off-only light ramping to
+  the step's level, and at that level when the ramp time had passed; the light
+  switches at once and is now shown on or off as it does
+- Fixed a scene step that turns a light on over a ramp time not fading it up
+  from off as a ramped On does, and a step that sets only a level turning the
+  light on without its Color On Mode color
+- Fixed a light that was stopped during a scene step's fade, with Dim-To-Warm,
+  losing the color the step set when the light was already in that color
+- Fixed a scene step with no ramp time fading a light over the device's own
+  default transition time; it is now sent as an immediate change, as a level
+  command with no ramp time is
+- Fixed a ramp that took over from one still changing a light's color, as a
+  button's click does from its press, showing its color fade from the color the
+  first ramp was heading for
+- Fixed a ramped On cut short by a level command leaving the light shown as
+  still changing color
 
 ### Changed
 
