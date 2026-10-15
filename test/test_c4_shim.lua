@@ -383,6 +383,34 @@ if loaded then
 end
 
 --------------------------------------------------------------------------------
+T.section("C4:GetTime")
+--------------------------------------------------------------------------------
+
+do
+  -- DriverWorks: milliseconds since the epoch, or the units asked for, whole unless fractional.
+  local ms = C4:GetTime()
+  T.check("milliseconds since the epoch", math.abs(ms / 1000 - os.time()) < 5, ms)
+  T.check("whole by default", ms == math.floor(ms), ms)
+  T.check("seconds where asked", math.abs(C4:GetTime("s") - ms / 1000) <= 1, C4:GetTime("s"))
+  local minutes = C4:GetTime("min", true)
+  T.check("a fraction where asked", math.abs(minutes - ms / 60000) < 0.1, minutes)
+
+  -- Measured on a controller: units in any case, and a year of 365.2425 days.
+  T.check("units in any case", math.abs(C4:GetTime("MIN") - ms / 60000) <= 1, C4:GetTime("MIN"))
+  local years = C4:GetTime("y", true)
+  T.check("a year is 365.2425 days", math.abs(years - ms / 31556952000) < 1e-6, years)
+  T.raises("C4.GetTime without a receiver raises as on Director", function()
+    C4.GetTime()
+  end, "An unknown error occurred")
+  T.raises("a nil unit raises as on Director", function()
+    C4:GetTime(nil)
+  end, "units should be a string")
+  T.raises("a nil fractional raises as on Director", function()
+    C4:GetTime("s", nil)
+  end, "fractional should be a boolean")
+end
+
+--------------------------------------------------------------------------------
 T.section("C4:SetTimer handles")
 --------------------------------------------------------------------------------
 
@@ -514,6 +542,26 @@ do
   T.check("f 0.99999999 -> 1", select(2, string.unpack(string.pack("f", 0.99999999), "f", 1)) == 1.0)
   T.check("f -0.99999999 -> -1", select(2, string.unpack(string.pack("f", -0.99999999), "f", 1)) == -1.0)
   T.check("f 1e39 saturates to +inf", select(2, string.unpack(string.pack("f", 1e39), "f", 1)) == math.huge)
+  -- Non-finite and out-of-range values, as string.pack("f", v) wrote them on a controller
+  -- (OS 4.3.0). A NaN of either sign is the one it wrote for 0/0, so the bytes hold on any host.
+  local nan = 0 / 0
+  T.check("f encodes a NaN as 0000c07f", fhex(nan) == "0000c07f", fhex(nan))
+  T.check("f encodes a negated NaN as 0000c07f", fhex(-nan) == "0000c07f", fhex(-nan))
+  local wireNan = select(2, string.unpack("\0\0\192\255", "f", 1))
+  T.check("f encodes a NaN off the wire as 0000c07f", fhex(wireNan) == "0000c07f", fhex(wireNan))
+  T.check("f encodes +inf as 0000807f", fhex(math.huge) == "0000807f", fhex(math.huge))
+  T.check("f encodes -inf as 000080ff", fhex(-math.huge) == "000080ff", fhex(-math.huge))
+  T.check("f encodes 3.5e38 as 0000807f", fhex(3.5e38) == "0000807f", fhex(3.5e38))
+  T.check("f encodes 1e-46 as 00000000", fhex(1e-46) == "00000000", fhex(1e-46))
+  T.check("f encodes 0.5 as 0000003f", fhex(0.5) == "0000003f", fhex(0.5))
+  local function roundTrip(x)
+    return select(2, string.unpack(string.pack("f", x), "f", 1))
+  end
+  local rtNan, rtNegNan = roundTrip(nan), roundTrip(-nan)
+  T.check("f NaN round-trips to a NaN", rtNan ~= rtNan, rtNan)
+  T.check("f negated NaN round-trips to a NaN", rtNegNan ~= rtNegNan, rtNegNan)
+  T.check("f +inf round-trips", roundTrip(math.huge) == math.huge, roundTrip(math.huge))
+  T.check("f -inf round-trips", roundTrip(-math.huge) == -math.huge, roundTrip(-math.huge))
 end
 
 --------------------------------------------------------------------------------
@@ -865,6 +913,69 @@ T.eq("a write lands at the position, over what is there", C4:FileRead(fh, 100), 
 C4:FileClose(fh)
 T.eq("FileDelete returns true when it deletes", C4:FileDelete("shim.bin"), true)
 T.eq("the file is gone", C4:FileExists("shim.bin"), false)
+
+--------------------------------------------------------------------------------
+T.section("C4:GetDevices")
+--------------------------------------------------------------------------------
+
+-- Measured on 4.3.0, but for the empty filter, spaced names and proxies (the reference), a room's display name (as
+-- GetDevice assumes) and hidden (the shim's transient failure). DeviceIds and C4iNames add up, which is why
+-- lib/utils.lua GetDevice checks a driver itself.
+ShimSetDevices({
+  [10] = { deviceName = "Kitchen", driverFileName = "roomdevice.c4i" },
+  [20] = { deviceName = "Relay", driverFileName = "relaysingle_relay_c4.c4i", roomId = "10", roomName = "Kitchen" },
+  [30] = {
+    deviceName = "Lamp",
+    driverFileName = "lamp.c4z",
+    roomId = "10",
+    roomName = "Kitchen",
+    proxies = { [31] = { deviceName = "Lamp", driverFileName = "light_v2.c4i" } },
+  },
+  [31] = {
+    deviceName = "Lamp",
+    driverFileName = "light_v2.c4i",
+    roomId = "10",
+    roomName = "Kitchen",
+    protocol = { [30] = { deviceName = "Lamp", driverFileName = "lamp.c4z" } },
+  },
+  [40] = { deviceName = "Porch Lamp", driverFileName = "lamp.c4z", roomId = "10", roomName = "Kitchen" },
+})
+local function listed(filter)
+  local ids = {}
+  for id in pairs(C4:GetDevices(filter)) do
+    table.insert(ids, id)
+  end
+  table.sort(ids)
+  return ids
+end
+
+T.eq("DeviceIds lists the ids asked for", listed({ DeviceIds = "20,31" }), { 20, 31 })
+T.eq("C4iNames lists the devices of those drivers, not their proxies", listed({ C4iNames = "lamp.c4z" }), { 30, 40 })
+T.eq("a name is trimmed of the space after a comma", listed({ C4iNames = "light_v2.c4i, lamp.c4z" }), { 30, 31, 40 })
+T.eq("together they add up rather than narrow", listed({ DeviceIds = "20", C4iNames = "lamp.c4z" }), { 20, 30, 40 })
+T.eq(
+  "a proxy carries its protocol",
+  (C4:GetDevices({ DeviceIds = "31" })[31] or {}).protocol,
+  { [30] = { deviceName = "Lamp", driverFileName = "lamp.c4z" } }
+)
+T.eq(
+  "and the protocol its proxies",
+  (C4:GetDevices({ DeviceIds = "30" })[30] or {}).proxies,
+  { [31] = { deviceName = "Lamp", driverFileName = "light_v2.c4i" } }
+)
+T.eq("a room is never listed", listed({ DeviceIds = "10", C4iNames = "roomdevice.c4i" }), {})
+T.eq("though it has a display name", C4:GetDeviceDisplayName(10), "Kitchen")
+T.eq("an empty filter lists every device", listed({}), { 20, 30, 31, 40 })
+ShimSetDeviceHidden(20, true)
+T.eq("a hidden device is not listed", listed({ DeviceIds = "20" }), {})
+ShimResetDevices()
+
+--------------------------------------------------------------------------------
+T.section("Lua 5.1 library")
+--------------------------------------------------------------------------------
+
+-- Measured on 4.3.0: a test that calls table.unpack must fail here as it would there.
+T.eq("table.unpack is absent", table.unpack, nil)
 
 --------------------------------------------------------------------------------
 

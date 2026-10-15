@@ -100,11 +100,12 @@ fmt-lua:
 fmt-py: $(VENV_STAMP)
 	$(VENV_BLACK) tools/*.py
 
+# docs.py fmt is mdformat, keeping a GitHub alert's marker on its own line.
 fmt-md: $(VENV_STAMP)
 	@files=""; for g in ./drivers/*/www/documentation/*.md documentation/*.md *.md; do \
 		[ -e "$$g" ] && files="$$files $$g"; \
 	done; \
-	[ -z "$$files" ] || $(VENV_PY) -m mdformat --wrap 80 $$files
+	[ -z "$$files" ] || $(VENV_PY) tools/docs.py fmt --wrap 80 $$files
 
 # ─── Check ──────────────────────────────────────────────────────────────────
 # Assert-only mirror of fmt (--check, no rewrite); this is what CI runs.
@@ -125,7 +126,7 @@ check-md: $(VENV_STAMP)
 	@files=""; for g in ./drivers/*/www/documentation/*.md documentation/*.md *.md; do \
 		[ -e "$$g" ] && files="$$files $$g"; \
 	done; \
-	[ -z "$$files" ] || $(VENV_PY) -m mdformat --check --wrap 80 $$files
+	[ -z "$$files" ] || $(VENV_PY) tools/docs.py fmt --check --wrap 80 $$files
 
 # ─── Preprocess ───────────────────────────────────────────────────────────────
 
@@ -178,7 +179,7 @@ docs: docs-readme docs-html docs-pdf ## Generate all documentation
 
 docs-readme: preprocess $(VENV_STAMP)
 	rm -rf ./images
-	@if [ -d drivers/$(README_DRIVER)/www/documentation/images ]; then cp -r drivers/$(README_DRIVER)/www/documentation/images .; fi
+	@if [ -d build/$(README_BUILD)/drivers/$(README_DRIVER)/www/documentation/images ]; then cp -r build/$(README_BUILD)/drivers/$(README_DRIVER)/www/documentation/images .; fi
 	$(VENV_PY) tools/docs.py readme \
 		build/$(README_BUILD)/drivers/$(README_DRIVER)/www/documentation/index.md README.md
 
@@ -228,12 +229,12 @@ package: $(VENV_STAMP) $(PACKAGER) ## Create .c4z driver packages
 	done
 
 .PHONY: zip
-zip: $(VENV_STAMP) ## Zip the c4z/, docs/, and source/ subfolders per distribution
+zip: $(VENV_STAMP) ## Zip the c4z/ and docs/ subfolders per distribution
 	@repo="$$(basename "$$(pwd)")"; \
 	for build in $(DISTRIBUTIONS); do \
 		(cd "dist/$$build" && \
 			"$(CURDIR)/$(VENV_PY)" "$(CURDIR)/tools/package.py" zip \
-				"$$repo.zip" c4z docs source); \
+				"$$repo.zip" c4z docs); \
 	done
 
 # ─── Test ─────────────────────────────────────────────────────────────────────

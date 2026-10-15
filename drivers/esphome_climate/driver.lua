@@ -789,7 +789,7 @@ function OnDriverLateInit()
     HOLD_UNTIL_NEXT = storedHoldWording.mode
   end
 
-  -- Explicit {} defaults: the shared empty sentinel must not be mutated.
+  -- Explicit {} defaults: a key that is not stored reads as nil.
   SCHEDULE = persist:get("Schedule", {})
   PRESETS = persist:get("Presets", {})
   -- Seeded so the first resend after a reload does not rewrite unchanged lists.

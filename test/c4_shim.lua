@@ -12,6 +12,16 @@ if not loadstring then
   loadstring = load
 end
 
+-- The controller's LuaJIT is built without Lua 5.2 compat, so hide what a compat build adds.
+if _VERSION == "Lua 5.1" then
+  table.unpack = nil
+  table.pack = nil
+  rawlen = nil
+  package.searchers = nil
+  debug.getuservalue = nil
+  debug.setuservalue = nil
+end
+
 -- Minimal lpack-compatible string.pack/string.unpack for the format codes the ZCL
 -- codec uses (all little-endian); the '<' endian marker is accepted and ignored.
 -- Signature AND code semantics match Control4's lpack, verified on a controller
@@ -42,7 +52,12 @@ if not string.pack then
     end
     return pos + size, v
   end
+  -- Non-finite values encode as the controller's lpack does (measured on OS 4.3.0). Every NaN is
+  -- the one it writes for 0/0: a NaN's sign is the host FPU's, so keeping it would differ by host.
   local function packFloat(x)
+    if x ~= x then
+      return string.char(0, 0, 0xC0, 0x7F)
+    end
     if x == 0 then
       return string.char(0, 0, 0, 0)
     end
@@ -50,6 +65,9 @@ if not string.pack then
     if x < 0 then
       sign = 0x80
       x = -x
+    end
+    if x == math.huge then
+      return string.char(0, 0, 0x80, sign + 0x7F)
     end
     local mant, expo = math.frexp(x) -- x = mant * 2^expo, 0.5 <= mant < 1
     expo = expo + 126 -- IEEE754 biased exponent (mant in [0.5,1) => 1.f = 2*mant)
@@ -950,6 +968,40 @@ function C4:ParseXml(xml)
   return nodes and nodes[1] or nil
 end
 
+-- Milliseconds in each unit C4:GetTime takes (DriverWorks 34_timer/GetTime; OS 4.0.0 added units).
+-- A year is the Gregorian average of 365.2425 days, as measured on a controller.
+local time_units = {
+  us = 0.001,
+  ns = 0.000001,
+  s = 1000,
+  min = 60000,
+  h = 3600000,
+  d = 86400000,
+  w = 604800000,
+  y = 31556952000,
+  dec = 315569520000,
+}
+
+--- The time since the epoch: milliseconds, or the units named in any case, whole unless
+--- `fractional`. Read off the wall clock where luasocket has one, else os.time, which a test may pin.
+--- As on Director, a call without the C4 receiver or with a nil argument raises, and an unknown
+--- unit is milliseconds.
+function C4:GetTime(...)
+  if self ~= C4 then
+    error("An unknown error occurred", 2)
+  end
+  local argc, units, fractional = select("#", ...), ...
+  if argc > 0 and type(units) ~= "string" and type(units) ~= "number" then
+    error("units should be a string", 2)
+  end
+  if argc > 1 and type(fractional) ~= "boolean" then
+    error("fractional should be a boolean", 2)
+  end
+  local ms = has_socket and socket.gettime() * 1000 or os.time() * 1000
+  local v = ms / (time_units[argc > 0 and tostring(units):lower()] or 1)
+  return fractional and v or math.floor(v)
+end
+
 --- Generate a UUID (simplified version)
 local uuid_counter = 0
 function C4:UUID(prefix)
@@ -1206,13 +1258,17 @@ end
 -- C4:GetDevices / GetDeviceDisplayName / GetDeviceVariables read a registry a
 -- test populates with ShimSetDevices. An id absent from it is the nameless,
 -- unresolvable case: GetDeviceDisplayName returns no value (arity 0, not nil),
--- which is what the controller does and what a driver must tolerate.
+-- which is what the controller does and what a driver must tolerate. A device
+-- whose driverFileName is roomdevice.c4i is a room: it has a display name, but
+-- C4:GetDevices never lists it.
 ---------------------------------------------------------------------------
+
+local ROOM_C4I_NAME = "roomdevice.c4i"
 
 --- @type table<number, table>
 local shim_devices = {}
 
---- @param devices table<number, table> id -> { deviceName?, driverFileName?, roomId?, roomName?, variables?, hidden? }
+--- @param devices table<number, table> id -> { deviceName?, driverFileName?, roomId?, roomName?, protocol?, proxies?, variables?, hidden? }
 function ShimSetDevices(devices)
   shim_devices = devices or {}
 end
@@ -1229,25 +1285,36 @@ function ShimSetDeviceHidden(deviceId, hidden)
   end
 end
 
+-- As on 4.3.0, it lists the DeviceIds asked for, whatever their driver, and every device of a
+-- driver in C4iNames: a union, not an intersection. An empty filter lists every device.
 function C4:GetDevices(filter)
-  local deviceId = tonumber(filter and filter.DeviceIds)
-  local device = deviceId ~= nil and shim_devices[deviceId] or nil
-  if device == nil or device.hidden then
-    return {}
+  filter = filter or {}
+  local asked, named = {}, {}
+  for deviceId in string.gmatch(filter.DeviceIds or "", "([^,]+)") do
+    asked[tonumber(deviceId) or deviceId] = true
   end
-  if filter.C4iNames ~= nil then
-    local matched = false
-    for c4iName in string.gmatch(filter.C4iNames, "([^,]+)") do
-      if c4iName == device.driverFileName then
-        matched = true
-        break
-      end
-    end
-    if not matched then
-      return {}
+  for c4iName in string.gmatch(filter.C4iNames or "", "([^,]+)") do
+    named[c4iName:match("^%s*(.-)%s*$")] = true
+  end
+  local all = filter.DeviceIds == nil and filter.C4iNames == nil
+  local devices = {}
+  for deviceId, device in pairs(shim_devices) do
+    if
+      not device.hidden
+      and device.driverFileName ~= ROOM_C4I_NAME
+      and (all or asked[deviceId] or named[device.driverFileName])
+    then
+      devices[deviceId] = {
+        driverFileName = device.driverFileName,
+        deviceName = device.deviceName,
+        roomId = device.roomId,
+        roomName = device.roomName,
+        protocol = device.protocol,
+        proxies = device.proxies,
+      }
     end
   end
-  return { [deviceId] = device }
+  return devices
 end
 
 function C4:GetDeviceDisplayName(deviceId)
@@ -1733,7 +1800,7 @@ local function to_hex(s)
   end))
 end
 
---- C4:Hash(algorithm, data, options) — raw ("NONE") or, with no return_encoding,
+--- C4:Hash(algorithm, data, options): raw ("NONE") or, with no return_encoding,
 --- hex. Any other value is refused rather than answered in hex, since the shim
 --- has never been measured against one and a wrong-encoding digest still looks
 --- like a digest. Checked ahead of the backend, so the refusal also holds on a
@@ -1760,7 +1827,7 @@ local function aes_options_ok(cipher, key, iv)
   return string.upper(cipher or "") == "AES-128-CBC" and type(key) == "string" and #key == 16 and type(iv) == "string"
 end
 
---- C4:Encrypt(cipher, key, iv, data, options) — AES-128-CBC/PKCS7, raw in/out.
+--- C4:Encrypt(cipher, key, iv, data, options): AES-128-CBC/PKCS7, raw in/out.
 function C4:Encrypt(cipher, key, iv, data, options)
   if not crypto_backend then
     return nil, "C4 shim: no crypto backend"
@@ -1771,7 +1838,7 @@ function C4:Encrypt(cipher, key, iv, data, options)
   return crypto_backend.aes128cbc(true, key, iv, data or "")
 end
 
---- C4:Decrypt(cipher, key, iv, data, options) — AES-128-CBC/PKCS7, raw in/out.
+--- C4:Decrypt(cipher, key, iv, data, options): AES-128-CBC/PKCS7, raw in/out.
 function C4:Decrypt(cipher, key, iv, data, options)
   if not crypto_backend then
     return nil, "C4 shim: no crypto backend"

@@ -173,7 +173,7 @@ function SendUIRequest(id, request, tParams)
   return C4Call("SendUIRequest", id, request, tParams)
 end
 
---- @type LRUCache<string,ExtendedDeviceDefinition|nil>
+--- @type LRUCache<string,table<string,ExtendedDeviceDefinition>>
 local devicesCache = lru:new(1000, 180)
 
 --- @type LRUCache<string,table|nil>
@@ -186,7 +186,7 @@ local agentIdCache = lru:new(1000, 180)
 --- @param deviceId DeviceId The ID of the device to clear from the cache.
 function DeviceUpdated(deviceId)
   log:trace("DeviceUpdated(%s)", deviceId)
-  devicesCache:remove(tostring(deviceId))
+  devicesCache:remove(tostring(tointeger(deviceId)))
   devicesDataCache:remove(tostring(deviceId))
 end
 
@@ -200,61 +200,104 @@ end
 --- @field displayName string
 --- @field ignoreRoomName? boolean Whether to ignore the room name prefix for this device.
 
+local ROOM_C4I_NAME = "roomdevice.c4i"
+
+--- Normalizes a C4i name filter so the same set of names is one string, whatever its order or form.
+--- @param c4iNames? string[]|string
+--- @return string filter The names trimmed, de-duplicated, sorted and joined by commas; "" for none.
+--- @return table<string, true> names The same names as a set.
+local function normalizeC4iNames(c4iNames)
+  local names, sorted = {}, {}
+  for _, entry in ipairs(type(c4iNames) == "table" and c4iNames or { c4iNames }) do
+    for name in string.gmatch(tostring(entry), "[^,]+") do
+      name = name:match("^%s*(.-)%s*$")
+      if name ~= "" and not names[name] then
+        names[name] = true
+        table.insert(sorted, name)
+      end
+    end
+  end
+  table.sort(sorted)
+  return table.concat(sorted, ","), names
+end
+
+--- Asks the controller for a device under one filter.
+--- @param deviceIdInt integer
+--- @param filter string A filter from normalizeC4iNames.
+--- @param names table<string, true> The filter's names.
+--- @return ExtendedDeviceDefinition|nil
+local function lookupDevice(deviceIdInt, filter, names)
+  local device = C4:GetDevices({ DeviceIds = tostring(deviceIdInt) })[deviceIdInt]
+  if device == nil then
+    -- Make a synthetic device for a room, which C4:GetDevices never lists
+    local deviceName = C4:GetDeviceDisplayName(deviceIdInt)
+    if not IsEmpty(deviceName) then
+      --- @type ExtendedDeviceDefinition
+      device = {
+        roomId = tostring(deviceIdInt),
+        roomName = deviceName,
+        deviceName = deviceName,
+        driverFileName = ROOM_C4I_NAME,
+      }
+    else
+      log:warn("GetDevice -> Unknown device %s", deviceIdInt)
+      return nil
+    end
+  end
+  if filter ~= "" then
+    -- C4:GetDevices does not narrow DeviceIds by C4iNames but adds every device of those drivers, so the filter is
+    -- checked here against the device's own driver or, for a proxy, its protocol's
+    local named = names[device.driverFileName] == true
+    for _, protocol in pairs(device.protocol or {}) do
+      named = named or names[protocol.driverFileName] == true
+    end
+    if not named then
+      log:warn("GetDevice -> Device %s is not one of %s", deviceIdInt, filter)
+      return nil
+    end
+  end
+  local displayName = device.deviceName
+  if not IsEmpty(device.roomName) and device.driverFileName ~= ROOM_C4I_NAME then
+    displayName = string.format("%s > %s", device.roomName, device.deviceName)
+  end
+  --- @type ExtendedDeviceDefinition
+  return {
+    driverFileName = device.driverFileName,
+    deviceName = device.deviceName,
+    roomId = device.roomId,
+    roomName = device.roomName,
+    protocol = device.protocol,
+    -- Extended fields
+    deviceId = deviceIdInt,
+    displayName = displayName,
+  }
+end
+
 --- Retrieves an extended device definition by device ID.
+--- A room, which C4:GetDevices never lists but C4:GetDeviceDisplayName names, is returned as a `roomdevice.c4i`
+--- device. With `c4iNames`, a device is found when its driver, or a proxy's protocol driver, is one of the names, and
+--- a room only when they include `roomdevice.c4i`. The names are checked here: C4:GetDevices lists the IDs it is asked
+--- for whatever their driver, together with every device of the drivers it is given.
 --- @param deviceId DeviceId|nil The ID of the device.
 --- @param c4iNames? string[]|string List of C4i names to filter results.
 --- @return ExtendedDeviceDefinition|nil device The device definition if found; else nil.
 function GetDevice(deviceId, c4iNames)
   log:trace("GetDevice(%s, %s)", deviceId, c4iNames)
-  return devicesCache:getOrSet(tostring(deviceId), function()
-    local deviceIdInt = tointeger(deviceId)
-    if deviceIdInt == nil or deviceIdInt < 1 then
-      return nil
-    end
-    --- @type DeviceFilter
-    local tFilter = { DeviceIds = tostring(deviceIdInt) }
-    if not IsEmpty(c4iNames) then
-      --- @cast c4iNames -nil
-      if IsList(c4iNames) then
-        --- @cast c4iNames string[]
-        c4iNames = table.concat(c4iNames, ",")
-      end
-      --- @cast c4iNames -string[]
-      tFilter.C4iNames = c4iNames
-    end
-    local device = C4:GetDevices(tFilter)[deviceIdInt]
-    if device == nil then
-      -- Make a synthetic device for a room
-      local deviceName = C4:GetDeviceDisplayName(deviceIdInt)
-      if not IsEmpty(deviceName) then
-        --- @type ExtendedDeviceDefinition
-        device = {
-          roomId = tostring(deviceIdInt),
-          roomName = deviceName,
-          deviceName = deviceName,
-          driverFileName = "roomdevice.c4i",
-        }
-      else
-        log:warn("GetDevice -> Unknown device %s", deviceIdInt)
-        return nil
-      end
-    end
-    local displayName = device.deviceName
-    if not IsEmpty(device.roomName) then
-      displayName = string.format("%s > %s", device.roomName, device.deviceName)
-    end
-    --- @type ExtendedDeviceDefinition
-    return {
-      driverFileName = device.driverFileName,
-      deviceName = device.deviceName,
-      roomId = device.roomId,
-      roomName = device.roomName,
-      protocol = device.protocol,
-      -- Extended fields
-      deviceId = deviceIdInt,
-      displayName = displayName,
-    }
+  local deviceIdInt = tointeger(deviceId)
+  if deviceIdInt == nil or deviceIdInt < 1 then
+    return nil
+  end
+  local filter, names = normalizeC4iNames(c4iNames)
+  -- One entry per device, holding each filter's answer, so DeviceUpdated forgets them all.
+  local byFilter = devicesCache:getOrSet(tostring(deviceIdInt), function()
+    return {}
   end)
+  if byFilter[filter] == nil then
+    byFilter[filter] = lookupDevice(deviceIdInt, filter, names)
+    -- Whatever a filter finds is what the unfiltered lookup would find
+    byFilter[""] = byFilter[""] or byFilter[filter]
+  end
+  return byFilter[filter]
 end
 
 --- Retrieves device data for a given device ID and specified properties.
@@ -364,14 +407,16 @@ end
 
 --- @alias GenericCallback fun(deviceId: DeviceId, device: table, index: number): any
 
---- Removes unknown device IDs and optionally processes known ones using a callback.
+--- Removes device IDs that do not resolve under the property's items and optionally processes the rest with a callback.
 --- This function iterates through device IDs parsed from the `propertyStr` and processes each using the optional callback.
---- If `deleteUnknownDeviceIds` is `true`, invalid device IDs are removed from the property list.
+--- If `deleteUnknownDeviceIds` is `true`, an ID that is unknown, or whose driver the property's items do not name, is
+--- removed from the property list. That runs before the callback, so an ID whose callback raises stays in the property.
 --- @generic T
 --- @param propertyStr string The name of the property that stores the device IDs to parse.
 --- @param callback? fun(deviceId: DeviceId, device: table, index: integer): T Optional callback function that processes each valid device.
---- @param deleteUnknownDeviceIds? boolean When set to `true`, deletes invalid device IDs from the property list.
+--- @param deleteUnknownDeviceIds? boolean When set to `true`, deletes those device IDs from the property list.
 --- @return table<DeviceId, T>|nil devices Returns a table of processed device data or `nil` if parsing fails.
+--- @return table<DeviceId, true>|nil failed The IDs whose callback raised, as `ParseDeviceIdList` returns them.
 function ParseDeviceIdPropertyList(propertyStr, callback, deleteUnknownDeviceIds)
   if deleteUnknownDeviceIds == nil then
     deleteUnknownDeviceIds = true
@@ -431,13 +476,17 @@ end
 --- counted whether or not the entry resolves: an unresolvable ID leaves a gap rather than shifting the entries behind
 --- it. The position is stable only while the list is unchanged, since removing or inserting an entry renumbers every
 --- entry after it.
+--- The second table holds the IDs whose callback raised. An ID in neither table did not resolve or its callback
+--- returned nil, and an ID listed twice can be in both.
 --- @param deviceIdListStr string The string of comma-separated device IDs.
 --- @param c4iNames? string[] Optional list of C4i names to filter devices.
 --- @param callback? fun(deviceId: DeviceId, device: table, index: integer): any Optional callback to process each device.
 --- @return table<DeviceId, any> devices Returns a table of processed devices, keyed by device ID.
+--- @return table<DeviceId, true> failed The IDs whose callback raised.
 function ParseDeviceIdList(deviceIdListStr, c4iNames, callback)
   log:trace("ParseDeviceIdList(%s, %s, <callback>)", deviceIdListStr, c4iNames)
   local devices = {}
+  local failed = {}
   local i = 0
   for deviceIdStr in string.gmatch(deviceIdListStr or "", "([^,]+)") do
     -- Count every entry, resolvable or not; skipping would renumber the entries behind it.
@@ -449,6 +498,7 @@ function ParseDeviceIdList(deviceIdListStr, c4iNames, callback)
         if success then
           devices[device.deviceId] = result
         else
+          failed[device.deviceId] = true
           log:error("Error parsing ids '%s'; %s", deviceIdListStr, result)
         end
       else
@@ -458,7 +508,7 @@ function ParseDeviceIdList(deviceIdListStr, c4iNames, callback)
       log:warn("Unknown device with id '%s'", deviceIdStr)
     end
   end
-  return devices
+  return devices, failed
 end
 
 local xml2lua = require("xml.xml2lua")

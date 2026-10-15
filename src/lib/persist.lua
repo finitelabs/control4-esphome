@@ -21,6 +21,7 @@
 ---
 --- Migrations are loaded automatically on the first `get()` call via `pcall(require, "migrations")`.
 --- Each migration runs once per key, transforms the value, persists the result, and removes itself.
+--- A key that is not stored has nothing to migrate: its migration is dropped without running.
 --- If no `migrations.lua` file exists, persist operates normally with no migrations.
 ---
 --- ## Write-behind
@@ -53,7 +54,7 @@ require("lib.utils")
 local Persist = {}
 Persist.__index = Persist
 
---- Sentinel representing an empty value in the persistence store.
+--- Cached for a key that is not stored, so a later read does not ask Director again.
 --- @type table
 local EMPTY = {}
 
@@ -107,18 +108,22 @@ end
 --- and removes itself. A table holding a string that is not UTF-8 text reads back with each
 --- byte JSON:decode rejects as its Latin-1 character.
 --- @param key string The key to retrieve the value for.
---- @param default? any The default value to return if the key doesn't exist (optional).
+--- @param default? any The value to return if the key isn't stored (optional). It is this call's alone.
 --- @param encrypted? boolean Whether the value is encrypted (optional).
---- @return any value The retrieved value, or the default if the key doesn't exist.
+--- @return any value The retrieved value, or the default (nil without one) if the key isn't stored.
 function Persist:get(key, default, encrypted)
   log:trace("Persist:get(%s, %s, %s)", key, default, encrypted)
   loadMigrations()
   local value = self:_get(key, default, encrypted)
 
   if type(MIGRATIONS[key]) == "function" then
-    value = MIGRATIONS[key](value)
+    -- A key that is not stored has nothing to migrate, and a default handed back would be stored.
+    if self._persist[key] ~= EMPTY then
+      self:set(key, MIGRATIONS[key](value), encrypted)
+      -- Read again: a migration that deletes the key leaves this call its default.
+      value = self:_get(key, default, encrypted)
+    end
     MIGRATIONS[key] = nil
-    self:set(key, value, encrypted)
   end
 
   return value
@@ -165,9 +170,6 @@ end
 --- @return any value The retrieved value or default.
 function Persist:_get(key, default, encrypted)
   log:trace("Persist:_get(%s, %s, %s)", key, default, encrypted)
-  if default == nil then
-    default = EMPTY
-  end
   local value = self._persist[key]
 
   if value == nil then
@@ -182,18 +184,18 @@ function Persist:_get(key, default, encrypted)
       value = salvage(key, stored) or value
     end
     if value == nil then
-      value = default
+      value = EMPTY
     end
     self._persist[key] = value
   end
 
-  if value == EMPTY or value == nil then
-    return default
-  elseif type(value) == "table" then
-    return TableDeepCopy(value)
-  else
-    return value
+  if value == EMPTY then
+    value = default
   end
+  if type(value) == "table" then
+    return TableDeepCopy(value)
+  end
+  return value
 end
 
 --- Sets a value in the persistence store. Inside `defer()`, a write-behind key's
