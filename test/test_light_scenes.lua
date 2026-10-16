@@ -1286,6 +1286,144 @@ do
   T.eq("a disconnect half way up: off, as the proxy is told", leds(), { { 0, false } })
 end
 
+T.section("a ramp from off that ends before the light is lit leaves Previous On where it was")
+do
+  -- The proxy writes Previous On as the light goes off, from the last level it was told: the pre-on's 1 here.
+  --- Each brightness notification since the mark: { ms, command, current, target, rate }.
+  local function levelsTold()
+    local out = {}
+    for _, s in ipairs(sent) do
+      local p = s.params
+      if
+        s.binding == PROXY and (s.command == "LIGHT_BRIGHTNESS_CHANGING" or s.command == "LIGHT_BRIGHTNESS_CHANGED")
+      then
+        out[#out + 1] = { s.at, s.command, p.LIGHT_BRIGHTNESS_CURRENT, p.LIGHT_BRIGHTNESS_TARGET, p.RATE }
+      end
+    end
+    return out
+  end
+  --- Previous On as the proxy keeps it through what it was told since the mark, from `held`.
+  local function previousOn(held)
+    local on, last = false, nil
+    for _, t in ipairs(levelsTold()) do
+      if t[3] > 0 then
+        last = t[3]
+      elseif on then
+        held = last
+      end
+      on = t[3] > 0
+    end
+    return held
+  end
+  --- A light that is off, whose proxy holds Previous On at `level`, or none if nil.
+  local function offWith(level)
+    persist:delete("brightness_presets")
+    light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+    if level then
+      proxy("UPDATE_BRIGHTNESS_PRESET", { COMMAND = "MODIFIED", ID = 10, NAME = "Previous On", LEVEL = level })
+    end
+    mark()
+  end
+  --- Send `step`: { binding, command, params }.
+  local function send(step)
+    RFP[step[2]](step[1], step[2], step[3])
+  end
+  local RATED = { PROXY, "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 } }
+  local STOP = { PROXY, "SET_BRIGHTNESS_STOP", {} }
+  local ends = {
+    {
+      "a Toggle Button Link held from off and let go",
+      { TOGGLE_LINK, "DO_PUSH", {} },
+      { TOGGLE_LINK, "DO_RELEASE", {} },
+    },
+    { "Set Brightness Stop in a rated on", RATED, STOP },
+    {
+      "Stop Scene Ramp in Ramp Scene Up",
+      { PROXY, "RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 2000 } },
+      { PROXY, "STOP_SCENE_RAMP", { SCENE_ID = 7 } },
+    },
+    {
+      "an off at once in a rated on",
+      RATED,
+      { PROXY, "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 0 } },
+    },
+    {
+      "a fade to off in a rated on",
+      RATED,
+      { PROXY, "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 750 } },
+    },
+    { "Get Light Level and a stop in a rated on", RATED, { PROXY, "GET_LIGHT_LEVEL", {} }, STOP },
+  }
+  for _, c in ipairs(ends) do
+    offWith(40)
+    send(c[2])
+    run(50)
+    for i = 3, #c do
+      send(c[i])
+    end
+    run(15000)
+    T.eq(
+      c[1] .. " 50 ms in: the light ends off and Previous On stays at 40",
+      { told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), previousOn(40) },
+      { { 0 }, 40 }
+    )
+  end
+
+  offWith(40)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 })
+  run(50)
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("the rated on is told from 1 as it begins, and its stop as an off at once from 40", levelsTold(), {
+    { 0, "LIGHT_BRIGHTNESS_CHANGING", 1, 60, 6000 },
+    { 50, "LIGHT_BRIGHTNESS_CHANGING", 40, 0, 0 },
+    { 50, "LIGHT_BRIGHTNESS_CHANGED", 0 },
+  })
+  offWith(40)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 })
+  run(3000)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 0 })
+  T.eq(
+    "an off at once half way through it, the light lit: Previous On is 30, where the light had got to",
+    { levelsTold()[2], previousOn(40) },
+    { { 3000, "LIGHT_BRIGHTNESS_CHANGING", 30, 0, 0 }, 30 }
+  )
+
+  -- An off from a level the light was told at is told as before.
+  offWith(40)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 })
+  run(6000)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 2000 })
+  run(15000)
+  T.eq("a rated on to its end, then a fade to off: Previous On is 60", { levelsTold(), previousOn(40) }, {
+    {
+      { 0, "LIGHT_BRIGHTNESS_CHANGING", 1, 60, 6000 },
+      { 6000, "LIGHT_BRIGHTNESS_CHANGED", 60 },
+      { 6000, "LIGHT_BRIGHTNESS_CHANGING", 60, 0, 2000 },
+      { 8000, "LIGHT_BRIGHTNESS_CHANGED", 0 },
+    },
+    60,
+  })
+  offWith(40)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 })
+  run(3000)
+  proxy("SET_BRIGHTNESS_STOP")
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 0 })
+  T.eq("a stop once the light is lit, then an off at once: Previous On is the level it stopped at", {
+    told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"),
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+    previousOn(40),
+  }, { { 1 }, { 30, 0 }, 30 })
+  offWith(nil)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 })
+  run(50)
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("with no Previous On known, a stop 50 ms in is told as before", levelsTold(), {
+    { 0, "LIGHT_BRIGHTNESS_CHANGING", 1, 60, 6000 },
+    { 50, "LIGHT_BRIGHTNESS_CHANGED", 0 },
+  })
+  persist:delete("brightness_presets")
+end
+
 --- The brightness and transition of the last command sent since the mark.
 local function lastLevel()
   for i = #sent, 1, -1 do
@@ -3961,6 +4099,23 @@ do
       { 750, 750 }
     )
   end
+end
+
+T.section("Previous On's level is read from the proxy's setup, for a ramp from off stopped before the light is lit")
+do
+  -- The proxy sends Previous On when it changes: one the driver has never been sent is the setup's 20.
+  forgetSetup()
+  proxySetup = setupFile("setup-607.xml")
+  restart({ RGBCT, CT }, false)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 })
+  run(50)
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a stop 50 ms into a rated on from off: told from 1, then an off at once from 20", {
+    told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"),
+    told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+  }, { { 1, 20 }, { 0 } })
+  forgetSetup()
+  proxySetup = ""
 end
 
 T.section("a setup that lists one color or one level, and a preset listed with no level")
