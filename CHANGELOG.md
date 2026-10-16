@@ -81,6 +81,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   ended; Control4 now shows it on from the start
 - Fixed a light asked for its level during a ramp being shown as stopped where
   the ramp began, or as off in a ramp up from off
+- Fixed the keypad LEDs on a light's button links showing it off while it was
+  turned on over a ramp time, and staying lit when the light went offline
 
 ### Changed
 

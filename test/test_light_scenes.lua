@@ -1140,6 +1140,75 @@ do
   T.eq("off at rest", getLevel(), { { "LIGHT_BRIGHTNESS_CHANGED", 0 } })
 end
 
+T.section("the Button Link LEDs show a light on from the start of a ramp up to the end of a fade to off")
+do
+  -- MATCH_LED_STATE went out with CHANGED alone: through a rated on from off the LEDs showed it off.
+  local BOTTOM_LINK = 302
+  --- When and what a Button Link's LED was told since the mark, the Top's if nil: { ms, STATE }.
+  local function leds(binding)
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.binding == (binding or TOP_LINK) and s.command == "MATCH_LED_STATE" then
+        out[#out + 1] = { s.at, s.params.STATE }
+      end
+    end
+    return out
+  end
+  local ons = {
+    { "Set Brightness Target", PROXY, "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 } },
+    { "Ramp Scene Up", PROXY, "RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 2000 } },
+    { "a scene step to 60 over 2 s", PROXY, "ACTIVATE_SCENE", { SCENE_ID = 7 } },
+    { "a Top Button Link's click", TOP_LINK, "DO_CLICK", {} },
+    { "a Toggle Button Link held", TOGGLE_LINK, "DO_PUSH", {} },
+  }
+  for _, c in ipairs(ons) do
+    light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+    proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(60, 2000) })
+    mark()
+    RFP[c[3]](c[2], c[3], c[4])
+    run(1000)
+    T.eq(c[1] .. " from off: the LED is told on as its ramp begins", leds(), { { 0, true } })
+    proxy("CLEAR_ALL_SCENES")
+  end
+
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 5000 })
+  run(2500)
+  mark()
+  proxy("REQUEST_BUTTON_COLORS")
+  T.eq(
+    "Request Button Colors half way up: on, the Bottom's LED inverted",
+    { leds(), leds(BOTTOM_LINK), leds(TOGGLE_LINK) },
+    { { { 0, true } }, { { 0, false } }, { { 0, true } } }
+  )
+  run(15000)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 2000 })
+  run(15000)
+  T.eq("a rated level between lit levels: the LED is told nothing", leds(), {})
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  run(2000)
+  T.eq("a fade to off: nothing half way", leds(), {})
+  proxy("REQUEST_BUTTON_COLORS")
+  T.eq("where Request Button Colors says on", leds(), { { 2000, true } })
+  run(15000)
+  T.eq("and off at the fade's end", leds(), { { 2000, true }, { 4000, false } })
+
+  -- One that stops at off is off, as the light is.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+  mark()
+  RFP.DO_PUSH(TOGGLE_LINK, "DO_PUSH", {})
+  RFP.DO_RELEASE(TOGGLE_LINK, "DO_RELEASE", {})
+  T.eq("a Toggle Button Link held from off and let go at once: on, then off", leds(), { { 0, true }, { 0, false } })
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 5000 })
+  run(2500)
+  mark()
+  RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
+  T.eq("a disconnect half way up: off, as the proxy is told", leds(), { { 0, false } })
+end
+
 --- The brightness and transition of the last command sent since the mark.
 local function lastLevel()
   for i = #sent, 1, -1 do
