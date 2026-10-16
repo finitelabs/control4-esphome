@@ -85,6 +85,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   turned on over a ramp time, and staying lit when the light went offline
 - Fixed a light turned on over a ramp time telling Control4 its Color On Mode's
   color twice, the first time without its color preset
+- Fixed a light stopped or turned off during a ramp up from off saving 1 % as
+  its Previous On level instead of the one it had, or the level it had reached
 
 ### Changed
 
