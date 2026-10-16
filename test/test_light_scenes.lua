@@ -1424,6 +1424,192 @@ do
   persist:delete("brightness_presets")
 end
 
+T.section("a light's report from before the level last sent tells nothing: a ramp's echo after its stop leaves it off")
+do
+  -- The light takes commands in order, so a report of one with another sent since is history.
+  local dimmer = { ColorMode.COLOR_MODE_BRIGHTNESS }
+  --- The light's report of its brightness, off for 0; a dimmer's unless `modes` are given.
+  local function push(brightness, modes)
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = modes or dimmer }),
+      state = SerializeSafe(brightness > 0 and { state = true, brightness = brightness } or { state = false }),
+    })
+  end
+  --- Each brightness notification since the mark: "current to target" or "current".
+  local function brightnessTold()
+    local out = {}
+    for _, s in ipairs(sent) do
+      local p = s.params
+      if s.binding == PROXY and s.command == "LIGHT_BRIGHTNESS_CHANGING" then
+        out[#out + 1] = p.LIGHT_BRIGHTNESS_CURRENT .. " to " .. p.LIGHT_BRIGHTNESS_TARGET
+      elseif s.binding == PROXY and s.command == "LIGHT_BRIGHTNESS_CHANGED" then
+        out[#out + 1] = tostring(p.LIGHT_BRIGHTNESS_CURRENT)
+      end
+    end
+    return out
+  end
+  --- When and what the Top Button Link's LED was told since the mark: { ms, STATE }.
+  local function leds()
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.binding == TOP_LINK and s.command == "MATCH_LED_STATE" then
+        out[#out + 1] = { s.at, s.params.STATE }
+      end
+    end
+    return out
+  end
+  --- The levels the proxy was told the light is at since the mark.
+  local function levels()
+    return told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT")
+  end
+  --- A light that is off with Previous On at 40, sent `on` and 50 ms later `stop`, each { binding, command,
+  --- params }; 40 ms on.
+  local function stopped(on, stop)
+    persist:delete("brightness_presets")
+    light(dimmer, false)
+    proxy("UPDATE_BRIGHTNESS_PRESET", { COMMAND = "MODIFIED", ID = 10, NAME = "Previous On", LEVEL = 40 })
+    mark()
+    RFP[on[2]](on[1], on[2], on[3])
+    run(50)
+    RFP[stop[2]](stop[1], stop[2], stop[3])
+    run(40)
+  end
+  local RATED = { PROXY, "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 } }
+  local STOP = { PROXY, "SET_BRIGHTNESS_STOP", {} }
+
+  -- As on dev with two lights on one node: the on's report 40 ms after the stop, then the stop's.
+  for _, c in ipairs({
+    { "Set Brightness Stop", RATED, STOP, 0.6, 60 },
+    { "an off at once", RATED, { PROXY, "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 0 } }, 0.6, 60 },
+    { "a Toggle Button Link let go", { TOGGLE_LINK, "DO_PUSH", {} }, { TOGGLE_LINK, "DO_RELEASE", {} }, 1.0, 100 },
+  }) do
+    stopped(c[2], c[3])
+    push(c[4])
+    run(100)
+    push(0)
+    run(2000)
+    T.eq(
+      c[1] .. " 50 ms into a ramp from off, reported after it: told off once, from Previous On's 40",
+      brightnessTold(),
+      { "1 to " .. c[5], "40 to 0", "0" }
+    )
+    T.eq(c[1] .. ": the LED goes off with it and stays off", leds(), { { 0, true }, { 50, false } })
+  end
+  stopped(RATED, STOP)
+  push(0)
+  run(2000)
+  T.eq(
+    "the on and its stop answered with one report of the off, as one light alone was: the stop is told alone",
+    brightnessTold(),
+    { "1 to 60", "40 to 0", "0" }
+  )
+
+  -- Another client's level is news, whatever report is on its way.
+  stopped(RATED, STOP)
+  push(0.8)
+  T.eq(
+    "a level set elsewhere while the stop's report is on the way: told at once",
+    { levels(), told("LIGHT_BRIGHTNESS_CHANGED", "at") },
+    { { 0, 80 }, { 50, 90 } }
+  )
+  stopped(RATED, STOP)
+  push(0.6)
+  run(50)
+  push(0.8)
+  run(2000)
+  T.eq(
+    "and one set elsewhere after the on's report: told at once, and the on's 60 never",
+    { levels(), told("LIGHT_BRIGHTNESS_CHANGED", "at") },
+    { { 0, 80 }, { 50, 140 } }
+  )
+  stopped(RATED, STOP)
+  push(0.6)
+  run(100)
+  push(0)
+  run(100)
+  push(0.6)
+  local after, at = levels(), told("LIGHT_BRIGHTNESS_CHANGED", "at")
+  T.eq("the light set elsewhere to 60 once the stop's report has come: told at once", { after[#after], at[#at] }, {
+    60,
+    290,
+  })
+
+  -- A light that does not report the stop within a second is told as it is.
+  stopped(RATED, STOP)
+  push(0.6)
+  T.eq(
+    "a light that does not take the stop: nothing more is told while its report may be on the way",
+    told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+    { 50 }
+  )
+  run(2000)
+  T.eq(
+    "then its 60, a second after the stop",
+    { levels(), told("LIGHT_BRIGHTNESS_CHANGED", "at") },
+    { { 0, 60 }, { 50, 1050 } }
+  )
+  stopped(RATED, STOP)
+  push(0.6)
+  run(860)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 0 })
+  run(200)
+  push(0.3)
+  run(2000)
+  T.eq(
+    "a level sent 0.9 s after the stop: the on's 60 is not told while that level's report is on the way",
+    { levels(), told("LIGHT_BRIGHTNESS_CHANGED", "at") },
+    { { 0, 30 }, { 50, 950 } }
+  )
+  stopped(RATED, STOP)
+  push(0.6)
+  RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
+  run(2000)
+  T.eq("a disconnect while the stop's report may be on the way: the on's 60 is not told after it", levels(), { 0, 0 })
+  persist:delete("brightness_presets")
+
+  -- Not only a stop: any level the light reports with another sent since.
+  light(dimmer)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 0 })
+  run(12)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 0 })
+  run(150)
+  push(0.3)
+  run(100)
+  push(0.6)
+  run(2000)
+  T.eq("30 then 60 at once 12 ms apart, each reported by itself: 30 is not told again", levels(), { 30, 60 })
+  light(dimmer, false)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 100 })
+  run(150)
+  push(0.0039)
+  run(100)
+  push(0.6)
+  run(2000)
+  T.eq(
+    "a rated on over 100 ms from off, its pre-on and on reported after its end: 60 told once, at its end",
+    { levels(), told("LIGHT_BRIGHTNESS_CHANGED", "at") },
+    { { 60 }, { 100 } }
+  )
+  local onOff = { ColorMode.COLOR_MODE_ON_OFF }
+  light(onOff, false)
+  mark()
+  proxy("ON")
+  run(30)
+  proxy("OFF")
+  run(100)
+  push(1, onOff)
+  run(100)
+  push(0, onOff)
+  run(2000)
+  T.eq(
+    "an On/Off-only light switched on and off 30 ms apart, its on reported after the off: each told once",
+    { levels(), told("LIGHT_BRIGHTNESS_CHANGED", "at") },
+    { { 100, 0 }, { 0, 30 } }
+  )
+end
+
 --- The brightness and transition of the last command sent since the mark.
 local function lastLevel()
   for i = #sent, 1, -1 do
@@ -6667,6 +6853,7 @@ do
   proxy("SET_MAX_ON_LEVEL", { LEVEL = "30" })
   T.eq("a new range that still has no width tells nothing", levelsTold(), {})
   proxy("SET_LEVEL", { LEVEL = 0 })
+  reportAt(0)
   mark()
   reportAt(0.3)
   T.eq("a light turned on elsewhere is told", levelsTold(), { 100 })
