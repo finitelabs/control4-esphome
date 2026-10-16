@@ -241,7 +241,7 @@ local ON, DIM, BLUE = { 0.6, 0.3, id = 1 }, { 0.14, 0.1 }, { 0.15, 0.06 }
 local function onMode(on, dim)
   proxy("UPDATE_COLOR_ON_MODE", {
     COLOR_PRESET_ID = on.id,
-    COLOR_PRESET_ORIGIN = 1,
+    COLOR_PRESET_ORIGIN = on.origin or 1,
     COLOR_PRESET_COLOR_X = on[1],
     COLOR_PRESET_COLOR_Y = on[2],
     COLOR_PRESET_COLOR_MODE = 0,
@@ -310,11 +310,11 @@ do
     LIGHT_COLOR_TARGET_PRESET_ID = ON.id,
   })
   run(15000)
-  T.eq(
-    "with its preset: the light is sent nothing more, and the proxy is told the On color again in that preset",
-    { #colors(), told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ID") },
-    { 2, { ON.id } }
-  )
+  T.eq("with its preset: the light is sent nothing more, and the proxy is told the On color once, in that preset", {
+    #colors(),
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ID"),
+  }, { 2, { ON[1] }, { ON.id } })
   offInBlue()
   local asked = setColor({ 0.2, 0.5 })
   setColor(BLUE)
@@ -568,6 +568,50 @@ do
   proxy("ON")
   T.eq("it is sent the color it went off in", colors(), { previous })
   T.eq("and the proxy is told it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
+end
+
+T.section("a rated on tells its On color as the device preset it is, and again only in another one the proxy names")
+do
+  --- The preset each LIGHT_COLOR_CHANGED since the mark names, false for none.
+  local function presetsTold()
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.binding == PROXY and s.command == "LIGHT_COLOR_CHANGED" then
+        out[#out + 1] = s.params.LIGHT_COLOR_CURRENT_PRESET_ID or false
+      end
+    end
+    return out
+  end
+  -- { the Color On Mode's preset, the one the proxy's send names, those the proxy is told the color in }
+  for _, case in ipairs({
+    { "the On color, its own named", ON, ON.id, { ON.id } },
+    { "the On color, another named", ON, 5, { ON.id, 5 } },
+    { "the On color, none named", ON, nil, { ON.id } },
+    { "Previous On", PREVIOUS_ON, PREVIOUS_ON.id, { PREVIOUS_ON.id } },
+    { "an agent's preset", { ON[1], ON[2], id = 1, origin = 2 }, nil, { false } },
+  }) do
+    local name, preset = case[1], case[2]
+    light({ ColorMode.COLOR_MODE_RGB }, false)
+    onMode(preset)
+    proxy("ON")
+    setColor(preset)
+    proxy("OFF")
+    mark()
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = preset[1],
+      LIGHT_COLOR_TARGET_Y = preset[2],
+      LIGHT_COLOR_TARGET_COLOR_RATE = 750,
+      LIGHT_COLOR_TARGET_PRESET_ID = case[3],
+    })
+    run(15000)
+    local each = {}
+    for i, id in ipairs(case[4]) do
+      each[i] = id and "preset " .. id or "no preset"
+    end
+    T.eq(name .. ": told in " .. table.concat(each, ", then "), presetsTold(), case[4])
+    T.eq(name .. ": the light is sent the pre-on and the on alone", #colors(), 2)
+  end
 end
 
 T.section("an edit of the preset the Color On Mode names is the color the light next turns on in")

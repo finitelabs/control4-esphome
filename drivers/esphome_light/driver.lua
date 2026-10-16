@@ -1248,7 +1248,7 @@ function isLogicallyOn()
 end
 
 -- Determine the on-color to use when transitioning from off to on, based on
--- the active color on-mode. Returns {x, y, mode} or nil.
+-- the active color on-mode. Returns {x, y, mode, preset} or nil.
 local function resolveOnColor(brightnessLevel)
   if not (supportsColor or supportsCCT) then
     return nil
@@ -1257,21 +1257,21 @@ local function resolveOnColor(brightnessLevel)
   if kind == COLOR_ON_MODE_FADE then
     return computeFadeColor(brightnessLevel)
   end
+  local mode = persist:get(P_COLOR_ON_MODE)
+  local onPreset = mode and mode.onPreset
+  -- The device preset the color is, which the proxy names it by.
+  local preset = onPreset and onPreset.origin == PRESET_ORIGIN_DEVICE and onPreset.id or nil
   if kind == COLOR_ON_MODE_PREVIOUS then
     local prev = persist:get(P_PREVIOUS_COLOR)
     if prev and prev.x and prev.y then
       -- Normalize as the proxy's follow-up SET_COLOR_TARGET is, so it dedupes.
       local x, y, colorMode = takenColor(prev.x, prev.y, prev.mode or LIGHT_COLOR_MODE_FULL)
-      return { x = x, y = y, mode = colorMode }
+      return { x = x, y = y, mode = colorMode, preset = preset }
     end
   end
-  if kind == COLOR_ON_MODE_PRESET then
-    local mode = persist:get(P_COLOR_ON_MODE)
-    local onPreset = mode and mode.onPreset
-    if onPreset and onPreset.x and onPreset.y then
-      local x, y, colorMode = takenColor(onPreset.x, onPreset.y, onPreset.mode or LIGHT_COLOR_MODE_FULL)
-      return { x = x, y = y, mode = colorMode }
-    end
+  if kind == COLOR_ON_MODE_PRESET and onPreset and onPreset.x and onPreset.y then
+    local x, y, colorMode = takenColor(onPreset.x, onPreset.y, onPreset.mode or LIGHT_COLOR_MODE_FULL)
+    return { x = x, y = y, mode = colorMode, preset = preset }
   end
   return nil
 end
@@ -1538,20 +1538,16 @@ local function setESPHomeBrightness(level, rateMs, keepColor, at)
       -- color is treated as already applied. 250ms covers the proxy's
       -- typical inter-cmd gap (~6-50ms) with a margin.
       mergedColorUntil = C4:GetTime() + 250
-      -- The merged color is computed from on-mode rules (fade/previous/
-      -- on-preset), not from an explicit SET_COLOR_TARGET. Clear any
-      -- lingering target-preset id so we don't echo a stale value. If the
-      -- proxy follows up with a SET_COLOR_TARGET inside mergedColorUntil,
-      -- that handler sets the correct id for the LIGHT_COLOR_CHANGED that
-      -- follows.
-      currentColorPresetId = nil
+      -- Told as the device preset the on mode's color is, which the proxy's
+      -- follow-up names too; a Dim-To-Warm mix is no preset's.
+      currentColorPresetId = mergedColor.preset
       -- Stash on the ramp metadata so brightnessRampFinished can emit the
       -- terminal LIGHT_COLOR_CHANGED when the bulb's combined transition
       -- completes. The proxy needs CHANGING (now) + CHANGED (at finish) to
       -- keep its color-picker animation in sync. A ramped on's pre-on already
       -- lit this color, so onColor only dedupes the proxy's follow-up.
       if brightnessRamp then
-        local color = { x = mergedColor.x, y = mergedColor.y, mode = mergedColor.mode }
+        local color = { x = mergedColor.x, y = mergedColor.y, mode = mergedColor.mode, preset = mergedColor.preset }
         if goingOn then
           brightnessRamp.onColor = color
         else
@@ -2322,7 +2318,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   -- path already emitted notifyColorChanging, and brightnessRampFinished
   -- will emit notifyColorChanged when the ramp completes - so there is
   -- nothing to notify here, just suppress the redundant ESPHome cmd. A ramped
-  -- on's color was told at once; it is retold only to add the preset id.
+  -- on's color was told at once; a send naming another preset retells it.
   local now = C4:GetTime()
   local ramp = rampingBrightness and brightnessRamp
   local merged = ramp and (ramp.mergedColor or ramp.onColor)
@@ -2330,7 +2326,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
     log:debug("SET_COLOR_TARGET deduped (%sms remaining in merged-color window)", mergedColorUntil - now)
     if not ramp.onColor then
       ramp.mergedColor = { x = targetX, y = targetY, mode = targetMode }
-    elseif presetId then
+    elseif presetId and presetId ~= ramp.onColor.preset then
       notifyColorChanged(targetX, targetY, targetMode)
     end
     return

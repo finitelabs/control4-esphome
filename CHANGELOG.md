@@ -83,6 +83,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   the ramp began, or as off in a ramp up from off
 - Fixed the keypad LEDs on a light's button links showing it off while it was
   turned on over a ramp time, and staying lit when the light went offline
+- Fixed a light turned on over a ramp time telling Control4 its Color On Mode's
+  color twice, the first time without its color preset
 
 ### Changed
 
