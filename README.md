@@ -984,6 +984,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   color twice, the first time without its color preset
 - Fixed a light stopped or turned off during a ramp up from off saving 1 % as
   its Previous On level instead of the one it had, or the level it had reached
+- Fixed a light sent a level and then another soon after, such as a stop just
+  after a ramp up from off began, being shown for a moment at the first level,
+  which the stop then saved as its Previous On level
 
 ### Changed
 

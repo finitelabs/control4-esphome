@@ -199,8 +199,8 @@ local sentBrightness = {}
 local sentColors = {}
 
 -- ESPHome answers each command with a report of its own, seen within 250 ms.
-local SENT_COLOR_WAIT = 1000
-local sentColorUntil = 0
+local SENT_WAIT = 1000
+local sentLevelUntil, sentColorUntil = 0, 0
 
 -- Device brightness (0-1) the light is at or heading to; nil before a report.
 local lightBrightness = nil
@@ -804,9 +804,12 @@ local function sendLightCommand(opts)
   end
   log:debug("sendLightCommand(%s)", opts)
   -- A disconnected light reports nothing back, so track only when connected.
-  if STATE and (opts.has_brightness or opts.state == false) then
-    sentBrightness[#sentBrightness + 1] = opts.state and opts.brightness or 0
+  -- An On/Off-only light's on carries no brightness and reads back as full.
+  if STATE and (opts.has_brightness or opts.state == false or (opts.has_state and not supportsDimming)) then
+    sentBrightness[#sentBrightness + 1] = opts.state and (opts.brightness or 1.0) or 0
     lightBrightness = sentBrightness[#sentBrightness]
+    sentLevelUntil = C4:GetTime() + SENT_WAIT
+    CancelTimer("SentLevel")
   end
   if STATE then
     -- ESPHome restarts every channel from where it is over the new transition,
@@ -828,7 +831,7 @@ local function sendLightCommand(opts)
         warm_white = opts.warm_white,
       }
       aimLight(sentColors[#sentColors], true)
-      sentColorUntil = now + SENT_COLOR_WAIT
+      sentColorUntil = now + SENT_WAIT
       CancelTimer("SentColor")
     elseif
       opts.state
@@ -3482,6 +3485,12 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     return readLevel(sent) == newBrightness
   end, brightness)
   lightBrightness = ownLevel and sentBrightness[#sentBrightness] or brightness
+  -- The light takes commands in order, so a report with a level sent since is
+  -- history: it waits for the light's report of that one, as a color's does.
+  local levelWait = ownLevel and #sentBrightness > 1 and sentLevelUntil - C4:GetTime() or 0
+  if levelWait <= 0 then
+    CancelTimer("SentLevel")
+  end
   local reported = {
     -- ESPHome omits a zero color_mode (UNKNOWN) like any zero field.
     color_mode = tointeger(Select(state, "color_mode")) or ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_UNKNOWN,
@@ -3528,6 +3537,13 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     notifyBrightnessChanged(newBrightness)
   elseif rampingBrightness then
     log:trace("UPDATE_STATE brightness=%s ignored (ramping)", newBrightness)
+  elseif levelWait > 0 then
+    log:trace("UPDATE_STATE brightness=%s held (a level was sent since)", newBrightness)
+    SetTimer("SentLevel", levelWait, function()
+      if #sentBrightness > 1 and not sameLevel(newBrightness, currentBrightness) then
+        notifyBrightnessChanged(newBrightness)
+      end
+    end)
   elseif isFirstUpdate or not sameLevel(newBrightness, currentBrightness) then
     -- Spec note: LIGHT_BRIGHTNESS_CHANGED should always be sent when the
     -- driver starts and/or when the hardware comes online so the proxy is
@@ -3543,7 +3559,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
   local merged = rampingBrightness and brightnessRamp and brightnessRamp.mergedColor
   if (supportsColor or supportsCCT) and not rampingColor and not merged then
-    -- A report from before the color last sent waits up to SENT_COLOR_WAIT for
+    -- A report from before the color last sent waits up to SENT_WAIT for
     -- the light's report of it; none by then means the light did not take it.
     local wait = ownColor and #sentColors > 1 and sentColorUntil - C4:GetTime() or 0
     if wait > 0 then
