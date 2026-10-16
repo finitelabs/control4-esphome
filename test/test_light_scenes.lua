@@ -614,6 +614,39 @@ do
   end
 end
 
+T.section("the On color asked for after another color early in a rated on goes out: it is no echo of the on's")
+do
+  -- The other color 50 ms in re-times the on's ramp, which then carries no On color to match the ask at 100 ms.
+  for _, scene in ipairs({ false, true }) do
+    for _, rate in ipairs({ 0, 1000 }) do
+      local name = (scene and "after a scene step's color" or "after a color command")
+        .. (rate > 0 and " over 1 s" or " at once")
+      local onColor = offInBlue()
+      mark()
+      proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+      colorTarget(ON, 2000)
+      run(50)
+      if scene then
+        proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(nil, { 0.3, 0.6 }, rate) })
+        proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+      else
+        colorTarget({ 0.3, 0.6 }, rate)
+      end
+      run(50)
+      colorTarget(ON, 0)
+      run(15000)
+      local out, x = colors(), told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")
+      T.eq(name .. ": the light is last sent the On color", out[#out], onColor)
+      T.eq(
+        name .. ": and the proxy is told it last, as it is asked for",
+        { x[#x], told("LIGHT_COLOR_CHANGED", "at")[#x] },
+        { ON[1], 100 }
+      )
+      proxy("CLEAR_ALL_SCENES")
+    end
+  end
+end
+
 T.section("an edit of the preset the Color On Mode names is the color the light next turns on in")
 do
   light({ ColorMode.COLOR_MODE_RGB }, false)
