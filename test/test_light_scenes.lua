@@ -1021,6 +1021,79 @@ do
   T.eq("which the proxy is told at its ramp's end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 3000 })
 end
 
+T.section("a rated on from off is told from 1, where its pre-on has the light, so Control4 shows it on from the start")
+do
+  -- The proxy takes LIGHT_STATE from CHANGING's current level: from 0 it showed the light off to the ramp's end.
+  --- Each ramp the proxy was told since the mark, from its current level to its target.
+  local function rampsTold()
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.binding == PROXY and s.command == "LIGHT_BRIGHTNESS_CHANGING" then
+        out[#out + 1] = s.params.LIGHT_BRIGHTNESS_CURRENT .. " to " .. s.params.LIGHT_BRIGHTNESS_TARGET
+      end
+    end
+    return out
+  end
+  --- The brightness of the first command since the mark: a ramped on's pre-on.
+  local function firstBrightness()
+    for _, s in ipairs(sent) do
+      if s.binding == ESPHOME and s.command == "ENTITY_COMMAND" then
+        return DeserializeSafe(s.params.body).brightness
+      end
+    end
+  end
+  local ons = {
+    { "Set Brightness Target", PROXY, "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 }, 60 },
+    { "Ramp Scene Up", PROXY, "RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 2000 }, 100 },
+    { "a scene step to 60 over 2 s", PROXY, "ACTIVATE_SCENE", { SCENE_ID = 7 }, 60 },
+    { "a Top Button Link's click", TOP_LINK, "DO_CLICK", {}, 100 },
+    { "a Toggle Button Link held", TOGGLE_LINK, "DO_PUSH", {}, 100 },
+  }
+  for _, c in ipairs(ons) do
+    light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+    proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(60, 2000) })
+    mark()
+    RFP[c[3]](c[2], c[3], c[4])
+    T.eq(c[1] .. " from off: its pre-on, and its ramp told from 1", { firstBrightness(), rampsTold() }, {
+      0.0039,
+      { "1 to " .. c[5] },
+    })
+    run(15000)
+    T.eq(
+      c[1] .. ": its level once, at the ramp's end",
+      told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
+      { c[5] }
+    )
+    proxy("CLEAR_ALL_SCENES")
+  end
+  light({ ColorMode.COLOR_MODE_RGB }, false)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 })
+  run(100)
+  mark()
+  colorTarget(BLUE, 2000)
+  T.eq("a color 100 ms into such an on: its ramp told again from 1", rampsTold(), { "1 to 60" })
+
+  -- A rated level for a light that is on, and a fade to off, are told from where the light is.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_LEVEL", { LEVEL = 60 })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 2000 })
+  run(15000)
+  T.eq(
+    "a rated level to 30 from 60: from 60",
+    { rampsTold(), told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT") },
+    { { "60 to 30" }, { 30 } }
+  )
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 2000 })
+  run(15000)
+  T.eq(
+    "a fade to off from 30: from 30",
+    { rampsTold(), told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT") },
+    { { "30 to 0" }, { 0 } }
+  )
+end
+
 --- The brightness and transition of the last command sent since the mark.
 local function lastLevel()
   for i = #sent, 1, -1 do

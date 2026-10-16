@@ -1336,9 +1336,11 @@ local function notifyBrightnessChanged(level)
 end
 
 local function notifyBrightnessChanging(target, rate)
-  log:debug("LIGHT_BRIGHTNESS_CHANGING: target=%s rate=%s", target, rate)
+  -- The proxy takes the light's state from CURRENT: one on its way up from off is lit by its pre-on.
+  local current = target > 0 and math.max(1, currentBrightness) or currentBrightness
+  log:debug("LIGHT_BRIGHTNESS_CHANGING: %s to %s, rate=%s", current, target, rate)
   SendToProxy(PROXY_BINDING, "LIGHT_BRIGHTNESS_CHANGING", {
-    LIGHT_BRIGHTNESS_CURRENT = currentBrightness,
+    LIGHT_BRIGHTNESS_CURRENT = current,
     LIGHT_BRIGHTNESS_TARGET = target,
     RATE = rate,
     LIGHT_BRIGHTNESS_TARGET_PRESET_ID = currentBrightnessPresetId,
