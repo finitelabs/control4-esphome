@@ -1094,6 +1094,52 @@ do
   )
 end
 
+T.section("Get Light Level in a ramp tells where the ramp has got to, its target and the time left")
+do
+  -- Light V2 takes a CHANGED level as where the brightness stopped: in a ramp it was the ramp's start.
+  --- What a Get Light Level tells the proxy: { command, current, target, rate }.
+  local function getLevel()
+    mark()
+    proxy("GET_LIGHT_LEVEL")
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.binding == PROXY then
+        local p = s.params
+        out[#out + 1] = { s.command, p.LIGHT_BRIGHTNESS_CURRENT, p.LIGHT_BRIGHTNESS_TARGET, p.RATE }
+      end
+    end
+    return out
+  end
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("SET_LEVEL", { LEVEL = 20 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+  run(5000)
+  T.eq("half way from 20 to 100: a ramp from 60 to 100 with 5 s left", getLevel(), {
+    { "LIGHT_BRIGHTNESS_CHANGING", 60, 100, 5000 },
+  })
+  mark()
+  run(15000)
+  T.eq("and the ramp's end is told as before", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 5000 })
+  T.eq("at rest: the level it stopped at", getLevel(), { { "LIGHT_BRIGHTNESS_CHANGED", 100 } })
+
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 })
+  run(100)
+  T.eq("100 ms into a rated on from off: from 1, where its pre-on has the light", getLevel(), {
+    { "LIGHT_BRIGHTNESS_CHANGING", 1, 60, 5900 },
+  })
+  run(15000)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  run(2000)
+  T.eq("half way through a fade to off from 60: from 30", getLevel(), {
+    { "LIGHT_BRIGHTNESS_CHANGING", 30, 0, 2000 },
+  })
+  mark()
+  run(15000)
+  T.eq("which ends off as before", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 0 })
+  T.eq("off at rest", getLevel(), { { "LIGHT_BRIGHTNESS_CHANGED", 0 } })
+end
+
 --- The brightness and transition of the last command sent since the mark.
 local function lastLevel()
   for i = #sent, 1, -1 do
@@ -6205,7 +6251,11 @@ do
   onLevels(80, 20)
   mark()
   proxy("GET_LIGHT_LEVEL")
-  T.eq("the level the proxy asks for in a ramp is its start's on the new range", levelsTold(), { 51 })
+  T.eq("the level the proxy asks for in a ramp: from where it has got to, 53, to 67 on the new range", {
+    told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"),
+    told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET"),
+    told("LIGHT_BRIGHTNESS_CHANGING", "RATE"),
+  }, { { 53 }, { 67 }, { 3000 } })
   forgetOnLevels()
 end
 

@@ -1335,9 +1335,11 @@ local function notifyBrightnessChanged(level)
   end
 end
 
-local function notifyBrightnessChanging(target, rate)
+--- @param current number|nil The level a ramp in flight has got to.
+local function notifyBrightnessChanging(target, rate, current)
+  current = current or currentBrightness
   -- The proxy takes the light's state from CURRENT: one on its way up from off is lit by its pre-on.
-  local current = target > 0 and math.max(1, currentBrightness) or currentBrightness
+  current = target > 0 and math.max(1, current) or current
   log:debug("LIGHT_BRIGHTNESS_CHANGING: %s to %s, rate=%s", current, target, rate)
   SendToProxy(PROXY_BINDING, "LIGHT_BRIGHTNESS_CHANGING", {
     LIGHT_BRIGHTNESS_CURRENT = current,
@@ -2408,6 +2410,11 @@ end
 function RFP.GET_LIGHT_LEVEL(idBinding, strCommand, tParams, args)
   log:trace("RFP.GET_LIGHT_LEVEL(%s, %s)", idBinding, strCommand)
   if idBinding ~= PROXY_BINDING then
+    return
+  end
+  -- A CHANGED level is one the light has stopped at: in a ramp, tell where it has got to.
+  if rampingBrightness then
+    notifyBrightnessChanging(brightnessRamp.targetLevel, remaining(brightnessRamp), (interpolatedBrightness()))
     return
   end
   notifyBrightnessChanged(currentBrightness)
