@@ -63,6 +63,19 @@ local EMPTY = {}
 --- @type string
 local STORED_NAN = '{":number:":null}'
 
+--- What a trace shows for an encrypted key's value or default, which may be a code, token or password.
+--- @type string
+local REDACTED = "***REDACTED***"
+
+--- A value as a trace may show it: an encrypted key's is never logged.
+--- @private
+local function traced(value, encrypted)
+  if encrypted and value ~= nil and value ~= "" then
+    return REDACTED
+  end
+  return value
+end
+
 --- Migration functions loaded from the driver's `migrations.lua` module.
 --- Populated lazily on first get() call. Each entry maps a persist key to a function that
 --- transforms the old value format into the new format.
@@ -112,7 +125,7 @@ end
 --- @param encrypted? boolean Whether the value is encrypted (optional).
 --- @return any value The retrieved value, or the default (nil without one) if the key isn't stored.
 function Persist:get(key, default, encrypted)
-  log:trace("Persist:get(%s, %s, %s)", key, default, encrypted)
+  log:trace("Persist:get(%s, %s, %s)", key, traced(default, encrypted), encrypted)
   loadMigrations()
   local value = self:_get(key, default, encrypted)
 
@@ -169,7 +182,7 @@ end
 --- @param encrypted boolean? Whether the value is encrypted.
 --- @return any value The retrieved value or default.
 function Persist:_get(key, default, encrypted)
-  log:trace("Persist:_get(%s, %s, %s)", key, default, encrypted)
+  log:trace("Persist:_get(%s, %s, %s)", key, traced(default, encrypted), encrypted)
   local value = self._persist[key]
 
   if value == nil then
@@ -202,10 +215,10 @@ end
 --- value is cached at once and written at its next flush.
 --- @param key string The key to set the value for.
 --- @param value any The value to store. If nil, "" or NaN, the key will be deleted.
---- @param encrypted? boolean Whether to encrypt the value (optional).
+--- @param encrypted? boolean Whether to encrypt the value (optional). An encrypted value is never logged.
 --- @return void
 function Persist:set(key, value, encrypted)
-  log:trace("Persist:set(%s, %s, %s)", key, value, encrypted)
+  log:trace("Persist:set(%s, %s, %s)", key, traced(value, encrypted), encrypted)
   -- Director ignores an encrypted "", which would leave the old value, and stores a NaN as STORED_NAN.
   if value == nil or value == "" or value ~= value then
     self._persist[key] = EMPTY

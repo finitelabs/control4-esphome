@@ -3603,7 +3603,7 @@ local bitn = {
 }
 
 --- Library version (injected at build time for releases).
-local VERSION = "v0.6.4"
+local VERSION = "v0.6.5"
 
 --- Get the library version string.
 --- @return string version Version string (e.g., "v1.0.0" or "dev")
