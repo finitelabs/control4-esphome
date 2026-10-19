@@ -92,9 +92,10 @@ local AUGUST_API = {
 --- @enum HandshakeState
 local HANDSHAKE_STATE = {
   IDLE = 0,
-  AWAITING_KEY_EXCHANGE_RESPONSE = 1,
-  AWAITING_INIT_RESPONSE = 2,
-  COMPLETE = 3,
+  CONNECTING = 1,
+  AWAITING_KEY_EXCHANGE_RESPONSE = 2,
+  AWAITING_INIT_RESPONSE = 3,
+  COMPLETE = 4,
 }
 
 --------------------------------------------------------------------------------
@@ -306,6 +307,9 @@ end
 --- Request GATT connection from parent driver
 local function requestConnection()
   log:trace("requestConnection()")
+  -- A second CONNECT before the handshake starts makes the parent rediscover
+  -- services, and the attempt it replaces fails with "GATT discovery failed"
+  handshakeState = HANDSHAKE_STATE.CONNECTING
   SendToProxy(ESPHOME_BINDING, "CONNECT", {}, "NOTIFY")
   SetTimer("ConnectionTimeout", CONNECT_TIMEOUT_MS, function()
     log:warn("Connection timeout - no answer to CONNECT after %dms", CONNECT_TIMEOUT_MS)
@@ -503,6 +507,16 @@ end
 --- @return boolean configured True if offline key is set
 local function isAuthConfigured()
   return getOfflineKey() ~= nil
+end
+
+--- The queued command worth retrying after a lost link or failed connect: a
+--- lock or unlock the user asked for. A status read is retried anyway.
+--- @return string|nil command
+local function retainedCommand()
+  if pendingCommand == "lock" or pendingCommand == "unlock" then
+    return pendingCommand
+  end
+  return nil
 end
 
 --- Schedule reconnect or poll after a connection/handshake failure.
@@ -706,14 +720,6 @@ local function startHandshake()
   log:info("Sending KEY_EXCHANGE to handle %d (%d bytes)", secureWriteHandle, #encrypted)
   handshakeState = HANDSHAKE_STATE.AWAITING_KEY_EXCHANGE_RESPONSE
   gattWrite(secureWriteHandle, encrypted)
-
-  -- Timeout if lock doesn't respond to handshake
-  SetTimer("HandshakeTimeout", HANDSHAKE_TIMEOUT_MS, function()
-    if handshakeState ~= HANDSHAKE_STATE.IDLE and handshakeState ~= HANDSHAKE_STATE.COMPLETE then
-      log:warn("Handshake timeout - no response after %dms", HANDSHAKE_TIMEOUT_MS)
-      abandonAttempt("Error: Handshake timeout")
-    end
-  end)
 end
 
 --- Handle handshake key exchange response
@@ -912,9 +918,9 @@ function initiateCommand(command)
     -- Already connected and authenticated, execute immediately
     executePendingCommand()
   elseif handshakeState ~= HANDSHAKE_STATE.IDLE then
-    -- Handshake already in progress - pendingCommand is set above,
+    -- Connect or handshake already in progress - pendingCommand is set above,
     -- it will execute when the current handshake completes
-    log:info("Handshake in progress (state=%d), command queued", handshakeState)
+    log:info("Connect in progress (state=%d), command queued", handshakeState)
   else
     -- Not connected, need to connect first
     requestConnection()
@@ -1011,6 +1017,15 @@ local function handleCommandResponse(data)
 
   -- Status response
   if response.flag == 0xBB then
+    if response.operationResult then
+      if response.operationResult ~= 0 then
+        log:warn("Lock operation 0x%02X failed with result 0x%02X", response.opcode, response.operationResult)
+        updateLockStatus("fault")
+      end
+      updateLastSeen()
+      return
+    end
+
     if response.lockStatus then
       local c4Status = yale_protocol.toC4LockStatus(response.lockStatus)
       local statusStr = yale_protocol.parseLockStatus(response.lockStatus)
@@ -1483,6 +1498,15 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
   CancelTimer("ConnectionTimeout")
   linkAbandoned = false
 
+  -- Covers the notification subscription as well as the handshake: while
+  -- CONNECTING, nothing else would retry a subscription that never answers
+  SetTimer("HandshakeTimeout", HANDSHAKE_TIMEOUT_MS, function()
+    if handshakeState ~= HANDSHAKE_STATE.IDLE and handshakeState ~= HANDSHAKE_STATE.COMPLETE then
+      log:warn("Handshake timeout - no response after %dms", HANDSHAKE_TIMEOUT_MS)
+      abandonAttempt("Error: Handshake timeout")
+    end
+  end)
+
   if not IsEmpty(name) then
     values:update("Name", name, "STRING")
   end
@@ -1630,11 +1654,7 @@ function RFP.DISCONNECTED(idBinding, strCommand, tParams, args)
     return
   end
 
-  -- Preserve user-initiated commands (lock/unlock) so they can be retried
-  local savedCommand = pendingCommand
-  if savedCommand ~= "lock" and savedCommand ~= "unlock" then
-    savedCommand = nil
-  end
+  local savedCommand = retainedCommand()
 
   -- A clean disconnect we asked for is the healthy end of a poll cycle;
   -- route it to the next poll rather than the failure path.
@@ -1659,8 +1679,9 @@ function RFP.CONNECTION_FAILED(idBinding, strCommand, tParams, args)
 
   local errMsg = Select(tParams, "error") or "unknown"
   log:error("Connection failed: %s", errMsg)
+  local savedCommand = retainedCommand()
   resetConnectionState()
-  scheduleRecovery("Connection failed: " .. errMsg)
+  scheduleRecovery("Connection failed: " .. errMsg, savedCommand)
 end
 
 --------------------------------------------------------------------------------
@@ -1680,13 +1701,27 @@ function RFP.GATT_WRITE_RESPONSE(idBinding, strCommand, tParams, args)
   if success then
     log:debug("Write command successful")
     updateLastSeen()
-  else
-    log:error("Write command failed: error=%s", errorCode)
-    -- IDLE means the attempt is already over; its late write answers are stale
-    if handshakeState ~= HANDSHAKE_STATE.IDLE and handshakeState ~= HANDSHAKE_STATE.COMPLETE then
-      log:error("Handshake write failed, disconnecting")
-      abandonAttempt("Error: Handshake failed")
-    end
+    return
+  end
+
+  -- The lock answers the key exchange before its write is acknowledged, so the
+  -- init command goes out with that write still pending. Writes to one handle
+  -- share the parent's callback: the older one reports superseded, and the
+  -- newer one still answers.
+  if errorCode and errorCode:find("Superseded", 1, true) then
+    log:debug("Ignoring superseded write")
+    return
+  end
+
+  log:error("Write command failed: error=%s", errorCode)
+  -- Only a write of this handshake can fail it: outside these states the
+  -- answer belongs to an attempt that is already over
+  if
+    handshakeState == HANDSHAKE_STATE.AWAITING_KEY_EXCHANGE_RESPONSE
+    or handshakeState == HANDSHAKE_STATE.AWAITING_INIT_RESPONSE
+  then
+    log:error("Handshake write failed, disconnecting")
+    abandonAttempt("Error: Handshake failed")
   end
 end
 
@@ -1701,7 +1736,18 @@ function RFP.GATT_NOTIFY_SUBSCRIBED(idBinding, strCommand, tParams, args)
   local success = Select(tParams, "success") == "true"
 
   if not success then
-    log:error("GATT notification subscription failed on handle %s", handle)
+    -- A repeated subscription supersedes the pending one; the newer one still answers
+    local err = Select(tParams, "error") or ""
+    if err:find("Superseded", 1, true) then
+      log:debug("Ignoring superseded subscription on handle %s", handle)
+      return
+    end
+    log:error("GATT notification subscription failed on handle %s: %s", handle, err)
+    -- Without the subscription the lock's answers never arrive, and after the
+    -- handshake nothing else would retry
+    if handshakeState ~= HANDSHAKE_STATE.IDLE then
+      abandonAttempt("Error: Notification subscription failed")
+    end
     return
   end
 
