@@ -989,13 +989,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   which the stop then saved as its Previous On level
 - Fixed Yale locks failing almost every connection since v20260802, so Poll mode
   never read the lock and Persistent mode gave up after its retries
-- Fixed a Yale lock or unlock sent while the driver was still connecting
-  starting a second connection, which failed the first with "GATT discovery
-  failed" and lost the command
+- Fixed a Yale lock or unlock sent while the driver was still connecting failing
+  with "GATT discovery failed" and being lost
 - Fixed a Yale lock or unlock being retried as a status read in Persistent mode
   when the connection failed
 - Fixed a Yale lock showing an unknown state for a moment after every lock and
-  unlock; a lock or unlock the lock could not finish now shows a fault
+  unlock; a lock or unlock that jams now shows a fault
 - Fixed a Yale lock that could not enable its Bluetooth notifications staying
   stuck instead of disconnecting and trying again
 
