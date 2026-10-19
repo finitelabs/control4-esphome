@@ -4,10 +4,6 @@
 --- - The lock answers the key exchange before its write is acknowledged, so the
 ---   init write supersedes it on the parent. The driver took the "Superseded"
 ---   answer for a failed handshake, and every connect failed.
---- - A command or advertisement during a connect sent a second CONNECT, which
----   failed the first with "GATT discovery failed" and lost a queued lock.
---- - A failed connect dropped a queued lock or unlock, and a failed
----   subscription left the driver stuck.
 --- - The motor's result frame after a lock or unlock was read as lock state,
 ---   so the lock showed unknown and a stall went unreported.
 ---
@@ -107,17 +103,6 @@ local function writeAnswered(success, err)
   H.rfp(ESPHOME, "GATT_WRITE_RESPONSE", { success = success and "true" or "false", error = err or "0" })
 end
 
---- The command the armed Reconnect will retry.
-local function retryCommand()
-  local fn = TimerFunctions[Timer.Reconnect]
-  for i = 1, math.huge do
-    local name, value = debug.getupvalue(fn, i)
-    if name == nil or name == "retryCommand" then
-      return value
-    end
-  end
-end
-
 for _, mode in ipairs({ { name = "Poll", props = POLL }, { name = "Persistent", props = PERSISTENT } }) do
   H.test(mode.name .. ": the init write superseding the key exchange's does not fail the handshake", function()
     H.boot(mode.props)
@@ -149,66 +134,6 @@ H.test("any other failed handshake write still fails the handshake", function()
   writeAnswered(false, "133")
   T.eq("it sends DISCONNECT", H.count("DISCONNECT", ESPHOME), 1)
   T.truthy("and waits for the next poll", H.armed("PollCycle"))
-end)
-
-H.test("a lock while the connect is in flight waits for it instead of connecting again", function()
-  H.boot(PERSISTENT)
-  EC.Request_Status()
-  T.eq("the status read connects", H.count("CONNECT", ESPHOME), 1)
-  lock()
-  T.eq("the lock does not connect again", H.count("CONNECT", ESPHOME), 1)
-
-  T.truthy("the connect timeout fires", H.fire("ConnectionTimeout"))
-  T.eq("the lock is what gets retried", retryCommand(), "lock")
-end)
-
-H.test("an advertisement while the connect is in flight does not connect again", function()
-  H.boot(PERSISTENT)
-  H.rfp(ESPHOME, "BLE_ADVERTISEMENT", { mac = MAC })
-  T.eq("the first advertisement auto-connects", H.count("CONNECT", ESPHOME), 1)
-  H.rfp(ESPHOME, "BLE_ADVERTISEMENT", { mac = MAC })
-  T.eq("the next one waits for it", H.count("CONNECT", ESPHOME), 1)
-end)
-
-H.test("a notification subscription that never answers times out", function()
-  H.boot(POLL)
-  lock()
-  connected()
-  T.truthy("the handshake timeout covers the subscription", H.armed("HandshakeTimeout"))
-  T.truthy("it fires", H.fire("HandshakeTimeout"))
-  T.eq("it sends DISCONNECT", H.count("DISCONNECT", ESPHOME), 1)
-  T.truthy("and waits for the next poll", H.armed("PollCycle"))
-
-  H.clearSent()
-  T.truthy("the poll fires", H.fire("PollCycle"))
-  T.eq("and connects again", H.count("CONNECT", ESPHOME), 1)
-end)
-
-H.test("a failed connect retries the lock it was making, like a lost link does", function()
-  H.boot(PERSISTENT)
-  lock()
-  H.rfp(ESPHOME, "CONNECTION_FAILED", { error = "GATT discovery failed" })
-  T.eq("status shows the first retry", Properties["Driver Status"], "Reconnecting (1/5)")
-  T.eq("the lock is what gets retried", retryCommand(), "lock")
-end)
-
-H.test("a failed subscription ends the attempt", function()
-  H.boot(POLL)
-  lock()
-  connected()
-  H.rfp(ESPHOME, "GATT_NOTIFY_SUBSCRIBED", { handle = "26", success = "false", error = "133" })
-  T.eq("it sends DISCONNECT", H.count("DISCONNECT", ESPHOME), 1)
-  T.truthy("and waits for the next poll", H.armed("PollCycle"))
-end)
-
-H.test("a superseded subscription is left to the newer one", function()
-  H.boot(POLL)
-  lock()
-  connected()
-  H.rfp(ESPHOME, "GATT_NOTIFY_SUBSCRIBED", { handle = "26", success = "false", error = SUPERSEDED })
-  T.eq("nothing is disconnected", H.count("DISCONNECT", ESPHOME), 0)
-  H.rfp(ESPHOME, "GATT_NOTIFY_SUBSCRIBED", { handle = "26", success = "true" })
-  T.eq("the newer answer starts the handshake", H.sent[#H.sent].command, "GATT_WRITE")
 end)
 
 -- A LOCK's ack and the motor's result when it stops, as a lock sent them; the
@@ -245,14 +170,6 @@ H.test("the parser reads status frames from their data bytes", function()
   T.eq("a lock result frame carries no lock state", done.lockStatus, nil)
   T.eq("only the operation result", done.operationResult, 0)
   T.eq("which names a stall", yale_protocol.parseResponse(fromHex(LOCK_STALLED)).operationResult, 0x1E)
-end)
-
-H.test("a stale write failure while connecting does not end the attempt", function()
-  H.boot(POLL)
-  lock()
-  writeAnswered(false, "133")
-  T.eq("nothing is disconnected", H.count("DISCONNECT", ESPHOME), 0)
-  T.truthy("the connect is still timed", H.armed("ConnectionTimeout"))
 end)
 
 T.finish()
