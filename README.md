@@ -987,6 +987,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light sent a level and then another soon after, such as a stop just
   after a ramp up from off began, being shown for a moment at the first level,
   which the stop then saved as its Previous On level
+- Fixed a SwitchBot Relay Switch ignoring the device's reply to every command,
+  so a command it refused, as with an incorrect encryption key, went unreported
 
 ### Changed
 
