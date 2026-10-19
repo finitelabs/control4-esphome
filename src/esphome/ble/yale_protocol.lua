@@ -481,9 +481,8 @@ function yale_protocol.parseResponse(data)
         result.batteryMillivolts = string.byte(data, 9) + string.byte(data, 10) * 256
       end
     elseif opcode == yale_protocol.Opcode.LOCK or opcode == yale_protocol.Opcode.UNLOCK then
-      -- Sent when the motor stops, after the 0xAA ack. It carries no lock state,
-      -- only the operation result at byte 0x0F (Lua 16): 0x00 is success, and
-      -- anything else (0x1E-0x23 are motor stalls) needs a person at the lock.
+      -- Sent when the motor stops, after the 0xAA ack: no lock state, only the
+      -- result at 0x0F (Lua 16), 0x00 for success and 0x1E-0x23 for a stall
       result.operationResult = string.byte(data, 16)
     end
 

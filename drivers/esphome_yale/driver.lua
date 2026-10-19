@@ -307,8 +307,7 @@ end
 --- Request GATT connection from parent driver
 local function requestConnection()
   log:trace("requestConnection()")
-  -- A second CONNECT before the handshake starts makes the parent rediscover
-  -- services, and the attempt it replaces fails with "GATT discovery failed"
+  -- Commands queue until the handshake starts: a second CONNECT fails this one
   handshakeState = HANDSHAKE_STATE.CONNECTING
   SendToProxy(ESPHOME_BINDING, "CONNECT", {}, "NOTIFY")
   SetTimer("ConnectionTimeout", CONNECT_TIMEOUT_MS, function()
@@ -509,8 +508,7 @@ local function isAuthConfigured()
   return getOfflineKey() ~= nil
 end
 
---- The queued command worth retrying after a lost link or failed connect: a
---- lock or unlock the user asked for. A status read is retried anyway.
+--- The queued lock or unlock, kept for the retry after a failed attempt.
 --- @return string|nil command
 local function retainedCommand()
   if pendingCommand == "lock" or pendingCommand == "unlock" then
@@ -918,8 +916,6 @@ function initiateCommand(command)
     -- Already connected and authenticated, execute immediately
     executePendingCommand()
   elseif handshakeState ~= HANDSHAKE_STATE.IDLE then
-    -- Connect or handshake already in progress - pendingCommand is set above,
-    -- it will execute when the current handshake completes
     log:info("Connect in progress (state=%d), command queued", handshakeState)
   else
     -- Not connected, need to connect first
@@ -1498,8 +1494,7 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
   CancelTimer("ConnectionTimeout")
   linkAbandoned = false
 
-  -- Covers the notification subscription as well as the handshake: while
-  -- CONNECTING, nothing else would retry a subscription that never answers
+  -- Armed here rather than at the key exchange so it covers the subscription too
   SetTimer("HandshakeTimeout", HANDSHAKE_TIMEOUT_MS, function()
     if handshakeState ~= HANDSHAKE_STATE.IDLE and handshakeState ~= HANDSHAKE_STATE.COMPLETE then
       log:warn("Handshake timeout - no response after %dms", HANDSHAKE_TIMEOUT_MS)
@@ -1704,18 +1699,15 @@ function RFP.GATT_WRITE_RESPONSE(idBinding, strCommand, tParams, args)
     return
   end
 
-  -- The lock answers the key exchange before its write is acknowledged, so the
-  -- init command goes out with that write still pending. Writes to one handle
-  -- share the parent's callback: the older one reports superseded, and the
-  -- newer one still answers.
+  -- The init write goes out before the key exchange's is acked, so the parent
+  -- reports the older one superseded; the newer one still answers
   if errorCode and errorCode:find("Superseded", 1, true) then
     log:debug("Ignoring superseded write")
     return
   end
 
   log:error("Write command failed: error=%s", errorCode)
-  -- Only a write of this handshake can fail it: outside these states the
-  -- answer belongs to an attempt that is already over
+  -- Only the handshake's own writes end the attempt
   if
     handshakeState == HANDSHAKE_STATE.AWAITING_KEY_EXCHANGE_RESPONSE
     or handshakeState == HANDSHAKE_STATE.AWAITING_INIT_RESPONSE
@@ -1743,8 +1735,6 @@ function RFP.GATT_NOTIFY_SUBSCRIBED(idBinding, strCommand, tParams, args)
       return
     end
     log:error("GATT notification subscription failed on handle %s: %s", handle, err)
-    -- Without the subscription the lock's answers never arrive, and after the
-    -- handshake nothing else would retry
     if handshakeState ~= HANDSHAKE_STATE.IDLE then
       abandonAttempt("Error: Notification subscription failed")
     end

@@ -1,26 +1,15 @@
---- Tests the esphome_yale session, from connect to a lock operation, against the
---- frames and timing a real lock produces.
+--- Tests the esphome_yale session against the frames and timing a real lock
+--- produces:
 ---
---- The lock answers the key exchange before its write is acknowledged, so the
---- init command goes out on the same handle with that write still pending. The
---- parent keys write callbacks by handle, so the older write reports
---- "Superseded by a newer request". The driver took that for a failed handshake
---- and disconnected, so every connect failed: Poll mode never read the lock and
---- Persistent mode gave up after its retries.
----
---- A command or advertisement that arrived while a connect was still in flight
---- also sent a second CONNECT. The parent rediscovered services for it and the
---- first attempt failed with "GATT discovery failed", dropping a queued lock or
---- unlock. A connect that failed outright dropped it too, where a lost link
---- kept it for the retry.
----
---- A notification subscription that failed only logged an error: the lock's
---- answers never arrived and nothing retried.
----
---- After the ack for a lock or unlock, the lock sends the motor's result when it
---- stops. The driver read that frame's checksum byte as the lock's state, so
---- every lock and unlock showed unknown until the next status read, and a motor
---- that stalled went unreported.
+--- - The lock answers the key exchange before its write is acknowledged, so the
+---   init write supersedes it on the parent. The driver took the "Superseded"
+---   answer for a failed handshake, and every connect failed.
+--- - A command or advertisement during a connect sent a second CONNECT, which
+---   failed the first with "GATT discovery failed" and lost a queued lock.
+--- - A failed connect dropped a queued lock or unlock, and a failed
+---   subscription left the driver stuck.
+--- - The motor's result frame after a lock or unlock was read as lock state,
+---   so the lock showed unknown and a stall went unreported.
 ---
 --- Run from the driver root:
 ---   make test
@@ -52,9 +41,8 @@ local SERVICES = SerializeSafe({
   },
 })
 
--- The shim models only padded AES-128-CBC, and the lock never sees what is
--- written here: pass blocks through both ways so the lock's answers can be
--- written as plaintext.
+-- The shim has only padded AES-128-CBC: pass blocks through so the lock's
+-- answers can be written as plaintext
 function C4:Encrypt(_cipher, _key, _iv, data)
   return data
 end
@@ -62,7 +50,6 @@ function C4:Decrypt(_cipher, _key, _iv, data)
   return data
 end
 
---- 18 bytes from hex.
 local function fromHex(hex)
   return (hex:gsub("%x%x", function(byte)
     return string.char(tonumber(byte, 16))
@@ -171,7 +158,6 @@ H.test("a lock while the connect is in flight waits for it instead of connecting
   lock()
   T.eq("the lock does not connect again", H.count("CONNECT", ESPHOME), 1)
 
-  -- Failing the attempt hands its queued command to recovery
   T.truthy("the connect timeout fires", H.fire("ConnectionTimeout"))
   T.eq("the lock is what gets retried", retryCommand(), "lock")
 end)
@@ -225,7 +211,8 @@ H.test("a superseded subscription is left to the newer one", function()
   T.eq("the newer answer starts the handshake", H.sent[#H.sent].command, "GATT_WRITE")
 end)
 
--- Frames a lock sent for a LOCK: the ack, then the motor's result when it stops.
+-- A LOCK's ack and the motor's result when it stops, as a lock sent them; the
+-- stall differs only in its result byte
 local LOCK_ACK = "aa0b00490000000000000000000000000200"
 local LOCK_DONE = "bb0b003a0000000000000000000000000000"
 local LOCK_STALLED = "bb0b003a00000000000000000000001e0000"
