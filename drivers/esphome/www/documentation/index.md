@@ -562,6 +562,7 @@ the matching read-only Device Info properties.
 | Date          | `{name}`            | STRING | Writable, formatted as YYYY-MM-DD          |
 | Datetime      | `{name}`            | STRING | Writable, formatted as YYYY-MM-DD HH:MM:SS |
 | Event         | `{name} Last Event` | STRING | Last event type (e.g., "single_press")     |
+| Event         | `{name} {type} LED` | BOOL   | LED state the bound load reports           |
 | Fan           | (none)              | -      | State via Fan proxy                        |
 | Light         | (none)              | -      | State via Light proxy                      |
 | Lock          | (none)              | -      | State via Lock proxy                       |
@@ -647,6 +648,50 @@ bindings are created separately from the entity bindings above:
 > be used in programming, plus a `BUTTON_LINK` connection named
 > `{name} {event_type}` that can be bound straight to a load. The
 > `{name} Last Event` variable tracks the most recent event type.
+
+#### Button LED Feedback
+
+A load bound to an event type's `BUTTON_LINK` connection reports its LED state
+and button colors back over that connection, the same way it does to a Control4
+keypad button. The driver passes this on to the ESPHome device by calling a
+user-defined API action named `control4_led`, so the device can light its own
+LED to match. The `{name} {event_type} LED` variable tracks the reported state.
+
+Declare the action in the device YAML with any of these variables, in any
+order. Variables the action does not declare are simply not sent:
+
+| Variable     | Type   | Value                                                |
+| ------------ | ------ | ---------------------------------------------------- |
+| `event`      | string | Event entity name (e.g., "Touch")                    |
+| `event_type` | string | Event type (e.g., "press")                           |
+| `state`      | bool   | Whether the load reports the button LED as on        |
+| `color`      | string | Color to show now as hex `RRGGBB`, or empty if unset |
+| `on_color`   | string | The load's on color as hex `RRGGBB`, or empty        |
+| `off_color`  | string | The load's off color as hex `RRGGBB`, or empty       |
+
+```yaml
+api:
+  actions:
+    - action: control4_led
+      variables:
+        event_type: string
+        state: bool
+        color: string
+      then:
+        - if:
+            condition:
+              lambda: 'return event_type == "press" && color.size() == 6;'
+            then:
+              - light.turn_on:
+                  id: button_led
+                  red: !lambda 'return strtol(color.substr(0, 2).c_str(), nullptr, 16) / 255.0;'
+                  green: !lambda 'return strtol(color.substr(2, 2).c_str(), nullptr, 16) / 255.0;'
+                  blue: !lambda 'return strtol(color.substr(4, 2).c_str(), nullptr, 16) / 255.0;'
+```
+
+The last feedback is sent again whenever the driver reconnects to the device.
+Every message received on the connection is logged at the Info level, which
+shows exactly what a load sends.
 
 ### Commands
 

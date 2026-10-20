@@ -74,6 +74,7 @@ local Indicator = {
 --- @field _btAdvertisementsCallbacks table<string, fun(advertisement: BLEAdvertisement)?> Callbacks for BLE advertisements.
 --- @field _btProxyInitDeferred Deferred|nil In-flight deferred for initBluetoothProxy (re-entrancy guard).
 --- @field userServices table<string, number> Map of user-defined service names to their numeric keys, populated during listEntities().
+--- @field userServiceArgs table<string, ProtoListEntitiesServicesArgument[]> Map of user-defined service names to their declared arguments, populated during listEntities().
 local ESPHomeClient = {}
 ESPHomeClient.__index = ESPHomeClient
 
@@ -215,6 +216,7 @@ function ESPHomeClient:new()
   instance._btAdvertisementsCallbacks = {}
   instance._btProxyInitDeferred = nil
   instance.userServices = {}
+  instance.userServiceArgs = {}
   return instance
 end
 
@@ -530,6 +532,7 @@ function ESPHomeClient:disconnect()
   }
   self._btProxyInitDeferred = nil
   self.userServices = {}
+  self.userServiceArgs = {}
 
   if pingTimer ~= nil then
     pingTimer:Cancel()
@@ -739,6 +742,7 @@ function ESPHomeClient:listEntities()
             log:debug("Discovered user service: %s (key=%s)", message.name, message.key)
             if not IsEmpty(message.name) and message.key ~= nil then
               self.userServices[message.name] = message.key
+              self.userServiceArgs[message.name] = message.args or {}
             end
           end)
           table.insert(addedCallbackHandles, handle)
@@ -1959,6 +1963,59 @@ function ESPHomeClient:executeServiceByName(name, floatValue)
   local body = { key = key }
   if floatValue ~= nil then
     body.args = { { float_ = floatValue } }
+  end
+  return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.execute_service, body)
+end
+
+--- Whether the device declares a user-defined service with this name.
+--- @param name string The service name as defined in the ESPHome YAML.
+--- @return boolean
+function ESPHomeClient:hasService(name)
+  return self.userServices[name] ~= nil
+end
+
+--- Execute a user-defined ESPHome service, passing arguments by name.
+---
+--- ESPHome matches arguments by position, in the order the YAML declares them, so
+--- the request is built from the declared list: each declared argument takes the
+--- value of the same name, coerced to its declared type. A declared argument with
+--- no value gets its type's zero value, and a value nothing declares is dropped,
+--- so a YAML action may declare any subset of what the caller offers.
+--- @param name string The service name as defined in the ESPHome YAML.
+--- @param values table<string, any> Argument values keyed by argument name.
+--- @return Deferred<any, string> result A promise that resolves when the service is executed.
+function ESPHomeClient:executeServiceWithArgs(name, values)
+  log:trace("ESPHomeClient:executeServiceWithArgs(%s, %s)", name, values)
+  local key = self.userServices[name]
+  if key == nil then
+    return deferred.new():reject("Service not found: " .. tostring(name))
+  end
+  values = values or {}
+  local ArgType = ESPHomeProtoSchema.Enum.ServiceArgType
+  local args = {}
+  for _, declared in ipairs(self.userServiceArgs[name] or {}) do
+    local value = values[declared.name]
+    local argType = declared.type or ArgType.SERVICE_ARG_TYPE_BOOL
+    local arg
+    if argType == ArgType.SERVICE_ARG_TYPE_BOOL then
+      arg = { bool_ = value ~= nil and toboolean(value) or false }
+    elseif argType == ArgType.SERVICE_ARG_TYPE_INT then
+      local n = tonumber(value) or 0
+      arg = { int_ = n >= 0 and math.floor(n) or math.ceil(n) }
+    elseif argType == ArgType.SERVICE_ARG_TYPE_FLOAT then
+      arg = { float_ = tonumber(value) or 0 }
+    elseif argType == ArgType.SERVICE_ARG_TYPE_STRING then
+      arg = { string_ = value ~= nil and tostring(value) or "" }
+    else
+      return deferred.new():reject(
+        string.format("Service %s argument %s has an unsupported type (%s)", name, tostring(declared.name), argType)
+      )
+    end
+    table.insert(args, arg)
+  end
+  local body = { key = key }
+  if #args > 0 then
+    body.args = args
   end
   return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.execute_service, body)
 end
