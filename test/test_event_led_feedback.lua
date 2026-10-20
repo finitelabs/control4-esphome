@@ -97,12 +97,27 @@ T.eq("no args field", requests[1].body.args, nil)
 local calls = {}
 local hasAction = true
 local failNext = false
+-- Actions the fake device declares, beyond the generic one.
+local deviceActions = {}
+-- The type each argument is declared as; strings unless a test says otherwise.
+local declaredTypes = {}
 local fakeClient = {}
 function fakeClient:hasService(name)
+  if deviceActions[name] then
+    return true
+  end
   return hasAction and name == EventEntity.LED_ACTION
 end
 function fakeClient:executeServiceWithArgs(name, args)
-  calls[#calls + 1] = { name = name, args = args }
+  -- Resolve typed values the way the real client does.
+  local resolved = {}
+  for k, v in pairs(args) do
+    if type(v) == "function" then
+      v = v(declaredTypes[k] or ArgType.SERVICE_ARG_TYPE_STRING)
+    end
+    resolved[k] = v
+  end
+  calls[#calls + 1] = { name = name, args = resolved }
   if failNext then
     failNext = false
     return deferred.new():reject("boom")
@@ -218,6 +233,88 @@ T.section("The link never answers back, and a tap still drives the load")
 --------------------------------------------------------------------------------
 
 T.eq("nothing sent over the link", table.concat(sent, ","), "")
+
+--------------------------------------------------------------------------------
+T.section("Action names follow <event name>_<event type>_led")
+--------------------------------------------------------------------------------
+
+T.eq("simple", EventEntity.ledActionName({ name = "Touch Button 2" }, "press"), "touch_button_2_press_led")
+T.eq(
+  "type with underscore",
+  EventEntity.ledActionName({ name = "Gang 3 Paddle Event" }, "double_press"),
+  "gang_3_paddle_event_double_press_led"
+)
+T.eq(
+  "punctuation collapses, ends trimmed",
+  EventEntity.ledActionName({ name = " Arrive/Leave -- Hall! " }, "press"),
+  "arrive_leave_hall_press_led"
+)
+
+--------------------------------------------------------------------------------
+T.section("The event type's own action wins over the generic one")
+--------------------------------------------------------------------------------
+
+calls = {}
+deviceActions = { touch_press_led = true }
+ReceivedFromProxy(press.bindingId, "MATCH_LED_STATE", { STATE = "true" })
+T.eq("sent once", #calls, 1)
+T.eq("own action", calls[1].name, "touch_press_led")
+-- long_press has no action of its own, so it still uses the generic one.
+ReceivedFromProxy(long.bindingId, "MATCH_LED_STATE", { STATE = "true" })
+T.eq("fallback action", calls[2].name, "control4_led")
+
+T.section("Only the own action, no generic one: the others are skipped quietly")
+calls = {}
+hasAction = false
+ReceivedFromProxy(press.bindingId, "MATCH_LED_STATE", { STATE = "false" })
+ReceivedFromProxy(long.bindingId, "MATCH_LED_STATE", { STATE = "false" })
+T.eq("only the own action is called", #calls, 1)
+T.eq("which is press", calls[1].name, "touch_press_led")
+hasAction = true
+deviceActions = {}
+
+--------------------------------------------------------------------------------
+T.section("A color declared as int is sent as 0xRRGGBB, or -1 when unknown")
+--------------------------------------------------------------------------------
+
+declaredTypes = {
+  color = ArgType.SERVICE_ARG_TYPE_INT,
+  on_color = ArgType.SERVICE_ARG_TYPE_INT,
+  off_color = ArgType.SERVICE_ARG_TYPE_INT,
+}
+calls = {}
+ReceivedFromProxy(press.bindingId, "MATCH_LED_STATE", { STATE = "true" })
+T.eq("on color as int", calls[1].args.color, 0x00FF00)
+T.eq("on_color as int", calls[1].args.on_color, 0x00FF00)
+T.eq("off_color as int", calls[1].args.off_color, 0xFF0000)
+ReceivedFromProxy(long.bindingId, "MATCH_LED_STATE", { STATE = "0" })
+T.eq("no color known is -1", calls[2].args.color, -1)
+T.eq("no on_color known is -1", calls[2].args.on_color, -1)
+declaredTypes = {}
+
+--------------------------------------------------------------------------------
+T.section("The real client sends an int color as int_")
+--------------------------------------------------------------------------------
+
+requests = {}
+client.userServices.touch_press_led = 9
+client.userServiceArgs.touch_press_led = {
+  { name = "state", type = ArgType.SERVICE_ARG_TYPE_BOOL },
+  { name = "color", type = ArgType.SERVICE_ARG_TYPE_INT },
+}
+local realEntity = EventEntity:new(client)
+realEntity:discovered(entity)
+calls = {}
+ReceivedFromProxy(press.bindingId, "MATCH_LED_STATE", { STATE = "false" })
+T.eq("one request", #requests >= 1, true)
+local last = requests[#requests]
+T.eq("to the own action's key", last.body.key, 9)
+T.check(
+  "state and int color",
+  T.deepEqual(last.body.args, { { bool_ = false }, { int_ = 0xFF0000 } }),
+  T.show(last.body.args)
+)
+sent = {}
 instance:updated(entity, { event_type = "press" })
 T.eq("tap", table.concat(sent, ","), press.bindingId .. ":DO_PUSH," .. press.bindingId .. ":DO_CLICK")
 

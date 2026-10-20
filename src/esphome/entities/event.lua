@@ -3,6 +3,7 @@ local bindings = require("lib.bindings")
 local events = require("lib.events")
 local values = require("lib.values")
 local ESPHomeClient = require("esphome.client")
+local ESPHomeProtoSchema = require("esphome.proto_schema")
 
 --- @class EventEntity:Entity
 local EventEntity = {
@@ -18,10 +19,32 @@ local function bindingKey(entity, eventType)
   return "event_" .. entity.ref .. ":" .. eventType
 end
 
---- The user-defined ESPHome action the button LED feedback is sent to. The device
---- opts in by declaring it under `api: actions:`; any subset of the arguments
---- `event`, `event_type`, `state`, `color`, `on_color` and `off_color` may be declared.
+--- The generic user-defined ESPHome action the button LED feedback falls back to
+--- when the device has no action for the event type itself (see ledActionName).
+--- The device opts in by declaring it under `api: actions:`; any subset of the
+--- arguments `event`, `event_type`, `state`, `color`, `on_color` and `off_color`
+--- may be declared. Colors are sent as an int (0xRRGGBB, or -1 when the load has
+--- not given one) or as a string ("RRGGBB", or empty), whichever the YAML declares.
 EventEntity.LED_ACTION = "control4_led"
+
+--- Convert a name to the form ESPHome action names take: lowercase, each run of
+--- other characters as one underscore, no underscores at the ends.
+--- @param value string
+--- @return string
+local function slug(value)
+  local s = tostring(value or ""):lower():gsub("[^%a%d]+", "_"):gsub("^_+", ""):gsub("_+$", "")
+  return s
+end
+
+--- The per-event-type action the LED feedback for one event type is sent to:
+--- `<event name>_<event type>_led`, e.g. "Touch Button 2" + "press" is
+--- `touch_button_2_press_led`.
+--- @param entity table<string, any> The entity data received from the ESPHome client.
+--- @param eventType string The event type name declared by the entity.
+--- @return string
+function EventEntity.ledActionName(entity, eventType)
+  return slug(entity.name) .. "_" .. slug(eventType) .. "_led"
+end
 
 --- LED feedback per binding key, as last told by the connected load.
 --- @type table<string, { state: boolean|nil, onColor: string|nil, offColor: string|nil, color: string|nil, sent: string|nil }>
@@ -96,23 +119,46 @@ function EventEntity:_forwardLed(entity, eventType, force)
     end
   end
 
+  local ArgType = ESPHomeProtoSchema.Enum.ServiceArgType
+  --- A color in whichever type the action declares it as.
+  local function typedColor(hex)
+    return function(argType)
+      if argType == ArgType.SERVICE_ARG_TYPE_INT or argType == ArgType.SERVICE_ARG_TYPE_FLOAT then
+        return hex ~= nil and tonumber(hex, 16) or -1
+      end
+      return hex or ""
+    end
+  end
+
   local args = {
     event = entity.name,
     event_type = eventType,
     state = led.state,
-    color = color or "",
-    on_color = led.onColor or "",
-    off_color = led.offColor or "",
+    color = typedColor(color),
+    on_color = typedColor(led.onColor),
+    off_color = typedColor(led.offColor),
   }
-  local signature = table.concat({ tostring(args.state), args.color, args.on_color, args.off_color }, "|")
+  local signature = table.concat({ tostring(led.state), color or "", led.onColor or "", led.offColor or "" }, "|")
   if not force and led.sent == signature then
     return
   end
 
+  -- The event type's own action first, then the generic one; a device with
+  -- neither simply has no LED to drive, so it is skipped without complaint.
   local client = self.client
-  if client == nil or type(client.hasService) ~= "function" or not client:hasService(self.LED_ACTION) then
+  local action = nil
+  if client ~= nil and type(client.hasService) == "function" then
+    local own = self.ledActionName(entity, eventType)
+    if client:hasService(own) then
+      action = own
+    elseif client:hasService(self.LED_ACTION) then
+      action = self.LED_ACTION
+    end
+  end
+  if action == nil then
     log:debug(
-      "No '%s' action on the device; LED feedback for %s %s not sent",
+      "No '%s' or '%s' action on the device; LED feedback for %s %s not sent",
+      self.ledActionName(entity, eventType),
       self.LED_ACTION,
       ESPHomeClient.describeEntity(entity),
       eventType
@@ -121,12 +167,25 @@ function EventEntity:_forwardLed(entity, eventType, force)
   end
 
   led.sent = signature
-  client:executeServiceWithArgs(self.LED_ACTION, args):next(function()
-    log:debug("LED feedback sent for %s %s: %s", ESPHomeClient.describeEntity(entity), eventType, args)
+  client:executeServiceWithArgs(action, args):next(function()
+    log:debug(
+      "LED feedback sent to '%s' for %s %s: state=%s color=%s",
+      action,
+      ESPHomeClient.describeEntity(entity),
+      eventType,
+      led.state,
+      color or "none"
+    )
   end, function(error)
     -- Let the next message (or reconnect) try again.
     led.sent = nil
-    log:error("Failed to send LED feedback for %s %s; %s", ESPHomeClient.describeEntity(entity), eventType, error)
+    log:error(
+      "Failed to send LED feedback to '%s' for %s %s; %s",
+      action,
+      ESPHomeClient.describeEntity(entity),
+      eventType,
+      error
+    )
   end)
 end
 
@@ -209,6 +268,14 @@ function EventEntity:discovered(entity)
         self:_receivedLed(entity, eventType, strCommand, tParams)
       end
     end
+
+    log:info(
+      "LED feedback for %s %s goes to the device action '%s' (or '%s')",
+      entity.name,
+      eventType,
+      self.ledActionName(entity, eventType),
+      self.LED_ACTION
+    )
 
     -- A (re)connect is a fresh device session: replay the last LED feedback.
     self:_forwardLed(entity, eventType, true)

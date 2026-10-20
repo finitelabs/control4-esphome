@@ -654,39 +654,52 @@ bindings are created separately from the entity bindings above:
 A load bound to an event type's `BUTTON_LINK` connection reports its LED state
 and button colors back over that connection, the same way it does to a Control4
 keypad button. The driver passes this on to the ESPHome device by calling a
-user-defined API action named `control4_led`, so the device can light its own
-LED to match. The `{name} {event_type} LED` variable tracks the reported state.
+user-defined API action, so the device can show the feedback itself, for
+example as an LED or the background color of a display button. The
+`{name} {event_type} LED` variable tracks the reported state.
 
-Declare the action in the device YAML with any of these variables, in any
-order. Variables the action does not declare are simply not sent:
+For each event type the driver calls the first of these the device declares:
 
-| Variable     | Type   | Value                                                |
-| ------------ | ------ | ---------------------------------------------------- |
-| `event`      | string | Event entity name (e.g., "Touch")                    |
-| `event_type` | string | Event type (e.g., "press")                           |
-| `state`      | bool   | Whether the load reports the button LED as on        |
-| `color`      | string | Color to show now as hex `RRGGBB`, or empty if unset |
-| `on_color`   | string | The load's on color as hex `RRGGBB`, or empty        |
-| `off_color`  | string | The load's off color as hex `RRGGBB`, or empty       |
+1. `<name>_<event_type>_led`: the event type's own action. The name is the event
+   entity's name and the event type in lowercase, with each run of other
+   characters as one underscore, e.g. "Touch Button 2" + "press" calls
+   `touch_button_2_press_led`. The driver logs the expected name for each event
+   type at the Info level when it connects.
+2. `control4_led`: one action for every event type, which can tell them apart by
+   the `event` and `event_type` variables.
+
+A device with neither is left alone: no feedback is sent, and nothing is logged
+as an error.
+
+The action may declare any of these variables, in any order. Variables it does
+not declare are not sent:
+
+| Variable     | Type          | Value                                         |
+| ------------ | ------------- | --------------------------------------------- |
+| `event`      | string        | Event entity name (e.g., "Touch Button 2")    |
+| `event_type` | string        | Event type (e.g., "press")                    |
+| `state`      | bool          | Whether the load reports the button LED as on |
+| `color`      | int or string | Color to show now                             |
+| `on_color`   | int or string | The load's on color                           |
+| `off_color`  | int or string | The load's off color                          |
+
+A color declared as `int` is sent as `0xRRGGBB`, or `-1` when the load has not
+given one. Declared as `string`, it is sent as hex `RRGGBB`, or empty.
+
+This sets an LVGL button's background to the color the load reports, with
+fixed colors when it reports none:
 
 ```yaml
 api:
   actions:
-    - action: control4_led
+    - action: touch_button_2_press_led
       variables:
-        event_type: string
         state: bool
-        color: string
+        color: int
       then:
-        - if:
-            condition:
-              lambda: 'return event_type == "press" && color.size() == 6;'
-            then:
-              - light.turn_on:
-                  id: button_led
-                  red: !lambda 'return strtol(color.substr(0, 2).c_str(), nullptr, 16) / 255.0;'
-                  green: !lambda 'return strtol(color.substr(2, 2).c_str(), nullptr, 16) / 255.0;'
-                  blue: !lambda 'return strtol(color.substr(4, 2).c_str(), nullptr, 16) / 255.0;'
+        - lvgl.widget.update:
+            id: lv_button_2
+            bg_color: !lambda 'return lv_color_hex(color >= 0 ? color : (state ? 0x3A3420 : 0x20252B));'
 ```
 
 The last feedback is sent again whenever the driver reconnects to the device.

@@ -1980,9 +1980,11 @@ end
 --- the request is built from the declared list: each declared argument takes the
 --- value of the same name, coerced to its declared type. A declared argument with
 --- no value gets its type's zero value, and a value nothing declares is dropped,
---- so a YAML action may declare any subset of what the caller offers.
+--- so a YAML action may declare any subset of what the caller offers. A value may
+--- be a function, called with the declared ServiceArgType, for an argument the
+--- YAML could declare as more than one type.
 --- @param name string The service name as defined in the ESPHome YAML.
---- @param values table<string, any> Argument values keyed by argument name.
+--- @param values table<string, any|fun(argType: integer): any> Argument values keyed by argument name.
 --- @return Deferred<any, string> result A promise that resolves when the service is executed.
 function ESPHomeClient:executeServiceWithArgs(name, values)
   log:trace("ESPHomeClient:executeServiceWithArgs(%s, %s)", name, values)
@@ -1996,6 +1998,9 @@ function ESPHomeClient:executeServiceWithArgs(name, values)
   for _, declared in ipairs(self.userServiceArgs[name] or {}) do
     local value = values[declared.name]
     local argType = declared.type or ArgType.SERVICE_ARG_TYPE_BOOL
+    if type(value) == "function" then
+      value = value(argType)
+    end
     local arg
     if argType == ArgType.SERVICE_ARG_TYPE_BOOL then
       arg = { bool_ = value ~= nil and toboolean(value) or false }
