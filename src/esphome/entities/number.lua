@@ -43,7 +43,6 @@ function NumberEntity:updated(entity, state)
         log:info("Number value updated to %s for %s", numValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update number value for %s: %s", ESPHomeClient.describeEntity(entity), error)
-        -- Director keeps the value programming set, which the device never took.
         values:update(entity.name, reported, "NUMBER")
       end)
   end)

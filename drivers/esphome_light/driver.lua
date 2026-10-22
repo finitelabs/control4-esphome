@@ -3337,7 +3337,7 @@ function RFP.BUTTON_ACTION(idBinding, strCommand, tParams, args)
 
   local buttonId = tointeger(Select(tParams, "BUTTON_ID"))
   local action = tointeger(Select(tParams, "ACTION"))
-  -- Its echo moves the proxy to the button's on/off target too.
+  -- Here as well as in handleButtonAction: the echo below moves the proxy to the button's on/off target.
   if dropWhileOffline("Button action " .. tostring(action)) then
     return
   end

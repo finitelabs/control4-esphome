@@ -66,7 +66,6 @@ function DateTimeEntity:updated(entity, state)
         log:info("Datetime updated to %s for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update datetime for %s: %s", ESPHomeClient.describeEntity(entity), error)
-        -- Director keeps the value programming set, which the device never took.
         values:update(entity.name, formatted, "STRING")
       end)
   end)

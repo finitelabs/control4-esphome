@@ -37,7 +37,6 @@ function TextEntity:updated(entity, state)
         log:info("Text value updated to %s for %s", newValue or "", ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update text value for %s: %s", ESPHomeClient.describeEntity(entity), error)
-        -- Director keeps the value programming set, which the device never took.
         values:update(entity.name, reported, "STRING")
       end)
   end)
