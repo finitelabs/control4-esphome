@@ -590,6 +590,10 @@ function RefreshStatus()
   log:trace("RefreshStatus()")
   -- Debounce the status refresh calls
   SetTimer("RefreshStatus", ONE_SECOND * 3, function()
+    -- It could only fail and read Refresh failed over the status the heartbeat set; a connect refreshes itself.
+    if not esphome:isConnected() then
+      return
+    end
     if refreshInFlight then
       -- Re-arm and try again once the running chain settles (every chain
       -- settles: responses and timeouts resolve it, disconnect rejects it).

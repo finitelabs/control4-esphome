@@ -1008,6 +1008,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   a value programming set while the ESPHome device was offline, or a date or
   time in another format, which the device never took; it now goes back to the
   device's value
+- Fixed the ESPHome driver's Driver Status reading Refresh failed for a few
+  seconds, in place of why it was not connected, when a connection was made or a
+  sub-driver loaded while the device was offline
 
 ### Changed
 

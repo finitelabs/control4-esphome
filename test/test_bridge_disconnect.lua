@@ -38,6 +38,7 @@ end
 
 local bindings = require("lib.bindings")
 local ESPHomeClient = require("esphome.client")
+local refreshStatus -- the bridge's own RefreshStatus, which loadBridge stubs
 
 --- Load the bridge fresh and take control of its transport and bindings.
 --- @return table sent Records of every SendToProxy the bridge makes.
@@ -92,6 +93,7 @@ local function loadBridge(connected)
   bindings.getDynamicBindings = function()
     return { { bindingId = BRIDGE_BINDING } }
   end
+  refreshStatus = RefreshStatus
   RefreshStatus = function() end
   gInitialized = true
   state.connected = connected
@@ -280,6 +282,29 @@ do
   T.eq("then a refresh tells it nothing", told(sent, from), {})
   T.eq("and refreshes the device, whose report answers it", refreshes, 1)
   DC_X = nil
+end
+
+T.section("A refresh while the device is disconnected leaves Driver Status as the heartbeat set it")
+do
+  -- A connection made to an entity's binding refreshes, as does a companion's refresh with the device lost.
+  local function refreshed()
+    refreshStatus()
+    TimerFunctions[Timer.RefreshStatus](Timer.RefreshStatus, 0)
+  end
+  local _, state = loadBridge(false)
+  Properties["IP Address"] = "192.168.1.119"
+  Connect()
+  lapse()
+  refreshed()
+  T.eq("lapsed: it still reads No active license", status, "No active license")
+  DC_X = nil
+
+  _, state = loadBridge(false)
+  state.reachable = false
+  Connect()
+  local failed = status
+  refreshed()
+  T.eq("lost: it still reads why the connection failed", status, failed)
 end
 
 T.section("Resubscribing the device logs tells the children the device is suspended")
