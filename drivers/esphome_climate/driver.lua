@@ -887,11 +887,12 @@ end
 
 function RFP.SET_MODE_OFF(idBinding, strCommand)
   log:trace("RFP.SET_MODE_OFF(%s, %s)", idBinding, strCommand)
-  if idBinding ~= PROXY_BINDING then
+  -- An offline device takes no command, so the mode echoed would be one it never reached.
+  if idBinding ~= PROXY_BINDING or ENTITY == nil then
     return
   end
   SendToProxy(PROXY_BINDING, "HVAC_MODE_CHANGED", { MODE = "Off" }, "NOTIFY")
-  if ENTITY and ENTITY.is_water_heater then
+  if ENTITY.is_water_heater then
     local HasField = ESPHomeProtoSchema.Enum.WaterHeaterCommandHasField
     sendWaterHeaterCommand(HasField.WATER_HEATER_COMMAND_HAS_MODE, {
       mode = ESPHomeProtoSchema.Enum.WaterHeaterMode.WATER_HEATER_MODE_OFF,
@@ -1125,7 +1126,8 @@ end
 --- Handle water heater mode selection via extras
 function RFP.SET_MODE_WATER_HEATER(idBinding, strCommand, tParams)
   log:trace("RFP.SET_MODE_WATER_HEATER(%s, %s, %s)", idBinding, strCommand, tParams)
-  if idBinding ~= PROXY_BINDING then
+  -- Offline, as SET_MODE_OFF: the mode echoed would be one the device never reached.
+  if idBinding ~= PROXY_BINDING or ENTITY == nil then
     return
   end
   local mode = Select(tParams, "value")
@@ -1952,7 +1954,8 @@ end
 --- Handle swing mode selection via extras
 function RFP.SET_MODE_SWING(idBinding, strCommand, tParams)
   log:trace("RFP.SET_MODE_SWING(%s, %s, %s)", idBinding, strCommand, tParams)
-  if idBinding ~= PROXY_BINDING or (ENTITY and ENTITY.is_water_heater) then
+  -- Offline, as SET_MODE_OFF: the vane echoed would be one the device never reached.
+  if idBinding ~= PROXY_BINDING or ENTITY == nil or ENTITY.is_water_heater then
     return
   end
   -- Without param_name the value arrives as "value"; accept either.
@@ -1978,14 +1981,15 @@ end
 
 function RFP.SET_MODE_HVAC(idBinding, strCommand, tParams)
   log:trace("RFP.SET_MODE_HVAC(%s, %s, %s)", idBinding, strCommand, tParams)
-  if idBinding ~= PROXY_BINDING then
+  -- Offline, as SET_MODE_OFF: the mode echoed would be one the device never reached.
+  if idBinding ~= PROXY_BINDING or ENTITY == nil then
     return
   end
   local mode = Select(tParams, "MODE")
   if mode == nil then
     return
   end
-  if ENTITY and ENTITY.is_water_heater then
+  if ENTITY.is_water_heater then
     if mode == "Off" then
       RFP.SET_MODE_OFF(idBinding, "SET_MODE_OFF")
     elseif mode == "Heat" then

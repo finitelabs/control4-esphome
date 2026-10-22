@@ -90,6 +90,43 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light sent a level and then another soon after, such as a stop just
   after a ramp up from off began, being shown for a moment at the first level,
   which the stop then saved as its Previous On level
+- Fixed a light being shown as off, and running its Light Off Programming and
+  then its Light On Programming, when Log Level, Log Mode or Device Log
+  Forwarding was changed while the device's logs were forwarded, as when Log
+  Mode turns itself off after three hours
+- Fixed a light asked for its level before its ESPHome device had reported being
+  shown as off
+- Fixed a light sent a command while its ESPHome device was offline, or its
+  ESPHome Light connection was removed, being shown on, off or at the level
+  sent, and running its Light On or Light Off Programming; it now ignores the
+  command and shows only what the device reports
+- Fixed a thermostat being shown in an HVAC mode, vane position or water heater
+  mode sent while its ESPHome device was offline, or its ESPHome Climate
+  connection was removed, which the device never took
+- Fixed a light, fan or lock still being shown online after its ESPHome Light,
+  ESPHome Fan or ESPHome Lock connection was removed
+- Fixed a switch, number, select, text, date, time or datetime variable keeping
+  a value programming set while the ESPHome device was offline, or a date or
+  time in another format, which the device never took; it now goes back to the
+  device's value
+- Fixed the ESPHome driver's Driver Status reading Refresh failed for a few
+  seconds, in place of why it was not connected, when a connection was made or a
+  sub-driver loaded while the device was offline
+  <!-- #ifdef DRIVERCENTRAL -->
+- Fixed a light being shown as off, and running its Light Off Programming, when
+  the DriverCentral license lapsed; it now shows offline at the level it had,
+  and a command sent meanwhile does not change it, until the license is active
+  again and the light reports its level, while a light whose ESPHome device
+  drops off the network is still shown as off
+- Fixed the Bluetooth Coordinator marking its presence devices Away, and running
+  their Away, Left Room and Room Empty Programming, when the DriverCentral
+  license lapsed
+- Fixed the ESPHome driver disconnecting its device at a controller start,
+  before the DriverCentral Cloud driver had answered, which showed a light that
+  was on as off and ran its Light Off and then its Light On Programming; it now
+  stops only once a minute passes without an active license, and connects again
+  as soon as one is active
+  <!-- #endif -->
 - Fixed a SwitchBot Relay Switch ignoring the device's reply to every command,
   so a command it refused, as with an incorrect encryption key, went unreported
 

@@ -273,7 +273,10 @@ If you want room-level presence tracking:
 
 ### Cloud Status (read-only)
 
-Displays the current DriverCentral cloud connection and license status.
+Displays the current DriverCentral cloud connection and license status. Without
+an active license the ESPHome devices disconnect, so presence devices stay as
+they were, with no Away or room events. Once a license is active, each gets a
+whole **Away Timeout** to be heard again.
 
 ### Automatic Updates \[ Off | **_On_** \]
 

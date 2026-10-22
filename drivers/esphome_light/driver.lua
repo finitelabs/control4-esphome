@@ -212,6 +212,10 @@ local lightTarget = {}
 -- `from` toward lightTarget over durationMs, as ESPHome runs it.
 local lightFade = nil
 
+-- The main driver dropped the connection itself (UPDATE_DISCONNECT suspended) and the
+-- light had a level: it is kept until the device's next report.
+local suspended = false
+
 ---------------------------------------------------------------------------
 -- The proxy's setup
 ---------------------------------------------------------------------------
@@ -1823,8 +1827,20 @@ local function awayFromFadeColor(level)
   return not sameColor(x, y, mode, fade.x, fade.y, fade.mode)
 end
 
+-- With no state from its device (offline, suspended, unbound or not yet heard) the light takes no command, so
+-- one that would move it tells the proxy nothing: Control4 keeps what it shows.
+local function dropWhileOffline(command)
+  if STATE == nil then
+    log:debug("%s dropped: the device is offline", command)
+  end
+  return STATE == nil
+end
+
 --- @param replaced table|nil A ramp the caller already ended for this one.
 local function rampToBrightness(level, rate, presetId, replaced)
+  if dropWhileOffline("Level " .. tostring(level)) then
+    return
+  end
   level = math.max(0, math.min(100, math.floor((level or 0) + 0.5)))
   rate = math.max(0, tointeger(rate) or 0)
 
@@ -2157,6 +2173,9 @@ end
 
 -- An On/Off-only light switches at once, replacing a ramp in flight.
 local function switchLight(on)
+  if dropWhileOffline(on and "On" or "Off") then
+    return
+  end
   stopSceneSteps()
   cancelBrightnessRampTimers()
   rampingBrightness = false
@@ -2452,6 +2471,10 @@ end
 function RFP.GET_LIGHT_LEVEL(idBinding, strCommand, tParams, args)
   log:trace("RFP.GET_LIGHT_LEVEL(%s, %s)", idBinding, strCommand)
   if idBinding ~= PROXY_BINDING then
+    return
+  end
+  -- Until the device reports, only a level a suspend kept is known; a 0 would run Light Off Programming.
+  if STATE == nil and not suspended then
     return
   end
   -- A CHANGED level is one the light has stopped at: in a ramp, tell where it has got to.
@@ -2842,7 +2865,7 @@ function RFP.ACTIVATE_SCENE(idBinding, strCommand, tParams, args)
     return
   end
   local sceneId = tointeger(Select(tParams, "SCENE_ID"))
-  if sceneId == nil then
+  if sceneId == nil or dropWhileOffline("Scene " .. sceneId) then
     return
   end
   stopAllScenes()
@@ -3238,6 +3261,10 @@ end
 -- DO_PUSH / DO_RELEASE (button-link path, e.g. a keypad button bound to one
 -- of our BUTTON_LINK connections). Returns nothing.
 local function handleButtonAction(buttonId, action)
+  -- Before the press's snapshot, which a click after the device is back would start from.
+  if dropWhileOffline("Button action " .. tostring(action)) then
+    return
+  end
   if action == constants.ButtonActions.PRESS then
     -- Button-down. Snapshot brightness for the click race, then start a hold
     -- ramp at the persisted hold rate. If the proxy decides this was a click,
@@ -3310,6 +3337,10 @@ function RFP.BUTTON_ACTION(idBinding, strCommand, tParams, args)
 
   local buttonId = tointeger(Select(tParams, "BUTTON_ID"))
   local action = tointeger(Select(tParams, "ACTION"))
+  -- Here as well as in handleButtonAction: the echo below moves the proxy to the button's on/off target.
+  if dropWhileOffline("Button action " .. tostring(action)) then
+    return
+  end
 
   handleButtonAction(buttonId, action)
 
@@ -3401,10 +3432,14 @@ local function tellShownColor(fields, force)
 end
 
 function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
-  log:trace("RFP.UPDATE_DISCONNECT(%s, %s)", idBinding, strCommand)
+  log:trace("RFP.UPDATE_DISCONNECT(%s, %s, %s)", idBinding, strCommand, tParams)
   if idBinding ~= ESPHOME_BINDING then
     return
   end
+  -- The light runs a fade it was sent to its end, so a suspend keeps the level a ramp in flight is heading to.
+  local kept = rampingBrightness and brightnessRamp and brightnessRamp.targetLevel or currentBrightness
+  -- A light loaded or bound since its device last reported has no level to keep.
+  local known = STATE ~= nil or suspended
   cancelBrightnessRampTimers()
   cancelColorRampTimers()
   rampingBrightness = false
@@ -3419,7 +3454,6 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   supportsColor = false
   supportsCCT = false
   supportedColorModes = {}
-  currentBrightness = 0
   prePressBrightness = nil
   mergedColorUntil = 0
   currentBrightnessPresetId = nil
@@ -3431,7 +3465,16 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   lightFade = nil
   updateStatus("Disconnected", false)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
-  notifyBrightnessChanged(0) -- ledState is kept so the button LEDs go off too
+  -- A device that drops off has usually lost power, so it reads off. A suspended one is as it was: no Light Off
+  -- Programming runs, and the device's next report tells its level.
+  if toboolean(Select(tParams, "suspended")) then
+    suspended = known
+    currentBrightness = kept
+  else
+    suspended = false
+    currentBrightness = 0
+    notifyBrightnessChanged(0) -- ledState is kept so the button LEDs go off too
+  end
 end
 
 function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
@@ -3455,6 +3498,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   local isFirstUpdate = ENTITY == nil
   ENTITY = entity
   STATE = state
+  suspended = false
 
   -- Connection state must be sent BEFORE dynamic capabilities
   if not wasConnected then
@@ -3582,6 +3626,7 @@ end
 OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   ENTITY = nil
   STATE = nil
+  suspended = false
   dynamicCapsSent = false
   supportsDimming = false
   supportsColor = false
@@ -3602,10 +3647,12 @@ OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   lightBrightness = nil
   lightTarget = {}
   lightFade = nil
-  -- Clear the stored white on unbind only: a bind also fires at controller
-  -- start, when the point is still this light's.
+  -- On unbind only: a bind also fires at controller start, when the stored
+  -- white is still this light's. The proxy keeps the level it shows.
   if not isBound then
     persist:delete(P_WHITE_POINT)
+    updateStatus("Disconnected", false)
+    SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   end
   currentColorX = DEFAULT_COLOR_X
   currentColorY = DEFAULT_COLOR_Y
