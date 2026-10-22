@@ -112,6 +112,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed the ESPHome driver's Driver Status reading Refresh failed for a few
   seconds, in place of why it was not connected, when a connection was made or a
   sub-driver loaded while the device was offline
+- Fixed a device selected only under Select Presence Devices on the Bluetooth
+  Coordinator never being placed in a room: it was only ever Home or Away, its
+  room events and room occupancy never changed and its Present binding never
+  closed; every presence device's room now comes from the signal each proxy
+  reports for it, smoothed by the RSSI Smoothing Factor
   <!-- #ifdef DRIVERCENTRAL -->
 - Fixed a light being shown as off, and running its Light Off Programming, when
   the DriverCentral license lapsed; it now shows offline at the level it had,

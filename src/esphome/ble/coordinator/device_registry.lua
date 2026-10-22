@@ -206,26 +206,6 @@ function DeviceRegistry:getRSSIReadings(mac, maxAge)
   return result
 end
 
---- Get the best (highest) RSSI for a device
---- @param mac string MAC address
---- @param maxAge number|nil Maximum age in seconds
---- @return number|nil rssi Best RSSI value
---- @return integer|nil deviceId The proxy device ID with best RSSI
-function DeviceRegistry:getBestRSSI(mac, maxAge)
-  local readings = self:getRSSIReadings(mac, maxAge)
-  local bestRssi = nil
-  local bestDeviceId = nil
-
-  for proxyDeviceId, reading in pairs(readings) do
-    if not bestRssi or reading.smoothedRssi > bestRssi then
-      bestRssi = reading.smoothedRssi
-      bestDeviceId = proxyDeviceId
-    end
-  end
-
-  return bestRssi, bestDeviceId
-end
-
 --- Get a device by MAC address
 --- @param mac string MAC address
 --- @return DeviceInfo|nil

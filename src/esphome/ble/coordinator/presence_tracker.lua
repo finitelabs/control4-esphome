@@ -6,7 +6,6 @@ local events = require("lib.events")
 local values = require("lib.values")
 local bindings = require("lib.bindings")
 local proxyRegistry = require("esphome.ble.coordinator.proxy_registry")
-local deviceRegistry = require("esphome.ble.coordinator.device_registry")
 
 --- @class PresenceDeviceConfig
 --- @field mac string MAC address
@@ -437,6 +436,30 @@ function PresenceTracker:_getCurrentRoomRSSI(mac, roomId)
   return bestRssi
 end
 
+--- Get the best recent RSSI for a device across connected proxies.
+--- Read from the tracker's own readings: the device registry has none for a
+--- device selected only for presence.
+--- @param mac string MAC address
+--- @param maxAge number Maximum age of a reading in seconds
+--- @return number|nil rssi Best smoothed RSSI
+--- @return integer|nil proxyDeviceId The proxy device ID with best signal
+--- @private
+function PresenceTracker:_getBestRSSI(mac, maxAge)
+  local now = os.time()
+  local bestRssi = nil
+  local bestDeviceId = nil
+
+  for _, proxy in ipairs(proxyRegistry:getConnectedProxies()) do
+    local state = self._rssiState[mac .. "_" .. tostring(proxy.deviceId)]
+    if state and (now - state.lastUpdate) <= maxAge and (not bestRssi or state.smoothedRssi > bestRssi) then
+      bestRssi = state.smoothedRssi
+      bestDeviceId = proxy.deviceId
+    end
+  end
+
+  return bestRssi, bestDeviceId
+end
+
 --- Determine which room a device is in based on RSSI
 --- @param mac string MAC address
 --- @return string|nil room Room name
@@ -447,7 +470,7 @@ end
 --- @diagnostic disable-next-line: unused
 function PresenceTracker:_determineRoom(mac)
   local rssiMaxAge = 30 -- Only consider recent readings
-  local bestRssi, bestDeviceId = deviceRegistry:getBestRSSI(mac, rssiMaxAge)
+  local bestRssi, bestDeviceId = self:_getBestRSSI(mac, rssiMaxAge)
 
   if not bestDeviceId then
     return nil, nil, nil, nil
