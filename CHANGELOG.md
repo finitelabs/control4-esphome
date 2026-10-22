@@ -90,11 +90,18 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light sent a level and then another soon after, such as a stop just
   after a ramp up from off began, being shown for a moment at the first level,
   which the stop then saved as its Previous On level
+- Fixed a light being shown as off, and running its Light Off Programming and
+  then its Light On Programming, when Log Level, Log Mode or Device Log
+  Forwarding was changed while the device's logs were forwarded, as when Log
+  Mode turns itself off after three hours
+- Fixed a light asked for its level before its ESPHome device had reported being
+  shown as off
   <!-- #ifdef DRIVERCENTRAL -->
-- Fixed a light being shown as off, running its off programming, when the
-  DriverCentral license lapsed; it now shows offline at the level it had, and
-  once a license is active again it shows the level the light reports. A light
-  whose ESPHome device drops off the network is still shown as off
+- Fixed a light being shown as off, and running its Light Off Programming, when
+  the DriverCentral license lapsed; it now shows offline at the level it had,
+  and a command sent meanwhile does not change it, until the license is active
+  again and the light reports its level, while a light whose ESPHome device
+  drops off the network is still shown as off
 - Fixed the Bluetooth Coordinator marking its presence devices Away, and running
   their Away, Left Room and Room Empty Programming, when the DriverCentral
   license lapsed

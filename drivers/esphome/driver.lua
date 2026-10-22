@@ -194,6 +194,16 @@ function OPC.Driver_Version(propertyValue)
   C4:UpdateProperty("Driver Version", C4:GetDriverConfigInfo("version"))
 end
 
+--- Whether the driver dropped the connection itself, at a lapse or to resubscribe the device logs, and has not
+--- reconnected. The device was not lost, so sub-drivers are told it is suspended, which keeps a light's level.
+local suspended = false
+
+--- Drop the connection to end or change the device log subscription, which has no unsubscribe.
+local function disconnectForLogs()
+  suspended = true
+  esphome:disconnect()
+end
+
 function OPC.Log_Mode(propertyValue)
   log:trace("OPC.Log_Mode('%s')", propertyValue)
   log:setLogMode(propertyValue)
@@ -201,7 +211,7 @@ function OPC.Log_Mode(propertyValue)
   if not log:isEnabled() then
     -- If log mode is disabled and we're subscribed to logs, disconnect to stop logs
     if esphome:isLogsSubscribed() then
-      esphome:disconnect()
+      disconnectForLogs()
     end
     UpdateProperty("Log Level", "3 - Info", true)
     return
@@ -232,7 +242,7 @@ function OPC.Log_Level(propertyValue)
   end
   -- If subscribed to logs, disconnect to resubscribe at new level
   if esphome:isLogsSubscribed() then
-    esphome:disconnect()
+    disconnectForLogs()
   end
 end
 
@@ -372,7 +382,7 @@ function OPC.Device_Log_Forwarding(propertyValue)
   elseif esphome:isLogsSubscribed() then
     -- Disconnect to stop the log stream (no API to unsubscribe)
     -- Heartbeat timer will automatically reconnect without log subscription
-    esphome:disconnect()
+    disconnectForLogs()
   end
 end
 
@@ -451,11 +461,11 @@ function Connect()
   local lastUpdateTime = os.time() -- Don't check for updates on the first cycle
   local lastFatalErrorTime = 0 -- Track when the last fatal error occurred
 
-  --- @param lapsed? boolean The DriverCentral license lapsed; the device itself was not lost.
-  local function notifyEntitiesDisconnected(lapsed)
+  --- @param suspend? boolean The driver dropped the connection itself; the device was not lost.
+  local function notifyEntitiesDisconnected(suspend)
     for _, handler in pairs(Entities) do
       if type(handler.disconnected) == "function" then
-        local success, err = pcall(handler.disconnected, handler, lapsed)
+        local success, err = pcall(handler.disconnected, handler, suspend)
         if not success then
           log:error("Entity disconnected handler failed: %s", err or "unknown error")
         end
@@ -466,12 +476,11 @@ function Connect()
   --- Drop the connection and tell sub-drivers straight away. The guards below
   --- return before the heartbeat's transition check, and one of them also stops
   --- the heartbeat, so there is no later cycle to notice the drop.
-  --- @param lapsed? boolean The DriverCentral license lapsed; the device itself was not lost.
-  local function disconnectAndNotify(lapsed)
+  local function disconnectAndNotify()
     esphome:disconnect()
     if wasConnected then
       log:info("Connection closed, notifying sub-drivers")
-      notifyEntitiesDisconnected(lapsed)
+      notifyEntitiesDisconnected(suspended)
       wasConnected = false
     end
   end
@@ -481,12 +490,14 @@ function Connect()
     if DC_X == 0 then
       updateStatus("No active license", false)
       -- A connection already lost was the device going away, not the lapse.
-      disconnectAndNotify(esphome:isConnected())
+      suspended = suspended or esphome:isConnected()
+      disconnectAndNotify()
       return
     end
     --#endif
     if not esphome:isConfigured() then
       updateStatus("Not configured", false)
+      suspended = false
       disconnectAndNotify()
       CancelTimer("heartbeat")
       return
@@ -495,7 +506,7 @@ function Connect()
     local connected = esphome:isConnected()
     if wasConnected and not connected then
       log:info("Connection lost, notifying sub-drivers")
-      notifyEntitiesDisconnected()
+      notifyEntitiesDisconnected(suspended)
     end
     wasConnected = connected
 
@@ -530,6 +541,7 @@ function Connect()
       esphome:connect():next(function()
         lastFatalErrorTime = 0 -- Clear on successful connection
         wasConnected = true
+        suspended = false
         -- If using password authentication, show "waiting for authentication" status
         -- until first successful operation confirms auth succeeded
         if Properties["Authentication Mode"] == "Password" and not IsEmpty(Properties["Password"]) then
@@ -545,6 +557,11 @@ function Connect()
           return
         end
         updateStatus("Connection failed: " .. reason, false)
+        -- Sub-drivers told the device was suspended learn it is lost: it did not come back.
+        if suspended then
+          suspended = false
+          notifyEntitiesDisconnected()
+        end
       end)
     else
       updateStatus("Connected", true)

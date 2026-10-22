@@ -212,7 +212,7 @@ Sets the logging mode. Default is `Off`.
 
 Forward ESPHome device logs to the driver's Lua output at the current Log Level.
 Changing Log Level or disabling Log Mode will reconnect to apply the new
-settings.
+settings; a light keeps its level while it does.
 
 #### Device Settings
 
@@ -987,6 +987,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light sent a level and then another soon after, such as a stop just
   after a ramp up from off began, being shown for a moment at the first level,
   which the stop then saved as its Previous On level
+- Fixed a light being shown as off, and running its Light Off Programming and
+  then its Light On Programming, when Log Level, Log Mode or Device Log
+  Forwarding was changed while the device's logs were forwarded, as when Log
+  Mode turns itself off after three hours
+- Fixed a light asked for its level before its ESPHome device had reported being
+  shown as off
 
 ### Changed
 

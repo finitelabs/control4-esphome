@@ -315,7 +315,7 @@ Sets the logging mode. Default is `Off`.
 
 Forward ESPHome device logs to the driver's Lua output at the current Log Level.
 Changing Log Level or disabling Log Mode will reconnect to apply the new
-settings.
+settings; a light keeps its level while it does.
 
 #### Device Settings
 

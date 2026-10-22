@@ -8124,14 +8124,15 @@ do
   )
 end
 
-T.section("a lapsed license tells the proxy only that the light is offline, and its report at relicense the level")
+T.section("a suspended device tells the proxy only that the light is offline, and the device's next report the level")
 do
-  -- A lapse went through the disconnect's CHANGED 0, which ran the light's Light Off programming.
+  -- A suspend (a lapse, or a drop to resubscribe the logs) is not the device going away: a 0 would run Light Off
+  -- Programming.
   local dimmer = { ColorMode.COLOR_MODE_BRIGHTNESS }
-  local function lapse()
-    RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", { reason = "license" })
+  local function suspend()
+    RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", { suspended = "true" }) -- as Director delivers it
   end
-  --- The device's report of the light, as at relicense.
+  --- The device's report of the light, as when the main driver connects again.
   local function answer(on, brightness)
     RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
       entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = dimmer }),
@@ -8160,56 +8161,102 @@ do
     end
     return out
   end
-  --- A light on at 60, its license lapsed.
-  local function lapsedAt60()
+  --- A light on at 60, its device suspended.
+  local function suspendedAt60()
     light(dimmer)
     answer(true, 0.6)
     mark()
-    lapse()
+    suspend()
   end
 
-  lapsedAt60()
+  suspendedAt60()
   run(15000)
   T.eq("a light on at 60: the proxy is told it is offline and nothing else", said(), { "ONLINE_CHANGED" })
   T.eq("offline", told("ONLINE_CHANGED", "STATE"), { false })
   mark()
   proxy("GET_LIGHT_LEVEL")
-  T.eq("Get Light Level while the license is lapsed tells the level it was at", levels(), { 60 })
-  lapsedAt60()
+  T.eq("Get Light Level while suspended tells the level it was at", levels(), { 60 })
+  suspendedAt60()
   mark()
   answer(true, 0.3)
   T.eq(
-    "relicensed: the device's report tells the light online at its level, dimmed elsewhere meanwhile",
+    "back: the device's report tells the light online at its level, dimmed elsewhere meanwhile",
     { told("ONLINE_CHANGED", "STATE"), levels() },
     { { true }, { 30 } }
   )
-  lapsedAt60()
+  suspendedAt60()
   mark()
   answer(true, 0.6)
-  T.eq("relicensed at the level it was at: told it once, and the LEDs nothing", { levels(), leds() }, { { 60 }, {} })
-  lapsedAt60()
+  T.eq("back at the level it was at: told it once, and the LEDs nothing", { levels(), leds() }, { { 60 }, {} })
+  suspendedAt60()
   mark()
   answer(false)
-  T.eq(
-    "relicensed off, turned off elsewhere meanwhile: told off, with its LEDs",
-    { levels(), leds() },
-    { { 0 }, { false } }
-  )
+  T.eq("back off, turned off elsewhere meanwhile: told off, with its LEDs", { levels(), leds() }, { { 0 }, { false } })
+
+  -- The main driver drops a command to a suspended device, so the light does not move.
+  suspendedAt60()
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(30) })
+  mark()
+  proxy("TOGGLE")
+  proxy("SET_LEVEL", { LEVEL = 30 })
+  proxy("ON")
+  proxy("OFF")
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 1000 })
+  proxy("RAMP_TO_LEVEL", { LEVEL = 30, TIME = 1000 })
+  colorTarget(BLUE, 1000)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS })
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = RELEASE_CLICK })
+  RFP.DO_CLICK(TOP_LINK, "DO_CLICK", {})
+  RFP.DO_PUSH(TOGGLE_LINK, "DO_PUSH", {})
+  RFP.DO_RELEASE(TOGGLE_LINK, "DO_RELEASE", {})
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  proxy("RAMP_SCENE_DOWN", { SCENE_ID = 7, RATE = 1000 })
+  run(15000)
+  T.eq("its commands, buttons and scenes tell the proxy and the LEDs nothing", said(), {})
+  T.eq("and send the device nothing", commands(), 0)
+  proxy("GET_LIGHT_LEVEL")
+  T.eq("Get Light Level then still tells the level it was at", levels(), { 60 })
+  mark()
+  answer(true, 0.6)
+  proxy("OFF")
+  T.eq("back, its report tells 60 and an Off turns it off", levels(), { 60, 0 })
+  proxy("CLEAR_ALL_SCENES")
 
   -- The light runs the fade it was sent, so the proxy keeps the level it was told the light is heading to.
   light(dimmer, false)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 4000 })
   run(1000)
   mark()
-  lapse()
+  suspend()
   run(15000)
-  T.eq("a lapse in a ramp up from off: the proxy is told only that the light is offline", said(), { "ONLINE_CHANGED" })
+  T.eq(
+    "suspended in a ramp up from off: the proxy is told only that the light is offline",
+    said(),
+    { "ONLINE_CHANGED" }
+  )
   mark()
   proxy("GET_LIGHT_LEVEL")
   T.eq("and Get Light Level then tells the ramp's 60", levels(), { 60 })
   mark()
   answer(true, 0.6)
-  T.eq("relicensed: the device's report tells its level", levels(), { 60 })
+  T.eq("back: the device's report tells its level", levels(), { 60 })
+  light(dimmer)
+  answer(true, 0.6)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  run(1000)
+  mark()
+  suspend()
+  run(15000)
+  T.eq("suspended in a fade to off: the proxy is told only that the light is offline", said(), { "ONLINE_CHANGED" })
+  mark()
+  proxy("GET_LIGHT_LEVEL")
+  T.eq("and Get Light Level then tells the fade's 0, where the light ends, with its LEDs", { levels(), leds() }, {
+    { 0 },
+    { false },
+  })
+  mark()
+  answer(false)
+  T.eq("back: the device's report tells it off", levels(), { 0 })
 
   -- A device that drops off has usually lost power: it still reads off.
   light(dimmer)
@@ -8221,6 +8268,11 @@ do
     levels(),
     leds(),
   }, { { false }, { 0 }, { false } })
+
+  -- Before the device's first report the level is not known.
+  restart(nil)
+  proxy("GET_LIGHT_LEVEL")
+  T.eq("Get Light Level before the device reports tells nothing", levels(), {})
 end
 
 T.finish()

@@ -212,6 +212,10 @@ local lightTarget = {}
 -- `from` toward lightTarget over durationMs, as ESPHome runs it.
 local lightFade = nil
 
+-- The main driver dropped the connection itself (UPDATE_DISCONNECT suspended), so
+-- the device was not lost: the level it showed is kept until its next report.
+local suspended = false
+
 ---------------------------------------------------------------------------
 -- The proxy's setup
 ---------------------------------------------------------------------------
@@ -1823,8 +1827,20 @@ local function awayFromFadeColor(level)
   return not sameColor(x, y, mode, fade.x, fade.y, fade.mode)
 end
 
+-- A suspended device cannot be sent a command, so one that would move the light
+-- tells the proxy nothing: it keeps showing the level the light is at.
+local function dropWhileSuspended(command)
+  if suspended then
+    log:debug("%s dropped: the device is suspended", command)
+  end
+  return suspended
+end
+
 --- @param replaced table|nil A ramp the caller already ended for this one.
 local function rampToBrightness(level, rate, presetId, replaced)
+  if dropWhileSuspended("Level " .. tostring(level)) then
+    return
+  end
   level = math.max(0, math.min(100, math.floor((level or 0) + 0.5)))
   rate = math.max(0, tointeger(rate) or 0)
 
@@ -2157,6 +2173,9 @@ end
 
 -- An On/Off-only light switches at once, replacing a ramp in flight.
 local function switchLight(on)
+  if dropWhileSuspended(on and "On" or "Off") then
+    return
+  end
   stopSceneSteps()
   cancelBrightnessRampTimers()
   rampingBrightness = false
@@ -2452,6 +2471,10 @@ end
 function RFP.GET_LIGHT_LEVEL(idBinding, strCommand, tParams, args)
   log:trace("RFP.GET_LIGHT_LEVEL(%s, %s)", idBinding, strCommand)
   if idBinding ~= PROXY_BINDING then
+    return
+  end
+  -- Until the device reports, only a level a suspend kept is known; a 0 would run Light Off Programming.
+  if STATE == nil and not suspended then
     return
   end
   -- A CHANGED level is one the light has stopped at: in a ramp, tell where it has got to.
@@ -2842,7 +2865,7 @@ function RFP.ACTIVATE_SCENE(idBinding, strCommand, tParams, args)
     return
   end
   local sceneId = tointeger(Select(tParams, "SCENE_ID"))
-  if sceneId == nil then
+  if sceneId == nil or dropWhileSuspended("Scene " .. sceneId) then
     return
   end
   stopAllScenes()
@@ -3310,6 +3333,10 @@ function RFP.BUTTON_ACTION(idBinding, strCommand, tParams, args)
 
   local buttonId = tointeger(Select(tParams, "BUTTON_ID"))
   local action = tointeger(Select(tParams, "ACTION"))
+  -- Its echo moves the proxy to the button's on/off target too.
+  if dropWhileSuspended("Button action " .. tostring(action)) then
+    return
+  end
 
   handleButtonAction(buttonId, action)
 
@@ -3405,7 +3432,7 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   if idBinding ~= ESPHOME_BINDING then
     return
   end
-  -- The light runs a fade it was sent to its end, so a lapse keeps the level a ramp in flight is heading to.
+  -- The light runs a fade it was sent to its end, so a suspend keeps the level a ramp in flight is heading to.
   local kept = rampingBrightness and brightnessRamp and brightnessRamp.targetLevel or currentBrightness
   cancelBrightnessRampTimers()
   cancelColorRampTimers()
@@ -3432,9 +3459,10 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   lightFade = nil
   updateStatus("Disconnected", false)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
-  -- A device that drops off has usually lost power, so it reads off. A lapsed license leaves the light as it was: no
-  -- Light Off programming runs, and the device's report at relicense tells its level.
-  if Select(tParams, "reason") == "license" then
+  -- A device that drops off has usually lost power, so it reads off. A suspended one is as it was: no Light Off
+  -- Programming runs, and the device's next report tells its level.
+  suspended = toboolean(Select(tParams, "suspended"))
+  if suspended then
     currentBrightness = kept
   else
     currentBrightness = 0
@@ -3463,6 +3491,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   local isFirstUpdate = ENTITY == nil
   ENTITY = entity
   STATE = state
+  suspended = false
 
   -- Connection state must be sent BEFORE dynamic capabilities
   if not wasConnected then
@@ -3590,6 +3619,7 @@ end
 OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   ENTITY = nil
   STATE = nil
+  suspended = false
   dynamicCapsSent = false
   supportsDimming = false
   supportsColor = false

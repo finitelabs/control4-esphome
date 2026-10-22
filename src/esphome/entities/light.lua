@@ -61,12 +61,13 @@ function LightEntity:discovered(entity)
 end
 
 --- Notify sub-drivers that the ESPHome device has disconnected.
---- @param lapsed? boolean The DriverCentral license lapsed, told as reason "license": the device was not lost.
+--- @param suspended? boolean The driver dropped the connection itself, at a lapse or to resubscribe the device
+--- logs: the device was not lost.
 --- @return void
-function LightEntity:disconnected(lapsed)
-  log:trace("LightEntity:disconnected(%s)", lapsed)
+function LightEntity:disconnected(suspended)
+  log:trace("LightEntity:disconnected(%s)", suspended)
   for _, binding in pairs(bindings:getDynamicBindings(self.TYPE)) do
-    SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", { reason = lapsed and "license" or nil }, "NOTIFY")
+    SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", { suspended = suspended or nil }, "NOTIFY")
   end
 end
 

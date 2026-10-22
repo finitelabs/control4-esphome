@@ -42,12 +42,14 @@ local function loadBridge(connected)
 
   -- Instant, deterministic transport. `connected` decides what isConnected()
   -- reports, so a test can put the device up or down without a network.
-  local state = { connected = connected }
+  local state = { connected = connected, reachable = true, logs = false }
   ESPHomeClient.connect = function(self)
-    state.connected = true
     return {
-      next = function(_, ok)
-        if ok then
+      next = function(_, ok, fail)
+        if not state.reachable then
+          fail("Connection refused")
+        else
+          state.connected = true
           ok()
         end
         return { next = function() end }
@@ -56,6 +58,10 @@ local function loadBridge(connected)
   end
   ESPHomeClient.disconnect = function(self)
     state.connected = false
+    state.logs = false
+  end
+  ESPHomeClient.isLogsSubscribed = function(self)
+    return state.logs
   end
   ESPHomeClient.isConnected = function(self)
     return state.connected
@@ -96,16 +102,19 @@ local function disconnects(sent)
   return n
 end
 
---- The reason each UPDATE_DISCONNECT from the `from`th send on carried, "none" for none.
-local function reasons(sent, from)
+--- Each UPDATE_DISCONNECT from the `from`th send on: "suspended" if it said so, else "lost".
+local function told(sent, from)
   local out = {}
   for i = from or 1, #sent do
     if sent[i].command == "UPDATE_DISCONNECT" then
-      out[#out + 1] = sent[i].params.reason or "none"
+      out[#out + 1] = sent[i].params.suspended and "suspended" or "lost"
     end
   end
   return out
 end
+
+local SUSPENDED = { "suspended", "suspended", "suspended", "suspended", "suspended" }
+local LOST = { "lost", "lost", "lost", "lost", "lost" }
 
 T.section("A connection property change while connected notifies the children")
 do
@@ -153,7 +162,7 @@ do
   T.check("a cold start fires no disconnect", disconnects(sent) == 0)
 end
 
-T.section("A lapsed license tells the children it is the license, and a device lost does not")
+T.section("A lapsed license tells the children the device is suspended, and a device lost does not")
 do
   local sent, state = loadBridge(false)
   Properties["IP Address"] = "192.168.1.119"
@@ -161,19 +170,18 @@ do
   -- The DriverCentral cloud client sets DC_X to 0 when the license lapses; the next heartbeat acts on it.
   DC_X = 0
   ShimFireTimers()
-  local license = { "license", "license", "license", "license", "license" }
-  T.eq("a lapse tells every child it is the license, so a light keeps its level", reasons(sent), license)
+  T.eq("a lapse tells every child the device is suspended, so a light keeps its level", told(sent), SUSPENDED)
   ShimFireTimers()
-  T.eq("and only once", reasons(sent), license)
+  T.eq("and only once", told(sent), SUSPENDED)
 
   DC_X = 1
   ShimFireTimers()
   T.check("relicensed, the bridge connects again", state.connected)
+  T.eq("and tells the children nothing more", told(sent), SUSPENDED)
   local from = #sent + 1
   state.connected = false -- the device drops off the network
   ShimFireTimers()
-  local none = { "none", "none", "none", "none", "none" }
-  T.eq("a device lost tells every child with no reason, so a light reads off", reasons(sent, from), none)
+  T.eq("a device lost then tells every child it is lost, so a light reads off", told(sent, from), LOST)
 
   -- Lost in the heartbeat the lapse is seen in: the license did not end that connection.
   from = #sent + 1
@@ -181,8 +189,73 @@ do
   state.connected = false
   DC_X = 0
   ShimFireTimers()
-  T.eq("a device lost just before a lapse is seen tells them with no reason", reasons(sent, from), none)
+  T.eq("a device lost just before a lapse is seen tells them it is lost", told(sent, from), LOST)
   DC_X = nil
+end
+
+T.section("A device gone when the license is active again is told lost")
+do
+  local sent, state = loadBridge(false)
+  Properties["IP Address"] = "192.168.1.119"
+  Connect()
+  DC_X = 0
+  ShimFireTimers()
+  local from = #sent + 1
+  state.reachable = false -- it lost power while the license was lapsed
+  DC_X = 1
+  ShimFireTimers()
+  T.eq("a reconnect that fails tells every child the device is lost", told(sent, from), LOST)
+  ShimFireTimers()
+  T.eq("and only once", told(sent, from), LOST)
+  state.reachable = true
+  ShimFireTimers()
+  T.check("it connects again when the device is back", state.connected)
+  T.eq("telling the children nothing more", told(sent, from), LOST)
+  DC_X = nil
+end
+
+T.section("Resubscribing the device logs tells the children the device is suspended")
+do
+  -- Each drops the connection, as the log subscription has no unsubscribe, and the heartbeat reconnects.
+  local function beat()
+    TimerFunctions[Timer.heartbeat](Timer.heartbeat, 0)
+  end
+  local function subscribed()
+    local sent, state = loadBridge(false)
+    Properties["IP Address"] = "192.168.1.119"
+    Connect()
+    state.logs = true
+    return sent, state
+  end
+  for _, change in ipairs({
+    { "Log Level", "5 - Debug" },
+    { "Log Mode", "Off" },
+    { "Device Log Forwarding", "Off" },
+  }) do
+    local name = change[1]
+    local sent, state = subscribed()
+    Properties[name] = change[2]
+    OnPropertyChanged(name)
+    T.check(name .. " drops the connection", not state.connected)
+    beat()
+    T.eq(name .. ": every child is told the device is suspended", told(sent), SUSPENDED)
+    T.check(name .. ": and the bridge connects again", state.connected)
+    local from = #sent + 1
+    state.connected = false
+    beat()
+    T.eq(name .. ": a device lost after that is told lost", told(sent, from), LOST)
+  end
+
+  local sent, state = subscribed()
+  state.reachable = false
+  Properties["Log Level"] = "4 - Info"
+  OnPropertyChanged("Log Level")
+  beat()
+  local both = { unpack(SUSPENDED) }
+  for _, v in ipairs(LOST) do
+    both[#both + 1] = v
+  end
+  T.eq("a resubscribe whose reconnect fails tells them suspended, then lost", told(sent), both)
 end
 
 T.finish()
