@@ -112,6 +112,36 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed the ESPHome driver's Driver Status reading Refresh failed for a few
   seconds, in place of why it was not connected, when a connection was made or a
   sub-driver loaded while the device was offline
+- Fixed a device selected only under Select Presence Devices on the Bluetooth
+  Coordinator never being placed in a room: it was only ever Home or Away, its
+  room events and room occupancy never changed and its Present binding never
+  closed; every presence device's room now comes from the signal each proxy
+  reports for it, smoothed by the RSSI Smoothing Factor
+- Fixed a presence device on the Bluetooth Coordinator staying in a room whose
+  proxy no longer saw it, until it went Away, whenever the proxy that did see it
+  was not stronger than its last signal there by the Room Change Hysteresis
+- Fixed a Bluetooth Coordinator presence device's RSSI variable showing a long
+  fraction of a dBm or, for a device selected only for presence, the raw reading
+  from whichever proxy heard it last; it now shows the signal Minimum Room RSSI
+  is checked against, in whole dBm
+- Fixed a presence device on the Bluetooth Coordinator moving to another room on
+  one weak signal from that room's proxy when the proxy had last heard it close
+  by, more than 30 seconds before; that proxy's signal now starts again from
+  what it hears
+- Fixed a Bluetooth Coordinator presence device's Present binding staying open
+  while the device was home but in no room, as below Minimum Room RSSI; it now
+  closes when the device comes home
+- Fixed the Bluetooth Coordinator's Last Presence variables still describing the
+  previous event when Left Room and Any Device Left Room fired for a device
+  whose signal dropped below Minimum Room RSSI
+- Fixed a presence device on the Bluetooth Coordinator staying in a room after
+  that room's proxy was disconnected from the coordinator, so the room showed
+  empty with the device in it once the proxy was connected again; the device now
+  leaves the room, stays Home and is placed again by its next signal
+- Fixed a room on the Bluetooth Coordinator staying Occupied, with the device
+  still counted, after a presence device in it was removed from Select Presence
+  Devices, so later occupants never fired its Occupied or Empty events; the room
+  now empties when its last device is removed
   <!-- #ifdef DRIVERCENTRAL -->
 - Fixed a light being shown as off, and running its Light Off Programming, when
   the DriverCentral license lapsed; it now shows offline at the level it had,

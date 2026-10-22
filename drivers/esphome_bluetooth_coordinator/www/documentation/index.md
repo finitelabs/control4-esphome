@@ -359,7 +359,9 @@ Controls how quickly the RSSI tracking responds to signal changes.
 ### Room Change Hysteresis (dBm) \[ 3 - 15, default: **_6_** \]
 
 The signal improvement (in dBm) required before changing rooms. This prevents
-bouncing between rooms when a device is near a boundary.
+bouncing between rooms when a device is near a boundary. A room whose proxies
+have not heard the device for 30 seconds no longer holds it, so the room with
+the strongest signal is taken after the dwell time.
 
 - **Higher values** - More stable, slower transitions
 - **Lower values** - Faster transitions, may cause flapping
@@ -450,9 +452,10 @@ or are experiencing issues.
 1. **Signal Collection** - Each proxy reports the RSSI (signal strength) when it
    sees a tracked device's BLE advertisement
 1. **Signal Smoothing** - RSSI values are smoothed using an exponential moving
-   average to filter noise
+   average to filter noise; a proxy that has not heard the device for 30 seconds
+   starts again from its next reading
 1. **Room Determination** - The device is considered to be in the room of the
-   proxy with the strongest smoothed signal
+   proxy with the strongest smoothed signal heard in the last 30 seconds
 1. **Anti-Flapping** - Multiple safeguards prevent rapid room changes when
    devices are near room boundaries
 
@@ -503,12 +506,12 @@ ID for rooms) to avoid conflicts.
 
 ### Per-Device Events
 
-| Event                       | Description                                          |
-| --------------------------- | ---------------------------------------------------- |
-| [Device] [MAC] Home         | Fired when device arrives home (first advertisement) |
-| [Device] [MAC] Away         | Fired when device leaves home (away timeout expired) |
-| [Device] [MAC] Entered Room | Fired when device enters a room                      |
-| [Device] [MAC] Left Room    | Fired when device leaves a room                      |
+| Event                       | Description                                                                      |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| [Device] [MAC] Home         | Fired when device arrives home (first advertisement)                             |
+| [Device] [MAC] Away         | Fired when device leaves home (away timeout expired)                             |
+| [Device] [MAC] Entered Room | Fired when device enters a room                                                  |
+| [Device] [MAC] Left Room    | Fired when device leaves its room without entering another, including going away |
 
 ### Per-Room Events
 
@@ -519,13 +522,16 @@ ID for rooms) to avoid conflicts.
 
 ### Generic Events
 
-| Event                   | Description                                   |
-| ----------------------- | --------------------------------------------- |
-| Any Device Entered Room | Fired when any tracked device enters any room |
-| Any Device Left Room    | Fired when any tracked device leaves any room |
+| Event                   | Description                                                                                  |
+| ----------------------- | -------------------------------------------------------------------------------------------- |
+| Any Device Entered Room | Fired when any tracked device enters any room                                                |
+| Any Device Left Room    | Fired when any tracked device leaves its room without entering another, including going away |
 
 > **Tip:** Use the "Last Presence" variables with generic events to determine
 > which device and room triggered the event.
+
+> **Note:** A device that moves from one room to another fires Entered Room
+> only; "Last Presence Previous Room" names the room it left.
 
 ## Variables
 
@@ -542,7 +548,7 @@ Variable names for per-device and per-room variables include a unique suffix
 
 | Variable                         | Type   | Description                                                          |
 | -------------------------------- | ------ | -------------------------------------------------------------------- |
-| Presence [Device] [MAC] Room     | STRING | Current room name, "Home" (below RSSI threshold), or "Away"          |
+| Presence [Device] [MAC] Room     | STRING | Current room name, "Home" (home but in no room), or "Away"           |
 | Presence [Device] [MAC] Distance | NUMBER | Estimated distance in meters                                         |
 | Presence [Device] [MAC] RSSI     | NUMBER | Current signal strength in dBm (useful for tuning Minimum Room RSSI) |
 
@@ -660,7 +666,9 @@ Controls how quickly the system responds to signal changes.
 
 The signal improvement required before changing rooms. For example, if
 hysteresis is 6 dBm and the current room shows -60 dBm, the new room must show
-at least -54 dBm before a transition is considered.
+at least -54 dBm before a transition is considered. A room whose proxies have
+not heard the device for 30 seconds no longer holds it, so the room with the
+strongest signal is taken after the dwell time.
 
 - **Lower values (3-5)** - More sensitive; faster room transitions
 - **Higher values (8-15)** - More stable; requires definitive signal difference
