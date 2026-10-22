@@ -669,13 +669,6 @@ function OnDriverLateInit()
     return
   end
 
-  --#ifdef DRIVERCENTRAL
-  if DC_X == 0 then
-    updateStatus("No active license", false)
-    return
-  end
-  --#endif
-
   log:info("Initializing Bluetooth Coordinator")
   updateStatus("Initializing...", false)
 
