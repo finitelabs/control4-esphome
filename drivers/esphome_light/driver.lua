@@ -3401,10 +3401,12 @@ local function tellShownColor(fields, force)
 end
 
 function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
-  log:trace("RFP.UPDATE_DISCONNECT(%s, %s)", idBinding, strCommand)
+  log:trace("RFP.UPDATE_DISCONNECT(%s, %s, %s)", idBinding, strCommand, tParams)
   if idBinding ~= ESPHOME_BINDING then
     return
   end
+  -- The light runs a fade it was sent to its end, so a lapse keeps the level a ramp in flight is heading to.
+  local kept = rampingBrightness and brightnessRamp and brightnessRamp.targetLevel or currentBrightness
   cancelBrightnessRampTimers()
   cancelColorRampTimers()
   rampingBrightness = false
@@ -3419,7 +3421,6 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   supportsColor = false
   supportsCCT = false
   supportedColorModes = {}
-  currentBrightness = 0
   prePressBrightness = nil
   mergedColorUntil = 0
   currentBrightnessPresetId = nil
@@ -3431,7 +3432,14 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   lightFade = nil
   updateStatus("Disconnected", false)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
-  notifyBrightnessChanged(0) -- ledState is kept so the button LEDs go off too
+  -- A device that drops off has usually lost power, so it reads off. A lapsed license leaves the light as it was: no
+  -- Light Off programming runs, and the device's report at relicense tells its level.
+  if Select(tParams, "reason") == "license" then
+    currentBrightness = kept
+  else
+    currentBrightness = 0
+    notifyBrightnessChanged(0) -- ledState is kept so the button LEDs go off too
+  end
 end
 
 function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)

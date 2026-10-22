@@ -90,6 +90,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light sent a level and then another soon after, such as a stop just
   after a ramp up from off began, being shown for a moment at the first level,
   which the stop then saved as its Previous On level
+  <!-- #ifdef DRIVERCENTRAL -->
+- Fixed a light being shown as off, running its off programming, when the
+  DriverCentral license lapsed; it now shows offline at the level it had, and
+  once a license is active again it shows the level the light reports. A light
+  whose ESPHome device drops off the network is still shown as off
+  <!-- #endif -->
 
 ### Changed
 

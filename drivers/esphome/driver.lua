@@ -451,10 +451,11 @@ function Connect()
   local lastUpdateTime = os.time() -- Don't check for updates on the first cycle
   local lastFatalErrorTime = 0 -- Track when the last fatal error occurred
 
-  local function notifyEntitiesDisconnected()
+  --- @param lapsed? boolean The DriverCentral license lapsed; the device itself was not lost.
+  local function notifyEntitiesDisconnected(lapsed)
     for _, handler in pairs(Entities) do
       if type(handler.disconnected) == "function" then
-        local success, err = pcall(handler.disconnected, handler)
+        local success, err = pcall(handler.disconnected, handler, lapsed)
         if not success then
           log:error("Entity disconnected handler failed: %s", err or "unknown error")
         end
@@ -465,11 +466,12 @@ function Connect()
   --- Drop the connection and tell sub-drivers straight away. The guards below
   --- return before the heartbeat's transition check, and one of them also stops
   --- the heartbeat, so there is no later cycle to notice the drop.
-  local function disconnectAndNotify()
+  --- @param lapsed? boolean The DriverCentral license lapsed; the device itself was not lost.
+  local function disconnectAndNotify(lapsed)
     esphome:disconnect()
     if wasConnected then
       log:info("Connection closed, notifying sub-drivers")
-      notifyEntitiesDisconnected()
+      notifyEntitiesDisconnected(lapsed)
       wasConnected = false
     end
   end
@@ -478,7 +480,8 @@ function Connect()
     --#ifdef DRIVERCENTRAL
     if DC_X == 0 then
       updateStatus("No active license", false)
-      disconnectAndNotify()
+      -- A connection already lost was the device going away, not the lapse.
+      disconnectAndNotify(esphome:isConnected())
       return
     end
     --#endif

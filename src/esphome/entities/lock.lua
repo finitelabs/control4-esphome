@@ -61,11 +61,12 @@ function LockEntity:discovered(entity)
 end
 
 --- Notify sub-drivers that the ESPHome device has disconnected.
+--- @param lapsed? boolean The DriverCentral license lapsed, told as reason "license": the device was not lost.
 --- @return void
-function LockEntity:disconnected()
-  log:trace("LockEntity:disconnected()")
+function LockEntity:disconnected(lapsed)
+  log:trace("LockEntity:disconnected(%s)", lapsed)
   for _, binding in pairs(bindings:getDynamicBindings(self.TYPE)) do
-    SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", {}, "NOTIFY")
+    SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", { reason = lapsed and "license" or nil }, "NOTIFY")
   end
 end
 

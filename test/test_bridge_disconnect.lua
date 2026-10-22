@@ -74,8 +74,8 @@ local function loadBridge(connected)
 
   dofile(DRIVER)
   -- lib/utils redefines SendToProxy at load, so capture AFTER dofile.
-  SendToProxy = function(binding, command)
-    sent[#sent + 1] = { binding = binding, command = command }
+  SendToProxy = function(binding, command, params)
+    sent[#sent + 1] = { binding = binding, command = command, params = params or {} }
   end
   bindings.getDynamicBindings = function()
     return { { bindingId = BRIDGE_BINDING } }
@@ -94,6 +94,17 @@ local function disconnects(sent)
     end
   end
   return n
+end
+
+--- The reason each UPDATE_DISCONNECT from the `from`th send on carried, "none" for none.
+local function reasons(sent, from)
+  local out = {}
+  for i = from or 1, #sent do
+    if sent[i].command == "UPDATE_DISCONNECT" then
+      out[#out + 1] = sent[i].params.reason or "none"
+    end
+  end
+  return out
 end
 
 T.section("A connection property change while connected notifies the children")
@@ -140,6 +151,38 @@ do
   Properties["IP Address"] = "192.168.1.120"
   Connect()
   T.check("a cold start fires no disconnect", disconnects(sent) == 0)
+end
+
+T.section("A lapsed license tells the children it is the license, and a device lost does not")
+do
+  local sent, state = loadBridge(false)
+  Properties["IP Address"] = "192.168.1.119"
+  Connect()
+  -- The DriverCentral cloud client sets DC_X to 0 when the license lapses; the next heartbeat acts on it.
+  DC_X = 0
+  ShimFireTimers()
+  local license = { "license", "license", "license", "license", "license" }
+  T.eq("a lapse tells every child it is the license, so a light keeps its level", reasons(sent), license)
+  ShimFireTimers()
+  T.eq("and only once", reasons(sent), license)
+
+  DC_X = 1
+  ShimFireTimers()
+  T.check("relicensed, the bridge connects again", state.connected)
+  local from = #sent + 1
+  state.connected = false -- the device drops off the network
+  ShimFireTimers()
+  local none = { "none", "none", "none", "none", "none" }
+  T.eq("a device lost tells every child with no reason, so a light reads off", reasons(sent, from), none)
+
+  -- Lost in the heartbeat the lapse is seen in: the license did not end that connection.
+  from = #sent + 1
+  ShimFireTimers()
+  state.connected = false
+  DC_X = 0
+  ShimFireTimers()
+  T.eq("a device lost just before a lapse is seen tells them with no reason", reasons(sent, from), none)
+  DC_X = nil
 end
 
 T.finish()
