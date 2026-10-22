@@ -159,4 +159,37 @@ H.test("one weak reading from a proxy that last heard it close by does not move 
   T.eq("its RSSI is the Living Room's", H.variable("Presence " .. TAG .. " RSSI"), -60)
 end)
 
+H.test("below Minimum Room RSSI it leaves its room and stays home", function()
+  Properties["Minimum Room RSSI (dBm)"] = "-75"
+  OnPropertyChanged("Minimum Room RSSI (dBm)")
+  fired = {}
+  H.clearSent()
+
+  stay(10, nil, -80)
+  T.eq("it is Home", H.variable("Presence " .. TAG .. " Room"), "Home")
+  T.eq("its room events fire", fired, {
+    TAG .. " Left Room",
+    "Any Device Left Room",
+    "Living Room [12] Empty",
+  })
+  T.eq("the Living Room is empty", H.variable("Living Room [12] Occupied"), "false")
+  T.eq("its Present binding stays closed", sentTo("OPENED", "device_020000000001"), 0)
+end)
+
+H.test("back home below Minimum Room RSSI, it is present in no room", function()
+  now = now + 121
+  H.fire("AwayCheck")
+  T.eq("it is Away", H.variable("Presence " .. TAG .. " Room"), "Away")
+  fired = {}
+  H.clearSent()
+
+  stay(3, nil, -90)
+  T.eq("it is Home", H.variable("Presence " .. TAG .. " Room"), "Home")
+  T.eq("only Home fires", fired, { TAG .. " Home" })
+  T.eq("its Present binding closes", sentTo("CLOSED", "device_020000000001"), 1)
+
+  Properties["Minimum Room RSSI (dBm)"] = "-100"
+  OnPropertyChanged("Minimum Room RSSI (dBm)")
+end)
+
 T.finish()

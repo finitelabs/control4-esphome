@@ -766,12 +766,6 @@ function PresenceTracker:_onDeviceEnteredRoom(mac, room, roomId, previousRoom, p
 
   -- Fire generic event
   events:fire(NAMESPACE, "any_device_entered_room")
-
-  -- Update device binding (contact sensor: CLOSED = present in tracked room)
-  local bindingId = self._deviceBindings[mac]
-  if bindingId then
-    SendToProxy(bindingId, "CLOSED", {}, "NOTIFY")
-  end
 end
 
 --- Handle device going away
@@ -824,6 +818,12 @@ function PresenceTracker:_onDeviceHome(mac, name)
 
   local macKey = mac:gsub(":", "")
   events:fire(NAMESPACE, "device_" .. macKey .. "_home")
+
+  -- Update device binding (contact sensor: CLOSED = present)
+  local bindingId = self._deviceBindings[mac]
+  if bindingId then
+    SendToProxy(bindingId, "CLOSED", {}, "NOTIFY")
+  end
 end
 
 --- Update room occupancy tracking

@@ -128,6 +128,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   one weak signal from that room's proxy when the proxy had last heard it close
   by, more than 30 seconds before; that proxy's signal now starts again from
   what it hears
+- Fixed a Bluetooth Coordinator presence device's Present binding staying open
+  while the device was home but in no room, as below Minimum Room RSSI; it now
+  closes when the device comes home
   <!-- #ifdef DRIVERCENTRAL -->
 - Fixed a light being shown as off, and running its Light Off Programming, when
   the DriverCentral license lapsed; it now shows offline at the level it had,
