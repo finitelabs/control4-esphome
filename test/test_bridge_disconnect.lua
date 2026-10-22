@@ -252,6 +252,21 @@ do
   DC_X = nil
 end
 
+T.section("Only the heartbeat's tick is a license check, so the minute is a minute")
+do
+  local _, state = loadBridge(false)
+  Properties["IP Address"] = "192.168.1.119"
+  DC_X = 0 -- a boot, before the Cloud driver answers
+  Connect()
+  beats(5, 0)
+  T.check("a start at 0 and five ticks keep the bridge connected", state.connected)
+  Connect() -- a connection property changed
+  T.check("and so does an edit to a connection property", state.connected)
+  beats(1, 0)
+  T.check("the sixth tick at 0 drops the connection", not state.connected)
+  DC_X = nil
+end
+
 T.section("A sub-driver loaded while the bridge has dropped the connection itself is told the device is suspended")
 do
   local sent, state = loadBridge(false)

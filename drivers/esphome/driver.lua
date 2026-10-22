@@ -492,9 +492,6 @@ function Connect()
 
   local heartbeat = function()
     --#ifdef DRIVERCENTRAL
-    -- DC_X is also 0 from late init until the Cloud driver first answers, which a controller boot can delay, so
-    -- only a 0 that lasts drops the connection; a license connects again at once.
-    unlicensedChecks = DC_X == 0 and unlicensedChecks + 1 or 0
     if unlicensedChecks >= UNLICENSED_CHECKS then
       updateStatus("No active license", false)
       -- A connection already lost was the device going away, not the lapse.
@@ -576,7 +573,14 @@ function Connect()
     end
   end
   -- Perform the initial refresh then schedule it on a repeating timer
-  SetTimer("heartbeat", 10 * ONE_SECOND, heartbeat, true)
+  SetTimer("heartbeat", 10 * ONE_SECOND, function()
+    --#ifdef DRIVERCENTRAL
+    -- DC_X is also 0 from late init until the Cloud driver first answers, which a controller boot can delay, so
+    -- only a 0 that lasts drops the connection. Only a tick counts, not the Connect() a property change runs.
+    unlicensedChecks = DC_X == 0 and unlicensedChecks + 1 or 0
+    --#endif
+    heartbeat()
+  end, true)
   heartbeat()
 end
 
