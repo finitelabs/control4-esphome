@@ -117,6 +117,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   room events and room occupancy never changed and its Present binding never
   closed; every presence device's room now comes from the signal each proxy
   reports for it, smoothed by the RSSI Smoothing Factor
+- Fixed a presence device on the Bluetooth Coordinator staying in a room whose
+  proxy no longer saw it, until it went Away, whenever the proxy that did see it
+  had a weaker signal than its last one there
   <!-- #ifdef DRIVERCENTRAL -->
 - Fixed a light being shown as off, and running its Light Off Programming, when
   the DriverCentral license lapsed; it now shows offline at the level it had,

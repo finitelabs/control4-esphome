@@ -50,6 +50,9 @@ PresenceTracker.__index = PresenceTracker
 local NAMESPACE = "presence"
 local BINDINGS_NAMESPACE = "presence"
 
+-- Seconds a reading counts, both to place a device and to hold it in its room
+local RSSI_MAX_AGE = 30
+
 --- Generate a unique display name with partial MAC suffix
 --- @param name string Base display name
 --- @param mac string MAC address
@@ -423,12 +426,13 @@ end
 --- @private
 function PresenceTracker:_getCurrentRoomRSSI(mac, roomId)
   local proxies = proxyRegistry:getProxiesByRoom(roomId)
+  local now = os.time()
   local bestRssi = nil
 
   for _, proxy in ipairs(proxies) do
     local key = mac .. "_" .. tostring(proxy.deviceId)
     local state = self._rssiState[key]
-    if state and (not bestRssi or state.smoothedRssi > bestRssi) then
+    if state and (now - state.lastUpdate) <= RSSI_MAX_AGE and (not bestRssi or state.smoothedRssi > bestRssi) then
       bestRssi = state.smoothedRssi
     end
   end
@@ -440,18 +444,17 @@ end
 --- Read from the tracker's own readings: the device registry has none for a
 --- device selected only for presence.
 --- @param mac string MAC address
---- @param maxAge number Maximum age of a reading in seconds
 --- @return number|nil rssi Best smoothed RSSI
 --- @return integer|nil proxyDeviceId The proxy device ID with best signal
 --- @private
-function PresenceTracker:_getBestRSSI(mac, maxAge)
+function PresenceTracker:_getBestRSSI(mac)
   local now = os.time()
   local bestRssi = nil
   local bestDeviceId = nil
 
   for _, proxy in ipairs(proxyRegistry:getConnectedProxies()) do
     local state = self._rssiState[mac .. "_" .. tostring(proxy.deviceId)]
-    if state and (now - state.lastUpdate) <= maxAge and (not bestRssi or state.smoothedRssi > bestRssi) then
+    if state and (now - state.lastUpdate) <= RSSI_MAX_AGE and (not bestRssi or state.smoothedRssi > bestRssi) then
       bestRssi = state.smoothedRssi
       bestDeviceId = proxy.deviceId
     end
@@ -469,8 +472,7 @@ end
 --- @private
 --- @diagnostic disable-next-line: unused
 function PresenceTracker:_determineRoom(mac)
-  local rssiMaxAge = 30 -- Only consider recent readings
-  local bestRssi, bestDeviceId = self:_getBestRSSI(mac, rssiMaxAge)
+  local bestRssi, bestDeviceId = self:_getBestRSSI(mac)
 
   if not bestDeviceId then
     return nil, nil, nil, nil

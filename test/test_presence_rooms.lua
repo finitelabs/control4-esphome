@@ -102,6 +102,19 @@ H.test("moving to the Living Room fires the room events for both rooms", functio
   T.eq("the Living Room's binding closes", sentTo("CLOSED", "room_12"), 1)
 end)
 
+H.test("when the Living Room proxy loses it, its last reading there does not hold it", function()
+  fired = {}
+
+  stay(40, -62, nil)
+  T.eq("it is in the Kitchen", H.variable("Presence " .. TAG .. " Room"), "Kitchen")
+  T.eq("the room events fire once", fired, {
+    "Kitchen [11] Occupied",
+    "Living Room [12] Empty",
+    TAG .. " Entered Room",
+    "Any Device Entered Room",
+  })
+end)
+
 H.test("going quiet past the Away Timeout fires Left Room and empties its room", function()
   fired = {}
   H.clearSent()
@@ -110,7 +123,7 @@ H.test("going quiet past the Away Timeout fires Left Room and empties its room",
   T.truthy("the away check runs", H.fire("AwayCheck"))
   T.eq("it is Away", H.variable("Presence " .. TAG .. " Room"), "Away")
   T.eq("its room events fire", fired, {
-    "Living Room [12] Empty",
+    "Kitchen [11] Empty",
     TAG .. " Away",
     TAG .. " Left Room",
     "Any Device Left Room",
