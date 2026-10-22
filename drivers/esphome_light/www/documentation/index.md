@@ -155,9 +155,9 @@ its level.
 <!-- #ifdef DRIVERCENTRAL -->
 
 It also reads _Disconnected_ while the ESPHome driver has no active
-DriverCentral license. The light keeps the level it had, so no off or on
-programming runs, and shows the level the device reports once a license is
-active again.
+DriverCentral license. The light keeps the level it had and ignores commands, so
+no off or on programming runs, and shows the level the device reports once a
+license is active again.
 
 <!-- #endif -->
 

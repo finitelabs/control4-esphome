@@ -1001,7 +1001,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   sent, and running its Light On or Light Off Programming; it now ignores the
   command and shows only what the device reports
 - Fixed a thermostat being shown in an HVAC mode, vane position or water heater
-  mode sent while its ESPHome device was offline, which the device never took
+  mode sent while its ESPHome device was offline, or its ESPHome Climate
+  connection was removed, which the device never took
 - Fixed a light, fan or lock still being shown online after its ESPHome Light,
   ESPHome Fan or ESPHome Lock connection was removed
 - Fixed a switch, number, select, text, date, time or datetime variable keeping

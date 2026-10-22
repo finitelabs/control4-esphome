@@ -212,8 +212,8 @@ local lightTarget = {}
 -- `from` toward lightTarget over durationMs, as ESPHome runs it.
 local lightFade = nil
 
--- The main driver dropped the connection itself (UPDATE_DISCONNECT suspended), so
--- the device was not lost: the level it showed is kept until its next report.
+-- The main driver dropped the connection itself (UPDATE_DISCONNECT suspended) and the
+-- light had a level: it is kept until the device's next report.
 local suspended = false
 
 ---------------------------------------------------------------------------
