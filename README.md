@@ -999,6 +999,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   command and shows only what the device reports
 - Fixed a thermostat being shown in an HVAC mode, vane position or water heater
   mode sent while its ESPHome device was offline, which the device never took
+- Fixed a light, fan or lock still being shown online after its ESPHome Light,
+  ESPHome Fan or ESPHome Lock connection was removed
 
 ### Changed
 

@@ -3647,10 +3647,12 @@ OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   lightBrightness = nil
   lightTarget = {}
   lightFade = nil
-  -- Clear the stored white on unbind only: a bind also fires at controller
-  -- start, when the point is still this light's.
+  -- On unbind only: a bind also fires at controller start, when the stored
+  -- white is still this light's. The proxy keeps the level it shows.
   if not isBound then
     persist:delete(P_WHITE_POINT)
+    updateStatus("Disconnected", false)
+    SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   end
   currentColorX = DEFAULT_COLOR_X
   currentColorY = DEFAULT_COLOR_Y

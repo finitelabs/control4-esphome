@@ -8332,9 +8332,20 @@ do
   T.eq("back, its report tells 60 and a Toggle turns it off", levels(), { 60, 0 })
   proxy("CLEAR_ALL_SCENES")
 
+  -- Bound again, as at a controller start, the light has no report yet and tells nothing.
   light(dimmer)
   answer(true, 0.6)
+  mark()
+  OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+  T.eq("its connection bound: the proxy is told nothing", said(), {})
+  answer(true, 0.6)
+  mark()
   OBC[ESPHOME](ESPHOME, "ESPHOME", false)
+  T.eq("its connection removed: the proxy is told only that the light is offline", said(), { "ONLINE_CHANGED" })
+  T.eq("offline, and its Connected variable false", {
+    told("ONLINE_CHANGED", "STATE"),
+    Variables["Connected"],
+  }, { { false }, "0" })
   commandAll()
   T.eq("its connection unbound: they tell the proxy and the LEDs nothing", said(), {})
   T.eq("and send the device nothing", commands(), 0)
