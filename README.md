@@ -212,7 +212,7 @@ Sets the logging mode. Default is `Off`.
 
 Forward ESPHome device logs to the driver's Lua output at the current Log Level.
 Changing Log Level or disabling Log Mode will reconnect to apply the new
-settings.
+settings; a light keeps its level while it does.
 
 #### Device Settings
 
@@ -472,6 +472,9 @@ the matching read-only Device Info properties.
 > one type share a name, or two would write the same variable, the others are
 > told apart by their sub-device or their type (e.g., "Kitchen Temperature" or
 > "Status (Sensor)").
+
+A writable variable shows the device's value. A value set while the device is
+offline, or a date or time in another format, goes back to the device's value.
 
 ### Bindings by Entity Type
 
@@ -987,6 +990,28 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light sent a level and then another soon after, such as a stop just
   after a ramp up from off began, being shown for a moment at the first level,
   which the stop then saved as its Previous On level
+- Fixed a light being shown as off, and running its Light Off Programming and
+  then its Light On Programming, when Log Level, Log Mode or Device Log
+  Forwarding was changed while the device's logs were forwarded, as when Log
+  Mode turns itself off after three hours
+- Fixed a light asked for its level before its ESPHome device had reported being
+  shown as off
+- Fixed a light sent a command while its ESPHome device was offline, or its
+  ESPHome Light connection was removed, being shown on, off or at the level
+  sent, and running its Light On or Light Off Programming; it now ignores the
+  command and shows only what the device reports
+- Fixed a thermostat being shown in an HVAC mode, vane position or water heater
+  mode sent while its ESPHome device was offline, or its ESPHome Climate
+  connection was removed, which the device never took
+- Fixed a light, fan or lock still being shown online after its ESPHome Light,
+  ESPHome Fan or ESPHome Lock connection was removed
+- Fixed a switch, number, select, text, date, time or datetime variable keeping
+  a value programming set while the ESPHome device was offline, or a date or
+  time in another format, which the device never took; it now goes back to the
+  device's value
+- Fixed the ESPHome driver's Driver Status reading Refresh failed for a few
+  seconds, in place of why it was not connected, when a connection was made or a
+  sub-driver loaded while the device was offline
 
 ### Changed
 

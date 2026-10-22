@@ -29,7 +29,7 @@ function ClimateEntity:discovered(entity)
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
     if strCommand == "REFRESH_STATE" then
-      RefreshStatus()
+      RefreshState(idBinding)
     elseif strCommand == "SET_REMOTE_TEMPERATURE" then
       local serviceName = Select(tParams, "service_name")
       local temperature = tonumber(Select(tParams, "temperature"))
@@ -73,11 +73,13 @@ function ClimateEntity:discovered(entity)
 end
 
 --- Notify sub-drivers that the ESPHome device has disconnected.
+--- @param suspended? boolean The driver dropped the connection itself, at a lapse or to resubscribe the device
+--- logs: the device was not lost.
 --- @return void
-function ClimateEntity:disconnected()
-  log:trace("ClimateEntity:disconnected()")
+function ClimateEntity:disconnected(suspended)
+  log:trace("ClimateEntity:disconnected(%s)", suspended)
   for _, binding in pairs(bindings:getDynamicBindings(self.TYPE)) do
-    SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", {}, "NOTIFY")
+    SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", { suspended = suspended or nil }, "NOTIFY")
   end
 end
 

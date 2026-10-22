@@ -45,6 +45,7 @@ function DateTimeEntity:updated(entity, state)
         ESPHomeClient.describeEntity(entity),
         newValue or ""
       )
+      values:update(entity.name, formatted, "STRING")
       return
     end
     local epoch = os.time({
@@ -65,6 +66,7 @@ function DateTimeEntity:updated(entity, state)
         log:info("Datetime updated to %s for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update datetime for %s: %s", ESPHomeClient.describeEntity(entity), error)
+        values:update(entity.name, formatted, "STRING")
       end)
   end)
 end
