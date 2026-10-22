@@ -50,7 +50,7 @@ PresenceTracker.__index = PresenceTracker
 local NAMESPACE = "presence"
 local BINDINGS_NAMESPACE = "presence"
 
--- Seconds a reading counts, both to place a device and to hold it in its room
+-- Seconds a reading counts: to place a device, to hold it in its room and to smooth the next into
 local RSSI_MAX_AGE = 30
 
 --- Generate a unique display name with partial MAC suffix
@@ -402,8 +402,8 @@ function PresenceTracker:_updateSmoothedRSSI(mac, proxyDeviceId, rawRssi)
   local state = self._rssiState[key]
   local now = os.time()
 
-  if state == nil then
-    -- First reading - initialize with raw value
+  if state == nil or (now - state.lastUpdate) > RSSI_MAX_AGE then
+    -- First reading, or the last is too old to count - initialize with raw value
     self._rssiState[key] = {
       smoothedRssi = rawRssi,
       lastRawRssi = rawRssi,

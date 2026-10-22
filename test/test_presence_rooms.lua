@@ -146,4 +146,17 @@ H.test("back home, it is placed by the proxy that sees it now, not by older read
   T.eq("it came from Away", H.variable("Last Presence Previous Room"), "Away")
 end)
 
+H.test("one weak reading from a proxy that last heard it close by does not move it", function()
+  stay(30, -40, nil)
+  stay(40, nil, -60)
+  T.eq("it is in the Living Room", H.variable("Presence " .. TAG .. " Room"), "Living Room")
+  fired = {}
+
+  stay(1, -90, -60)
+  stay(10, nil, -60)
+  T.eq("it is still in the Living Room", H.variable("Presence " .. TAG .. " Room"), "Living Room")
+  T.eq("no room events fire", fired, {})
+  T.eq("its RSSI is the Living Room's", H.variable("Presence " .. TAG .. " RSSI"), -60)
+end)
+
 T.finish()

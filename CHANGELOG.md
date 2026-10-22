@@ -124,6 +124,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   fraction of a dBm or, for a device selected only for presence, the last
   reading of any proxy; it now shows the signal Minimum Room RSSI is checked
   against, in whole dBm
+- Fixed a presence device on the Bluetooth Coordinator moving to another room on
+  one weak signal from that room's proxy when the proxy had last heard it close
+  by, more than 30 seconds before; that proxy's signal now starts again from
+  what it hears
   <!-- #ifdef DRIVERCENTRAL -->
 - Fixed a light being shown as off, and running its Light Off Programming, when
   the DriverCentral license lapsed; it now shows offline at the level it had,
