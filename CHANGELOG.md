@@ -119,11 +119,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   reports for it, smoothed by the RSSI Smoothing Factor
 - Fixed a presence device on the Bluetooth Coordinator staying in a room whose
   proxy no longer saw it, until it went Away, whenever the proxy that did see it
-  had a weaker signal than its last one there
+  was not stronger than its last signal there by the Room Change Hysteresis
 - Fixed a Bluetooth Coordinator presence device's RSSI variable showing a long
-  fraction of a dBm or, for a device selected only for presence, the last
-  reading of any proxy; it now shows the signal Minimum Room RSSI is checked
-  against, in whole dBm
+  fraction of a dBm or, for a device selected only for presence, the raw reading
+  from whichever proxy heard it last; it now shows the signal Minimum Room RSSI
+  is checked against, in whole dBm
 - Fixed a presence device on the Bluetooth Coordinator moving to another room on
   one weak signal from that room's proxy when the proxy had last heard it close
   by, more than 30 seconds before; that proxy's signal now starts again from
