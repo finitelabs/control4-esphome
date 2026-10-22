@@ -98,6 +98,7 @@ H.test("moving to the Living Room fires the room events for both rooms", functio
   T.eq("the previous room is the Kitchen", H.variable("Last Presence Previous Room"), "Kitchen")
   T.eq("the Kitchen is empty", H.variable("Kitchen [11] Occupied"), "false")
   T.eq("the Living Room counts it", H.variable("Living Room [12] Occupants"), "Test Tag")
+  T.eq("its RSSI is the Living Room's, in whole dBm", H.variable("Presence " .. TAG .. " RSSI"), -52)
   T.eq("the Kitchen's binding opens", sentTo("OPENED", "room_11"), 1)
   T.eq("the Living Room's binding closes", sentTo("CLOSED", "room_12"), 1)
 end)

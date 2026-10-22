@@ -688,7 +688,7 @@ function PresenceTracker:onAdvertisement(mac, proxyDeviceId, rssi)
   local distance = self:_estimateDistance(bestRssi or rssi, config.txPower)
   values:update("Presence " .. uniqueName .. " Room", finalRoom or "Home", "STRING")
   values:update("Presence " .. uniqueName .. " Distance", string.format("%.1f", distance), "NUMBER")
-  values:update("Presence " .. uniqueName .. " RSSI", tostring(bestRssi or rssi), "NUMBER")
+  values:update("Presence " .. uniqueName .. " RSSI", string.format("%.0f", bestRssi or rssi), "NUMBER")
   --values:update("Presence " .. uniqueName .. " Last Seen", os.date("%Y-%m-%d %H:%M:%S"), "STRING")
 end
 

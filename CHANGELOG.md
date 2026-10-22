@@ -120,6 +120,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a presence device on the Bluetooth Coordinator staying in a room whose
   proxy no longer saw it, until it went Away, whenever the proxy that did see it
   had a weaker signal than its last one there
+- Fixed a Bluetooth Coordinator presence device's RSSI variable showing a long
+  fraction of a dBm or, for a device selected only for presence, the last
+  reading of any proxy; it now shows the signal Minimum Room RSSI is checked
+  against, in whole dBm
   <!-- #ifdef DRIVERCENTRAL -->
 - Fixed a light being shown as off, and running its Light Off Programming, when
   the DriverCentral license lapsed; it now shows offline at the level it had,
