@@ -39,6 +39,7 @@ function TimeEntity:updated(entity, state)
         ESPHomeClient.describeEntity(entity),
         newValue or ""
       )
+      values:update(entity.name, formatted, "STRING")
       return
     end
     self.client
@@ -53,6 +54,8 @@ function TimeEntity:updated(entity, state)
         log:info("Time updated to %s for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update time for %s: %s", ESPHomeClient.describeEntity(entity), error)
+        -- Director keeps the value programming set, which the device never took.
+        values:update(entity.name, formatted, "STRING")
       end)
   end)
 end

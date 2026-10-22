@@ -473,6 +473,9 @@ the matching read-only Device Info properties.
 > told apart by their sub-device or their type (e.g., "Kitchen Temperature" or
 > "Status (Sensor)").
 
+A writable variable shows the device's value. A value set while the device is
+offline, or a date or time in another format, goes back to the device's value.
+
 ### Bindings by Entity Type
 
 | Entity Type   | Binding Class                   | Purpose                                                           |
@@ -1001,6 +1004,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   mode sent while its ESPHome device was offline, which the device never took
 - Fixed a light, fan or lock still being shown online after its ESPHome Light,
   ESPHome Fan or ESPHome Lock connection was removed
+- Fixed a switch, number, select, text, date, time or datetime variable keeping
+  a value programming set while the ESPHome device was offline, or a date or
+  time in another format, which the device never took; it now goes back to the
+  device's value
 
 ### Changed
 

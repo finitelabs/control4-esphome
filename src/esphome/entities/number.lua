@@ -29,7 +29,8 @@ function NumberEntity:updated(entity, state)
     log:debug("Ignoring non-finite reading for %s", ESPHomeClient.describeEntity(entity))
     return
   end
-  values:update(entity.name, round(value, 1), "NUMBER", function(newValue)
+  local reported = round(value, 1)
+  values:update(entity.name, reported, "NUMBER", function(newValue)
     -- Convert the Control4 value (string or number) to a number for ESPHome
     local numValue = tonumber(newValue) or 0
     self.client
@@ -42,6 +43,8 @@ function NumberEntity:updated(entity, state)
         log:info("Number value updated to %s for %s", numValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update number value for %s: %s", ESPHomeClient.describeEntity(entity), error)
+        -- Director keeps the value programming set, which the device never took.
+        values:update(entity.name, reported, "NUMBER")
       end)
   end)
 end

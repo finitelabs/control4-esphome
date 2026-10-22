@@ -62,7 +62,7 @@ function SelectEntity:updated(entity, state)
         ESPHomeClient.describeEntity(entity),
         table.concat(options, ", ")
       )
-      C4:SetVariable(entity.name, currentState)
+      values:update(entity.name, currentState, "STRING")
       return
     end
     self.client
@@ -75,6 +75,8 @@ function SelectEntity:updated(entity, state)
         log:info("Select option updated to '%s' for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update select option for %s: %s", ESPHomeClient.describeEntity(entity), error)
+        -- Director keeps the value programming set, which the device never took.
+        values:update(entity.name, currentState, "STRING")
       end)
   end)
 end

@@ -585,6 +585,9 @@ the matching read-only Device Info properties.
 > told apart by their sub-device or their type (e.g., "Kitchen Temperature" or
 > "Status (Sensor)").
 
+A writable variable shows the device's value. A value set while the device is
+offline, or a date or time in another format, goes back to the device's value.
+
 ### Bindings by Entity Type
 
 | Entity Type   | Binding Class                   | Purpose                                                           |
