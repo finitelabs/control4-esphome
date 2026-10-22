@@ -997,6 +997,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   ESPHome Light connection was removed, being shown on, off or at the level
   sent, and running its Light On or Light Off Programming; it now ignores the
   command and shows only what the device reports
+- Fixed a thermostat being shown in an HVAC mode, vane position or water heater
+  mode sent while its ESPHome device was offline, which the device never took
 
 ### Changed
 
