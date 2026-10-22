@@ -30,7 +30,7 @@ function LockEntity:discovered(entity)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
     if strCommand == "REFRESH_STATE" then
       -- TODO: Find a more elegant way to refresh the state of the light entity.
-      RefreshStatus()
+      RefreshState(idBinding)
     elseif strCommand == "ENTITY_COMMAND" then
       local command = ESPHomeProtoSchema.RPC.APIConnection[Select(tParams, "command")]
         or ESPHomeProtoSchema.RPC.APIConnection.lock_command

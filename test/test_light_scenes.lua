@@ -8358,4 +8358,17 @@ do
   T.eq("a Toggle press while suspended at 60, then back off: its click turns the light on", levels(), { 100 })
 end
 
+T.section("a light loaded while its device is suspended is told so, and tells no level it does not know")
+do
+  -- The main driver's answer to the refresh the light sends at late init.
+  restart(nil)
+  RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", { suspended = "true" })
+  T.eq("told only that it is offline", told("ONLINE_CHANGED", "STATE"), { false })
+  T.eq("and no level", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), {})
+  mark()
+  proxy("GET_LIGHT_LEVEL")
+  proxy("TOGGLE")
+  T.eq("Get Light Level and a Toggle tell nothing", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), {})
+end
+
 T.finish()

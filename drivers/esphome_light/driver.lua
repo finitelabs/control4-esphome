@@ -3438,6 +3438,8 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   end
   -- The light runs a fade it was sent to its end, so a suspend keeps the level a ramp in flight is heading to.
   local kept = rampingBrightness and brightnessRamp and brightnessRamp.targetLevel or currentBrightness
+  -- A light loaded or bound since its device last reported has no level to keep.
+  local known = STATE ~= nil or suspended
   cancelBrightnessRampTimers()
   cancelColorRampTimers()
   rampingBrightness = false
@@ -3465,10 +3467,11 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   -- A device that drops off has usually lost power, so it reads off. A suspended one is as it was: no Light Off
   -- Programming runs, and the device's next report tells its level.
-  suspended = toboolean(Select(tParams, "suspended"))
-  if suspended then
+  if toboolean(Select(tParams, "suspended")) then
+    suspended = known
     currentBrightness = kept
   else
+    suspended = false
     currentBrightness = 0
     notifyBrightnessChanged(0) -- ledState is kept so the button LEDs go off too
   end

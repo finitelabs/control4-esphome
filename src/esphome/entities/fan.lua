@@ -37,7 +37,7 @@ function FanEntity:discovered(entity)
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
     if strCommand == "REFRESH_STATE" then
-      RefreshStatus()
+      RefreshState(idBinding)
     elseif strCommand == "ENTITY_COMMAND" then
       local command = ESPHomeProtoSchema.RPC.APIConnection[Select(tParams, "command")]
         or ESPHomeProtoSchema.RPC.APIConnection.fan_command

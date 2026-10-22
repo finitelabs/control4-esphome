@@ -717,6 +717,18 @@ function RefreshStatus()
   end)
 end
 
+--- Answer a sub-driver's REFRESH_STATE, sent when it loads. One loaded since the driver dropped the connection
+--- itself was not told the device is suspended, and no state comes until it reconnects.
+--- @param idBinding number The sub-driver's binding.
+function RefreshState(idBinding)
+  log:trace("RefreshState(%s)", idBinding)
+  if suspended then
+    SendToProxy(idBinding, "UPDATE_DISCONNECT", { suspended = true }, "NOTIFY")
+    return
+  end
+  RefreshStatus()
+end
+
 --- Property values for reset.
 --- @type table<string, string>
 local RESET_PROPERTY_VALUES = {

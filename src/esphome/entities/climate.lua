@@ -29,7 +29,7 @@ function ClimateEntity:discovered(entity)
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
     if strCommand == "REFRESH_STATE" then
-      RefreshStatus()
+      RefreshState(idBinding)
     elseif strCommand == "SET_REMOTE_TEMPERATURE" then
       local serviceName = Select(tParams, "service_name")
       local temperature = tonumber(Select(tParams, "temperature"))

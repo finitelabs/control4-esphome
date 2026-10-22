@@ -250,6 +250,38 @@ do
   DC_X = nil
 end
 
+T.section("A sub-driver loaded while the bridge has dropped the connection itself is told the device is suspended")
+do
+  local sent, state = loadBridge(false)
+  local refreshes = 0
+  RefreshStatus = function()
+    refreshes = refreshes + 1
+  end
+  Properties["IP Address"] = "192.168.1.119"
+  Connect()
+  -- A light entity's binding, as the bridge sets it up when it lists the device's entities.
+  local LightEntity = require("esphome.entities.light")
+  LightEntity:new(ESPHomeClient:new()):discovered({ key = 1, name = "Light", ref = "light" })
+  local light = bindings:getDynamicBinding(LightEntity.TYPE, "light_light").bindingId
+  lapse()
+  local from = #sent + 1
+  refreshes = 0
+  -- Through the dispatcher, as Director delivers the REFRESH_STATE a light sends at its late init.
+  ReceivedFromProxy(light, "REFRESH_STATE", {})
+  T.eq("its refresh during a lapse is answered suspended", told(sent, from), { "suspended" })
+  T.eq("on its own binding", sent[#sent].binding, light)
+  T.eq("and the device it is not connected to is not refreshed", refreshes, 0)
+
+  beats(1, 1)
+  T.check("relicensed, the bridge connects again", state.connected)
+  from = #sent + 1
+  refreshes = 0
+  ReceivedFromProxy(light, "REFRESH_STATE", {})
+  T.eq("then a refresh tells it nothing", told(sent, from), {})
+  T.eq("and refreshes the device, whose report answers it", refreshes, 1)
+  DC_X = nil
+end
+
 T.section("Resubscribing the device logs tells the children the device is suspended")
 do
   -- Each drops the connection, as the log subscription has no unsubscribe, and the heartbeat reconnects.
