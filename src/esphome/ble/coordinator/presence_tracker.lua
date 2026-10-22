@@ -168,6 +168,12 @@ function PresenceTracker:untrackDevice(mac)
   local uniqueName = makeUniqueName(config.name, mac)
   local macKey = mac:gsub(":", "")
 
+  -- Its room stays tracked, so take it out of the room's occupants
+  local state = self._deviceState[mac]
+  if state and state.roomId then
+    self:_updateRoomOccupancy(state.roomId, mac, false)
+  end
+
   -- Clean up state
   self._deviceState[mac] = nil
   self._presenceDevices[mac] = nil

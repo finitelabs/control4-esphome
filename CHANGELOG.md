@@ -138,6 +138,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   that room's proxy was disconnected from the coordinator, so the room showed
   empty with the device in it once the proxy was connected again; the device now
   leaves the room, stays Home and is placed again by its next signal
+- Fixed a room on the Bluetooth Coordinator staying Occupied, with the device
+  still counted, after a presence device in it was removed from Select Presence
+  Devices, so later occupants never fired its Occupied or Empty events; the room
+  now empties when its last device is removed
   <!-- #ifdef DRIVERCENTRAL -->
 - Fixed a light being shown as off, and running its Light Off Programming, when
   the DriverCentral license lapsed; it now shows offline at the level it had,

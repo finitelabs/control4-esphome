@@ -219,4 +219,17 @@ H.test("unbinding its room's proxy takes it out of the room until it is seen the
   T.eq("the Living Room counts it", H.variable("Living Room [12] Occupants"), "Test Tag")
 end)
 
+H.test("deselecting it while it is in a room empties the room", function()
+  fired = {}
+  H.clearSent()
+
+  Properties["Select Presence Devices"] = "[X] " .. MAC .. " - Test Tag"
+  OnPropertyChanged("Select Presence Devices")
+  T.eq("it is no longer tracked", H.variable("Presence " .. TAG .. " Room"), nil)
+  T.eq("the Living Room empties", fired, { "Living Room [12] Empty" })
+  T.eq("the Living Room is empty", H.variable("Living Room [12] Occupied"), "false")
+  T.eq("the Living Room counts no one", H.variable("Living Room [12] Occupant Count"), 0)
+  T.eq("the Living Room's binding opens", sentTo("OPENED", "room_12"), 1)
+end)
+
 T.finish()
