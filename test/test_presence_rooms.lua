@@ -165,7 +165,7 @@ end)
 H.test("below Minimum Room RSSI it leaves its room and stays home", function()
   Properties["Minimum Room RSSI (dBm)"] = "-75"
   OnPropertyChanged("Minimum Room RSSI (dBm)")
-  fired = {}
+  fired, previousRoomAt = {}, {}
   H.clearSent()
 
   stay(10, nil, -80)
@@ -194,6 +194,29 @@ H.test("back home below Minimum Room RSSI, it is present in no room", function()
 
   Properties["Minimum Room RSSI (dBm)"] = "-100"
   OnPropertyChanged("Minimum Room RSSI (dBm)")
+end)
+
+H.test("unbinding its room's proxy takes it out of the room until it is seen there again", function()
+  stay(7, nil, -50)
+  T.eq("it is in the Living Room", H.variable("Presence " .. TAG .. " Room"), "Living Room")
+  fired, previousRoomAt = {}, {}
+
+  OnBindingChanged(PROXIES, "ESPHOME_BLUETOOTH", false, LIVING_ROOM, 1)
+  T.eq("it is Home", H.variable("Presence " .. TAG .. " Room"), "Home")
+  T.eq("it leaves the room", fired, { TAG .. " Left Room", "Any Device Left Room" })
+  T.eq("Any Device Left Room names the room it left", previousRoomAt["Any Device Left Room"], "Living Room")
+  fired = {}
+
+  OnBindingChanged(PROXIES, "ESPHOME_BLUETOOTH", true, LIVING_ROOM, 1)
+  H.rfp(PROXIES, "PROXY_CONNECTED", { proxyId = tostring(LIVING_ROOM), roomId = "12", roomName = "Living Room" })
+  stay(7, nil, -50)
+  T.eq("it is in the Living Room again", H.variable("Presence " .. TAG .. " Room"), "Living Room")
+  T.eq("its room events fire", fired, {
+    "Living Room [12] Occupied",
+    TAG .. " Entered Room",
+    "Any Device Entered Room",
+  })
+  T.eq("the Living Room counts it", H.variable("Living Room [12] Occupants"), "Test Tag")
 end)
 
 T.finish()

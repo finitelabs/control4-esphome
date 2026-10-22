@@ -336,6 +336,13 @@ function PresenceTracker:_cleanupRoom(roomId)
   local uniqueRoomName = makeUniqueRoomName(roomName, roomId)
   log:info("Cleaning up presence tracking for room: %s (%d)", uniqueRoomName, roomId)
 
+  -- A device in the room leaves it but stays home; its next signal places it again
+  for mac, state in pairs(self._deviceState) do
+    if state.roomId == roomId then
+      self:_onDeviceLeftRoom(mac)
+    end
+  end
+
   -- Remove binding
   if self._roomBindings[roomId] then
     bindings:deleteBinding(BINDINGS_NAMESPACE, "room_" .. tostring(roomId))
@@ -651,31 +658,17 @@ function PresenceTracker:onAdvertisement(mac, proxyDeviceId, rssi)
   -- This happens when _determineRoom returns nil room due to RSSI below threshold
   if candidateRoom == nil and state.room ~= nil then
     log:info("Device %s signal below threshold, leaving room %s but staying home", mac, state.room)
-    -- Update last event context
-    local uniqueName = makeUniqueName(config.name, mac)
-    values:update("Last Presence Device MAC", mac, "STRING")
-    values:update("Last Presence Device Name", uniqueName, "STRING")
-    values:update("Last Presence Room", "Home", "STRING") -- Not in a room, but home
-    values:update("Last Presence Previous Room", state.room, "STRING")
-
-    -- Fire left_room event
-    local macKey = mac:gsub(":", "")
-    events:fire(NAMESPACE, "device_" .. macKey .. "_left_room")
-    events:fire(NAMESPACE, "any_device_left_room")
+    local roomId = state.roomId
+    self:_onDeviceLeftRoom(mac)
 
     -- Update room occupancy
-    if state.roomId then
-      self:_updateRoomOccupancy(state.roomId, mac, false)
+    if roomId then
+      self:_updateRoomOccupancy(roomId, mac, false)
     end
 
-    -- Clear room state
-    state.room = nil
-    state.roomId = nil
-    state.pendingTransition = nil
-
     -- Update variables
+    local uniqueName = makeUniqueName(config.name, mac)
     local distance = self:_estimateDistance(bestRssi or rssi, config.txPower)
-    values:update("Presence " .. uniqueName .. " Room", "Home", "STRING") -- "Home" not "Away"
     values:update("Presence " .. uniqueName .. " Distance", string.format("%.1f", distance), "NUMBER")
     return
   end
@@ -766,6 +759,36 @@ function PresenceTracker:_onDeviceEnteredRoom(mac, room, roomId, previousRoom, p
 
   -- Fire generic event
   events:fire(NAMESPACE, "any_device_entered_room")
+end
+
+--- Handle device leaving its room while staying home
+--- @param mac string MAC address
+--- @private
+function PresenceTracker:_onDeviceLeftRoom(mac)
+  local config = self._presenceDevices[mac]
+  local state = self._deviceState[mac]
+  if not config or not state or not state.room then
+    return
+  end
+
+  local uniqueName = makeUniqueName(config.name, mac)
+  values:update("Presence " .. uniqueName .. " Room", "Home", "STRING") -- "Home" not "Away"
+
+  -- Update last event context
+  values:update("Last Presence Device MAC", mac, "STRING")
+  values:update("Last Presence Device Name", uniqueName, "STRING")
+  values:update("Last Presence Room", "Home", "STRING") -- Not in a room, but home
+  values:update("Last Presence Previous Room", state.room, "STRING")
+
+  -- Clear room state
+  state.room = nil
+  state.roomId = nil
+  state.pendingTransition = nil
+
+  -- Fire events
+  local macKey = mac:gsub(":", "")
+  events:fire(NAMESPACE, "device_" .. macKey .. "_left_room")
+  events:fire(NAMESPACE, "any_device_left_room")
 end
 
 --- Handle device going away

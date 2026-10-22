@@ -134,6 +134,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed the Bluetooth Coordinator's Last Presence variables still describing the
   previous event when Left Room and Any Device Left Room fired for a device
   whose signal dropped below Minimum Room RSSI
+- Fixed a presence device on the Bluetooth Coordinator staying in a room after
+  that room's proxy was disconnected from the coordinator, so the room showed
+  empty with the device in it once the proxy was connected again; the device now
+  leaves the room, stays Home and is placed again by its next signal
   <!-- #ifdef DRIVERCENTRAL -->
 - Fixed a light being shown as off, and running its Light Off Programming, when
   the DriverCentral license lapsed; it now shows offline at the level it had,
