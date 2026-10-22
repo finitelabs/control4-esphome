@@ -6,7 +6,6 @@ local events = require("lib.events")
 local values = require("lib.values")
 local bindings = require("lib.bindings")
 local proxyRegistry = require("esphome.ble.coordinator.proxy_registry")
-local deviceRegistry = require("esphome.ble.coordinator.device_registry")
 
 --- @class PresenceDeviceConfig
 --- @field mac string MAC address
@@ -50,6 +49,9 @@ PresenceTracker.__index = PresenceTracker
 
 local NAMESPACE = "presence"
 local BINDINGS_NAMESPACE = "presence"
+
+-- Seconds a reading counts: to place a device, to hold it in its room and to smooth the next into
+local RSSI_MAX_AGE = 30
 
 --- Generate a unique display name with partial MAC suffix
 --- @param name string Base display name
@@ -165,6 +167,12 @@ function PresenceTracker:untrackDevice(mac)
 
   local uniqueName = makeUniqueName(config.name, mac)
   local macKey = mac:gsub(":", "")
+
+  -- Its room stays tracked, so take it out of the room's occupants
+  local state = self._deviceState[mac]
+  if state and state.roomId then
+    self:_updateRoomOccupancy(state.roomId, mac, false)
+  end
 
   -- Clean up state
   self._deviceState[mac] = nil
@@ -334,6 +342,13 @@ function PresenceTracker:_cleanupRoom(roomId)
   local uniqueRoomName = makeUniqueRoomName(roomName, roomId)
   log:info("Cleaning up presence tracking for room: %s (%d)", uniqueRoomName, roomId)
 
+  -- A device in the room leaves it but stays home; its next signal places it again
+  for mac, state in pairs(self._deviceState) do
+    if state.roomId == roomId then
+      self:_onDeviceLeftRoom(mac)
+    end
+  end
+
   -- Remove binding
   if self._roomBindings[roomId] then
     bindings:deleteBinding(BINDINGS_NAMESPACE, "room_" .. tostring(roomId))
@@ -400,8 +415,8 @@ function PresenceTracker:_updateSmoothedRSSI(mac, proxyDeviceId, rawRssi)
   local state = self._rssiState[key]
   local now = os.time()
 
-  if state == nil then
-    -- First reading - initialize with raw value
+  if state == nil or (now - state.lastUpdate) > RSSI_MAX_AGE then
+    -- First reading, or the last is too old to count - initialize with raw value
     self._rssiState[key] = {
       smoothedRssi = rawRssi,
       lastRawRssi = rawRssi,
@@ -424,17 +439,41 @@ end
 --- @private
 function PresenceTracker:_getCurrentRoomRSSI(mac, roomId)
   local proxies = proxyRegistry:getProxiesByRoom(roomId)
+  local now = os.time()
   local bestRssi = nil
 
   for _, proxy in ipairs(proxies) do
     local key = mac .. "_" .. tostring(proxy.deviceId)
     local state = self._rssiState[key]
-    if state and (not bestRssi or state.smoothedRssi > bestRssi) then
+    if state and (now - state.lastUpdate) <= RSSI_MAX_AGE and (not bestRssi or state.smoothedRssi > bestRssi) then
       bestRssi = state.smoothedRssi
     end
   end
 
   return bestRssi
+end
+
+--- Get the best recent RSSI for a device across connected proxies.
+--- Read from the tracker's own readings: the device registry has none for a
+--- device selected only for presence.
+--- @param mac string MAC address
+--- @return number|nil rssi Best smoothed RSSI
+--- @return integer|nil proxyDeviceId The proxy device ID with best signal
+--- @private
+function PresenceTracker:_getBestRSSI(mac)
+  local now = os.time()
+  local bestRssi = nil
+  local bestDeviceId = nil
+
+  for _, proxy in ipairs(proxyRegistry:getConnectedProxies()) do
+    local state = self._rssiState[mac .. "_" .. tostring(proxy.deviceId)]
+    if state and (now - state.lastUpdate) <= RSSI_MAX_AGE and (not bestRssi or state.smoothedRssi > bestRssi) then
+      bestRssi = state.smoothedRssi
+      bestDeviceId = proxy.deviceId
+    end
+  end
+
+  return bestRssi, bestDeviceId
 end
 
 --- Determine which room a device is in based on RSSI
@@ -446,8 +485,7 @@ end
 --- @private
 --- @diagnostic disable-next-line: unused
 function PresenceTracker:_determineRoom(mac)
-  local rssiMaxAge = 30 -- Only consider recent readings
-  local bestRssi, bestDeviceId = deviceRegistry:getBestRSSI(mac, rssiMaxAge)
+  local bestRssi, bestDeviceId = self:_getBestRSSI(mac)
 
   if not bestDeviceId then
     return nil, nil, nil, nil
@@ -626,31 +664,17 @@ function PresenceTracker:onAdvertisement(mac, proxyDeviceId, rssi)
   -- This happens when _determineRoom returns nil room due to RSSI below threshold
   if candidateRoom == nil and state.room ~= nil then
     log:info("Device %s signal below threshold, leaving room %s but staying home", mac, state.room)
-    -- Fire left_room event
-    local macKey = mac:gsub(":", "")
-    events:fire(NAMESPACE, "device_" .. macKey .. "_left_room")
-    events:fire(NAMESPACE, "any_device_left_room")
-
-    -- Update last event context
-    local uniqueName = makeUniqueName(config.name, mac)
-    values:update("Last Presence Device MAC", mac, "STRING")
-    values:update("Last Presence Device Name", uniqueName, "STRING")
-    values:update("Last Presence Room", "Home", "STRING") -- Not in a room, but home
-    values:update("Last Presence Previous Room", state.room, "STRING")
+    local roomId = state.roomId
+    self:_onDeviceLeftRoom(mac)
 
     -- Update room occupancy
-    if state.roomId then
-      self:_updateRoomOccupancy(state.roomId, mac, false)
+    if roomId then
+      self:_updateRoomOccupancy(roomId, mac, false)
     end
 
-    -- Clear room state
-    state.room = nil
-    state.roomId = nil
-    state.pendingTransition = nil
-
     -- Update variables
+    local uniqueName = makeUniqueName(config.name, mac)
     local distance = self:_estimateDistance(bestRssi or rssi, config.txPower)
-    values:update("Presence " .. uniqueName .. " Room", "Home", "STRING") -- "Home" not "Away"
     values:update("Presence " .. uniqueName .. " Distance", string.format("%.1f", distance), "NUMBER")
     return
   end
@@ -663,7 +687,7 @@ function PresenceTracker:onAdvertisement(mac, proxyDeviceId, rssi)
   local distance = self:_estimateDistance(bestRssi or rssi, config.txPower)
   values:update("Presence " .. uniqueName .. " Room", finalRoom or "Home", "STRING")
   values:update("Presence " .. uniqueName .. " Distance", string.format("%.1f", distance), "NUMBER")
-  values:update("Presence " .. uniqueName .. " RSSI", tostring(bestRssi or rssi), "NUMBER")
+  values:update("Presence " .. uniqueName .. " RSSI", string.format("%.0f", bestRssi or rssi), "NUMBER")
   --values:update("Presence " .. uniqueName .. " Last Seen", os.date("%Y-%m-%d %H:%M:%S"), "STRING")
 end
 
@@ -741,12 +765,36 @@ function PresenceTracker:_onDeviceEnteredRoom(mac, room, roomId, previousRoom, p
 
   -- Fire generic event
   events:fire(NAMESPACE, "any_device_entered_room")
+end
 
-  -- Update device binding (contact sensor: CLOSED = present in tracked room)
-  local bindingId = self._deviceBindings[mac]
-  if bindingId then
-    SendToProxy(bindingId, "CLOSED", {}, "NOTIFY")
+--- Handle device leaving its room while staying home
+--- @param mac string MAC address
+--- @private
+function PresenceTracker:_onDeviceLeftRoom(mac)
+  local config = self._presenceDevices[mac]
+  local state = self._deviceState[mac]
+  if not config or not state or not state.room then
+    return
   end
+
+  local uniqueName = makeUniqueName(config.name, mac)
+  values:update("Presence " .. uniqueName .. " Room", "Home", "STRING") -- "Home" not "Away"
+
+  -- Update last event context
+  values:update("Last Presence Device MAC", mac, "STRING")
+  values:update("Last Presence Device Name", uniqueName, "STRING")
+  values:update("Last Presence Room", "Home", "STRING") -- Not in a room, but home
+  values:update("Last Presence Previous Room", state.room, "STRING")
+
+  -- Clear room state
+  state.room = nil
+  state.roomId = nil
+  state.pendingTransition = nil
+
+  -- Fire events
+  local macKey = mac:gsub(":", "")
+  events:fire(NAMESPACE, "device_" .. macKey .. "_left_room")
+  events:fire(NAMESPACE, "any_device_left_room")
 end
 
 --- Handle device going away
@@ -799,6 +847,12 @@ function PresenceTracker:_onDeviceHome(mac, name)
 
   local macKey = mac:gsub(":", "")
   events:fire(NAMESPACE, "device_" .. macKey .. "_home")
+
+  -- Update device binding (contact sensor: CLOSED = present)
+  local bindingId = self._deviceBindings[mac]
+  if bindingId then
+    SendToProxy(bindingId, "CLOSED", {}, "NOTIFY")
+  end
 end
 
 --- Update room occupancy tracking
