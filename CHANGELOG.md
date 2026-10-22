@@ -131,6 +131,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a Bluetooth Coordinator presence device's Present binding staying open
   while the device was home but in no room, as below Minimum Room RSSI; it now
   closes when the device comes home
+- Fixed the Bluetooth Coordinator's Last Presence variables still describing the
+  previous event when Left Room and Any Device Left Room fired for a device
+  whose signal dropped below Minimum Room RSSI
   <!-- #ifdef DRIVERCENTRAL -->
 - Fixed a light being shown as off, and running its Light Off Programming, when
   the DriverCentral license lapsed; it now shows offline at the level it had,

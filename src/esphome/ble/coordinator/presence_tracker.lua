@@ -651,17 +651,17 @@ function PresenceTracker:onAdvertisement(mac, proxyDeviceId, rssi)
   -- This happens when _determineRoom returns nil room due to RSSI below threshold
   if candidateRoom == nil and state.room ~= nil then
     log:info("Device %s signal below threshold, leaving room %s but staying home", mac, state.room)
-    -- Fire left_room event
-    local macKey = mac:gsub(":", "")
-    events:fire(NAMESPACE, "device_" .. macKey .. "_left_room")
-    events:fire(NAMESPACE, "any_device_left_room")
-
     -- Update last event context
     local uniqueName = makeUniqueName(config.name, mac)
     values:update("Last Presence Device MAC", mac, "STRING")
     values:update("Last Presence Device Name", uniqueName, "STRING")
     values:update("Last Presence Room", "Home", "STRING") -- Not in a room, but home
     values:update("Last Presence Previous Room", state.room, "STRING")
+
+    -- Fire left_room event
+    local macKey = mac:gsub(":", "")
+    events:fire(NAMESPACE, "device_" .. macKey .. "_left_room")
+    events:fire(NAMESPACE, "any_device_left_room")
 
     -- Update room occupancy
     if state.roomId then

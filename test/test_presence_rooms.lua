@@ -30,10 +30,13 @@ os.time = function(date) -- luacheck: ignore
   return date and realTime(date) or now
 end
 
---- The names of the events fired since the last reset, in order.
-local fired = {}
+--- The names of the events fired since the last reset, in order, and the Last
+--- Presence Previous Room that programming on each would read.
+local fired, previousRoomAt = {}, {}
 function C4:FireEventByID(idEvent)
-  table.insert(fired, ShimEvents()[idEvent].name)
+  local name = ShimEvents()[idEvent].name
+  table.insert(fired, name)
+  previousRoomAt[name] = H.variable("Last Presence Previous Room")
 end
 
 --- How many times `command` went to a presence binding; none if there is no such binding.
@@ -172,6 +175,7 @@ H.test("below Minimum Room RSSI it leaves its room and stays home", function()
     "Any Device Left Room",
     "Living Room [12] Empty",
   })
+  T.eq("Any Device Left Room names the room it left", previousRoomAt["Any Device Left Room"], "Living Room")
   T.eq("the Living Room is empty", H.variable("Living Room [12] Occupied"), "false")
   T.eq("its Present binding stays closed", sentTo("OPENED", "device_020000000001"), 0)
 end)
