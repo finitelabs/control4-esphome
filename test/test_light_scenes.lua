@@ -8275,4 +8275,87 @@ do
   T.eq("Get Light Level before the device reports tells nothing", levels(), {})
 end
 
+T.section("a light with no state from its device ignores its commands, so Control4 shows only what the device reports")
+do
+  local dimmer = { ColorMode.COLOR_MODE_BRIGHTNESS }
+  local function answer(on, brightness)
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = dimmer }),
+      state = SerializeSafe({ state = on, brightness = brightness }),
+    })
+  end
+  local function levels()
+    return told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT")
+  end
+  --- What the proxy and the Top and Toggle Button Links were told since the mark.
+  local function said()
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.binding == PROXY or s.binding == TOP_LINK or s.binding == TOGGLE_LINK then
+        out[#out + 1] = s.command
+      end
+    end
+    return out
+  end
+  --- Every command a light takes, from the mark on.
+  local function commandAll()
+    proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(30) })
+    mark()
+    proxy("TOGGLE")
+    proxy("SET_LEVEL", { LEVEL = 30 })
+    proxy("ON")
+    proxy("OFF")
+    proxy("DYNAMIC_ON")
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 1000 })
+    proxy("RAMP_TO_LEVEL", { LEVEL = 30, TIME = 1000 })
+    colorTarget(BLUE, 1000)
+    proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS })
+    proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = RELEASE_CLICK })
+    RFP.DO_CLICK(TOP_LINK, "DO_CLICK", {})
+    RFP.DO_PUSH(TOGGLE_LINK, "DO_PUSH", {})
+    RFP.DO_RELEASE(TOGGLE_LINK, "DO_RELEASE", {})
+    proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+    proxy("RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 1000 })
+    run(15000)
+  end
+
+  -- A device that drops off reads off; a Toggle then told the light on, which ran Light On Programming.
+  light(dimmer)
+  answer(true, 0.6)
+  RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
+  commandAll()
+  T.eq("its device lost: commands, buttons and scenes tell the proxy and the LEDs nothing", said(), {})
+  T.eq("and send the device nothing", commands(), 0)
+  mark()
+  answer(true, 0.6)
+  proxy("TOGGLE")
+  T.eq("back, its report tells 60 and a Toggle turns it off", levels(), { 60, 0 })
+  proxy("CLEAR_ALL_SCENES")
+
+  light(dimmer)
+  answer(true, 0.6)
+  OBC[ESPHOME](ESPHOME, "ESPHOME", false)
+  commandAll()
+  T.eq("its connection unbound: they tell the proxy and the LEDs nothing", said(), {})
+  T.eq("and send the device nothing", commands(), 0)
+  proxy("CLEAR_ALL_SCENES")
+
+  restart(nil)
+  commandAll()
+  T.eq("before its device first reports: they tell the proxy and the LEDs nothing", said(), {})
+  T.eq("and send the device nothing", commands(), 0)
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A click starts from the level its press found, so a press the light ignored must leave none.
+  light(dimmer)
+  answer(true, 0.6)
+  RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", { suspended = "true" })
+  RFP.DO_PUSH(TOGGLE_LINK, "DO_PUSH", {})
+  answer(false)
+  mark()
+  RFP.DO_CLICK(TOGGLE_LINK, "DO_CLICK", {})
+  run(15000)
+  T.eq("a Toggle press while suspended at 60, then back off: its click turns the light on", levels(), { 100 })
+end
+
 T.finish()

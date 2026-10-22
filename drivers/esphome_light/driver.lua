@@ -1827,18 +1827,18 @@ local function awayFromFadeColor(level)
   return not sameColor(x, y, mode, fade.x, fade.y, fade.mode)
 end
 
--- A suspended device cannot be sent a command, so one that would move the light
--- tells the proxy nothing: it keeps showing the level the light is at.
-local function dropWhileSuspended(command)
-  if suspended then
-    log:debug("%s dropped: the device is suspended", command)
+-- With no state from its device (offline, suspended, unbound or not yet heard) the light takes no command, so
+-- one that would move it tells the proxy nothing: Control4 keeps what it shows.
+local function dropWhileOffline(command)
+  if STATE == nil then
+    log:debug("%s dropped: the device is offline", command)
   end
-  return suspended
+  return STATE == nil
 end
 
 --- @param replaced table|nil A ramp the caller already ended for this one.
 local function rampToBrightness(level, rate, presetId, replaced)
-  if dropWhileSuspended("Level " .. tostring(level)) then
+  if dropWhileOffline("Level " .. tostring(level)) then
     return
   end
   level = math.max(0, math.min(100, math.floor((level or 0) + 0.5)))
@@ -2173,7 +2173,7 @@ end
 
 -- An On/Off-only light switches at once, replacing a ramp in flight.
 local function switchLight(on)
-  if dropWhileSuspended(on and "On" or "Off") then
+  if dropWhileOffline(on and "On" or "Off") then
     return
   end
   stopSceneSteps()
@@ -2865,7 +2865,7 @@ function RFP.ACTIVATE_SCENE(idBinding, strCommand, tParams, args)
     return
   end
   local sceneId = tointeger(Select(tParams, "SCENE_ID"))
-  if sceneId == nil or dropWhileSuspended("Scene " .. sceneId) then
+  if sceneId == nil or dropWhileOffline("Scene " .. sceneId) then
     return
   end
   stopAllScenes()
@@ -3261,6 +3261,10 @@ end
 -- DO_PUSH / DO_RELEASE (button-link path, e.g. a keypad button bound to one
 -- of our BUTTON_LINK connections). Returns nothing.
 local function handleButtonAction(buttonId, action)
+  -- Before the press's snapshot, which a click after the device is back would start from.
+  if dropWhileOffline("Button action " .. tostring(action)) then
+    return
+  end
   if action == constants.ButtonActions.PRESS then
     -- Button-down. Snapshot brightness for the click race, then start a hold
     -- ramp at the persisted hold rate. If the proxy decides this was a click,
@@ -3334,7 +3338,7 @@ function RFP.BUTTON_ACTION(idBinding, strCommand, tParams, args)
   local buttonId = tointeger(Select(tParams, "BUTTON_ID"))
   local action = tointeger(Select(tParams, "ACTION"))
   -- Its echo moves the proxy to the button's on/off target too.
-  if dropWhileSuspended("Button action " .. tostring(action)) then
+  if dropWhileOffline("Button action " .. tostring(action)) then
     return
   end
 
