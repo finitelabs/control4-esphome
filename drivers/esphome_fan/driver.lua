@@ -474,8 +474,13 @@ function RFP.BUTTON_ACTION(idBinding, strCommand, tParams, args)
   end
 end
 
-OBC[ESPHOME_BINDING] = function()
+OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   -- When the binding is changed, reset globals to allow for a refresh of the driver state.
   ENTITY = nil
   STATE = nil
+  -- Otherwise the proxy stays online with nothing to report to it.
+  if not isBound then
+    updateStatus("Disconnected", false)
+    SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
+  end
 end

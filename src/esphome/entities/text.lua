@@ -24,7 +24,8 @@ end
 --- @return void
 function TextEntity:updated(entity, state)
   log:trace("TextEntity:updated(%s, %s)", entity, state)
-  values:update(entity.name, state.state or "", "STRING", function(newValue)
+  local reported = state.state or ""
+  values:update(entity.name, reported, "STRING", function(newValue)
     -- Convert the Control4 value (string or number) to a number for ESPHome
     self.client
       :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.text_command, {
@@ -36,6 +37,7 @@ function TextEntity:updated(entity, state)
         log:info("Text value updated to %s for %s", newValue or "", ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update text value for %s: %s", ESPHomeClient.describeEntity(entity), error)
+        values:update(entity.name, reported, "STRING")
       end)
   end)
 end

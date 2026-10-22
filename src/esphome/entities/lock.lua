@@ -30,7 +30,7 @@ function LockEntity:discovered(entity)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
     if strCommand == "REFRESH_STATE" then
       -- TODO: Find a more elegant way to refresh the state of the light entity.
-      RefreshStatus()
+      RefreshState(idBinding)
     elseif strCommand == "ENTITY_COMMAND" then
       local command = ESPHomeProtoSchema.RPC.APIConnection[Select(tParams, "command")]
         or ESPHomeProtoSchema.RPC.APIConnection.lock_command
@@ -61,11 +61,13 @@ function LockEntity:discovered(entity)
 end
 
 --- Notify sub-drivers that the ESPHome device has disconnected.
+--- @param suspended? boolean The driver dropped the connection itself, at a lapse or to resubscribe the device
+--- logs: the device was not lost.
 --- @return void
-function LockEntity:disconnected()
-  log:trace("LockEntity:disconnected()")
+function LockEntity:disconnected(suspended)
+  log:trace("LockEntity:disconnected(%s)", suspended)
   for _, binding in pairs(bindings:getDynamicBindings(self.TYPE)) do
-    SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", {}, "NOTIFY")
+    SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", { suspended = suspended or nil }, "NOTIFY")
   end
 end
 

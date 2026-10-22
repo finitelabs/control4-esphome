@@ -691,6 +691,16 @@ function PresenceTracker:checkAwayStatus()
   end
 end
 
+--- Restart the away clock of every device that is home, for a time the proxies could not hear it.
+function PresenceTracker:holdPresence()
+  local now = os.time()
+  for _, state in pairs(self._deviceState) do
+    if state.isHome then
+      state.lastSeen = now
+    end
+  end
+end
+
 --- Handle device entering a room
 --- @param mac string MAC address
 --- @param room string Room name
