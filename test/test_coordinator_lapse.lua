@@ -55,6 +55,14 @@ local function awayCheck()
   TimerFunctions[Timer.AwayCheck](Timer.AwayCheck, 0)
 end
 
+--- Run `n` of the coordinator's 10 s license checks with the cloud client's DC_X at `x`.
+local function licenseChecks(n, x)
+  DC_X = x
+  for _ = 1, n do
+    TimerFunctions[Timer.LicenseCheck](Timer.LicenseCheck, 0)
+  end
+end
+
 --- A coordinator with one scanner in the Kitchen and a BTHome tag it has placed there. Only a device selected
 --- under Select Bluetooth Devices too is placed in a room.
 local function tagInKitchen()
@@ -108,7 +116,8 @@ end)
 
 H.test("a lapsed license holds the tag home, and Away runs again once the license is active", function()
   tagInKitchen()
-  DC_X = 0
+  -- A lapse as the ESPHome drivers act on it: six checks in a row at 0, a minute.
+  licenseChecks(6, 0)
   for _ = 1, 20 do
     clock = clock + 30
     awayCheck()
@@ -117,7 +126,7 @@ H.test("a lapsed license holds the tag home, and Away runs again once the licens
   T.eq("and its contact and the Kitchen's stay closed", opened(), 0)
   T.eq("it is still in the Kitchen", H.variable("Presence Test Tag [AABBCCDDEE01] Room"), "Kitchen")
 
-  DC_X = 1
+  licenseChecks(1, 1)
   clock = clock + 30
   awayCheck()
   clock = clock + AWAY_TIMEOUT
@@ -136,10 +145,10 @@ end)
 
 H.test("a tag heard again after the lapse stays home", function()
   tagInKitchen()
-  DC_X = 0
+  licenseChecks(6, 0)
   clock = clock + 600
   awayCheck()
-  DC_X = 1
+  licenseChecks(1, 1)
   clock = clock + 30
   awayCheck()
   clock = clock + 20
@@ -147,6 +156,20 @@ H.test("a tag heard again after the lapse stays home", function()
   clock = clock + AWAY_TIMEOUT
   awayCheck()
   T.eq("no presence event fires", events(), {})
+  DC_X = nil
+end)
+
+H.test("a 0 that does not last a minute, as at a boot before the Cloud driver answers, holds nothing", function()
+  tagInKitchen()
+  licenseChecks(5, 0)
+  clock = clock + AWAY_TIMEOUT + 30
+  awayCheck()
+  T.eq("a tag no proxy hears for the Away Timeout is still Away", events(), {
+    "room_20_empty",
+    "device_AABBCCDDEE01_away",
+    "device_AABBCCDDEE01_left_room",
+    "any_device_left_room",
+  })
   DC_X = nil
 end)
 

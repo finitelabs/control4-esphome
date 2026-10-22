@@ -66,6 +66,8 @@ local selectedDevices = {} -- MAC -> DeviceInfo for selected devices
 --- @type C4LuaTimer|nil
 local awayCheckTimer = nil
 --#ifdef DRIVERCENTRAL
+local UNLICENSED_CHECKS = 6 -- a minute, as long as the cloud client waits on the Cloud driver
+local unlicensedChecks = 0
 local lapsed = false -- whether the last away check saw the license lapsed
 --#endif
 
@@ -615,13 +617,21 @@ local function setupPresenceTracker()
   -- Create generic presence events
   presenceTracker:createGenericEvents()
 
+  --#ifdef DRIVERCENTRAL
+  -- DC_X is also 0 from late init until the Cloud driver first answers, which a controller boot can delay, so only
+  -- a 0 that lasts is a lapse, counted as the ESPHome drivers count it before they drop their devices.
+  SetTimer("LicenseCheck", 10 * ONE_SECOND, function()
+    unlicensedChecks = DC_X == 0 and unlicensedChecks + 1 or 0
+  end, true)
+  --#endif
+
   -- Start away check timer
   awayCheckTimer = SetTimer("AwayCheck", 30 * 1000, function()
     --#ifdef DRIVERCENTRAL
     -- A lapse disconnects every ESPHome device, so a device not heard meanwhile may still be home. The check
     -- after it holds too, so the proxies get a whole Away Timeout to report again.
     local wasLapsed = lapsed
-    lapsed = DC_X == 0
+    lapsed = unlicensedChecks >= UNLICENSED_CHECKS
     if lapsed or wasLapsed then
       presenceTracker:holdPresence()
       return

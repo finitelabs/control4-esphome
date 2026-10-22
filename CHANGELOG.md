@@ -111,6 +111,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed the Bluetooth Coordinator marking its presence devices Away, and running
   their Away, Left Room and Room Empty Programming, when the DriverCentral
   license lapsed
+- Fixed the ESPHome driver disconnecting its device at a controller start,
+  before the DriverCentral Cloud driver had answered, which showed a light that
+  was on as off and ran its Light Off and then its Light On Programming; it now
+  stops only once a minute passes without an active license, and connects again
+  as soon as one is active
   <!-- #endif -->
 
 ### Changed

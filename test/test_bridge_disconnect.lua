@@ -29,6 +29,12 @@ function C4:GetDevicesByC4iName()
 end
 function C4:UpdatePropertyList() end
 function C4:AddDynamicBinding() end
+local status -- the bridge's Driver Status, as Director would show it
+function C4:UpdateProperty(name, value)
+  if name == "Driver Status" then
+    status = value
+  end
+end
 
 local bindings = require("lib.bindings")
 local ESPHomeClient = require("esphome.client")
@@ -116,6 +122,19 @@ end
 local SUSPENDED = { "suspended", "suspended", "suspended", "suspended", "suspended" }
 local LOST = { "lost", "lost", "lost", "lost", "lost" }
 
+--- Run `n` heartbeats with the cloud client's DC_X at `x`.
+local function beats(n, x)
+  DC_X = x
+  for _ = 1, n do
+    ShimFireTimers()
+  end
+end
+
+--- A lapse as the bridge acts on it: DC_X at 0 for six heartbeats in a row, a minute.
+local function lapse()
+  beats(6, 0)
+end
+
 T.section("A connection property change while connected notifies the children")
 do
   local sent = loadBridge(false)
@@ -167,9 +186,8 @@ do
   local sent, state = loadBridge(false)
   Properties["IP Address"] = "192.168.1.119"
   Connect()
-  -- The DriverCentral cloud client sets DC_X to 0 when the license lapses; the next heartbeat acts on it.
-  DC_X = 0
-  ShimFireTimers()
+  -- The DriverCentral cloud client sets DC_X to 0 when the license lapses.
+  lapse()
   T.eq("a lapse tells every child the device is suspended, so a light keeps its level", told(sent), SUSPENDED)
   ShimFireTimers()
   T.eq("and only once", told(sent), SUSPENDED)
@@ -183,13 +201,12 @@ do
   ShimFireTimers()
   T.eq("a device lost then tells every child it is lost, so a light reads off", told(sent, from), LOST)
 
-  -- Lost in the heartbeat the lapse is seen in: the license did not end that connection.
+  -- Lost in the heartbeat the lapse is acted on: the license did not end that connection.
   from = #sent + 1
-  ShimFireTimers()
+  beats(5, 0)
   state.connected = false
-  DC_X = 0
-  ShimFireTimers()
-  T.eq("a device lost just before a lapse is seen tells them it is lost", told(sent, from), LOST)
+  beats(1, 0)
+  T.eq("a device lost just before a lapse is acted on tells them it is lost", told(sent, from), LOST)
   DC_X = nil
 end
 
@@ -198,8 +215,7 @@ do
   local sent, state = loadBridge(false)
   Properties["IP Address"] = "192.168.1.119"
   Connect()
-  DC_X = 0
-  ShimFireTimers()
+  lapse()
   local from = #sent + 1
   state.reachable = false -- it lost power while the license was lapsed
   DC_X = 1
@@ -211,6 +227,26 @@ do
   ShimFireTimers()
   T.check("it connects again when the device is back", state.connected)
   T.eq("telling the children nothing more", told(sent, from), LOST)
+  DC_X = nil
+end
+
+T.section("A license 0 that does not last a minute, as at a boot before the Cloud driver answers, keeps the device")
+do
+  local sent, state = loadBridge(false)
+  Properties["IP Address"] = "192.168.1.119"
+  Connect()
+  status = nil
+  beats(5, 0)
+  T.check("five heartbeats at 0 keep the bridge connected", state.connected)
+  T.eq("and tell the children nothing", told(sent), {})
+  T.check("nor read No active license", status ~= "No active license", status)
+  beats(1, 1)
+  beats(5, 0)
+  T.check("a license between them starts the minute again", state.connected)
+  beats(1, 0)
+  T.check("the sixth 0 in a row drops the connection", not state.connected)
+  T.eq("telling every child the device is suspended", told(sent), SUSPENDED)
+  T.eq("and reads No active license", status, "No active license")
   DC_X = nil
 end
 

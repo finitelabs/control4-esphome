@@ -272,7 +272,12 @@ is an outline of the basic steps for your convenience.
 
 ##### Cloud Status (read-only)
 
-Displays the DriverCentral cloud license status.
+Displays the DriverCentral cloud license status. Without an active license,
+Driver Status reads `No active license`: the driver disconnects from the device
+and shows its lights, fans, locks and thermostats offline, a light at the level
+it had, until a license is active again. The driver checks every 10 seconds,
+stops once a minute passes without a license, and connects again as soon as one
+is active.
 
 <!-- #endif -->
 

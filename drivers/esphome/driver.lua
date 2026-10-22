@@ -443,6 +443,11 @@ local FATAL_ERROR_BACKOFF = 120
 --- sub-drivers would never be told the device went away.
 local wasConnected = false
 
+--#ifdef DRIVERCENTRAL
+local UNLICENSED_CHECKS = 6 -- a minute, as long as the cloud client waits on the Cloud driver
+local unlicensedChecks = 0
+--#endif
+
 function Connect()
   log:trace("Connect()")
   if not gInitialized then
@@ -487,7 +492,10 @@ function Connect()
 
   local heartbeat = function()
     --#ifdef DRIVERCENTRAL
-    if DC_X == 0 then
+    -- DC_X is also 0 from late init until the Cloud driver first answers, which a controller boot can delay, so
+    -- only a 0 that lasts drops the connection; a license connects again at once.
+    unlicensedChecks = DC_X == 0 and unlicensedChecks + 1 or 0
+    if unlicensedChecks >= UNLICENSED_CHECKS then
       updateStatus("No active license", false)
       -- A connection already lost was the device going away, not the lapse.
       suspended = suspended or esphome:isConnected()
