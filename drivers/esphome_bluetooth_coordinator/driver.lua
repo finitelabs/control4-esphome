@@ -65,6 +65,9 @@ local initialized = false
 local selectedDevices = {} -- MAC -> DeviceInfo for selected devices
 --- @type C4LuaTimer|nil
 local awayCheckTimer = nil
+--#ifdef DRIVERCENTRAL
+local lapsed = false -- whether the last away check saw the license lapsed
+--#endif
 
 --------------------------------------------------------------------------------
 -- Property Helpers
@@ -614,6 +617,16 @@ local function setupPresenceTracker()
 
   -- Start away check timer
   awayCheckTimer = SetTimer("AwayCheck", 30 * 1000, function()
+    --#ifdef DRIVERCENTRAL
+    -- A lapse disconnects every ESPHome device, so a device not heard meanwhile may still be home. The check
+    -- after it holds too, so the proxies get a whole Away Timeout to report again.
+    local wasLapsed = lapsed
+    lapsed = DC_X == 0
+    if lapsed or wasLapsed then
+      presenceTracker:holdPresence()
+      return
+    end
+    --#endif
     presenceTracker:checkAwayStatus()
   end, true) -- Repeat
 end

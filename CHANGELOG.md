@@ -95,6 +95,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   DriverCentral license lapsed; it now shows offline at the level it had, and
   once a license is active again it shows the level the light reports. A light
   whose ESPHome device drops off the network is still shown as off
+- Fixed the Bluetooth Coordinator marking its presence devices Away, and running
+  their Away, Left Room and Room Empty Programming, when the DriverCentral
+  license lapsed
   <!-- #endif -->
 
 ### Changed
