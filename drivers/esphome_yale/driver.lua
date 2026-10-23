@@ -98,6 +98,10 @@ local KEY_CHECK_STARTUP_DELAY_MS = 5 * ONE_MINUTE
 --- Seconds between checks set off by rejections: a wrong key fails every connect
 local KEY_REJECTED_CHECK_SPACING_S = 15 * 60
 
+--- Rejections in a row before Yale Cloud Status reports one: a link lost during
+--- the handshake looks the same as a refused key
+local KEY_REJECTIONS_TO_REPORT = 5
+
 --- Renew the access token when it expires within this many seconds
 local TOKEN_RENEWAL_WINDOW_S = 7 * 24 * 60 * 60
 
@@ -209,6 +213,10 @@ local lastKeyCheckAt = nil
 --- Yale Cloud Status from before a key rejection, restored when a key works
 --- @type string|nil
 local statusBeforeRejection = nil
+
+--- Connects in a row the lock turned the key down
+--- @type number
+local keyRejections = 0
 
 --------------------------------------------------------------------------------
 -- Handle Management
@@ -1337,7 +1345,7 @@ local function checkCloudKey(reason)
     end)
     :next(nil, function(err)
       local code = tointeger(Select(err, "code"))
-      if code == 401 then
+      if code == 401 or code == 403 then
         log:warn("The Yale cloud no longer accepts the kept session")
         clearCloudSession()
         return reject(STATUS_SIGN_IN_EXPIRED)
@@ -1353,6 +1361,15 @@ end
 --- Defined below runKeyCheck, which re-arms it.
 local scheduleKeyCheck
 
+--- Show that the lock rejects the key, keeping the status it replaces.
+--- @param status string
+local function showKeyRejected(status)
+  if statusBeforeRejection == nil then
+    statusBeforeRejection = Properties["Yale Cloud Status"] or ""
+  end
+  UpdateProperty("Yale Cloud Status", status)
+end
+
 --- Check the cloud for the key, show the result and arm the next check. A
 --- changed key connects at once rather than at the next poll or retry.
 --- @param reason string Why the check runs, for the log
@@ -1364,14 +1381,15 @@ local function runKeyCheck(reason, retryCommand)
       if changed then
         log:info("The lock's offline key changed in the Yale cloud - updated")
         statusBeforeRejection = nil
+        keyRejections = 0
         UpdateProperty("Yale Cloud Status", "Keys updated " .. os.date("%Y-%m-%d %H:%M"))
         reconnectAttempts = 0
         if handshakeState == HANDSHAKE_STATE.IDLE then
           CancelTimer("Reconnect")
           initiateCommand(retryCommand or "status")
         end
-      elseif statusBeforeRejection ~= nil then
-        UpdateProperty("Yale Cloud Status", STATUS_KEY_REJECTED)
+      elseif keyRejections >= KEY_REJECTIONS_TO_REPORT then
+        showKeyRejected(STATUS_KEY_REJECTED)
       else
         UpdateProperty("Yale Cloud Status", "Keys checked " .. os.date("%Y-%m-%d %H:%M"))
       end
@@ -1396,30 +1414,26 @@ scheduleKeyCheck = function(delayMs)
   end)
 end
 
---- The lock turned the key down: check the cloud now, or without a session say
---- to fetch keys again.
+--- The lock turned the key down: check the cloud now, and once it has happened
+--- several times in a row say so.
 --- @param command? string The command the rejected connect was for
 onKeyRejected = function(command)
-  log:warn("The lock rejected the offline key for slot %d", getKeySlot())
-  if statusBeforeRejection == nil then
-    statusBeforeRejection = Properties["Yale Cloud Status"] or ""
+  keyRejections = keyRejections + 1
+  log:warn("The lock rejected the offline key for slot %d (%d in a row)", getKeySlot(), keyRejections)
+  local signedIn = cloudToken() ~= nil
+  if signedIn and not (lastKeyCheckAt and os.time() - lastKeyCheckAt < KEY_REJECTED_CHECK_SPACING_S) then
+    if command ~= "lock" and command ~= "unlock" then
+      command = nil
+    end
+    runKeyCheck("the lock rejected the key", command)
+  elseif keyRejections >= KEY_REJECTIONS_TO_REPORT then
+    showKeyRejected(signedIn and STATUS_KEY_REJECTED or STATUS_KEY_REJECTED_SIGNED_OUT)
   end
-  if not cloudToken() then
-    UpdateProperty("Yale Cloud Status", STATUS_KEY_REJECTED_SIGNED_OUT)
-    return
-  end
-  if lastKeyCheckAt and os.time() - lastKeyCheckAt < KEY_REJECTED_CHECK_SPACING_S then
-    UpdateProperty("Yale Cloud Status", STATUS_KEY_REJECTED)
-    return
-  end
-  if command ~= "lock" and command ~= "unlock" then
-    command = nil
-  end
-  runKeyCheck("the lock rejected the key", command)
 end
 
 --- The lock took the key: put back the status a rejection replaced.
 onKeyAccepted = function()
+  keyRejections = 0
   if statusBeforeRejection ~= nil then
     UpdateProperty("Yale Cloud Status", statusBeforeRejection)
     statusBeforeRejection = nil
@@ -1661,10 +1675,12 @@ end
 
 function OPC.Offline_Key(propertyValue)
   log:trace("OPC.Offline_Key('%s')", not IsEmpty(propertyValue) and "****" or "")
+  keyRejections = 0
 end
 
 function OPC.Key_Slot(propertyValue)
   log:trace("OPC.Key_Slot('%s')", propertyValue)
+  keyRejections = 0
 end
 
 function OPC.Yale_Email(propertyValue)
@@ -2071,6 +2087,7 @@ function EC.Verify_And_Fetch_Keys(params)
     applyKeys(result)
     lastKeyCheckAt = os.time()
     statusBeforeRejection = nil
+    keyRejections = 0
     UpdateProperty("Yale Cloud Status", "Keys fetched successfully")
     log:info("Successfully fetched offline key (slot %s)", result.keySlot)
     scheduleKeyCheck()
@@ -2114,6 +2131,7 @@ function EC.Reset_Driver(params)
   augustSessionToken = nil
   lastKeyCheckAt = nil
   statusBeforeRejection = nil
+  keyRejections = 0
   initialStatusTriggered = false
   expectedDisconnect = false
   doorSenseConfigured = nil
