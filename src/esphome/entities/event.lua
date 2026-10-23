@@ -37,14 +37,7 @@ function EventEntity:discovered(entity)
   for _, eventType in ipairs(eventTypes) do
     local name = entity.name .. ": " .. eventType
     local description = "NAME " .. entity.name .. " " .. eventType .. " event"
-    local event = events:getOrAddEvent("event_" .. entity.ref, eventType, name, description)
-    if event ~= nil and (event.name ~= name or event.description ~= description) then
-      -- lib.events never renames or rewords, but adding a known event id again updates it in place.
-      local all = events:getEvents()
-      all["event_" .. entity.ref][eventType] = { eventId = event.eventId, name = name, description = description }
-      events:_saveEvents(all)
-      C4:AddEvent(event.eventId, name, description)
-    end
+    events:getOrAddEvent("event_" .. entity.ref, eventType, name, description)
 
     -- provider=false is the keypad side: this driver sends button events rather
     -- than receiving them, and each event type drives its own load.
