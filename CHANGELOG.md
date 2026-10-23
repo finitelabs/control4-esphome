@@ -170,6 +170,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   of the error
 - Fixed the Yale driver writing the lock's offline key to the log at Debug level
   when fetching keys
+- Fixed a SwitchBot Relay Switch ignoring the device's reply to every command,
+  so a command it refused, as with an incorrect encryption key, went unreported
 
 ### Changed
 
