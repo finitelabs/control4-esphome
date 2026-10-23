@@ -1042,6 +1042,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   still counted, after a presence device in it was removed from Select Presence
   Devices, so later occupants never fired its Occupied or Empty events; the room
   now empties when its last device is removed
+- Fixed Yale locks failing almost every connection since v20260802, so Poll mode
+  never read the lock and Persistent mode gave up after its retries
+- Fixed a Yale lock showing an unknown state for a moment after every lock and
+  unlock; a lock or unlock that jams now shows a fault
 
 ### Changed
 

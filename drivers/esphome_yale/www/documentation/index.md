@@ -168,9 +168,11 @@ and the Door Status property is hidden.
 
 ## Jam Detection
 
-After a lock or unlock command, the driver re-queries lock status to confirm the
-operation succeeded. If the lock reports a jam, the status is updated to `fault`
-on the Control4 lock proxy.
+The lock reports the result of each lock or unlock when its motor stops. If the
+motor could not finish, as when the bolt jams, the status is updated to `fault`
+on the Control4 lock proxy. The driver also re-queries lock status after the
+command to confirm the operation, and a lock that reports a jam there shows
+`fault` too.
 
 # <span style="color:#17BCF2">Installer Setup</span>
 
