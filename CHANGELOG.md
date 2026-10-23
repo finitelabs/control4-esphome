@@ -32,11 +32,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ### Fixed
 
 - Fixed the SwitchBot and Yale drivers waiting indefinitely when the Bluetooth
-  proxy or coordinator never answered a connection request, as when it restarted
+  proxy or coordinator never finished a connection request, as when it restarted
   mid-connect: a SwitchBot stayed Busy with the command queued, and a Yale lock
-  in Poll mode stopped polling; the driver now gives up after a little over
-  three minutes, frees the proxy's connection slot and handles it as a failed
-  connection
+  in Poll mode stopped polling; the proxy now fails a connection after 30
+  seconds and the coordinator tries the next proxy, and the driver still gives
+  up after a little over three minutes if nothing answers
 - Fixed a Yale lock in Persistent mode counting a failed or timed-out handshake
   as two failures, using up its reconnect attempts twice as fast and retrying a
   lock or unlock that hit it as a status read instead
@@ -48,10 +48,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a SwitchBot Relay Switch with no encryption key staying Busy and keeping
   the proxy's connection slot when a connection came up without the device's
   Bluetooth characteristics; it now disconnects and frees the slot
-- Fixed the SwitchBot and Yale drivers waiting indefinitely when an ESPHome
-  proxy answered a connection request without ever connecting or failing; the
-  proxy now fails the connection after 30 seconds and the coordinator tries the
-  next proxy
 - Fixed the Bluetooth coordinator trying a proxy with no free connection slot,
   and a slow connection taking up to 90 seconds on one proxy and four and a half
   minutes through the coordinator; the coordinator now moves on from a full
