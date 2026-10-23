@@ -1048,6 +1048,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   unlock; a lock or unlock that jams now shows a fault
 - Fixed a SwitchBot Relay Switch ignoring the device's reply to every command,
   so a command it refused, as with an incorrect encryption key, went unreported
+- Fixed the Programming events of an ESPHome event entity, a BTHome button or
+  dimmer and a Govee probe or sensor error leaving the device's name out of
+  their script title in Composer Pro, as in "Button pressed once"; the title now
+  names the device
 
 ### Changed
 
