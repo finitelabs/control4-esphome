@@ -2915,6 +2915,31 @@ test("A restored hold is not carried onto a water heater", function()
   T.check("and the restored hold is dropped from storage", type(stored) == "table" and stored.mode == nil)
 end)
 
+test("An offline thermostat is shown no mode, vane or water heater mode it was sent", function()
+  -- The bridge drops a command to a device it is not connected to, so an echo shows what the device never reached.
+  local function showsNothing(case)
+    resetSent()
+    RFP.SET_MODE_OFF(PROXY, "SET_MODE_OFF")
+    RFP.SET_MODE_HVAC(PROXY, "SET_MODE_HVAC", { MODE = "Heat" })
+    RFP.SET_MODE_SWING(PROXY, "SET_MODE_SWING", { value = "Vertical" })
+    RFP.SET_MODE_WATER_HEATER(PROXY, "SET_MODE_WATER_HEATER", { value = "Eco Mode" })
+    T.eq(case .. ": the proxy is told no HVAC mode", lastSent("HVAC_MODE_CHANGED"), nil)
+    T.eq(case .. ": nor an Extras state", lastSent("EXTRAS_STATE_CHANGED"), nil)
+    T.eq(case .. ": and the device is sent nothing", lastSent("ENTITY_COMMAND"), nil)
+  end
+  updateState(singleSetpointEntity(), { mode = Mode.COOL })
+  disconnect()
+  showsNothing("its device lost")
+  updateState(singleSetpointEntity(), { mode = Mode.COOL })
+  OBC[ESPHOME](ESPHOME, "ESPHOME_CLIMATE", false)
+  showsNothing("its connection unbound")
+
+  updateState(singleSetpointEntity(), { mode = Mode.COOL })
+  resetSent()
+  RFP.SET_MODE_HVAC(PROXY, "SET_MODE_HVAC", { MODE = "Heat" })
+  T.eq("back, a mode is shown and sent", Select(lastSent("HVAC_MODE_CHANGED"), "params", "MODE"), "Heat")
+end)
+
 ---------------------------------------------------------------------------
 
 SendToProxy = originalSendToProxy

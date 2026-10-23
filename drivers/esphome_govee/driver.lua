@@ -60,25 +60,25 @@ local EVENT_DEFS = {
   probe1_alarm_active = {
     key = "probe1_alarm_active",
     name = "Probe 1 Alarm Active",
-    description = "Probe 1 reached alarm temperature",
+    description = "NAME probe 1 reached alarm temperature",
   },
   probe1_alarm_cleared = {
     key = "probe1_alarm_cleared",
     name = "Probe 1 Alarm Cleared",
-    description = "Probe 1 below alarm temperature",
+    description = "NAME probe 1 below alarm temperature",
   },
   probe2_alarm_active = {
     key = "probe2_alarm_active",
     name = "Probe 2 Alarm Active",
-    description = "Probe 2 reached alarm temperature",
+    description = "NAME probe 2 reached alarm temperature",
   },
   probe2_alarm_cleared = {
     key = "probe2_alarm_cleared",
     name = "Probe 2 Alarm Cleared",
-    description = "Probe 2 below alarm temperature",
+    description = "NAME probe 2 below alarm temperature",
   },
-  error_detected = { key = "error_detected", name = "Error Detected", description = "Sensor reported an error" },
-  error_cleared = { key = "error_cleared", name = "Error Cleared", description = "Sensor error cleared" },
+  error_detected = { key = "error_detected", name = "Error Detected", description = "NAME reported an error" },
+  error_cleared = { key = "error_cleared", name = "Error Cleared", description = "NAME error cleared" },
 }
 
 --- Map device types to their supported event keys

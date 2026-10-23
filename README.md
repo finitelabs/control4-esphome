@@ -212,7 +212,7 @@ Sets the logging mode. Default is `Off`.
 
 Forward ESPHome device logs to the driver's Lua output at the current Log Level.
 Changing Log Level or disabling Log Mode will reconnect to apply the new
-settings.
+settings; a light keeps its level while it does.
 
 #### Device Settings
 
@@ -472,6 +472,9 @@ the matching read-only Device Info properties.
 > one type share a name, or two would write the same variable, the others are
 > told apart by their sub-device or their type (e.g., "Kitchen Temperature" or
 > "Status (Sensor)").
+
+A writable variable shows the device's value. A value set while the device is
+offline, or a date or time in another format, goes back to the device's value.
 
 ### Bindings by Entity Type
 
@@ -922,6 +925,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Added the ESPHome SereneScent sub-driver for Homedics SereneScent BLE
   diffusers, with power, mist intensity and light color control, keypad button
   links and a power relay
+- Added automatic offline key updates to the Yale driver: after Verify and Fetch
+  Keys it checks the Yale cloud for a new key daily and whenever the lock
+  rejects the key, so a changed key no longer means running the actions again
 
 ### Fixed
 
@@ -992,6 +998,89 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   being undone when a Control4 ramp ended, or not shown while it was off
 - Fixed a light sent a level and then a color, such as from Programming, being
   shown for a moment in the color it had before
+- Fixed a light turned on over a ramp time being shown as off until the ramp
+  ended; Control4 now shows it on from the start
+- Fixed a light asked for its level during a ramp being shown as stopped where
+  the ramp began, or as off in a ramp up from off
+- Fixed the keypad LEDs on a light's button links showing it off while it was
+  turned on over a ramp time, and staying lit when the light went offline
+- Fixed a light turned on over a ramp time telling Control4 its Color On Mode's
+  color twice, the first time without its color preset
+- Fixed a light stopped or turned off during a ramp up from off saving 1 % as
+  its Previous On level instead of the one it had, or the level it had reached
+- Fixed a light sent a level and then another soon after, such as a stop just
+  after a ramp up from off began, being shown for a moment at the first level,
+  which the stop then saved as its Previous On level
+- Fixed a light being shown as off, and running its Light Off Programming and
+  then its Light On Programming, when Log Level, Log Mode or Device Log
+  Forwarding was changed while the device's logs were forwarded, as when Log
+  Mode turns itself off after three hours
+- Fixed a light asked for its level before its ESPHome device had reported being
+  shown as off
+- Fixed a light sent a command while its ESPHome device was offline, or its
+  ESPHome Light connection was removed, being shown on, off or at the level
+  sent, and running its Light On or Light Off Programming; it now ignores the
+  command and shows only what the device reports
+- Fixed a thermostat being shown in an HVAC mode, vane position or water heater
+  mode sent while its ESPHome device was offline, or its ESPHome Climate
+  connection was removed, which the device never took
+- Fixed a light, fan or lock still being shown online after its ESPHome Light,
+  ESPHome Fan or ESPHome Lock connection was removed
+- Fixed a switch, number, select, text, date, time or datetime variable keeping
+  a value programming set while the ESPHome device was offline, or a date or
+  time in another format, which the device never took; it now goes back to the
+  device's value
+- Fixed the ESPHome driver's Driver Status reading Refresh failed for a few
+  seconds, in place of why it was not connected, when a connection was made or a
+  sub-driver loaded while the device was offline
+- Fixed a device selected only under Select Presence Devices on the Bluetooth
+  Coordinator never being placed in a room: it was only ever Home or Away, its
+  room events and room occupancy never changed and its Present binding never
+  closed; every presence device's room now comes from the signal each proxy
+  reports for it, smoothed by the RSSI Smoothing Factor
+- Fixed a presence device on the Bluetooth Coordinator staying in a room whose
+  proxy no longer saw it, until it went Away, whenever the proxy that did see it
+  was not stronger than its last signal there by the Room Change Hysteresis
+- Fixed a Bluetooth Coordinator presence device's RSSI variable showing a long
+  fraction of a dBm or, for a device selected only for presence, the raw reading
+  from whichever proxy heard it last; it now shows the signal Minimum Room RSSI
+  is checked against, in whole dBm
+- Fixed a presence device on the Bluetooth Coordinator moving to another room on
+  one weak signal from that room's proxy when the proxy had last heard it close
+  by, more than 30 seconds before; that proxy's signal now starts again from
+  what it hears
+- Fixed a Bluetooth Coordinator presence device's Present binding staying open
+  while the device was home but in no room, as below Minimum Room RSSI; it now
+  closes when the device comes home
+- Fixed the Bluetooth Coordinator's Last Presence variables still describing the
+  previous event when Left Room and Any Device Left Room fired for a device
+  whose signal dropped below Minimum Room RSSI
+- Fixed a presence device on the Bluetooth Coordinator staying in a room after
+  that room's proxy was disconnected from the coordinator, so the room showed
+  empty with the device in it once the proxy was connected again; the device now
+  leaves the room, stays Home and is placed again by its next signal
+- Fixed a room on the Bluetooth Coordinator staying Occupied, with the device
+  still counted, after a presence device in it was removed from Select Presence
+  Devices, so later occupants never fired its Occupied or Empty events; the room
+  now empties when its last device is removed
+- Fixed Yale locks failing almost every connection since v20260802, so Poll mode
+  never read the lock and Persistent mode gave up after its retries
+- Fixed a Yale lock showing an unknown state for a moment after every lock and
+  unlock; a lock or unlock that jams now shows a fault
+- Fixed a Yale lock showing as unlocked for a moment just after it locked, and
+  as locked just after it unlocked
+- Fixed Verify and Fetch Keys taking another lock's key in a Yale account with
+  several locks when this lock's MAC address was not known yet
+- Fixed Yale cloud errors showing in Yale Cloud Status as "Error: table" instead
+  of the error
+- Fixed the Yale driver writing the lock's offline key to the log at Debug level
+  when fetching keys
+- Fixed a SwitchBot Relay Switch ignoring the device's reply to every command,
+  so a command it refused, as with an incorrect encryption key, went unreported
+- Fixed the Programming events of an ESPHome event entity, a BTHome button or
+  dimmer and a Govee probe or sensor error leaving the device's name out of
+  their script title in Composer Pro, as in "Button pressed once"; the title now
+  names the device
 - Fixed a Yale lock or unlock sent while the driver was still connecting being
   lost, with "Connection failed: Superseded by a newer request" in the log
 

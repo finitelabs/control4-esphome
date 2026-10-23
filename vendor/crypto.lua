@@ -1169,6 +1169,10 @@ do
     --- why those two were chosen over the naive "square and multiply with a full
     --- divmod after every step".
     ---
+    --- With `crypto.use_openssl(true)`, `mod_exp` and large `mul`, `divmod`, `mod`
+    --- and `mod_mul` run through lua-openssl's `bn`, each only after the binding
+    --- passes a known-answer check for it; see "INTERNAL: OPENSSL ACCELERATION".
+    ---
     --- Representation
     --- --------------
     --- A big number is a plain Lua array of `LIMB_BITS`-bit limbs, least
@@ -1188,6 +1192,7 @@ do
     local floor = math.floor
     local string_byte = string.byte
     local string_char = string.char
+    local string_find = string.find
     local string_format = string.format
     local string_rep = string.rep
     local string_sub = string.sub
@@ -1199,6 +1204,7 @@ do
     -- ============================================================================
 
     --- @alias BigNum integer[] Little-endian array of 24-bit limbs; {} is zero.
+    --- @alias BigNumOp "mul"|"divmod"|"mod"|"mod_mul"|"mod_exp" An operation OpenSSL may run.
 
     -- Limb width.
     --
@@ -1238,12 +1244,29 @@ do
     --- Largest Lua number that survives `from_number` exactly on a double-only VM.
     local MAX_SAFE_NUMBER = 9007199254740992 -- 2^53
 
-    --- Known-answer vector used to verify an OpenSSL binding before trusting it.
-    --- Deliberately multi-limb so a binding that mis-parses long hex is caught.
-    local ACCEL_CHECK_BASE = "c0ffee0123456789abcdef0123456789abcdef0123456789ab"
-    local ACCEL_CHECK_EXP = "1234567890abcdef1234"
-    local ACCEL_CHECK_MOD = "fffffffffffffffffffffffffffffffffffffffeffffee37"
-    local ACCEL_CHECK_RESULT = "e2f14166c00a4c44a535f801534727158dcfce58a82049b7"
+    -- Known answers shared by `selftest()` and OPENSSL_CHECKS, computed
+    -- independently with CPython. Multi-limb so a binding that mis-parses long
+    -- operands is caught.
+    local VEC_X_HEX = "f0e1d2c3b4a5968778695a4b3c2d1e0fdeadbeefcafebabe0123456789abcdef"
+    local VEC_Y_HEX = "fedcba987654321fedcba9876543210abcdef0123456789"
+    local VEC_M_HEX = "fffffffffffffffffffffffffffffffeffffffffffffffff"
+    local VEC_ADD_HEX = "f0e1d2c3b4a59687885725f4c3926131dd8a79884152ecceacf13468acf13578"
+    local VEC_SUB_HEX = "f0e1d2c3b4a59687687b8ea1b4c7daeddfd1045754aa88ad5555566666666666"
+    local VEC_MUL_HEX = table_concat({
+      "efcfc0c2d5fa2f84db52db751fdba8927fd0cfb89d03a6e23469667bcbb09e04",
+      "0c96803be0e492284a6a2290002002425d85431fb375de7",
+    })
+    local VEC_QUO_HEX = "f1f51dfdb8e1c16d7"
+    local VEC_REM_HEX = "4e56a81e2677fc8622ba2a844cc25a8440c2e32a28013e0"
+    local VEC_MOD_X_HEX = "78695a4b3c2d1e10cf8f91b37fa45145f205182b3e516476"
+    local VEC_MOD_ADD_HEX = "885725f4c3926132ce6c4c4bf5f883569dd3072c6196cbff"
+    local VEC_MOD_SUB_HEX = "9784715e4b3825112f4d28e4f6afe0c9b9c8d6d5e4f40312"
+    local VEC_MOD_MUL_HEX = "c5789ec2c73be1123b996b5bf34a44eba5d1145d374fc548"
+    local VEC_MOD_EXP_HEX = "e6663770f70809f8c052b35cc00534b8d5b2c013a9d4874c"
+
+    --- Minimum pure-Lua limb products per limb converted for mul, divmod, mod and
+    --- mod_mul to route to OpenSSL; see "INTERNAL: OPENSSL ACCELERATION".
+    local ROUTE_MIN_RATIO = 4
 
     -- ============================================================================
     -- INTERNAL: CORE HELPERS
@@ -1339,6 +1362,10 @@ do
     --- @param b BigNum Subtrahend (must not exceed a)
     --- @return BigNum difference
     local function sub_raw(a, b)
+      -- The loop reads only #a limbs of b, and with canonical operands a wider b is a larger b.
+      if #b > #a then
+        error("bignum: subtraction would be negative")
+      end
       local r = {}
       local borrow = 0
       local na = #a
@@ -1793,21 +1820,74 @@ do
     -- ============================================================================
 
     -- The canonical representation is ALWAYS the pure-Lua limb table. OpenSSL is
-    -- used only as an internal accelerator *inside* mod_exp: operands are converted
-    -- into openssl.bn handles (big-endian bytes in via bn.text), the modexp runs
-    -- there, and the result is converted straight back to a limb table (hex out via
-    -- bn.tohex). That is exactly the conversion path Feature.BN probes.
+    -- used only as an internal accelerator inside individual operations: operands
+    -- are converted into openssl.bn handles (big-endian bytes in via bn.text), the
+    -- operation runs there, and the result is converted straight back to a limb
+    -- table (hex out via bn.tohex). That is exactly the conversion path Feature.BN
+    -- probes.
     --
     -- Rationale: crypto.use_openssl() can be toggled at runtime, so if handles were
     -- sometimes userdata and sometimes tables, a toggle mid-flight would produce
     -- mixed-type operands and silent breakage. Keeping one canonical type makes the
     -- accelerator invisible to callers -- results are identical with and without
-    -- it, and selftest() asserts exactly that. The conversion cost is a few hundred
-    -- bytes moved in and out versus a 3072-bit modexp, so it is noise.
+    -- it, and selftest() asserts exactly that.
+    --
+    -- Conversion runs in Lua and is linear in the limbs moved; the pure-Lua cost is
+    -- the schoolbook limb products. So mul, divmod, mod and mod_mul route only once
+    -- estimated work reaches ROUTE_MIN_RATIO limb products per limb converted,
+    -- which keeps linear-cost calls here at any width: a one-limb factor or
+    -- divisor, a quotient of a limb or two, operands already reduced. add and sub
+    -- never route, and mod_add/mod_sub reach the binding only through `mod` with an
+    -- unreduced operand. mod_exp routes at every size: even a small one does
+    -- quadratic work per exponent bit.
+    --
+    -- Pure-Lua time over OpenSSL time including both conversions; lua-openssl
+    -- 0.8.5 over OpenSSL 3.5 on Apple Silicon (2026-10-17), best of several warm
+    -- runs, widths in 24-bit limbs (128 = 3072 bits):
+    --
+    --   call                              Lua 5.4   LuaJIT    LuaJIT -joff
+    --   mul 128x128                        16.3x    5.2-6.0x     11.8x
+    --   divmod 256/128                     14.1x    5.2-7.4x     15.7x
+    --   mod_mul 128,128,128                29.5x   12.7-13.4x    25.2x
+    --   mod_mul 22,128,128 (SRP's k*v)      8.8x      3.6x        6.8x
+    --   mul 22x22 (SRP's u*x)               2.7x    0.6-0.7x      2.1x
+    --   mul 9x128                           2.2x    0.5-0.6x      1.6x
+    --   mod 129/128 (quotient of 2 limbs)   0.9x    0.5-0.6x      0.8x
+    --   divmod 300/1                        0.3x    0.2x          0.3x
+    --   add, sub 128                        0.1x      0.0x        0.2x
+    --
+    -- At 4, every routed shape wins by 1.5x or more under Lua 5.4 and LuaJIT -joff.
+    -- With the JIT on, mul loses about 2x (2-3 us for SRP's u*x) when its narrower
+    -- factor is under about 24 limbs, or a square under 32. No floor is set: one
+    -- would give up the interpreter's 1.6-2.7x on those shapes, and whether
+    -- Control4's LuaJIT runs its JIT is not recorded. Divides and mod_mul win or
+    -- come within about 15% even there.
 
-    --- Binding whose behaviour has already been verified, and the verdict.
+    --- Binding whose behaviour has been checked, and the verdict per operation.
+    --- @type table?
     local _verified_binding = nil
-    local _verified_ok = false
+    --- @type table<BigNumOp, boolean>
+    local _verified_ops = {}
+
+    --- Estimated pure-Lua cost of a schoolbook division, in limb products.
+    --- @param na integer Limbs in the dividend
+    --- @param nb integer Limbs in the divisor
+    --- @return integer work
+    local function div_work(na, nb)
+      if na < nb then
+        return 0
+      end
+      return (na - nb + 1) * nb
+    end
+
+    --- Whether an operation is worth sending through the binding.
+    --- @param work integer Estimated pure-Lua cost, in limb products
+    --- @param limbs_in integer Limbs converted into the binding (the operands)
+    --- @param limbs_out integer Most limbs converted back out (the results)
+    --- @return boolean
+    local function worth_routing(work, limbs_in, limbs_out)
+      return work > 0 and work >= ROUTE_MIN_RATIO * (limbs_in + limbs_out)
+    end
 
     --- Resolve this build's modular-exponentiation entry point.
     --- Control4's lua-openssl 0.8.5 spells it `powmod`; other builds use `mod_exp`.
@@ -1833,50 +1913,146 @@ do
       return bnlib.text(bignum.to_bytes(value))
     end
 
-    --- Run one modular exponentiation through the OpenSSL binding.
-    --- @param openssl table Loaded lua-openssl module
-    --- @param base BigNum Base
-    --- @param exp BigNum Exponent
-    --- @param m BigNum Modulus
-    --- @return BigNum result Canonical limb table
-    local function mod_exp_openssl(openssl, base, exp, m)
-      local bnlib = openssl.bn
-      local result = bn_powmod(bnlib)(bn_from_bignum(bnlib, base), bn_from_bignum(bnlib, exp), bn_from_bignum(bnlib, m))
-      local hex = bnlib.tohex(result)
-      if type(hex) ~= "string" or hex == "" then
-        error("bignum: openssl bn.tohex did not return hex")
+    --- Convert an openssl.bn handle back into a canonical big number. Only bare hex
+    --- digits are accepted: `bn.tohex` signs negatives with "-", which `from_hex`
+    --- would read as a negative limb instead of rejecting.
+    --- @param bnlib table The openssl.bn table
+    --- @param handle any Opaque openssl.bn value
+    --- @return BigNum value
+    local function bignum_from_bn(bnlib, handle)
+      local hex = bnlib.tohex(handle)
+      if type(hex) ~= "string" or string_find(hex, "^%x+$") == nil then
+        error("bignum: openssl bn.tohex did not return unsigned hex")
       end
       return bignum.from_hex(hex)
     end
 
-    --- Decide whether a binding may be trusted for real work.
-    ---
-    --- `Feature.BN` proves the three entry points exist and round-trip on a
-    --- single-digit value; it cannot prove that this build's constructor parses a
-    --- long hex string the way this module writes it. So the first time a given
-    --- binding table is seen, run one multi-limb known-answer vector through it and
-    --- cache the verdict. A binding that fails silently falls back to pure Lua
-    --- rather than returning wrong answers.
-    ---
-    --- @param openssl table Loaded lua-openssl module
-    --- @return boolean usable
-    local function accelerator_ready(openssl)
-      if _verified_binding == openssl then
-        return _verified_ok
+    --- Refuse a zero divisor, which the binding answers with 0 instead of raising
+    --- (lua-openssl 0.8.5, 0.9.2 and 0.11.1, measured 2026-10-17). The raise sends
+    --- the call back to pure Lua, which reports the real error.
+    --- @param m BigNum Divisor or modulus
+    local function require_nonzero(m)
+      if #m == 0 then
+        error("bignum: zero divisor")
       end
-      _verified_binding = openssl
-      _verified_ok = false
-      local ok, result = pcall(
-        mod_exp_openssl,
-        openssl,
-        bignum.from_hex(ACCEL_CHECK_BASE),
-        bignum.from_hex(ACCEL_CHECK_EXP),
-        bignum.from_hex(ACCEL_CHECK_MOD)
-      )
-      if ok and type(result) == "table" and compare_raw(result, bignum.from_hex(ACCEL_CHECK_RESULT)) == 0 then
-        _verified_ok = true
+    end
+
+    --- Each routed operation as run through the binding; anything unexpected raises.
+    --- @type table<BigNumOp, fun(bnlib: table, a: BigNum, b: BigNum, c: BigNum?): BigNum, BigNum?>
+    local OPENSSL_OPS = {
+      mul = function(bnlib, a, b)
+        return bignum_from_bn(bnlib, bnlib.mul(bn_from_bignum(bnlib, a), bn_from_bignum(bnlib, b)))
+      end,
+      divmod = function(bnlib, a, b)
+        require_nonzero(b)
+        local quotient, remainder = bnlib.divmod(bn_from_bignum(bnlib, a), bn_from_bignum(bnlib, b))
+        return bignum_from_bn(bnlib, quotient), bignum_from_bn(bnlib, remainder)
+      end,
+      mod = function(bnlib, a, m)
+        require_nonzero(m)
+        return bignum_from_bn(bnlib, bnlib.mod(bn_from_bignum(bnlib, a), bn_from_bignum(bnlib, m)))
+      end,
+      mod_mul = function(bnlib, a, b, m)
+        --- @cast m BigNum
+        require_nonzero(m)
+        local product = bnlib.mulmod(bn_from_bignum(bnlib, a), bn_from_bignum(bnlib, b), bn_from_bignum(bnlib, m))
+        return bignum_from_bn(bnlib, product)
+      end,
+      mod_exp = function(bnlib, base, exp, m)
+        --- @cast m BigNum
+        require_nonzero(m)
+        local result =
+          bn_powmod(bnlib)(bn_from_bignum(bnlib, base), bn_from_bignum(bnlib, exp), bn_from_bignum(bnlib, m))
+        return bignum_from_bn(bnlib, result)
+      end,
+    }
+
+    --- One multi-limb known answer per routed operation, as hex. `Feature.BN` only
+    --- round-trips a single-digit powmod, so it proves neither that long operands
+    --- parse nor that mul, divmod, mod and mulmod work. Each is checked on its own
+    --- so one broken entry point does not take mod_exp down with it.
+    --- @type table<BigNumOp, { args: string[], results: string[] }>
+    local OPENSSL_CHECKS = {
+      mul = { args = { VEC_X_HEX, VEC_Y_HEX }, results = { VEC_MUL_HEX } },
+      divmod = { args = { VEC_X_HEX, VEC_Y_HEX }, results = { VEC_QUO_HEX, VEC_REM_HEX } },
+      mod = { args = { VEC_X_HEX, VEC_M_HEX }, results = { VEC_MOD_X_HEX } },
+      mod_mul = { args = { VEC_X_HEX, VEC_Y_HEX, VEC_M_HEX }, results = { VEC_MOD_MUL_HEX } },
+      mod_exp = { args = { VEC_X_HEX, VEC_Y_HEX, VEC_M_HEX }, results = { VEC_MOD_EXP_HEX } },
+    }
+
+    --- Run one operation through a binding, turning any failure into nil. The
+    --- known-answer check comes through here too, so it tests the exact call trusted.
+    --- @param bnlib table The openssl.bn table
+    --- @param op BigNumOp Operation to run
+    --- @param a BigNum First operand
+    --- @param b BigNum Second operand
+    --- @param c? BigNum Third operand
+    --- @return BigNum|nil first Result, or nil on any failure
+    --- @return BigNum|nil second Second result (divmod's remainder)
+    local function call_binding(bnlib, op, a, b, c)
+      local ok, first, second = pcall(OPENSSL_OPS[op], bnlib, a, b, c)
+      if not ok then
+        return nil, nil
       end
-      return _verified_ok
+      return first, second
+    end
+
+    --- Run one operation's known answer through a binding.
+    --- @param bnlib table The openssl.bn table
+    --- @param op BigNumOp Operation to check
+    --- @return boolean passed
+    local function passes_check(bnlib, op)
+      local check = OPENSSL_CHECKS[op]
+      local args = {}
+      for i, hex in ipairs(check.args) do
+        args[i] = bignum.from_hex(hex)
+      end
+      local got = { call_binding(bnlib, op, args[1], args[2], args[3]) }
+      for i, hex in ipairs(check.results) do
+        if type(got[i]) ~= "table" or compare_raw(got[i], bignum.from_hex(hex)) ~= 0 then
+          return false
+        end
+      end
+      return true
+    end
+
+    --- The openssl.bn table if `op` should run there, nil otherwise: needs
+    --- `Feature.BN` and `op`'s known-answer check, run once per binding and cached.
+    --- @param op BigNumOp Operation to ask about
+    --- @return table|nil bnlib
+    local function trusted_bn(op)
+      local openssl = openssl_wrapper.get(openssl_wrapper.Feature.BN)
+      if openssl == nil then
+        return nil
+      end
+      if _verified_binding ~= openssl then
+        _verified_binding = openssl
+        _verified_ops = {}
+      end
+      local verdict = _verified_ops[op]
+      if verdict == nil then
+        verdict = passes_check(openssl.bn, op)
+        _verified_ops[op] = verdict
+      end
+      if verdict then
+        return openssl.bn
+      end
+      return nil
+    end
+
+    --- Run `op` through OpenSSL when that is enabled and trusted.
+    --- @param op BigNumOp Operation to run
+    --- @param a BigNum First operand
+    --- @param b BigNum Second operand
+    --- @param c? BigNum Third operand
+    --- @return BigNum|nil first Result, or nil when the caller must use pure Lua
+    --- @return BigNum|nil second Second result (divmod's remainder)
+    local function run_openssl(op, a, b, c)
+      local bnlib = trusted_bn(op)
+      if bnlib == nil then
+        return nil, nil
+      end
+      return call_binding(bnlib, op, a, b, c)
     end
 
     -- ============================================================================
@@ -2077,28 +2253,47 @@ do
       return sub_raw(a, b)
     end
 
-    --- Multiplication.
+    --- Multiplication. Large operands run through OpenSSL when it is enabled.
     --- @param a BigNum First factor
     --- @param b BigNum Second factor
     --- @return BigNum product
     function bignum.mul(a, b)
+      if worth_routing(#a * #b, #a + #b, #a + #b) then
+        local product = run_openssl("mul", a, b)
+        if product then
+          return product
+        end
+      end
       return mul_raw(a, b)
     end
 
-    --- Division with remainder.
+    --- Division with remainder. Large quotients run through OpenSSL when enabled.
     --- @param a BigNum Dividend
     --- @param b BigNum Divisor (must be non-zero)
     --- @return BigNum quotient floor(a / b)
     --- @return BigNum remainder a - quotient * b
     function bignum.divmod(a, b)
+      -- Out: a quotient of up to #a - #b + 1 limbs and a remainder of up to #b.
+      if worth_routing(div_work(#a, #b), #a + #b, #a + 1) then
+        local quotient, remainder = run_openssl("divmod", a, b)
+        if quotient and remainder then
+          return quotient, remainder
+        end
+      end
       return divmod_raw(a, b)
     end
 
-    --- Remainder of a divided by b.
+    --- Remainder of a divided by b. Large quotients run through OpenSSL when enabled.
     --- @param a BigNum Dividend
     --- @param b BigNum Modulus (must be non-zero)
     --- @return BigNum remainder
     function bignum.mod(a, b)
+      if worth_routing(div_work(#a, #b), #a + #b, #b) then
+        local remainder = run_openssl("mod", a, b)
+        if remainder then
+          return remainder
+        end
+      end
       local _, r = divmod_raw(a, b)
       return r
     end
@@ -2109,8 +2304,7 @@ do
     --- @param m BigNum Modulus (must be non-zero)
     --- @return BigNum result (a + b) mod m
     function bignum.mod_add(a, b, m)
-      local _, r = divmod_raw(add_raw(a, b), m)
-      return r
+      return bignum.mod(add_raw(a, b), m)
     end
 
     --- Modular subtraction, always returning a non-negative residue.
@@ -2121,29 +2315,36 @@ do
     --- @param m BigNum Modulus (must be non-zero)
     --- @return BigNum result (a - b) mod m
     function bignum.mod_sub(a, b, m)
-      local _, ra = divmod_raw(a, m)
-      local _, rb = divmod_raw(b, m)
+      local ra = bignum.mod(a, m)
+      local rb = bignum.mod(b, m)
       if compare_raw(ra, rb) >= 0 then
         return sub_raw(ra, rb)
       end
       return sub_raw(add_raw(ra, m), rb)
     end
 
-    --- Modular multiplication.
+    --- Modular multiplication. Large operands run through OpenSSL when enabled.
     --- @param a BigNum First factor
     --- @param b BigNum Second factor
     --- @param m BigNum Modulus (must be non-zero)
     --- @return BigNum result (a * b) mod m
     function bignum.mod_mul(a, b, m)
+      local product_limbs = (#a == 0 or #b == 0) and 0 or #a + #b
+      if worth_routing(#a * #b + div_work(product_limbs, #m), #a + #b + #m, #m) then
+        local result = run_openssl("mod_mul", a, b, m)
+        if result then
+          return result
+        end
+      end
       local _, r = divmod_raw(mul_raw(a, b), m)
       return r
     end
 
     --- Modular exponentiation -- the hot path for SRP-6a.
     ---
-    --- Dispatch order: a verified OpenSSL binding if acceleration is enabled,
-    --- otherwise Montgomery + sliding window for odd moduli, otherwise the slow
-    --- reference path. All three return identical values.
+    --- Dispatch order: a verified OpenSSL binding if acceleration is enabled (at
+    --- any operand size), otherwise Montgomery + sliding window for odd moduli,
+    --- otherwise the slow reference path. All three return identical values.
     ---
     --- @param base BigNum Base
     --- @param exp BigNum Exponent
@@ -2160,12 +2361,9 @@ do
         return { 1 }
       end
 
-      local openssl = openssl_wrapper.get(openssl_wrapper.Feature.BN)
-      if openssl ~= nil and accelerator_ready(openssl) then
-        local ok, result = pcall(mod_exp_openssl, openssl, base, exp, m)
-        if ok and type(result) == "table" then
-          return result
-        end
+      local result = run_openssl("mod_exp", base, exp, m)
+      if result then
+        return result
       end
 
       if m[1] % 2 == 1 then
@@ -2175,14 +2373,20 @@ do
       return mod_exp_reference(base, exp, m)
     end
 
-    --- Whether `mod_exp` will use the OpenSSL backend.
+    --- Whether an operation will use the OpenSSL backend; `mod_exp` by default.
     ---
     --- Answers the question callers actually have -- "will a 3072-bit exponentiation
     --- finish in milliseconds or in minutes?" -- so it applies the same two
-    --- conditions `mod_exp` does: acceleration enabled with a binding that passes
-    --- `Feature.BN`, *and* a binding that reproduces the multi-limb known-answer
-    --- vector. Checking the feature gate alone would report true for a binding this
-    --- module has already decided not to trust.
+    --- conditions the operation does: acceleration enabled with a binding that
+    --- passes `Feature.BN`, *and* a binding that reproduces that operation's
+    --- multi-limb known-answer vector. Checking the feature gate alone would report
+    --- true for a binding this module has already decided not to trust.
+    ---
+    --- Each operation is checked separately, so the answers can differ. For mul,
+    --- divmod, mod and mod_mul, true covers only calls wide enough to route. Losing
+    --- one costs up to about a second per 3072-bit call on Control4 (extrapolated
+    --- from pure-Lua mod_exp's 669 ms per exponent bit); losing mod_exp costs
+    --- minutes, which is why `srp.is_accelerated` asks about it alone.
     ---
     --- The verdict is not static: it changes with `crypto.use_openssl()`.
     ---
@@ -2192,19 +2396,24 @@ do
     --- acceleration just has to make one call. The reason is always present when
     --- `accelerated` is false.
     ---
-    --- @return boolean accelerated True if OpenSSL will handle modular exponentiation
+    --- @param op? BigNumOp Operation to ask about; "mod_exp" when omitted
+    --- @return boolean accelerated True if OpenSSL will handle the operation
     --- @return string|nil reason Why it will not, when it will not
-    function bignum.is_accelerated()
+    function bignum.is_accelerated(op)
+      op = op or "mod_exp"
+      if OPENSSL_OPS[op] == nil then
+        error("bignum: unknown operation '" .. tostring(op) .. "'")
+      end
       local openssl = openssl_wrapper.get(openssl_wrapper.Feature.BN)
       if openssl == nil then
         return false,
           openssl_wrapper.unavailable_reason(openssl_wrapper.Feature.BN)
             or "OpenSSL modular exponentiation is unavailable"
       end
-      if not accelerator_ready(openssl) then
+      if trusted_bn(op) == nil then
         return false,
-          "the lua-openssl binding failed bignum's multi-limb known-answer check, "
-            .. "so it is not trusted for modular exponentiation"
+          "the lua-openssl binding failed bignum's multi-limb known-answer check, so it is not trusted for "
+            .. (op == "mod_exp" and "modular exponentiation" or op)
       end
       return true
     end
@@ -2304,22 +2513,6 @@ do
       "af7c5f4b88d5893f2deab5df5cb6e7e3ab516d388a9bcdfda0867b6bc93197b9",
       "519e5b25ffa39abb52b18dc6e7e78f601443ae575f1bc59ffc2d86a06af4cf04",
     })
-    local VEC_X_HEX = "f0e1d2c3b4a5968778695a4b3c2d1e0fdeadbeefcafebabe0123456789abcdef"
-    local VEC_Y_HEX = "fedcba987654321fedcba9876543210abcdef0123456789"
-    local VEC_M_HEX = "fffffffffffffffffffffffffffffffeffffffffffffffff"
-    local VEC_ADD_HEX = "f0e1d2c3b4a59687885725f4c3926131dd8a79884152ecceacf13468acf13578"
-    local VEC_SUB_HEX = "f0e1d2c3b4a59687687b8ea1b4c7daeddfd1045754aa88ad5555566666666666"
-    local VEC_MUL_HEX = table.concat({
-      "efcfc0c2d5fa2f84db52db751fdba8927fd0cfb89d03a6e23469667bcbb09e04",
-      "0c96803be0e492284a6a2290002002425d85431fb375de7",
-    })
-    local VEC_QUO_HEX = "f1f51dfdb8e1c16d7"
-    local VEC_REM_HEX = "4e56a81e2677fc8622ba2a844cc25a8440c2e32a28013e0"
-    local VEC_MOD_X_HEX = "78695a4b3c2d1e10cf8f91b37fa45145f205182b3e516476"
-    local VEC_MOD_ADD_HEX = "885725f4c3926132ce6c4c4bf5f883569dd3072c6196cbff"
-    local VEC_MOD_SUB_HEX = "9784715e4b3825112f4d28e4f6afe0c9b9c8d6d5e4f40312"
-    local VEC_MOD_MUL_HEX = "c5789ec2c73be1123b996b5bf34a44eba5d1145d374fc548"
-    local VEC_MOD_EXP_HEX = "e6663770f70809f8c052b35cc00534b8d5b2c013a9d4874c"
     local CROSS_CHECK_VECTORS = {
       {
         base = "502d7ab70ebf0d087251c67d5c934eb0ef4a70d5c51a00ee54f73e1e08903425",
@@ -2367,36 +2560,113 @@ do
       -- Snapshot the OpenSSL state so the accelerator tests cannot leak.
       local saved_loaded = package.loaded["openssl"]
       local saved_preload = package.preload["openssl"]
+      local saved_use = openssl_wrapper.enabled()
 
-      --- Build a stand-in lua-openssl binding. Real lua-openssl is not installed
-      --- here, so this validates the *routing* and the bytes-in/hex-out conversion,
-      --- not real OpenSSL arithmetic: the stand-in's modular exponentiation
-      --- delegates to this module's own slow reference path.
-      --- @param options table `spelling` is "powmod" or "mod_exp"; `broken` returns wrong
-      ---   answers for everything; `small_only` returns right answers for single-limb
-      ---   operands and wrong ones above that, which is what `Feature.BN`'s probe cannot
-      ---   see and `accelerator_ready`'s multi-limb vector exists to catch
+      -- The host's real binding, if any. Resolved now: install(nil) below makes require("openssl") fail.
+      local real_loaded, real_binding = pcall(require, "openssl")
+      if not real_loaded or type(real_binding) ~= "table" or type(real_binding.bn) ~= "table" then
+        real_binding = nil
+      end
+
+      -- Limbs above which the stand-in's faults apply. Known-answer checks use at
+      -- most 19 limbs, so a faulty stand-in still passes them.
+      local WIDE = 32
+
+      --- Stand-in lua-openssl binding over this module's own raw functions, so it
+      --- tests routing and conversion, not OpenSSL. Like the real binding, it answers
+      --- 0 for a zero divisor or modulus instead of raising.
+      --- @param options table `spelling`: "powmod" or "mod_exp". `broken`: set of bn
+      ---   function names that answer wrongly. `bad_remainder`: only divmod's
+      ---   remainder is wrong. `small_only`: the exponentiation is wrong for any
+      ---   multi-limb operand, which `Feature.BN`'s probe cannot see. Above `WIDE`
+      ---   limbs, `mark_wide` adds one to each answer, `raise_wide` raises, and
+      ---   `signed_hex` makes `tohex` prefix "-"
       --- @return table binding
-      --- @return function calls Returns how many times the exponentiation was invoked
+      --- @return function calls `calls(name)` counts calls to one bn function; with no
+      ---   name, the exponentiation under either spelling
       local function make_binding(options)
-        local calls = 0
+        local counts = {}
+        local function enter(name, ...)
+          counts[name] = (counts[name] or 0) + 1
+          if options.raise_wide then
+            for _, operand in ipairs({ ... }) do
+              if #operand.value > WIDE then
+                error("stand-in raised on a wide operand")
+              end
+            end
+          end
+          return options.broken ~= nil and options.broken[name] == true
+        end
+        local function handle(value)
+          if options.mark_wide and #value > WIDE then
+            return { value = add_raw(value, { 1 }) }
+          end
+          return { value = value }
+        end
+        local wrong = handle(from_number(1))
         local bnlib = {}
         bnlib.text = function(raw)
+          enter("text")
           -- Matches lua-openssl's bn.text: big-endian bytes in.
           return { value = bignum.from_bytes(raw) }
         end
-        bnlib.tohex = function(handle)
-          return string_upper(to_hex(handle.value))
+        bnlib.tohex = function(h)
+          local hex = string_upper(to_hex(h.value))
+          if options.signed_hex and #h.value > WIDE then
+            return "-" .. hex
+          end
+          return hex
         end
         bnlib[options.spelling or "powmod"] = function(base, exp, modulus)
-          calls = calls + 1
-          if options.broken then
-            return { value = from_number(1) }
+          if enter("powmod", base, exp, modulus) then
+            return wrong
           end
           if options.small_only and (#base.value > 1 or #exp.value > 1 or #modulus.value > 1) then
-            return { value = from_number(1) }
+            return wrong
           end
-          return { value = mod_exp_reference(base.value, exp.value, modulus.value) }
+          if #modulus.value == 0 then
+            return handle({})
+          end
+          return handle(mod_exp_reference(base.value, exp.value, modulus.value))
+        end
+        bnlib.mul = function(a, b)
+          if enter("mul", a, b) then
+            return wrong
+          end
+          return handle(mul_raw(a.value, b.value))
+        end
+        bnlib.divmod = function(a, b)
+          if enter("divmod", a, b) then
+            return wrong, wrong
+          end
+          if #b.value == 0 then
+            return handle({}), handle({})
+          end
+          local quotient, remainder = divmod_raw(a.value, b.value)
+          if options.bad_remainder then
+            return handle(quotient), wrong
+          end
+          return handle(quotient), handle(remainder)
+        end
+        bnlib.mod = function(a, m)
+          if enter("mod", a, m) then
+            return wrong
+          end
+          if #m.value == 0 then
+            return handle({})
+          end
+          local _, remainder = divmod_raw(a.value, m.value)
+          return handle(remainder)
+        end
+        bnlib.mulmod = function(a, b, m)
+          if enter("mulmod", a, b, m) then
+            return wrong
+          end
+          if #m.value == 0 then
+            return handle({})
+          end
+          local _, remainder = divmod_raw(mul_raw(a.value, b.value), m.value)
+          return handle(remainder)
         end
         local binding = {
           version = function()
@@ -2404,9 +2674,79 @@ do
           end,
           bn = bnlib,
         }
-        return binding, function()
-          return calls
+        return binding, function(name)
+          return counts[name or "powmod"] or 0
         end
+      end
+
+      --- Wrap a binding to record each hex string `bn.tohex` returns, as proof a result came from it.
+      --- @param binding table Real lua-openssl module
+      --- @return table proxy
+      --- @return table<string, boolean> emitted Lowercase hex, leading zeros stripped
+      local function recording_proxy(binding)
+        local emitted = {}
+        local bnlib = setmetatable({
+          tohex = function(handle)
+            local hex = binding.bn.tohex(handle)
+            if type(hex) == "string" then
+              emitted[(hex:lower():gsub("^0+(.)", "%1"))] = true
+            end
+            return hex
+          end,
+        }, { __index = binding.bn })
+        return setmetatable({ bn = bnlib }, { __index = binding }), emitted
+      end
+
+      --- @param x BigNum[]
+      --- @param y BigNum[]
+      --- @return boolean
+      local function same_values(x, y)
+        if #x ~= #y then
+          return false
+        end
+        for i = 1, #x do
+          if type(y[i]) ~= "table" or not equals(x[i], y[i]) then
+            return false
+          end
+        end
+        return true
+      end
+
+      --- Every routed operation at SRP size, zeros included; mod_add and mod_sub get
+      --- unreduced operands so they reach `mod`. Entries are { op, value, direct }, where
+      --- `direct` is false for a value derived from `op`'s answer rather than returned by it.
+      --- @return table[] entries
+      local function routed_workload()
+        local B = from_hex(SRP_EXP_B_HEX)
+        local RA, RB = from_hex(SRP_RESULT_A_HEX), from_hex(SRP_RESULT_B_HEX)
+        local NB = mul_raw(N, B)
+        local wide = add_raw(NB, from_number(12345))
+        local q1, r1 = bignum.divmod(wide, N)
+        local q2, r2 = bignum.divmod(NB, N)
+        return {
+          { "mul", bignum.mul(N, B), true },
+          { "divmod", q1, true },
+          { "divmod", r1, true },
+          { "divmod", q2, true },
+          { "divmod", r2, true },
+          { "mod", bignum.mod(wide, add_raw(N, { 1 })), true },
+          { "mod", bignum.mod(NB, B), true },
+          { "mod", bignum.mod_add(wide, NB, N), true },
+          { "mod", bignum.mod_sub(N, wide, N), false },
+          { "mod_mul", bignum.mod_mul(RA, RB, N), true },
+          { "mod_exp", bignum.mod_exp(RA, from_number(65537), N), true },
+          { "mod_exp", bignum.mod_exp(bignum.zero(), from_number(65537), N), true },
+        }
+      end
+
+      --- @param entries table[]
+      --- @return BigNum[]
+      local function values_of(entries)
+        local out = {}
+        for i, entry in ipairs(entries) do
+          out[i] = entry[2]
+        end
+        return out
       end
 
       --- Install a stand-in binding (or force acceleration off) and re-probe.
@@ -2600,7 +2940,19 @@ do
         {
           name = "sub - rejects a negative result",
           test = function()
+            -- Equal widths too: only the final borrow can catch those.
             return pcall(bignum.sub, Y, X) == false
+              and pcall(bignum.sub, from_number(5), from_number(7)) == false
+              and pcall(bignum.sub, Y, bignum.add(Y, bignum.one())) == false
+          end,
+        },
+        {
+          name = "sub - rejects a wider subtrahend whose low limbs do not borrow",
+          test = function()
+            return pcall(bignum.sub, from_number(5), from_hex("1000000")) == false
+              and pcall(bignum.sub, from_hex("ffffff"), from_hex("1000000")) == false
+              and pcall(bignum.sub, X, bignum.add(X, from_hex("1" .. string_rep("0", 66)))) == false
+              and to_hex(bignum.sub(from_hex("1000000"), from_hex("ffffff"))) == "1"
           end,
         },
         {
@@ -2833,11 +3185,239 @@ do
         {
           name = "a binding that returns wrong answers is rejected, not trusted",
           test = function()
-            local binding = make_binding({ broken = true })
+            local binding = make_binding({ broken = { powmod = true } })
             install(binding)
             local result = bignum.mod_exp(X, Y, M)
             install(nil)
             return to_hex(result) == VEC_MOD_EXP_HEX
+          end,
+        },
+        {
+          -- With raise_wide, every answer has to come back through the pure-Lua fallback.
+          name = "every routed operation matches pure Lua at 3072 bits, zeros included, even when the binding raises",
+          test = function()
+            install(nil)
+            local pure = values_of(routed_workload())
+            for _, options in ipairs({ {}, { raise_wide = true } }) do
+              local binding, calls = make_binding(options)
+              install(binding)
+              local accelerated = values_of(routed_workload())
+              install(nil)
+              if not same_values(pure, accelerated) then
+                return false
+              end
+              -- At least two calls each: the known-answer check, then real work.
+              for _, name in ipairs({ "mul", "divmod", "mod", "mulmod", "powmod" }) do
+                if calls(name) < 2 then
+                  return false
+                end
+              end
+            end
+            return true
+          end,
+        },
+        {
+          name = "results come from the binding, not a silent fallback",
+          test = function()
+            install(nil)
+            local pure = routed_workload()
+            local binding = make_binding({ mark_wide = true })
+            install(binding)
+            local accelerated = routed_workload()
+            install(nil)
+            local marked = {}
+            for i, entry in ipairs(pure) do
+              local op, value, direct = entry[1], entry[2], entry[3]
+              local expected = value
+              if direct and #value > WIDE then
+                expected = add_raw(value, { 1 })
+                marked[op] = true
+              end
+              if not equals(accelerated[i][2], expected) then
+                return false
+              end
+            end
+            return marked.mul and marked.divmod and marked.mod and marked.mod_mul and marked.mod_exp or false
+          end,
+        },
+        {
+          -- Routed: the bn function runs twice (check, then work). Not routed: nothing is converted.
+          name = "calls route where the work per converted limb reaches the threshold, and only there",
+          test = function()
+            local B = from_hex(SRP_EXP_B_HEX)
+            local wide = mul_raw(N, B)
+            local seven, byte = from_number(7), from_number(255)
+            local a15, a16, b16 =
+              from_hex(string_rep("ab", 45)), from_hex(string_rep("ab", 48)), from_hex(string_rep("cd", 48))
+            --- @type table[]
+            local shapes = {
+              { false, bignum.mul, X, Y }, -- narrow operands
+              { false, bignum.divmod, X, Y },
+              { false, bignum.mod, X, M },
+              { false, bignum.mul, a15, b16 }, -- 240 limb products for 62 limbs converted: under 4
+              { "mul", bignum.mul, a16, b16 }, -- 256 for 64: exactly 4
+              { false, bignum.mul, seven, wide }, -- a one-limb factor, either side
+              { false, bignum.mul, wide, seven },
+              { false, bignum.mul, bignum.zero(), bignum.zero() },
+              { false, bignum.divmod, wide, byte }, -- a one-limb divisor
+              { false, bignum.mod, wide, byte },
+              { false, bignum.divmod, add_raw(N, B), N }, -- a quotient of a limb or two
+              { false, bignum.mod, add_raw(N, B), N },
+              { false, bignum.mod, N, B },
+              { false, bignum.add, N, B }, -- linear at any width
+              { false, bignum.sub, add_raw(N, B), B },
+              { false, bignum.mod_add, N, B, N }, -- operands already reduced
+              { false, bignum.mod_sub, B, N, N },
+              { false, bignum.mod_mul, B, seven, N },
+              { false, bignum.mod_mul, bignum.zero(), wide, N }, -- a zero factor
+              { "mulmod", bignum.mod_mul, wide, from_number(3), N }, -- the reduction dominates
+              { "mod", bignum.mod_add, wide, from_number(12345), N }, -- an unreduced operand
+              { "mod", bignum.mod_sub, seven, wide, N },
+            }
+            for i, shape in ipairs(shapes) do
+              local routed_to, call = shape[1], shape[2]
+              install(nil)
+              local pure = { call(shape[3], shape[4], shape[5]) }
+              local binding, calls = make_binding({})
+              install(binding)
+              local got = { call(shape[3], shape[4], shape[5]) }
+              install(nil)
+              local routed = routed_to and calls(routed_to) == 2 or (not routed_to and calls("text") == 0)
+              if not (routed and same_values(pure, got)) then
+                error("shape " .. i .. " routed wrongly or changed its answer")
+              end
+            end
+            return #a15 == 15 and #a16 == 16
+          end,
+        },
+        {
+          name = "a binding with one broken operation loses only that operation",
+          test = function()
+            local B = from_hex(SRP_EXP_B_HEX)
+            local RA, RB = from_hex(SRP_RESULT_A_HEX), from_hex(SRP_RESULT_B_HEX)
+            local wide = add_raw(mul_raw(N, B), from_number(12345))
+            local N1 = add_raw(N, { 1 })
+            local cases = {
+              { broken = { mul = true }, bn = "mul", op = "mul" },
+              { broken = { divmod = true }, bn = "divmod", op = "divmod" },
+              { bad_remainder = true, bn = "divmod", op = "divmod" },
+              { broken = { mod = true }, bn = "mod", op = "mod" },
+              { broken = { mulmod = true }, bn = "mulmod", op = "mod_mul" },
+            }
+            local function run(op)
+              if op == "mul" then
+                return { bignum.mul(N, B) }
+              elseif op == "divmod" then
+                local quotient, remainder = bignum.divmod(wide, N)
+                return { quotient, remainder }
+              elseif op == "mod" then
+                return { bignum.mod(wide, N1) }
+              end
+              return { bignum.mod_mul(RA, RB, N) }
+            end
+            for _, case in ipairs(cases) do
+              install(nil)
+              local pure = run(case.op)
+              local binding, calls = make_binding(case)
+              install(binding)
+              local first, second = run(case.op), run(case.op)
+              local verdicts = {}
+              for _, op in ipairs({ "mul", "divmod", "mod", "mod_mul", "mod_exp" }) do
+                verdicts[op] = bignum.is_accelerated(op)
+              end
+              install(nil)
+              -- One call: the failed check is cached, not repeated per call.
+              if not (same_values(pure, first) and same_values(pure, second) and calls(case.bn) == 1) then
+                return false
+              end
+              for op, accelerated in pairs(verdicts) do
+                if accelerated ~= (op ~= case.op) then
+                  return false
+                end
+              end
+            end
+            return true
+          end,
+        },
+        {
+          name = "a zero divisor or modulus raises the pure-Lua error with acceleration on",
+          test = function()
+            local wide = mul_raw(N, N)
+            local zero = bignum.zero()
+            local function failures()
+              local messages = {}
+              for i, call in ipairs({
+                { bignum.divmod, wide, zero },
+                { bignum.mod, wide, zero },
+                { bignum.mod_mul, N, N, zero },
+                { bignum.mod_add, N, N, zero },
+                { bignum.mod_sub, N, wide, zero },
+                { bignum.mod_exp, N, N, zero },
+              }) do
+                local ok, message = pcall(call[1], call[2], call[3], call[4])
+                messages[i] = (not ok) and tostring(message) or false
+              end
+              return messages
+            end
+            install(nil)
+            local expected = failures()
+            local binding, calls = make_binding({})
+            install(binding)
+            local got = failures()
+            install(nil)
+            for i = 1, #expected do
+              if expected[i] == false or got[i] ~= expected[i] then
+                return false
+              end
+            end
+            -- mod_mul(N, N, 0) passes the size rule, so require_nonzero is what kept it from mulmod.
+            return calls("mulmod") == 1
+          end,
+        },
+        {
+          name = "signed hex from the binding is refused, not read as negative limbs",
+          test = function()
+            install(nil)
+            local pure = bignum.mul(N, X)
+            local binding, calls = make_binding({ signed_hex = true })
+            install(binding)
+            local product = bignum.mul(N, X)
+            install(nil)
+            -- N*X is 832 hex digits, not a multiple of a limb's 6, so the "-" shares
+            -- a chunk with digits and from_hex alone would read it as a negative limb.
+            return calls("mul") == 2 and equals(product, pure)
+          end,
+        },
+        {
+          name = (real_binding and "the host's lua-openssl agrees with pure Lua and is used wherever it is trusted")
+            or "the host's lua-openssl agrees with pure Lua (skipped: no binding on this host)",
+          test = function()
+            if real_binding == nil then
+              return true
+            end
+            install(nil)
+            local pure = routed_workload()
+            local proxy, emitted = recording_proxy(real_binding)
+            install(proxy)
+            -- Declining an operation is allowed here; each one trusted must return the binding's answer.
+            local trusted = {}
+            for _, op in ipairs({ "mul", "divmod", "mod", "mod_mul", "mod_exp" }) do
+              trusted[op] = bignum.is_accelerated(op)
+            end
+            local accelerated = routed_workload()
+            local exponentiated = trusted.mod_exp and bignum.mod_exp(G, from_hex(SRP_EXP_A_HEX), N) or nil
+            install(nil)
+            if not same_values(values_of(pure), values_of(accelerated)) then
+              return false
+            end
+            for _, entry in ipairs(accelerated) do
+              local op, value, direct = entry[1], entry[2], entry[3]
+              if direct and trusted[op] and not bignum.is_zero(value) and not emitted[to_hex(value)] then
+                return false
+              end
+            end
+            return exponentiated == nil
+              or (to_hex(exponentiated) == SRP_RESULT_A_HEX and emitted[SRP_RESULT_A_HEX] == true)
           end,
         },
         {
@@ -2855,13 +3435,19 @@ do
         -- from one where nobody called use_openssl(true), and the two need opposite
         -- responses. Each case below pins the phrase that distinguishes them.
         {
-          name = "is_accelerated blames the flag when acceleration was never enabled",
+          -- The Control4 case: a working binding is present and nobody enabled it.
+          name = "is_accelerated blames the flag when acceleration was never enabled, and the binding is untouched",
           test = function()
-            install(nil) -- also sets use(false)
+            local binding, calls = make_binding({})
+            install(binding)
+            openssl_wrapper.use(false)
+            routed_workload()
             local accelerated, reason = bignum.is_accelerated()
+            install(nil)
             return accelerated == false
               and type(reason) == "string"
               and reason:find("crypto.use_openssl(true)", 1, true) ~= nil
+              and calls("text") == 0
           end,
         },
         {
@@ -2919,10 +3505,10 @@ do
         end
       end
 
-      -- Restore the module-load default so later tests in this process are unaffected.
+      -- Restore the caller's state, acceleration choice included, so later tests in this process are unaffected.
       package.loaded["openssl"] = saved_loaded
       package.preload["openssl"] = saved_preload
-      openssl_wrapper.use(os.getenv("CRYPTO_USE_OPENSSL") == "1" or os.getenv("CRYPTO_USE_OPENSSL") == "true")
+      openssl_wrapper.use(saved_use)
 
       print(string_format("\nBignum result: %d/%d tests passed\n", passed, #tests))
       return passed == #tests
@@ -6587,7 +7173,7 @@ do
     --- - ChaCha20-Poly1305 AEAD cipher
     --- - AES-GCM AEAD cipher
     --- - ChaCha20 stream cipher
-    --- - Big-number modular exponentiation (SRP)
+    --- - Big-number arithmetic (SRP)
     ---
     --- Note: X25519, X448 and Ed25519 always use the native implementations. The
     --- shipped lua-openssl builds cannot perform the raw scalar-multiplication or
@@ -6607,7 +7193,8 @@ do
       AAD = "AAD",
       --- Key-derivation primitives (`openssl.kdf`), used to accelerate HKDF
       KDF = "KDF",
-      --- Arbitrary-precision integers (`openssl.bn`), used to accelerate modular exponentiation
+      --- Arbitrary-precision integers (`openssl.bn`), used by `crypto.bignum`. The probe only runs
+      --- a one-limb powmod; bignum checks each operation it routes on multi-limb values first.
       BN = "BN",
       --- Raw Octet Key Pair support: creating and *signing* with Ed25519/X25519 keys.
       --- Importing such a key is not sufficient; the probe requires a working signature.
@@ -6743,6 +7330,13 @@ do
       _openssl_module = nil
       _openssl_module_features = {}
       _openssl_unavailable = false
+    end
+
+    --- Whether acceleration is requested, as last set by `use`. Snapshot it before toggling the flag temporarily.
+    --- @return boolean enabled
+    function openssl_wrapper.enabled()
+      -- Truthy like `get`, not `== true`, or restoring this answer could switch acceleration off.
+      return _use_openssl and true or false
     end
 
     --- Parse semantic version string into comparable components
@@ -7064,6 +7658,16 @@ do
             install(stub_openssl("0.9.2"))
             openssl_wrapper.use(false)
             return openssl_wrapper.get(OpenSSLFeature.AAD) == nil
+          end,
+        },
+        {
+          name = "enabled reports what use last set",
+          test = function()
+            openssl_wrapper.use(true)
+            local on = openssl_wrapper.enabled()
+            openssl_wrapper.use(false)
+            local off = openssl_wrapper.enabled()
+            return on == true and off == false
           end,
         },
         {
@@ -8127,6 +8731,7 @@ do
       local saved_path = random._urandom_path
       local saved_preload = package.preload["openssl"]
       local saved_loaded = package.loaded["openssl"]
+      local saved_use = openssl_wrapper.enabled()
 
       --- Force both built-in sources to be unavailable.
       local function starve()
@@ -8142,13 +8747,13 @@ do
         random._urandom_path = "/nonexistent/crypto-random-selftest"
       end
 
-      --- Restore real detection, including the wrapper's initial opt-in state, so
+      --- Restore real detection, including the caller's acceleration choice, so
       --- running this inside `crypto.selftest()` cannot disturb a later module.
       local function unstarve()
         random.reset()
         package.loaded["openssl"] = saved_loaded
         package.preload["openssl"] = saved_preload
-        openssl_wrapper.use(os.getenv("CRYPTO_USE_OPENSSL") == "1" or os.getenv("CRYPTO_USE_OPENSSL") == "true")
+        openssl_wrapper.use(saved_use)
         random._urandom_path = saved_path
       end
 
@@ -12374,12 +12979,13 @@ end
 --- raises when there is not one. It never falls back to `math.random`.
 ---
 --- When the host provides the lua-openssl binding (e.g. Control4 DriverWorks OS
---- >= 3.4.1), hashing and AEAD transparently prefer it for speed and fall back to
---- the pure-Lua implementations otherwise. The elliptic-curve Diffie-Hellman
---- functions (x25519/x448) and Ed25519 signing always use the portable
---- implementations regardless of the OpenSSL flag -- the shipped lua-openssl
---- builds cannot perform the raw Curve25519/448 operations, and cannot sign
---- with an Ed25519 key even when they can import one.
+--- >= 3.4.1), hashing, AEAD and big-number arithmetic transparently prefer it
+--- for speed and fall back to the pure-Lua implementations otherwise. The
+--- elliptic-curve Diffie-Hellman functions (x25519/x448) and Ed25519 signing
+--- always use the portable implementations regardless of the OpenSSL flag --
+--- the shipped lua-openssl builds cannot perform the raw Curve25519/448
+--- operations, and cannot sign with an Ed25519 key even when they can import
+--- one.
 ---
 --- @usage
 --- local crypto = require("crypto")
@@ -12424,7 +13030,7 @@ local crypto = {
   --- @type crypto.random
   random = require("crypto.random"),
 
-  -- Arbitrary-precision integers (OpenSSL-preferred modular exponentiation)
+  -- Arbitrary-precision integers (OpenSSL-preferred)
   --- @type crypto.bignum
   bignum = require("crypto.bignum"),
 
@@ -12450,10 +13056,10 @@ local crypto = {
 local openssl_wrapper = crypto.openssl_wrapper
 
 --- Library version (injected at build time for releases).
-local VERSION = "v0.2.4"
+local VERSION = "v0.2.5"
 
 --- Enable or disable OpenSSL acceleration for the primitives that support it
---- (hashing and AEAD). Opt-in and safe: when the lua-openssl binding is
+--- (hashing, AEAD and big-number arithmetic). Opt-in and safe: when the lua-openssl binding is
 --- unavailable, or a given primitive is not accelerated, the pure-Lua
 --- implementation is used automatically. Curve25519/448 always use pure Lua.
 --- @param use boolean
@@ -12491,7 +13097,13 @@ function crypto.selftest()
   for _, name in ipairs(modules) do
     local mod = crypto[name]
     if type(mod.selftest) == "function" then
+      local accelerated = openssl_wrapper.enabled()
       if mod.selftest() == false then
+        ok = false
+      end
+      -- A host that enabled acceleration and then ran this must still have it.
+      if openssl_wrapper.enabled() ~= accelerated then
+        print("crypto." .. name .. ".selftest() did not restore the OpenSSL acceleration flag")
         ok = false
       end
     end

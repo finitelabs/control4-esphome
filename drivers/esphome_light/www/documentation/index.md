@@ -140,7 +140,26 @@ Enables or disables automatic driver updates via DriverCentral.
 
 #### Driver Status (read-only)
 
-Displays the current status of the driver.
+Displays the current status of the driver. It reads _Disconnected_, and the
+proxy is offline, while the ESPHome device is offline or the **ESPHome Light**
+connection is removed. A light whose device drops off the network shows off, as
+do keypad buttons linked to it, since it has most likely lost power. When the
+connection is removed, or the ESPHome driver reconnects to apply a log setting,
+the light keeps the level it had.
+
+The light ignores commands while its device is offline or its **ESPHome Light**
+connection is removed, so a command sent meanwhile changes nothing in Control4
+and runs no light programming. Once the device reports again, the light shows
+its level.
+
+<!-- #ifdef DRIVERCENTRAL -->
+
+It also reads _Disconnected_ while the ESPHome driver has no active
+DriverCentral license. The light keeps the level it had and ignores commands, so
+no off or on programming runs, and shows the level the device reports once a
+license is active again.
+
+<!-- #endif -->
 
 #### Driver Version (read-only)
 

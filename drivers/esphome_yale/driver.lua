@@ -90,6 +90,31 @@ local AUGUST_API = {
   },
 }
 
+--- Persist keys for the kept cloud session
+local CLOUD_TOKEN_KEY = "YALE_ACCESS_TOKEN"
+local CLOUD_LOCK_ID_KEY = "YALE_LOCK_ID"
+
+--- How often the kept session re-reads the lock's offline key
+local KEY_CHECK_INTERVAL_MS = ONE_DAY
+
+--- First check after startup, for a key that changed while the driver was down
+local KEY_CHECK_STARTUP_DELAY_MS = 5 * ONE_MINUTE
+
+--- Seconds between checks set off by rejections: a wrong key fails every connect
+local KEY_REJECTED_CHECK_SPACING_S = 15 * 60
+
+--- Rejections in a row before Yale Cloud Status reports one: a link lost during
+--- the handshake looks the same as a refused key
+local KEY_REJECTIONS_TO_REPORT = 5
+
+--- Renew the access token when it expires within this many seconds
+local TOKEN_RENEWAL_WINDOW_S = 7 * 24 * 60 * 60
+
+--- Yale Cloud Status texts
+local STATUS_SIGN_IN_EXPIRED = "Sign-in expired - run Request Verification Code"
+local STATUS_KEY_REJECTED = "Lock rejected the offline key - no newer key in the Yale cloud"
+local STATUS_KEY_REJECTED_SIGNED_OUT = "Lock rejected the offline key - fetch keys again"
+
 --------------------------------------------------------------------------------
 -- Handshake State
 --------------------------------------------------------------------------------
@@ -144,6 +169,11 @@ local pendingCommand = nil
 --- @type string|nil "lock", "unlock", "status_lock", "status_door", "status_battery"
 local awaitingResponse = nil
 
+--- Whether an acked lock or unlock is still turning: until its result frame,
+--- the lock answers a status read with the state it had before
+--- @type boolean
+local awaitingMotor = false
+
 --- GATT write queue for 250ms cooldown enforcement
 --- @type table[]
 local gattWriteQueue = {}
@@ -190,9 +220,21 @@ local pendingConnect = false
 --- @type integer|nil
 local pendingSubscribe = nil
 
---- August cloud session token (for key fetching)
+--- Unvalidated session token from Request Verification Code
 --- @type string|nil
 local augustSessionToken = nil
+
+--- When the driver last read the lock's key from the cloud (os.time)
+--- @type number|nil
+local lastKeyCheckAt = nil
+
+--- Yale Cloud Status from before a key rejection, restored when a key works
+--- @type string|nil
+local statusBeforeRejection = nil
+
+--- Connects in a row the lock turned the key down
+--- @type number
+local keyRejections = 0
 
 --------------------------------------------------------------------------------
 -- Handle Management
@@ -230,6 +272,7 @@ local function resetConnectionState(clearHandles)
   regularReadSubscribed = false
   pendingCommand = nil
   awaitingResponse = nil
+  awaitingMotor = false
   gattWriteQueue = {}
   pendingConnect = false
   pendingSubscribe = nil
@@ -300,6 +343,10 @@ end
 
 --- Defined with the recovery logic below; abandonAttempt needs it first.
 local scheduleRecovery
+
+--- Defined with the cloud key code below; the handshake needs them first.
+local onKeyRejected
+local onKeyAccepted
 
 --- Actually perform the GATT disconnection
 local function doDisconnect()
@@ -766,9 +813,9 @@ local function handleKeyExchangeResponse(data)
       opcode,
       yale_protocol.Opcode.SEC_MOBILE_TO_LOCK_KEY_EXCHANGE_RESP
     )
-    log:warn("Offline key may have been rotated - re-fetch keys from Yale Cloud")
-    UpdateProperty("Yale Cloud Status", "Key mismatch - re-fetch keys")
-    requestDisconnect()
+    local command = pendingCommand
+    abandonAttempt("Error: Key rejected")
+    onKeyRejected(command)
     return
   end
 
@@ -837,9 +884,9 @@ local function handleInitResponse(data)
       opcode,
       yale_protocol.Opcode.SEC_INITIALIZATION_RESP
     )
-    log:warn("Offline key may have been rotated - re-fetch keys from Yale Cloud")
-    UpdateProperty("Yale Cloud Status", "Key mismatch - re-fetch keys")
-    requestDisconnect()
+    local command = pendingCommand
+    abandonAttempt("Error: Key rejected")
+    onKeyRejected(command)
     return
   end
 
@@ -847,6 +894,7 @@ local function handleInitResponse(data)
   CancelTimer("HandshakeTimeout")
   handshakeState = HANDSHAKE_STATE.COMPLETE
   reconnectAttempts = 0
+  onKeyAccepted()
   updateStatus("Connected", true)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
 
@@ -1039,6 +1087,19 @@ local function handleCommandResponse(data)
 
   -- Status response
   if response.flag == 0xBB then
+    if response.operationResult then
+      if response.operationResult ~= 0 then
+        log:warn("Lock operation 0x%02X failed with result 0x%02X", response.opcode, response.operationResult)
+        updateLockStatus("fault")
+      end
+      updateLastSeen()
+      if awaitingMotor then
+        awaitingMotor = false
+        queueStatusPoll()
+      end
+      return
+    end
+
     if response.lockStatus then
       local c4Status = yale_protocol.toC4LockStatus(response.lockStatus)
       local statusStr = yale_protocol.parseLockStatus(response.lockStatus)
@@ -1092,9 +1153,10 @@ local function handleCommandResponse(data)
     end
     updateLastSeen()
 
-    -- Poll for full status after command, then schedule jam check
+    -- The result frame queues the status read; the jam check below covers a
+    -- lock that sends none
     if wasSolicited then
-      queueStatusPoll()
+      awaitingMotor = true
       -- Re-query lock status after 10s to catch late-reported jams
       SetTimer("JamCheck", JAM_CHECK_DELAY_MS, function()
         if handshakeState == HANDSHAKE_STATE.COMPLETE then
@@ -1118,30 +1180,320 @@ end
 -- Yale Cloud API Key Fetching
 --------------------------------------------------------------------------------
 
+--- Request headers for the August API, signed in with `token` if given.
+--- @param token? string Access token
+--- @return table<string, string> headers
+local function cloudHeaders(token)
+  local headers = { ["x-august-api-key"] = AUGUST_API.API_KEY }
+  for k, v in pairs(AUGUST_API.HEADERS) do
+    headers[k] = v
+  end
+  headers["x-august-access-token"] = token
+  return headers
+end
+
+--- The access token a response carries, new or renewed.
+--- @param response HTTPResponse
+--- @return string|nil token
+local function responseToken(response)
+  local token = Select(response, "headers", "x-august-access-token")
+    or Select(response, "headers", "X-August-Access-Token")
+  if IsEmpty(token) then
+    return nil
+  end
+  return token
+end
+
+--- A response body as a table.
+--- @param response HTTPResponse
+--- @return table|nil body
+local function responseBody(response)
+  local body = Select(response, "body")
+  if type(body) == "string" then
+    local ok, decoded = pcall(JSON.decode, JSON, body)
+    body = ok and decoded or nil
+  end
+  if type(body) ~= "table" then
+    return nil
+  end
+  return body
+end
+
+--- A failed request or a rejection as text.
+--- @param err HTTPErrorResponse|string|nil
+--- @return string text
+local function errorText(err)
+  if type(err) == "table" then
+    return tostring(err.error or "Request failed")
+  end
+  return tostring(err)
+end
+
+--- When an access token expires, from its JWT "exp" claim.
+--- @param token string Access token
+--- @return number|nil expiresAt Unix time, or nil if the token does not say
+local function tokenExpiry(token)
+  local payload = type(token) == "string" and token:match("^[^.]+%.([^.]+)%.") or nil
+  if not payload then
+    return nil
+  end
+  payload = payload:gsub("%-", "+"):gsub("_", "/")
+  payload = payload .. string.rep("=", (4 - #payload % 4) % 4)
+  local ok, claims = pcall(function()
+    return JSON:decode(C4:Base64Decode(payload))
+  end)
+  return ok and type(claims) == "table" and tonumber(claims.exp) or nil
+end
+
+--- The kept cloud session's access token.
+--- @return string|nil token
+local function cloudToken()
+  local token = persist:get(CLOUD_TOKEN_KEY, nil, true)
+  if IsEmpty(token) then
+    return nil
+  end
+  return token
+end
+
+--- Forget the kept cloud session.
+local function clearCloudSession()
+  persist:delete(CLOUD_TOKEN_KEY)
+  persist:delete(CLOUD_LOCK_ID_KEY)
+  CancelTimer("KeyCheck")
+end
+
+--- This lock's ID: the one whose MAC matches, else the account's only lock.
+--- Several locks and no match is an error; another lock's key fails every connect.
+--- @param locks table<string, table> The account's locks by ID
+--- @return string|nil lockId
+--- @return string|nil err
+local function matchLock(locks)
+  local mac = Properties["MAC Address"]
+  local ourMac = nil
+  if not IsEmpty(mac) and mac ~= "Unknown" then
+    ourMac = mac:upper():gsub("[:-]", "")
+  end
+
+  local ids = {}
+  for lockId, info in pairs(locks) do
+    if type(info) == "table" then
+      table.insert(ids, lockId)
+      local lockMac = tostring(Select(info, "macAddress") or ""):upper():gsub("[:-]", "")
+      if ourMac and lockMac == ourMac then
+        return lockId
+      end
+    end
+  end
+
+  if #ids == 1 then
+    return ids[1]
+  elseif #ids == 0 then
+    return nil, "No locks found in account"
+  elseif ourMac then
+    return nil, "No lock in this account has MAC " .. mac
+  end
+  return nil, "Several locks in this account - connect to this one once so its MAC is known"
+end
+
+--- The offline key loaded on the lock, from the lock's cloud detail.
+--- @param lockInfo table|nil The lock's detail
+--- @return table|nil keys { offlineKey: string, keySlot: string }
+--- @return string|nil err
+local function loadedKey(lockInfo)
+  if type(lockInfo) ~= "table" then
+    return nil, "Invalid lock info response"
+  end
+  local offlineKeys = Select(lockInfo, "OfflineKeys") or {}
+  local loaded = Select(offlineKeys, "loaded", 1)
+  if not IsEmpty(Select(loaded, "key")) then
+    return { offlineKey = loaded.key, keySlot = tostring(loaded.slot or 1) }
+  end
+  if type(Select(offlineKeys, "created", 1)) == "table" then
+    return nil,
+      "Offline key is provisioned but not yet loaded on the lock. Operate the lock once from the Yale app, then retry."
+  end
+  return nil, "No offline key found for this lock"
+end
+
+--- Set the Offline Key and Key Slot properties.
+--- @param keys table { offlineKey: string, keySlot: string }
+--- @return boolean changed Whether either differed from what was set
+local function applyKeys(keys)
+  local changed = keys.offlineKey:lower() ~= tostring(Properties["Offline Key"] or ""):lower()
+    or keys.keySlot ~= tostring(getKeySlot())
+  UpdateProperty("Offline Key", keys.offlineKey)
+  UpdateProperty("Key Slot", keys.keySlot)
+  return changed
+end
+
+--- Read this lock's offline key from the cloud and set it, renewing the token
+--- near expiry. A token the cloud turns down ends the session.
+--- @param reason string Why the check runs, for the log
+--- @return Deferred<boolean, string> changed Whether the key or slot changed
+local function checkCloudKey(reason)
+  local token = cloudToken()
+  if not token then
+    return reject("Not signed in to the Yale cloud")
+  end
+  log:info("Checking the Yale cloud for the lock's offline key (%s)", reason)
+  lastKeyCheckAt = os.time()
+  local headers = cloudHeaders(token)
+
+  local function keepToken(response)
+    local renewed = responseToken(response)
+    if renewed and renewed ~= headers["x-august-access-token"] then
+      headers["x-august-access-token"] = renewed
+      persist:set(CLOUD_TOKEN_KEY, renewed, true)
+      log:debug("Yale cloud session token renewed")
+    end
+    return response
+  end
+
+  local expiresAt = tokenExpiry(token)
+  local renewal = resolve()
+  if not expiresAt or expiresAt - os.time() < TOKEN_RENEWAL_WINDOW_S then
+    renewal = http:get(AUGUST_API.BASE_URL .. "/users/houses/mine", headers):next(keepToken)
+  end
+
+  return renewal
+    :next(function()
+      local lockId = persist:get(CLOUD_LOCK_ID_KEY)
+      if not IsEmpty(lockId) then
+        return lockId
+      end
+      return http:get(AUGUST_API.BASE_URL .. "/users/locks/mine", headers):next(function(response)
+        keepToken(response)
+        local id, err = matchLock(responseBody(response) or {})
+        if not id then
+          return reject(err)
+        end
+        persist:set(CLOUD_LOCK_ID_KEY, id)
+        return id
+      end)
+    end)
+    :next(function(lockId)
+      return http:get(AUGUST_API.BASE_URL .. "/locks/" .. lockId, headers)
+    end)
+    :next(function(response)
+      keepToken(response)
+      local keys, err = loadedKey(responseBody(response))
+      if not keys then
+        return reject(err)
+      end
+      return applyKeys(keys)
+    end)
+    :next(nil, function(err)
+      local code = tointeger(Select(err, "code"))
+      if code == 401 or code == 403 then
+        log:warn("The Yale cloud no longer accepts the kept session")
+        clearCloudSession()
+        return reject(STATUS_SIGN_IN_EXPIRED)
+      end
+      -- A lock taken out of the account: find it again next time
+      if code == 404 then
+        persist:delete(CLOUD_LOCK_ID_KEY)
+      end
+      return reject(errorText(err))
+    end)
+end
+
+--- Defined below runKeyCheck, which re-arms it.
+local scheduleKeyCheck
+
+--- Show that the lock rejects the key, keeping the status it replaces.
+--- @param status string
+local function showKeyRejected(status)
+  if statusBeforeRejection == nil then
+    statusBeforeRejection = Properties["Yale Cloud Status"] or ""
+  end
+  UpdateProperty("Yale Cloud Status", status)
+end
+
+--- Check the cloud for the key, show the result and arm the next check. A
+--- changed key connects at once rather than at the next poll or retry.
+--- @param reason string Why the check runs, for the log
+--- @param retryCommand? string A lock or unlock the rejected key held up
+--- @return Deferred
+local function runKeyCheck(reason, retryCommand)
+  return checkCloudKey(reason)
+    :next(function(changed)
+      if changed then
+        log:info("The lock's offline key changed in the Yale cloud - updated")
+        statusBeforeRejection = nil
+        keyRejections = 0
+        UpdateProperty("Yale Cloud Status", "Keys updated " .. os.date("%Y-%m-%d %H:%M"))
+        reconnectAttempts = 0
+        if handshakeState == HANDSHAKE_STATE.IDLE then
+          CancelTimer("Reconnect")
+          initiateCommand(retryCommand or "status")
+        end
+      elseif keyRejections >= KEY_REJECTIONS_TO_REPORT then
+        showKeyRejected(STATUS_KEY_REJECTED)
+      else
+        UpdateProperty("Yale Cloud Status", "Keys checked " .. os.date("%Y-%m-%d %H:%M"))
+      end
+    end, function(err)
+      log:warn("Yale cloud key check failed: %s", err)
+      UpdateProperty("Yale Cloud Status", err == STATUS_SIGN_IN_EXPIRED and err or ("Error: " .. tostring(err)))
+    end)
+    :next(function()
+      scheduleKeyCheck()
+    end)
+end
+
+--- Arm the next key check while a cloud session is kept.
+--- @param delayMs? number Delay before the check (default: a day)
+scheduleKeyCheck = function(delayMs)
+  if not cloudToken() then
+    CancelTimer("KeyCheck")
+    return
+  end
+  SetTimer("KeyCheck", delayMs or KEY_CHECK_INTERVAL_MS, function()
+    runKeyCheck("daily check")
+  end)
+end
+
+--- The lock turned the key down: check the cloud now, and once it has happened
+--- several times in a row say so.
+--- @param command? string The command the rejected connect was for
+onKeyRejected = function(command)
+  keyRejections = keyRejections + 1
+  log:warn("The lock rejected the offline key for slot %d (%d in a row)", getKeySlot(), keyRejections)
+  local signedIn = cloudToken() ~= nil
+  if signedIn and not (lastKeyCheckAt and os.time() - lastKeyCheckAt < KEY_REJECTED_CHECK_SPACING_S) then
+    if command ~= "lock" and command ~= "unlock" then
+      command = nil
+    end
+    runKeyCheck("the lock rejected the key", command)
+  elseif keyRejections >= KEY_REJECTIONS_TO_REPORT then
+    showKeyRejected(signedIn and STATUS_KEY_REJECTED or STATUS_KEY_REJECTED_SIGNED_OUT)
+  end
+end
+
+--- The lock took the key: put back the status a rejection replaced.
+onKeyAccepted = function()
+  keyRejections = 0
+  if statusBeforeRejection ~= nil then
+    UpdateProperty("Yale Cloud Status", statusBeforeRejection)
+    statusBeforeRejection = nil
+  end
+end
+
 --- Request a verification code from the August API.
 --- @return Deferred deferred Resolves on success, rejects with error string on failure
 local function requestVerificationCode()
   log:trace("requestVerificationCode()")
-  local d = deferred.new()
-
   local email = Properties["Yale Email"]
   local password = Properties["Yale Password"]
 
   if IsEmpty(email) then
-    return d:reject("Email required")
+    return reject("Email required")
   end
   if IsEmpty(password) then
-    return d:reject("Password required")
+    return reject("Password required")
   end
 
   UpdateProperty("Yale Cloud Status", "Creating session...")
-
-  local sessionUrl = AUGUST_API.BASE_URL .. "/session"
-  local headers = {}
-  for k, v in pairs(AUGUST_API.HEADERS) do
-    headers[k] = v
-  end
-  headers["x-august-api-key"] = AUGUST_API.API_KEY
 
   local sessionData = JSON:encode({
     identifier = "email:" .. email,
@@ -1149,161 +1501,75 @@ local function requestVerificationCode()
     password = password,
   })
 
-  http
-    :post(sessionUrl, sessionData, headers)
+  return http
+    :post(AUGUST_API.BASE_URL .. "/session", sessionData, cloudHeaders())
     :next(function(response)
-      local token = Select(response.headers, "x-august-access-token")
-        or Select(response.headers, "X-August-Access-Token")
-      if IsEmpty(token) then
-        return d:reject("No access token in session response")
+      local token = responseToken(response)
+      if not token then
+        return reject("No access token in session response")
       end
       augustSessionToken = token
       log:info("August session created")
 
-      -- Send verification code
       UpdateProperty("Yale Cloud Status", "Sending verification code...")
-      local validateUrl = AUGUST_API.BASE_URL .. "/validation/email"
-      local validateHeaders = {}
-      for k, v in pairs(AUGUST_API.HEADERS) do
-        validateHeaders[k] = v
-      end
-      validateHeaders["x-august-api-key"] = AUGUST_API.API_KEY
-      validateHeaders["x-august-access-token"] = token
-
-      local validateData = JSON:encode({ value = email })
-      return http:post(validateUrl, validateData, validateHeaders)
+      return http:post(AUGUST_API.BASE_URL .. "/validation/email", JSON:encode({ value = email }), cloudHeaders(token))
     end)
     :next(function()
       log:info("Verification code sent to %s", Properties["Yale Email"])
-      d:resolve(true)
+      return true
     end, function(err)
-      return d:reject(err)
+      return reject(errorText(err))
     end)
-
-  return d
 end
 
---- Verify the code and fetch offline keys.
+--- Verify the code, fetch the offline key and keep the validated session.
 --- @param code string The verification code from the action param
 --- @return Deferred deferred Resolves with { offlineKey, keySlot } on success, rejects with error string on failure
 local function verifyAndFetchKeys(code)
   log:trace("verifyAndFetchKeys()")
-  local d = deferred.new()
-
-  local email = Properties["Yale Email"]
-
   if IsEmpty(augustSessionToken) then
-    return d:reject("Request verification code first")
+    return reject("Request verification code first")
   end
   if IsEmpty(code) then
-    return d:reject("Verification code required")
+    return reject("Verification code required")
   end
 
   UpdateProperty("Yale Cloud Status", "Verifying code...")
+  local headers = cloudHeaders(augustSessionToken)
+  local lockId
 
-  local headers = {}
-  for k, v in pairs(AUGUST_API.HEADERS) do
-    headers[k] = v
-  end
-  headers["x-august-api-key"] = AUGUST_API.API_KEY
-  headers["x-august-access-token"] = augustSessionToken
-
-  -- Validate the code
-  local validateUrl = AUGUST_API.BASE_URL .. "/validate/email"
-  local validateData = JSON:encode({ code = code, email = email })
-
-  http
-    :post(validateUrl, validateData, headers)
+  return http
+    :post(
+      AUGUST_API.BASE_URL .. "/validate/email",
+      JSON:encode({ code = code, email = Properties["Yale Email"] }),
+      headers
+    )
     :next(function(response)
-      -- Check for updated token in response
-      local newToken = Select(response.headers, "x-august-access-token")
-        or Select(response.headers, "X-August-Access-Token")
-      if not IsEmpty(newToken) then
-        augustSessionToken = newToken
-        headers["x-august-access-token"] = newToken
-      end
-
+      headers["x-august-access-token"] = responseToken(response) or headers["x-august-access-token"]
       UpdateProperty("Yale Cloud Status", "Fetching locks...")
-      local locksUrl = AUGUST_API.BASE_URL .. "/users/locks/mine"
-      return http:get(locksUrl, headers)
+      return http:get(AUGUST_API.BASE_URL .. "/users/locks/mine", headers)
     end)
     :next(function(response)
-      local locks = response.body
-      if type(locks) == "string" then
-        locks = JSON:decode(locks)
+      local id, err = matchLock(responseBody(response) or {})
+      if not id then
+        return reject(err)
       end
-      if type(locks) ~= "table" then
-        return d:reject("Invalid locks response")
-      end
-
-      -- Find the first lock (or match by MAC if we have one)
-      local mac = Properties["MAC Address"]
-      local targetLockId = nil
-
-      for lockId, lockInfo in pairs(locks) do
-        if type(lockInfo) == "table" then
-          -- Check if MAC matches (if we have one)
-          if not IsEmpty(mac) and mac ~= "Unknown" then
-            local lockMac = Select(lockInfo, "macAddress") or ""
-            lockMac = lockMac:upper():gsub("[:-]", "")
-            local ourMac = mac:upper():gsub("[:-]", "")
-            if lockMac == ourMac then
-              targetLockId = lockId
-              break
-            end
-          end
-          -- Otherwise use first lock found
-          if not targetLockId then
-            targetLockId = lockId
-          end
-        end
-      end
-
-      if not targetLockId then
-        return d:reject("No locks found in account")
-      end
-
-      UpdateProperty("Yale Cloud Status", "Fetching key for lock " .. targetLockId .. "...")
-      local lockUrl = AUGUST_API.BASE_URL .. "/locks/" .. targetLockId
-      return http:get(lockUrl, headers)
+      lockId = id
+      UpdateProperty("Yale Cloud Status", "Fetching key for lock " .. id .. "...")
+      return http:get(AUGUST_API.BASE_URL .. "/locks/" .. id, headers)
     end)
     :next(function(response)
-      local lockInfo = response.body
-      log:debug("Lock info response type: %s", type(lockInfo))
-      if type(lockInfo) == "string" then
-        lockInfo = JSON:decode(lockInfo)
+      local keys, err = loadedKey(responseBody(response))
+      if not keys then
+        return reject(err)
       end
-      if type(lockInfo) ~= "table" then
-        return d:reject("Invalid lock info response (type: " .. type(lockInfo) .. ")")
-      end
-
-      -- Extract offline key from OfflineKeys.loaded
-      log:debug("Lock info keys: %s", lockInfo)
-      local offlineKeys = Select(lockInfo, "OfflineKeys") or {}
-      local loaded = offlineKeys.loaded
-      local offlineKey, keySlot
-      if loaded and #loaded > 0 then
-        offlineKey = loaded[1].key
-        keySlot = tostring(loaded[1].slot or 1)
-      end
-
-      if IsEmpty(offlineKey) then
-        -- Check if key exists but hasn't been loaded onto the lock yet
-        local created = offlineKeys.created
-        if created and #created > 0 then
-          return d:reject(
-            "Offline key is provisioned but not yet loaded on the lock. Operate the lock once from the Yale app, then retry."
-          )
-        end
-        return d:reject("No offline key found for this lock")
-      end
-
-      d:resolve({ offlineKey = offlineKey, keySlot = keySlot })
+      persist:set(CLOUD_TOKEN_KEY, responseToken(response) or headers["x-august-access-token"], true)
+      persist:set(CLOUD_LOCK_ID_KEY, lockId)
+      augustSessionToken = nil
+      return keys
     end, function(err)
-      return d:reject(err)
+      return reject(errorText(err))
     end)
-
-  return d
 end
 
 --------------------------------------------------------------------------------
@@ -1365,6 +1631,8 @@ function OnDriverLateInit()
     doorSenseConfigured = nil
     C4:SetPropertyAttribs("Door Status", constants.HIDE_PROPERTY)
   end
+
+  scheduleKeyCheck(KEY_CHECK_STARTUP_DELAY_MS)
 end
 
 --------------------------------------------------------------------------------
@@ -1446,14 +1714,22 @@ end
 
 function OPC.Offline_Key(propertyValue)
   log:trace("OPC.Offline_Key('%s')", not IsEmpty(propertyValue) and "****" or "")
+  keyRejections = 0
 end
 
 function OPC.Key_Slot(propertyValue)
   log:trace("OPC.Key_Slot('%s')", propertyValue)
+  keyRejections = 0
 end
 
 function OPC.Yale_Email(propertyValue)
   log:trace("OPC.Yale_Email('%s')", propertyValue and "***" or "nil")
+  -- The kept session belongs to the account that signed in
+  if gInitialized and cloudToken() then
+    log:info("Yale Email changed - signing out of the Yale cloud")
+    clearCloudSession()
+    UpdateProperty("Yale Cloud Status", "")
+  end
 end
 
 function OPC.Yale_Password(propertyValue)
@@ -1684,8 +1960,14 @@ function RFP.DISCONNECTED(idBinding, strCommand, tParams, args)
   end
   expectedDisconnect = false
 
+  -- A lock that cannot decrypt the key exchange acks it and drops the link
+  local keyRejected = handshakeState == HANDSHAKE_STATE.AWAITING_KEY_EXCHANGE_RESPONSE
+
   resetConnectionState()
   scheduleRecovery("Disconnected: " .. reason, savedCommand)
+  if keyRejected then
+    onKeyRejected(savedCommand)
+  end
 end
 
 --- Handle connection failure
@@ -1745,6 +2027,10 @@ function RFP.GATT_WRITE_RESPONSE(idBinding, strCommand, tParams, args)
   if success then
     log:debug("Write command successful")
     updateLastSeen()
+  elseif errorCode and errorCode:find("Superseded", 1, true) then
+    -- The init write goes out before the key exchange's is acked, so the parent
+    -- reports the older one superseded; the newer one still answers
+    log:debug("Ignoring superseded write")
   else
     log:error("Write command failed: error=%s", errorCode)
     -- IDLE means the attempt is already over; its late write answers are stale
@@ -1893,10 +2179,13 @@ end
 function EC.Verify_And_Fetch_Keys(params)
   log:trace("EC.Verify_And_Fetch_Keys(%s)", params)
   verifyAndFetchKeys(Select(params, "Verification Code")):next(function(result)
-    UpdateProperty("Offline Key", result.offlineKey)
-    UpdateProperty("Key Slot", tostring(result.keySlot))
+    applyKeys(result)
+    lastKeyCheckAt = os.time()
+    statusBeforeRejection = nil
+    keyRejections = 0
     UpdateProperty("Yale Cloud Status", "Keys fetched successfully")
     log:info("Successfully fetched offline key (slot %s)", result.keySlot)
+    scheduleKeyCheck()
   end, function(err)
     log:error("Failed to fetch keys: %s", err)
     UpdateProperty("Yale Cloud Status", "Error: " .. tostring(err))
@@ -1933,6 +2222,11 @@ function EC.Reset_Driver(params)
 
   bindings:reset()
   resetConnectionState(true)
+  clearCloudSession()
+  augustSessionToken = nil
+  lastKeyCheckAt = nil
+  statusBeforeRejection = nil
+  keyRejections = 0
   initialStatusTriggered = false
   expectedDisconnect = false
   doorSenseConfigured = nil

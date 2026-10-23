@@ -194,6 +194,16 @@ function OPC.Driver_Version(propertyValue)
   C4:UpdateProperty("Driver Version", C4:GetDriverConfigInfo("version"))
 end
 
+--- Whether the driver dropped the connection itself, at a lapse or to resubscribe the device logs, and has not
+--- reconnected. The device was not lost, so sub-drivers are told it is suspended, which keeps a light's level.
+local suspended = false
+
+--- Drop the connection to end or change the device log subscription, which has no unsubscribe.
+local function disconnectForLogs()
+  suspended = true
+  esphome:disconnect()
+end
+
 function OPC.Log_Mode(propertyValue)
   log:trace("OPC.Log_Mode('%s')", propertyValue)
   log:setLogMode(propertyValue)
@@ -201,7 +211,7 @@ function OPC.Log_Mode(propertyValue)
   if not log:isEnabled() then
     -- If log mode is disabled and we're subscribed to logs, disconnect to stop logs
     if esphome:isLogsSubscribed() then
-      esphome:disconnect()
+      disconnectForLogs()
     end
     UpdateProperty("Log Level", "3 - Info", true)
     return
@@ -232,7 +242,7 @@ function OPC.Log_Level(propertyValue)
   end
   -- If subscribed to logs, disconnect to resubscribe at new level
   if esphome:isLogsSubscribed() then
-    esphome:disconnect()
+    disconnectForLogs()
   end
 end
 
@@ -372,7 +382,7 @@ function OPC.Device_Log_Forwarding(propertyValue)
   elseif esphome:isLogsSubscribed() then
     -- Disconnect to stop the log stream (no API to unsubscribe)
     -- Heartbeat timer will automatically reconnect without log subscription
-    esphome:disconnect()
+    disconnectForLogs()
   end
 end
 
@@ -433,6 +443,11 @@ local FATAL_ERROR_BACKOFF = 120
 --- sub-drivers would never be told the device went away.
 local wasConnected = false
 
+--#ifdef DRIVERCENTRAL
+local UNLICENSED_CHECKS = 6 -- a minute, as long as the cloud client waits on the Cloud driver
+local unlicensedChecks = 0
+--#endif
+
 function Connect()
   log:trace("Connect()")
   if not gInitialized then
@@ -451,10 +466,11 @@ function Connect()
   local lastUpdateTime = os.time() -- Don't check for updates on the first cycle
   local lastFatalErrorTime = 0 -- Track when the last fatal error occurred
 
-  local function notifyEntitiesDisconnected()
+  --- @param suspend? boolean The driver dropped the connection itself; the device was not lost.
+  local function notifyEntitiesDisconnected(suspend)
     for _, handler in pairs(Entities) do
       if type(handler.disconnected) == "function" then
-        local success, err = pcall(handler.disconnected, handler)
+        local success, err = pcall(handler.disconnected, handler, suspend)
         if not success then
           log:error("Entity disconnected handler failed: %s", err or "unknown error")
         end
@@ -469,21 +485,24 @@ function Connect()
     esphome:disconnect()
     if wasConnected then
       log:info("Connection closed, notifying sub-drivers")
-      notifyEntitiesDisconnected()
+      notifyEntitiesDisconnected(suspended)
       wasConnected = false
     end
   end
 
   local heartbeat = function()
     --#ifdef DRIVERCENTRAL
-    if DC_X == 0 then
+    if unlicensedChecks >= UNLICENSED_CHECKS then
       updateStatus("No active license", false)
+      -- A connection already lost was the device going away, not the lapse.
+      suspended = suspended or esphome:isConnected()
       disconnectAndNotify()
       return
     end
     --#endif
     if not esphome:isConfigured() then
       updateStatus("Not configured", false)
+      suspended = false
       disconnectAndNotify()
       CancelTimer("heartbeat")
       return
@@ -492,7 +511,7 @@ function Connect()
     local connected = esphome:isConnected()
     if wasConnected and not connected then
       log:info("Connection lost, notifying sub-drivers")
-      notifyEntitiesDisconnected()
+      notifyEntitiesDisconnected(suspended)
     end
     wasConnected = connected
 
@@ -527,6 +546,7 @@ function Connect()
       esphome:connect():next(function()
         lastFatalErrorTime = 0 -- Clear on successful connection
         wasConnected = true
+        suspended = false
         -- If using password authentication, show "waiting for authentication" status
         -- until first successful operation confirms auth succeeded
         if Properties["Authentication Mode"] == "Password" and not IsEmpty(Properties["Password"]) then
@@ -542,13 +562,25 @@ function Connect()
           return
         end
         updateStatus("Connection failed: " .. reason, false)
+        -- Sub-drivers told the device was suspended learn it is lost: it did not come back.
+        if suspended then
+          suspended = false
+          notifyEntitiesDisconnected()
+        end
       end)
     else
       updateStatus("Connected", true)
     end
   end
   -- Perform the initial refresh then schedule it on a repeating timer
-  SetTimer("heartbeat", 10 * ONE_SECOND, heartbeat, true)
+  SetTimer("heartbeat", 10 * ONE_SECOND, function()
+    --#ifdef DRIVERCENTRAL
+    -- DC_X is also 0 from late init until the Cloud driver first answers, which a controller boot can delay, so
+    -- only a 0 that lasts drops the connection. Only a tick counts, not the Connect() a property change runs.
+    unlicensedChecks = DC_X == 0 and unlicensedChecks + 1 or 0
+    --#endif
+    heartbeat()
+  end, true)
   heartbeat()
 end
 
@@ -562,6 +594,10 @@ function RefreshStatus()
   log:trace("RefreshStatus()")
   -- Debounce the status refresh calls
   SetTimer("RefreshStatus", ONE_SECOND * 3, function()
+    -- It could only fail and read Refresh failed over the status the heartbeat set; a connect refreshes itself.
+    if not esphome:isConnected() then
+      return
+    end
     if refreshInFlight then
       -- Re-arm and try again once the running chain settles (every chain
       -- settles: responses and timeouts resolve it, disconnect rejects it).
@@ -687,6 +723,18 @@ function RefreshStatus()
         esphome:disconnect()
       end)
   end)
+end
+
+--- Answer a sub-driver's REFRESH_STATE, sent when it loads or is bound. One loaded or bound since the driver
+--- dropped the connection itself was not told the device is suspended, and no state comes until it reconnects.
+--- @param idBinding number The sub-driver's binding.
+function RefreshState(idBinding)
+  log:trace("RefreshState(%s)", idBinding)
+  if suspended then
+    SendToProxy(idBinding, "UPDATE_DISCONNECT", { suspended = true }, "NOTIFY")
+    return
+  end
+  RefreshStatus()
 end
 
 --- Property values for reset.
