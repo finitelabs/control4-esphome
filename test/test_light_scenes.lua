@@ -8505,7 +8505,7 @@ do
     return 0.3127, 0.329
   end
   light({ CT })
-  proxyColor, proxyTarget = "0.4,0.4,1", "0.4,0.4,1"
+  proxyColor, proxyTarget = "0.3127,0.329,1", "0.3127,0.329,1" -- a read would take the report as shown
   restart(nil)
   gInitialized = false
   RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
