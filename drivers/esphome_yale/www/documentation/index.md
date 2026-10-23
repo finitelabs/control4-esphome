@@ -491,16 +491,17 @@ DoorSense configuration.
 the Yale Cloud Settings to fetch it automatically or enter it manually in
 Authentication Settings.
 
-**"Lock rejected the offline key - fetch keys again"** The lock no longer
-accepts the offline key, and the driver is not signed in to the Yale cloud. Run
-**Request Verification Code** and **Verify and Fetch Keys** to fetch the current
-key.
+**"Lock rejected the offline key - fetch keys again"** The lock turned the
+offline key down on five connects in a row, and the driver is not signed in to
+the Yale cloud. Run **Request Verification Code** and **Verify and Fetch Keys**
+to fetch the current key.
 
 **"Lock rejected the offline key - no newer key in the Yale cloud"** The lock
-turned the key down, and the cloud has the same key. Check that the **Key Slot**
-matches, and that the lock still belongs to the signed-in account. A lock that
-drops the connection at that moment for another reason can show this once; it
-clears when the lock accepts the key again.
+turned the key down on five connects in a row, and the cloud has the same key.
+Check that the **Key Slot** matches, and that the lock still belongs to the
+signed-in account. The driver waits for five because a connection lost during
+the handshake for another reason looks the same. The status clears when the lock
+accepts the key again.
 
 **"Offline key is provisioned but not yet loaded on the lock"** The key exists
 in the Yale cloud but has not been loaded onto the lock hardware. Open the Yale

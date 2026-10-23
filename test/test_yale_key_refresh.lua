@@ -328,21 +328,23 @@ H.test("a token near expiry is renewed before the check", function()
   T.eq("and signs the lock request", requests[2].token, FRESH_TOKEN)
 end)
 
-H.test("a token the cloud turns down ends the session", function()
-  boot()
-  routes["GET /locks/" .. LOCK_ID] = function()
-    return { error = "HTTP GET request failed with status code 401", code = 401 }
-  end
-  H.fire("KeyCheck")
-  T.eq("the token is dropped", keptToken(), nil)
-  T.eq(
-    "status says to sign in again",
-    Properties["Yale Cloud Status"],
-    "Sign-in expired - run Request Verification Code"
-  )
-  T.falsy("and nothing more is checked", H.armed("KeyCheck"))
-  T.eq("the key is left alone", Properties["Offline Key"], OLD_KEY)
-end)
+for _, code in ipairs({ 401, 403 }) do
+  H.test("a token the cloud turns down with " .. code .. " ends the session", function()
+    boot()
+    routes["GET /locks/" .. LOCK_ID] = function()
+      return { error = "HTTP GET request failed with status code " .. code, code = code }
+    end
+    H.fire("KeyCheck")
+    T.eq("the token is dropped", keptToken(), nil)
+    T.eq(
+      "status says to sign in again",
+      Properties["Yale Cloud Status"],
+      "Sign-in expired - run Request Verification Code"
+    )
+    T.falsy("and nothing more is checked", H.armed("KeyCheck"))
+    T.eq("the key is left alone", Properties["Offline Key"], OLD_KEY)
+  end)
+end
 
 H.test("a failed request keeps the session for the next check", function()
   boot()
@@ -430,23 +432,30 @@ for _, step in ipairs({ "key exchange", "init" }) do
   end)
 end
 
-H.test("a refused key with nothing newer in the cloud says so, once per spell", function()
+H.test("a key refused five times in a row with nothing newer in the cloud says so", function()
   boot()
   routes["GET /locks/" .. LOCK_ID] = lockDetail(OLD_KEY)
-  UpdateProperty("Yale Cloud Status", "Keys checked earlier")
   lock()
   keyRefused()
-  T.eq("the cloud is asked", count("GET", "/locks/" .. LOCK_ID), 1)
-  T.eq(
-    "status says the lock refused the key",
-    Properties["Yale Cloud Status"],
-    "Lock rejected the offline key - no newer key in the Yale cloud"
-  )
+  T.eq("the cloud is asked at the first refusal", count("GET", "/locks/" .. LOCK_ID), 1)
+  local checked = Properties["Yale Cloud Status"]
+  T.truthy("one refusal is not reported", checked:find("^Keys checked "))
   T.eq("nothing connects early", H.count("CONNECT", ESPHOME), 1)
+
+  for _ = 2, 4 do
+    H.fire("PollCycle")
+    keyRefused()
+  end
+  T.eq("nor are four", Properties["Yale Cloud Status"], checked)
+  T.eq("and the cloud is not asked again within 15 minutes", count("GET", "/locks/" .. LOCK_ID), 1)
 
   H.fire("PollCycle")
   keyRefused()
-  T.eq("a second refusal soon after does not ask again", count("GET", "/locks/" .. LOCK_ID), 1)
+  T.eq(
+    "the fifth is",
+    Properties["Yale Cloud Status"],
+    "Lock rejected the offline key - no newer key in the Yale cloud"
+  )
 
   local realTime = os.time
   os.time = function(...) -- luacheck: ignore
@@ -461,24 +470,50 @@ H.test("a refused key with nothing newer in the cloud says so, once per spell", 
   end)
   os.time = realTime -- luacheck: ignore
   assert(ok, err)
-  T.eq("one after fifteen minutes does", count("GET", "/locks/" .. LOCK_ID), 2)
+  T.eq("one after fifteen minutes asks again", count("GET", "/locks/" .. LOCK_ID), 2)
+  T.eq(
+    "and still says so",
+    Properties["Yale Cloud Status"],
+    "Lock rejected the offline key - no newer key in the Yale cloud"
+  )
 
   H.fire("PollCycle")
   startHandshake()
   handshakeAnswered()
-  T.eq(
-    "once the lock takes the key the earlier status is back",
-    Properties["Yale Cloud Status"],
-    "Keys checked earlier"
-  )
+  T.eq("once the lock takes the key the earlier status is back", Properties["Yale Cloud Status"], checked)
 end)
 
-H.test("a refused key without a session says to fetch keys again", function()
+H.test("a handshake the lock takes starts the count again", function()
+  boot()
+  routes["GET /locks/" .. LOCK_ID] = lockDetail(OLD_KEY)
+  lock()
+  for _ = 1, 4 do
+    keyRefused()
+    H.fire("PollCycle")
+  end
+  startHandshake()
+  handshakeAnswered()
+  H.rfp(ESPHOME, "DISCONNECTED", { reason = "BLE connection closed" })
+  local status = Properties["Yale Cloud Status"]
+  H.fire("PollCycle")
+  keyRefused()
+  T.eq("a refusal after it is not reported", Properties["Yale Cloud Status"], status)
+end)
+
+H.test("a key refused five times without a session says to fetch keys again", function()
   boot(nil, false)
   lock()
+  local status = Properties["Yale Cloud Status"]
   keyRefused()
   T.eq("nothing is asked of the cloud", #requests, 0)
-  T.eq("status says what to do", Properties["Yale Cloud Status"], "Lock rejected the offline key - fetch keys again")
+  for _ = 2, 4 do
+    H.fire("PollCycle")
+    keyRefused()
+  end
+  T.eq("four refusals are not reported", Properties["Yale Cloud Status"], status)
+  H.fire("PollCycle")
+  keyRefused()
+  T.eq("the fifth says what to do", Properties["Yale Cloud Status"], "Lock rejected the offline key - fetch keys again")
 end)
 
 H.test("a link lost after the lock took the key is not a refusal", function()
