@@ -8695,6 +8695,23 @@ do
   answer(true, 0.6)
   gInitialized = true
   T.eq("a first report before late init tells the proxy the level", levels(), { 60 })
+  -- Found off where the proxy shows it on, as after a power cut, it keeps the color it last went off in for Previous.
+  light({ RGB }, false)
+  onMode(PREVIOUS_ON)
+  proxy("ON")
+  local previous = setColor({ 0.2, 0.5 })
+  proxy("OFF")
+  proxy("ON")
+  run(15000)
+  restart(nil)
+  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { RGB } }),
+    state = SerializeSafe({ state = false }),
+  })
+  T.eq("found off at an update, the proxy showing it on: it is told off", levels(), { 0 })
+  mark()
+  proxy("ON")
+  T.eq("and with Color On Mode set to Previous it comes on in the color it last went off in", colors(), { previous })
 end
 
 T.section("a light tells the proxy its capabilities at a start only where the proxy lists others")
