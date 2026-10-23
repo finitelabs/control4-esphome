@@ -1046,6 +1046,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   never read the lock and Persistent mode gave up after its retries
 - Fixed a Yale lock showing an unknown state for a moment after every lock and
   unlock; a lock or unlock that jams now shows a fault
+- Fixed a SwitchBot Relay Switch ignoring the device's reply to every command,
+  so a command it refused, as with an incorrect encryption key, went unreported
 
 ### Changed
 
