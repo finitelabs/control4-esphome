@@ -170,8 +170,8 @@ and the Door Status property is hidden.
 
 The lock reports the result of each lock or unlock when its motor stops. If the
 motor could not finish, as when the bolt jams, the status is updated to `fault`
-on the Control4 lock proxy. The driver also re-queries lock status after the
-command to confirm the operation, and a lock that reports a jam there shows
+on the Control4 lock proxy. Once the motor stops, the driver also re-queries
+lock status to confirm the operation, and a lock that reports a jam there shows
 `fault` too.
 
 # <span style="color:#17BCF2">Installer Setup</span>

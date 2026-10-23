@@ -60,6 +60,10 @@ local STATUS_POLL_DELAY_MS = 1500
 --- Post-operation jam detection delay (ms) - re-query lock status to catch late jams
 local JAM_CHECK_DELAY_MS = 10000
 
+--- Longest wait (ms) for the lock to report its motor stopped after a lock or
+--- unlock is acked, before the status read goes ahead without it
+local OPERATION_RESULT_TIMEOUT_MS = 8000
+
 --- Handshake timeout (ms) - abort and retry if lock doesn't respond
 local HANDSHAKE_TIMEOUT_MS = 10000
 
@@ -139,6 +143,11 @@ local pendingCommand = nil
 --- @type string|nil "lock", "unlock", "status_lock", "status_door", "status_battery"
 local awaitingResponse = nil
 
+--- Whether an acked lock or unlock is still turning: until its result frame,
+--- the lock answers a status read with the state it had before
+--- @type boolean
+local awaitingMotor = false
+
 --- GATT write queue for 250ms cooldown enforcement
 --- @type table[]
 local gattWriteQueue = {}
@@ -217,6 +226,7 @@ local function resetConnectionState(clearHandles)
   regularReadSubscribed = false
   pendingCommand = nil
   awaitingResponse = nil
+  awaitingMotor = false
   gattWriteQueue = {}
   CancelTimer("ConnectionTimeout")
   CancelTimer("GattWriteDrain")
@@ -225,6 +235,7 @@ local function resetConnectionState(clearHandles)
   CancelTimer("Reconnect")
   CancelTimer("PollCycle")
   CancelTimer("JamCheck")
+  CancelTimer("OperationResult")
   CancelTimer("CleanDisconnect")
   CancelTimer("DisconnectDelay")
   CancelTimer("StatusPoll")
@@ -1017,6 +1028,11 @@ local function handleCommandResponse(data)
         updateLockStatus("fault")
       end
       updateLastSeen()
+      if awaitingMotor then
+        awaitingMotor = false
+        CancelTimer("OperationResult")
+        queueStatusPoll()
+      end
       return
     end
 
@@ -1073,9 +1089,14 @@ local function handleCommandResponse(data)
     end
     updateLastSeen()
 
-    -- Poll for full status after command, then schedule jam check
+    -- Read the full status once the motor stops, then schedule jam check
     if wasSolicited then
-      queueStatusPoll()
+      awaitingMotor = true
+      SetTimer("OperationResult", OPERATION_RESULT_TIMEOUT_MS, function()
+        log:debug("No motor result after %dms - reading status anyway", OPERATION_RESULT_TIMEOUT_MS)
+        awaitingMotor = false
+        queueStatusPoll()
+      end)
       -- Re-query lock status after 10s to catch late-reported jams
       SetTimer("JamCheck", JAM_CHECK_DELAY_MS, function()
         if handshakeState == HANDSHAKE_STATE.COMPLETE then

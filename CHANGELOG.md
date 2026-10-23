@@ -161,6 +161,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   never read the lock and Persistent mode gave up after its retries
 - Fixed a Yale lock showing an unknown state for a moment after every lock and
   unlock; a lock or unlock that jams now shows a fault
+- Fixed a Yale lock showing as unlocked for a moment just after it locked, and
+  as locked just after it unlocked
 
 ### Changed
 
