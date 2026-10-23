@@ -8499,6 +8499,26 @@ do
     )
     T.eq(how .. " with the proxy in a ramp: which ends it", proxyTarget, proxyColor)
   end
+  -- Before late init the proxy is not read, so a report then is told, even of the white a load starts in.
+  local toXY = C4.ColorCCTtoXY
+  function C4:ColorCCTtoXY()
+    return 0.3127, 0.329
+  end
+  light({ CT })
+  proxyColor, proxyTarget = "0.4,0.4,1", "0.4,0.4,1"
+  restart(nil)
+  gInitialized = false
+  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { CT } }),
+    state = SerializeSafe({ state = true, brightness = 1.0, color_mode = CT, color_temperature = 200 }),
+  })
+  gInitialized = true
+  C4.ColorCCTtoXY = toXY
+  T.check(
+    "a first report before late init is told, of the white a load starts in too",
+    #xs() == 1 and math.abs(xs()[1] - 0.3127) < 5e-3,
+    T.show(xs())
+  )
   for _, c in ipairs({
     { "a proxy that shows no color", nil },
     { "one whose value is no color", "" },

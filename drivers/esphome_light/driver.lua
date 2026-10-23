@@ -3409,12 +3409,15 @@ end
 -- A `first` report since a load, bind or disconnect is held against the
 -- proxy's Current Color Chromaticity ("x,y,mode") instead, unless its target
 -- (a ramp's) is another: it fires Color Changed for any other color it is told.
+-- One before late init, when the proxy is not read, is told.
 local function tellShownColor(fields, force, first)
   local newX, newY, newColorMode = shownColor(fields)
   if first and newX and newY and newColorMode and not force then
     local ok, value, target = pcall(function()
-      local proxy = C4:GetProxyDevices()
-      return C4:GetDeviceVariable(proxy, 1200), C4:GetDeviceVariable(proxy, 1210)
+      if gInitialized then
+        local proxy = C4:GetProxyDevices()
+        return C4:GetDeviceVariable(proxy, 1200), C4:GetDeviceVariable(proxy, 1210)
+      end
     end)
     local x, y, mode = string.match(ok and tostring(value or "") or "", "^([^,]+),([^,]+),([^,]+)$")
     x, y, mode = tonumber(x), tonumber(y), tointeger(mode)
@@ -3630,7 +3633,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
       end)
     else
       CancelTimer("SentColor")
-      tellShownColor(reported, taken, isFirstUpdate and gInitialized)
+      tellShownColor(reported, taken, isFirstUpdate)
     end
   end
 end
