@@ -30,8 +30,9 @@ This driver provides native Control4 lock proxy integration for Yale and August
 smart locks via BLE through an ESPHome Bluetooth proxy. It enables lock/unlock
 control, status monitoring, battery reporting, and door sense.
 
-No cloud connection is required for day-to-day operation - the Yale/August cloud
-is only used during initial setup to retrieve the offline key.
+Lock and unlock never go through the cloud. The driver uses the Yale/August
+cloud only to fetch the offline key, then checks it once a day and when the lock
+rejects it.
 
 # <span style="color:#17BCF2">Index</span>
 
@@ -92,7 +93,8 @@ is only used during initial setup to retrieve the offline key.
 - Battery level reporting
 - Door sense (contact sensor) for models with DoorSense hardware - auto-detected
   and dynamically added
-- Automatic offline key retrieval from the Yale/August cloud API
+- Automatic offline key retrieval from the Yale/August cloud API, checked daily
+  and whenever the lock rejects the key
 - Jam detection after lock/unlock operations
 
 # <span style="color:#17BCF2">Compatibility</span>
@@ -208,6 +210,11 @@ two ways to obtain it:
 1. The driver automatically populates the **Offline Key** and **Key Slot**
    fields
 
+The driver stays signed in afterward. It checks the Yale cloud for a new key
+once a day, and at once when the lock rejects the key, so a key that changes, as
+it can after the lock is re-paired or updated, is picked up without running the
+actions again.
+
 ### Manual
 
 If you already have the offline key (e.g., from another integration):
@@ -298,8 +305,13 @@ populated automatically by the **Verify and Fetch Keys** action.
 ### Yale Cloud Settings
 
 These settings enable automatic retrieval of the offline key from the
-Yale/August cloud API. They are only needed during initial setup - the driver
-does not contact the cloud during normal operation.
+Yale/August cloud API. After **Verify and Fetch Keys**, the driver keeps the
+signed-in session and uses it to read the lock's key again once a day, and when
+the lock rejects the key. Lock and unlock never use the cloud; they go to the
+lock over Bluetooth.
+
+Changing **Yale Email** signs out, and the key is no longer checked until
+**Verify and Fetch Keys** runs again.
 
 #### Yale Email
 
@@ -313,7 +325,14 @@ Your Yale/August account password.
 
 Displays the status of the cloud key retrieval process. Shows progress through
 session creation, verification code sending, lock enumeration, and key
-extraction.
+extraction, then the result of the latest key check:
+
+- **Keys checked** - the cloud has the key the driver already uses
+- **Keys updated** - the cloud had a new key, which the driver now uses
+- **Lock rejected the offline key - no newer key in the Yale cloud** - see
+  [Troubleshooting](#troubleshooting)
+- **Sign-in expired - run Request Verification Code** - the cloud no longer
+  accepts the session; run the two Yale Cloud actions again
 
 ### Device Info
 
@@ -370,7 +389,12 @@ cloud API.
   Verification Code**.
 
 On success, the **Offline Key** and **Key Slot** properties are automatically
-populated. The driver will connect to the lock on the next BLE advertisement.
+populated, and the driver keeps the session to check the key daily. The driver
+will connect to the lock on the next BLE advertisement.
+
+If the account has several locks, the driver picks the one whose MAC address
+matches. Let the driver see the lock's advertisements first so its **MAC
+Address** is known.
 
 ### Request Status
 
@@ -384,8 +408,8 @@ In both connection modes, this is also available as a programming command (see
 ### Reset Driver
 
 Resets the driver state to defaults. Clears all persisted data, cached BLE
-handles, and dynamic bindings. The offline key and other properties are
-preserved.
+handles, and dynamic bindings, and signs out of the Yale cloud. The offline key
+and other properties are preserved.
 
 **Parameters:**
 
@@ -467,9 +491,16 @@ DoorSense configuration.
 the Yale Cloud Settings to fetch it automatically or enter it manually in
 Authentication Settings.
 
-**"Key mismatch - re-fetch keys"** The offline key has been rotated (e.g., by
-the Yale app or a firmware update). Use the Yale Cloud actions to fetch the new
+**"Lock rejected the offline key - fetch keys again"** The lock no longer
+accepts the offline key, and the driver is not signed in to the Yale cloud. Run
+**Request Verification Code** and **Verify and Fetch Keys** to fetch the current
 key.
+
+**"Lock rejected the offline key - no newer key in the Yale cloud"** The lock
+turned the key down, and the cloud has the same key. Check that the **Key Slot**
+matches, and that the lock still belongs to the signed-in account. A lock that
+drops the connection at that moment for another reason can show this once; it
+clears when the lock accepts the key again.
 
 **"Offline key is provisioned but not yet loaded on the lock"** The key exists
 in the Yale cloud but has not been loaded onto the lock hardware. Open the Yale
