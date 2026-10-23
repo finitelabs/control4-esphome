@@ -20,6 +20,8 @@ Pipeline:
   - README is the driver docs markdown with <style> blocks stripped, then
     normalized with mdformat. Both it and `fmt` keep an alert's marker on its
     own line, where wrapping would join it to the text after.
+  - A link to another page beside the docs is kept as its text in the PDF and
+    the README, which have no such page.
 """
 
 import argparse
@@ -323,7 +325,11 @@ def html2pdf(input_path: Path, output_path: Path) -> None:
     # libs (e.g. HTML-only preview).
     from weasyprint import HTML
 
-    HTML(filename=str(input_path)).write_pdf(str(output_path))
+    document = HTML(filename=str(input_path)).render()
+    # WeasyPrint links a page beside the HTML by the build machine's file: path.
+    for page in document.pages:
+        page.links = [link for link in page.links if not link[1].startswith("file:")]
+    document.write_pdf(str(output_path))
 
 
 def _keep_alert_marker_line(text: str, node, _context) -> str:
@@ -370,10 +376,15 @@ def _mdformat(text: str, wrap: int) -> str:
     )
 
 
+# A markdown link to another page beside the docs, with or without an anchor: no scheme or path.
+_PAGE_LINK_RE = re.compile(r"(?<!!)\[([^\]]*)\]\([\w.-]+\.html(?:#[\w.-]*)?\)")
+
+
 def readme(input_path: Path, output_path: Path) -> None:
     text = input_path.read_text(encoding="utf-8")
     # Strip <style> blocks (screen-only chrome), then normalize.
     text = re.sub(r"<style\b[^>]*>.*?</style>", "", text, flags=re.S | re.I)
+    text = _PAGE_LINK_RE.sub(r"\1", text)
     output_path.write_text(_mdformat(text, 80), encoding="utf-8")
 
 
