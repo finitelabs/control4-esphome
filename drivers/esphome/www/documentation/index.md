@@ -272,7 +272,12 @@ is an outline of the basic steps for your convenience.
 
 ##### Cloud Status (read-only)
 
-Displays the DriverCentral cloud license status.
+Displays the DriverCentral cloud license status. Without an active license,
+Driver Status reads `No active license`: the driver disconnects from the device
+and shows its lights, fans, locks and thermostats offline, a light at the level
+it had, until a license is active again. The driver checks every 10 seconds,
+stops once a minute passes without a license, and connects again as soon as one
+is active.
 
 <!-- #endif -->
 
@@ -315,7 +320,7 @@ Sets the logging mode. Default is `Off`.
 
 Forward ESPHome device logs to the driver's Lua output at the current Log Level.
 Changing Log Level or disabling Log Mode will reconnect to apply the new
-settings.
+settings; a light keeps its level while it does.
 
 #### Device Settings
 
@@ -579,6 +584,9 @@ the matching read-only Device Info properties.
 > one type share a name, or two would write the same variable, the others are
 > told apart by their sub-device or their type (e.g., "Kitchen Temperature" or
 > "Status (Sensor)").
+
+A writable variable shows the device's value. A value set while the device is
+offline, or a date or time in another format, goes back to the device's value.
 
 ### Bindings by Entity Type
 

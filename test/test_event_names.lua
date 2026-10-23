@@ -1,5 +1,6 @@
 -- Tests the Programming events of an ESPHome event entity: the driver declares
--- them when it loads, and a rename keeps their ids so programming stays attached.
+-- them when it loads, and a rename or a reworded description keeps their ids so
+-- programming stays attached.
 --
 -- ESPHome derives the key from the name, so a rename that keeps the key, such as
 -- a change of capitals, reaches the driver as the same entity under a new name.
@@ -49,7 +50,7 @@ discover("Front door bell")
 T.eq("declared", declared(), { [10] = "Front door bell: press", [11] = "Front door bell: double_press" })
 discover("Front Door Bell")
 T.eq("same ids, new names", declared(), { [10] = "Front Door Bell: press", [11] = "Front Door Bell: double_press" })
-T.eq("new description", ShimEvents()[10].description, "Front Door Bell press event")
+T.eq("new description", ShimEvents()[10].description, "NAME Front Door Bell press event")
 T.eq("persisted", events:getEvents().event_42.press.name, "Front Door Bell: press")
 
 T.section("The driver declares its events when it loads")
@@ -60,5 +61,14 @@ T.eq("declared before the device connects", declared(), {
   [10] = "Front Door Bell: press",
   [11] = "Front Door Bell: double_press",
 })
+
+T.section("An event declared before its description named the device is reworded in place")
+events:reset()
+events:getOrAddEvent("event_42", "press", "Front Door Bell: press", "Front Door Bell press event")
+local id = events:getEvents().event_42.press.eventId
+discover("Front Door Bell")
+T.eq("same id", events:getEvents().event_42.press.eventId, id)
+T.eq("declared", ShimEvents()[id].description, "NAME Front Door Bell press event")
+T.eq("persisted", events:getEvents().event_42.press.description, "NAME Front Door Bell press event")
 
 T.finish()

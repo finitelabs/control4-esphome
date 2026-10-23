@@ -763,7 +763,7 @@ local bit64_u64_to_le_bytes = bit64.u64_to_le_bytes
 local bit64_u64_to_be_bytes = bit64.u64_to_be_bytes
 
 --- Module version
-local VERSION = "v0.6.6"
+local VERSION = "v0.6.7"
 
 --- Enable or disable OpenSSL acceleration
 --- @function use_openssl

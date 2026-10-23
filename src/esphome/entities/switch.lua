@@ -106,6 +106,8 @@ function SwitchEntity:updated(entity, state)
           boolValue and "on" or "off",
           error
         )
+        -- Director keeps the value programming set, which the device never took.
+        values:update(entity.name .. " State", value and "1" or "0", "BOOL")
       end)
   end)
 

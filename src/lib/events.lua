@@ -37,6 +37,7 @@ function Events:new()
 end
 
 --- Retrieves or adds an event. If the event does not exist, it creates a new one with a unique ID.
+--- An existing event whose name or description differs is updated under the same ID.
 --- @param namespace string The namespace of the event.
 --- @param key string The key of the event.
 --- @param name string The name of the event.
@@ -59,6 +60,12 @@ function Events:getOrAddEvent(namespace, key, name, description)
     events[namespace][key] = event
     self:_saveEvents(events)
     C4:AddEvent(eventId, name, description)
+  elseif event.name ~= name or event.description ~= description then
+    -- Programming binds to the ID, so changed text keeps it; AddEvent on a known ID updates it.
+    event.name = name
+    event.description = description
+    self:_saveEvents(events)
+    C4:AddEvent(event.eventId, name, description)
   end
   return event
 end

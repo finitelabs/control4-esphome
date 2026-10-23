@@ -2586,6 +2586,13 @@ function RFP.GATT_WRITE_RESPONSE(idBinding, strCommand, tParams, args)
   local success = Select(tParams, "success") == "true"
   local errorCode = Select(tParams, "error")
 
+  -- The command goes out from the IV notification before the IV write is acked,
+  -- so the parent reports the older one superseded; the newer one still answers
+  if not success and errorCode and errorCode:find("Superseded", 1, true) then
+    log:debug("Ignoring superseded write")
+    return
+  end
+
   if success then
     log:debug("Write command successful")
     updateStatus("Busy", true)
@@ -2628,6 +2635,12 @@ function RFP.GATT_NOTIFY_SUBSCRIBED(idBinding, strCommand, tParams, args)
   local handle = tointeger(Select(tParams, "handle"))
   local success = Select(tParams, "success") == "true"
   local error = Select(tParams, "error")
+
+  -- A repeated subscription supersedes the pending one; the newer one still answers
+  if not success and error and error:find("Superseded", 1, true) then
+    log:debug("Ignoring superseded subscription on handle %s", handle)
+    return
+  end
 
   notificationsSubscribing = false
 

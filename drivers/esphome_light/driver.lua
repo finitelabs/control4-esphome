@@ -199,8 +199,8 @@ local sentBrightness = {}
 local sentColors = {}
 
 -- ESPHome answers each command with a report of its own, seen within 250 ms.
-local SENT_COLOR_WAIT = 1000
-local sentColorUntil = 0
+local SENT_WAIT = 1000
+local sentLevelUntil, sentColorUntil = 0, 0
 
 -- Device brightness (0-1) the light is at or heading to; nil before a report.
 local lightBrightness = nil
@@ -211,6 +211,10 @@ local lightTarget = {}
 -- The transition the last command started: each color/white field fades from
 -- `from` toward lightTarget over durationMs, as ESPHome runs it.
 local lightFade = nil
+
+-- The main driver dropped the connection itself (UPDATE_DISCONNECT suspended) and the
+-- light had a level: it is kept until the device's next report.
+local suspended = false
 
 ---------------------------------------------------------------------------
 -- The proxy's setup
@@ -227,8 +231,8 @@ local function setupPreset(list, id, origin)
   end
 end
 
--- The proxy pushes on modes and default rates only on change, never at
--- start, so read them from its setup.
+-- The proxy pushes on modes, brightness presets and default rates only on
+-- change, never at start, so read them from its setup.
 local function readProxySetup()
   local ok, setup = pcall(function()
     return Select(ParseXml(SendUIRequest(C4:GetProxyDevices(), "GET_SETUP", {})), "setup")
@@ -262,8 +266,20 @@ local function readProxySetup()
     })
   end
 
+  local levels = Select(setup, "brightnesses", "level") or {}
+  for _, element in ipairs(IsList(levels) and levels or { levels }) do
+    local attr = element._attr or {}
+    if tointeger(attr.id) and tonumber(attr.level) then
+      RFP.UPDATE_BRIGHTNESS_PRESET(
+        PROXY_BINDING,
+        "UPDATE_BRIGHTNESS_PRESET",
+        { ID = attr.id, NAME = attr.name, LEVEL = attr.level }
+      )
+    end
+  end
+
   local levelId = tointeger(setup.light_brightness_on_mode_preset_id)
-  local level = levelId and setupPreset(Select(setup, "brightnesses", "level"), levelId)
+  local level = levelId and setupPreset(levels, levelId)
   if level and tonumber(level.level) then
     RFP.UPDATE_BRIGHTNESS_ON_MODE(
       PROXY_BINDING,
@@ -792,9 +808,12 @@ local function sendLightCommand(opts)
   end
   log:debug("sendLightCommand(%s)", opts)
   -- A disconnected light reports nothing back, so track only when connected.
-  if STATE and (opts.has_brightness or opts.state == false) then
-    sentBrightness[#sentBrightness + 1] = opts.state and opts.brightness or 0
+  -- An On/Off-only light's on carries no brightness and reads back as full.
+  if STATE and (opts.has_brightness or opts.state == false or (opts.has_state and not supportsDimming)) then
+    sentBrightness[#sentBrightness + 1] = opts.state and (opts.brightness or 1.0) or 0
     lightBrightness = sentBrightness[#sentBrightness]
+    sentLevelUntil = C4:GetTime() + SENT_WAIT
+    CancelTimer("SentLevel")
   end
   if STATE then
     -- ESPHome restarts every channel from where it is over the new transition,
@@ -816,7 +835,7 @@ local function sendLightCommand(opts)
         warm_white = opts.warm_white,
       }
       aimLight(sentColors[#sentColors], true)
-      sentColorUntil = now + SENT_COLOR_WAIT
+      sentColorUntil = now + SENT_WAIT
       CancelTimer("SentColor")
     elseif
       opts.state
@@ -1248,7 +1267,7 @@ function isLogicallyOn()
 end
 
 -- Determine the on-color to use when transitioning from off to on, based on
--- the active color on-mode. Returns {x, y, mode} or nil.
+-- the active color on-mode. Returns {x, y, mode, preset} or nil.
 local function resolveOnColor(brightnessLevel)
   if not (supportsColor or supportsCCT) then
     return nil
@@ -1257,21 +1276,21 @@ local function resolveOnColor(brightnessLevel)
   if kind == COLOR_ON_MODE_FADE then
     return computeFadeColor(brightnessLevel)
   end
+  local mode = persist:get(P_COLOR_ON_MODE)
+  local onPreset = mode and mode.onPreset
+  -- The device preset the color is, which the proxy names it by.
+  local preset = onPreset and onPreset.origin == PRESET_ORIGIN_DEVICE and onPreset.id or nil
   if kind == COLOR_ON_MODE_PREVIOUS then
     local prev = persist:get(P_PREVIOUS_COLOR)
     if prev and prev.x and prev.y then
       -- Normalize as the proxy's follow-up SET_COLOR_TARGET is, so it dedupes.
       local x, y, colorMode = takenColor(prev.x, prev.y, prev.mode or LIGHT_COLOR_MODE_FULL)
-      return { x = x, y = y, mode = colorMode }
+      return { x = x, y = y, mode = colorMode, preset = preset }
     end
   end
-  if kind == COLOR_ON_MODE_PRESET then
-    local mode = persist:get(P_COLOR_ON_MODE)
-    local onPreset = mode and mode.onPreset
-    if onPreset and onPreset.x and onPreset.y then
-      local x, y, colorMode = takenColor(onPreset.x, onPreset.y, onPreset.mode or LIGHT_COLOR_MODE_FULL)
-      return { x = x, y = y, mode = colorMode }
-    end
+  if kind == COLOR_ON_MODE_PRESET and onPreset and onPreset.x and onPreset.y then
+    local x, y, colorMode = takenColor(onPreset.x, onPreset.y, onPreset.mode or LIGHT_COLOR_MODE_FULL)
+    return { x = x, y = y, mode = colorMode, preset = preset }
   end
   return nil
 end
@@ -1309,10 +1328,45 @@ local function endOnCycle()
   currentColorPresetId = nil
 end
 
+-- Tell the button LEDs whether the light is on, when that has changed.
+local function matchLedState(on)
+  if on == ledState then
+    return
+  end
+  ledState = on
+  -- MATCH_LED_STATE goes to each BUTTON_LINK binding (the keypad button
+  -- LEDs), not to the LIGHT_V2 proxy binding. STATE is a Lua boolean per
+  -- spec. Bottom is inverted: its LED lights when the light is OFF.
+  SendToProxy(ON_BINDING, "MATCH_LED_STATE", { STATE = on }, "NOTIFY", true)
+  SendToProxy(OFF_BINDING, "MATCH_LED_STATE", { STATE = not on }, "NOTIFY", true)
+  SendToProxy(TOGGLE_BINDING, "MATCH_LED_STATE", { STATE = on }, "NOTIFY", true)
+end
+
+-- The last level the proxy was told is a pre-on's 1, not one the light was at.
+local preOnTold = false
+
+local function previousOnLevel()
+  local preset = (persist:get(P_BRIGHTNESS_PRESETS) or {})[tostring(PREVIOUS_ON_PRESET_ID)]
+  return preset and tonumber(preset.level)
+end
+
 local function notifyBrightnessChanged(level)
   if level == 0 and currentBrightness > 0 then
     endOnCycle()
   end
+  -- The proxy writes Previous On from the last level it was told: where the light got to, or Previous On if unlit.
+  if level == 0 and preOnTold then
+    local keep = currentBrightness > 0 and currentBrightness or previousOnLevel()
+    if keep and keep >= 1 then
+      log:debug("LIGHT_BRIGHTNESS_CHANGING: %s to 0, rate=0", keep)
+      SendToProxy(PROXY_BINDING, "LIGHT_BRIGHTNESS_CHANGING", {
+        LIGHT_BRIGHTNESS_CURRENT = keep,
+        LIGHT_BRIGHTNESS_TARGET = 0,
+        RATE = 0,
+      }, "NOTIFY", true)
+    end
+  end
+  preOnTold = false
   currentBrightness = level
   log:debug("LIGHT_BRIGHTNESS_CHANGED: %s", level)
   -- Echo back the preset id from the most recent SET_BRIGHTNESS_TARGET so the
@@ -1323,26 +1377,26 @@ local function notifyBrightnessChanged(level)
     LIGHT_BRIGHTNESS_CURRENT = level,
     LIGHT_BRIGHTNESS_CURRENT_PRESET_ID = currentBrightnessPresetId,
   }, "NOTIFY")
-  local newLedState = level > 0
-  if newLedState ~= ledState then
-    ledState = newLedState
-    -- MATCH_LED_STATE goes to each BUTTON_LINK binding (the keypad button
-    -- LEDs), not to the LIGHT_V2 proxy binding. STATE is a Lua boolean per
-    -- spec. Bottom is inverted: its LED lights when the light is OFF.
-    SendToProxy(ON_BINDING, "MATCH_LED_STATE", { STATE = newLedState }, "NOTIFY", true)
-    SendToProxy(OFF_BINDING, "MATCH_LED_STATE", { STATE = not newLedState }, "NOTIFY", true)
-    SendToProxy(TOGGLE_BINDING, "MATCH_LED_STATE", { STATE = newLedState }, "NOTIFY", true)
-  end
+  matchLedState(level > 0)
 end
 
-local function notifyBrightnessChanging(target, rate)
-  log:debug("LIGHT_BRIGHTNESS_CHANGING: target=%s rate=%s", target, rate)
+--- @param current number|nil The level a ramp in flight has got to.
+local function notifyBrightnessChanging(target, rate, current)
+  current = current or currentBrightness
+  -- The proxy takes the light's state from CURRENT: one on its way up from off is lit by its pre-on.
+  preOnTold = target > 0 and current < 1
+  current = target > 0 and math.max(1, current) or current
+  log:debug("LIGHT_BRIGHTNESS_CHANGING: %s to %s, rate=%s", current, target, rate)
   SendToProxy(PROXY_BINDING, "LIGHT_BRIGHTNESS_CHANGING", {
-    LIGHT_BRIGHTNESS_CURRENT = currentBrightness,
+    LIGHT_BRIGHTNESS_CURRENT = current,
     LIGHT_BRIGHTNESS_TARGET = target,
     RATE = rate,
     LIGHT_BRIGHTNESS_TARGET_PRESET_ID = currentBrightnessPresetId,
   }, "NOTIFY", true)
+  -- A light on its way up is on from the start of its ramp, as one fading to off is on until its end.
+  if target > 0 then
+    matchLedState(true)
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -1525,20 +1579,16 @@ local function setESPHomeBrightness(level, rateMs, keepColor, at)
       -- color is treated as already applied. 250ms covers the proxy's
       -- typical inter-cmd gap (~6-50ms) with a margin.
       mergedColorUntil = C4:GetTime() + 250
-      -- The merged color is computed from on-mode rules (fade/previous/
-      -- on-preset), not from an explicit SET_COLOR_TARGET. Clear any
-      -- lingering target-preset id so we don't echo a stale value. If the
-      -- proxy follows up with a SET_COLOR_TARGET inside mergedColorUntil,
-      -- that handler sets the correct id for the LIGHT_COLOR_CHANGED that
-      -- follows.
-      currentColorPresetId = nil
+      -- Told as the device preset the on mode's color is, which the proxy's
+      -- follow-up names too; a Dim-To-Warm mix is no preset's.
+      currentColorPresetId = mergedColor.preset
       -- Stash on the ramp metadata so brightnessRampFinished can emit the
       -- terminal LIGHT_COLOR_CHANGED when the bulb's combined transition
       -- completes. The proxy needs CHANGING (now) + CHANGED (at finish) to
       -- keep its color-picker animation in sync. A ramped on's pre-on already
       -- lit this color, so onColor only dedupes the proxy's follow-up.
       if brightnessRamp then
-        local color = { x = mergedColor.x, y = mergedColor.y, mode = mergedColor.mode }
+        local color = { x = mergedColor.x, y = mergedColor.y, mode = mergedColor.mode, preset = mergedColor.preset }
         if goingOn then
           brightnessRamp.onColor = color
         else
@@ -1777,8 +1827,20 @@ local function awayFromFadeColor(level)
   return not sameColor(x, y, mode, fade.x, fade.y, fade.mode)
 end
 
+-- With no state from its device (offline, suspended, unbound or not yet heard) the light takes no command, so
+-- one that would move it tells the proxy nothing: Control4 keeps what it shows.
+local function dropWhileOffline(command)
+  if STATE == nil then
+    log:debug("%s dropped: the device is offline", command)
+  end
+  return STATE == nil
+end
+
 --- @param replaced table|nil A ramp the caller already ended for this one.
 local function rampToBrightness(level, rate, presetId, replaced)
+  if dropWhileOffline("Level " .. tostring(level)) then
+    return
+  end
   level = math.max(0, math.min(100, math.floor((level or 0) + 0.5)))
   rate = math.max(0, tointeger(rate) or 0)
 
@@ -2111,6 +2173,9 @@ end
 
 -- An On/Off-only light switches at once, replacing a ramp in flight.
 local function switchLight(on)
+  if dropWhileOffline(on and "On" or "Off") then
+    return
+  end
   stopSceneSteps()
   cancelBrightnessRampTimers()
   rampingBrightness = false
@@ -2309,7 +2374,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   -- path already emitted notifyColorChanging, and brightnessRampFinished
   -- will emit notifyColorChanged when the ramp completes - so there is
   -- nothing to notify here, just suppress the redundant ESPHome cmd. A ramped
-  -- on's color was told at once; it is retold only to add the preset id.
+  -- on's color was told at once; a send naming another preset retells it.
   local now = C4:GetTime()
   local ramp = rampingBrightness and brightnessRamp
   local merged = ramp and (ramp.mergedColor or ramp.onColor)
@@ -2317,7 +2382,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
     log:debug("SET_COLOR_TARGET deduped (%sms remaining in merged-color window)", mergedColorUntil - now)
     if not ramp.onColor then
       ramp.mergedColor = { x = targetX, y = targetY, mode = targetMode }
-    elseif presetId then
+    elseif presetId and presetId ~= ramp.onColor.preset then
       notifyColorChanged(targetX, targetY, targetMode)
     end
     return
@@ -2406,6 +2471,15 @@ end
 function RFP.GET_LIGHT_LEVEL(idBinding, strCommand, tParams, args)
   log:trace("RFP.GET_LIGHT_LEVEL(%s, %s)", idBinding, strCommand)
   if idBinding ~= PROXY_BINDING then
+    return
+  end
+  -- Until the device reports, only a level a suspend kept is known; a 0 would run Light Off Programming.
+  if STATE == nil and not suspended then
+    return
+  end
+  -- A CHANGED level is one the light has stopped at: in a ramp, tell where it has got to.
+  if rampingBrightness then
+    notifyBrightnessChanging(brightnessRamp.targetLevel, remaining(brightnessRamp), (interpolatedBrightness()))
     return
   end
   notifyBrightnessChanged(currentBrightness)
@@ -2791,7 +2865,7 @@ function RFP.ACTIVATE_SCENE(idBinding, strCommand, tParams, args)
     return
   end
   local sceneId = tointeger(Select(tParams, "SCENE_ID"))
-  if sceneId == nil then
+  if sceneId == nil or dropWhileOffline("Scene " .. sceneId) then
     return
   end
   stopAllScenes()
@@ -3135,9 +3209,9 @@ function RFP.REQUEST_BUTTON_COLORS(idBinding, strCommand, tParams, args)
       OFF_COLOR = offColor,
     }, "NOTIFY")
   end
-  -- MATCH_LED_STATE per button binding, with bottom inverted (its LED lights
-  -- when the light is off so the keypad shows the toggle state correctly).
-  local isOn = currentBrightness > 0
+  -- The MATCH_LED_STATE last sent, per button binding, with bottom inverted (its
+  -- LED lights when the light is off so the keypad shows the toggle state correctly).
+  local isOn = ledState
   SendToProxy(ON_BINDING, "MATCH_LED_STATE", { STATE = isOn }, "NOTIFY", true)
   SendToProxy(OFF_BINDING, "MATCH_LED_STATE", { STATE = not isOn }, "NOTIFY", true)
   SendToProxy(TOGGLE_BINDING, "MATCH_LED_STATE", { STATE = isOn }, "NOTIFY", true)
@@ -3187,6 +3261,10 @@ end
 -- DO_PUSH / DO_RELEASE (button-link path, e.g. a keypad button bound to one
 -- of our BUTTON_LINK connections). Returns nothing.
 local function handleButtonAction(buttonId, action)
+  -- Before the press's snapshot, which a click after the device is back would start from.
+  if dropWhileOffline("Button action " .. tostring(action)) then
+    return
+  end
   if action == constants.ButtonActions.PRESS then
     -- Button-down. Snapshot brightness for the click race, then start a hold
     -- ramp at the persisted hold rate. If the proxy decides this was a click,
@@ -3259,6 +3337,10 @@ function RFP.BUTTON_ACTION(idBinding, strCommand, tParams, args)
 
   local buttonId = tointeger(Select(tParams, "BUTTON_ID"))
   local action = tointeger(Select(tParams, "ACTION"))
+  -- Here as well as in handleButtonAction: the echo below moves the proxy to the button's on/off target.
+  if dropWhileOffline("Button action " .. tostring(action)) then
+    return
+  end
 
   handleButtonAction(buttonId, action)
 
@@ -3350,10 +3432,14 @@ local function tellShownColor(fields, force)
 end
 
 function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
-  log:trace("RFP.UPDATE_DISCONNECT(%s, %s)", idBinding, strCommand)
+  log:trace("RFP.UPDATE_DISCONNECT(%s, %s, %s)", idBinding, strCommand, tParams)
   if idBinding ~= ESPHOME_BINDING then
     return
   end
+  -- The light runs a fade it was sent to its end, so a suspend keeps the level a ramp in flight is heading to.
+  local kept = rampingBrightness and brightnessRamp and brightnessRamp.targetLevel or currentBrightness
+  -- A light loaded or bound since its device last reported has no level to keep.
+  local known = STATE ~= nil or suspended
   cancelBrightnessRampTimers()
   cancelColorRampTimers()
   rampingBrightness = false
@@ -3368,8 +3454,6 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   supportsColor = false
   supportsCCT = false
   supportedColorModes = {}
-  currentBrightness = 0
-  ledState = false
   prePressBrightness = nil
   mergedColorUntil = 0
   currentBrightnessPresetId = nil
@@ -3381,7 +3465,16 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   lightFade = nil
   updateStatus("Disconnected", false)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
-  notifyBrightnessChanged(0)
+  -- A device that drops off has usually lost power, so it reads off. A suspended one is as it was: no Light Off
+  -- Programming runs, and the device's next report tells its level.
+  if toboolean(Select(tParams, "suspended")) then
+    suspended = known
+    currentBrightness = kept
+  else
+    suspended = false
+    currentBrightness = 0
+    notifyBrightnessChanged(0) -- ledState is kept so the button LEDs go off too
+  end
 end
 
 function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
@@ -3405,6 +3498,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   local isFirstUpdate = ENTITY == nil
   ENTITY = entity
   STATE = state
+  suspended = false
 
   -- Connection state must be sent BEFORE dynamic capabilities
   if not wasConnected then
@@ -3435,6 +3529,12 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     return readLevel(sent) == newBrightness
   end, brightness)
   lightBrightness = ownLevel and sentBrightness[#sentBrightness] or brightness
+  -- The light takes commands in order, so a report with a level sent since is
+  -- history: it waits for the light's report of that one, as a color's does.
+  local levelWait = ownLevel and #sentBrightness > 1 and sentLevelUntil - C4:GetTime() or 0
+  if levelWait <= 0 then
+    CancelTimer("SentLevel")
+  end
   local reported = {
     -- ESPHome omits a zero color_mode (UNKNOWN) like any zero field.
     color_mode = tointeger(Select(state, "color_mode")) or ESPHomeProtoSchema.Enum.ColorMode.COLOR_MODE_UNKNOWN,
@@ -3481,6 +3581,13 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     notifyBrightnessChanged(newBrightness)
   elseif rampingBrightness then
     log:trace("UPDATE_STATE brightness=%s ignored (ramping)", newBrightness)
+  elseif levelWait > 0 then
+    log:trace("UPDATE_STATE brightness=%s held (a level was sent since)", newBrightness)
+    SetTimer("SentLevel", levelWait, function()
+      if #sentBrightness > 1 and not sameLevel(newBrightness, currentBrightness) then
+        notifyBrightnessChanged(newBrightness)
+      end
+    end)
   elseif isFirstUpdate or not sameLevel(newBrightness, currentBrightness) then
     -- Spec note: LIGHT_BRIGHTNESS_CHANGED should always be sent when the
     -- driver starts and/or when the hardware comes online so the proxy is
@@ -3496,7 +3603,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
   local merged = rampingBrightness and brightnessRamp and brightnessRamp.mergedColor
   if (supportsColor or supportsCCT) and not rampingColor and not merged then
-    -- A report from before the color last sent waits up to SENT_COLOR_WAIT for
+    -- A report from before the color last sent waits up to SENT_WAIT for
     -- the light's report of it; none by then means the light did not take it.
     local wait = ownColor and #sentColors > 1 and sentColorUntil - C4:GetTime() or 0
     if wait > 0 then
@@ -3519,6 +3626,7 @@ end
 OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   ENTITY = nil
   STATE = nil
+  suspended = false
   dynamicCapsSent = false
   supportsDimming = false
   supportsColor = false
@@ -3539,10 +3647,12 @@ OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   lightBrightness = nil
   lightTarget = {}
   lightFade = nil
-  -- Clear the stored white on unbind only: a bind also fires at controller
-  -- start, when the point is still this light's.
+  -- On unbind only: a bind also fires at controller start, when the stored
+  -- white is still this light's. The proxy keeps the level it shows.
   if not isBound then
     persist:delete(P_WHITE_POINT)
+    updateStatus("Disconnected", false)
+    SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   end
   currentColorX = DEFAULT_COLOR_X
   currentColorY = DEFAULT_COLOR_Y
