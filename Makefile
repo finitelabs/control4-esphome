@@ -90,7 +90,7 @@ $(PACKAGER):
 .PHONY: fmt fmt-lua fmt-py fmt-md
 fmt: fmt-lua fmt-py fmt-md ## Format all code
 
-# stylua is a standalone binary (brew install stylua / stylua-action in CI).
+# stylua is a standalone binary (brew install stylua; CI fetches the latest release).
 fmt-lua:
 	@dirs=""; for d in ./drivers ./src ./test ./tools ./vendor; do \
 		[ -d "$$d" ] && dirs="$$dirs $$d"; \
