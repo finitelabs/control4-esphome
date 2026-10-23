@@ -117,9 +117,11 @@ function H.armed(name)
 end
 
 local delays = {}
+local repeats = {}
 local realSetTimer = SetTimer
 SetTimer = function(id, delay, fn, repeating) -- luacheck: ignore
   delays[id] = delay
+  repeats[id] = repeating == true
   return realSetTimer(id, delay, fn, repeating)
 end
 
@@ -128,14 +130,17 @@ function H.delay(name)
   return delays[name]
 end
 
---- Fire one named timer now, as the controller would when it fell due.
+--- Fire one named timer now, as the controller would when it fell due; a
+--- repeating timer stays armed.
 function H.fire(name)
   local handle = Timer[name]
   local fn = handle and TimerFunctions[handle]
   if not fn then
     return false
   end
-  CancelTimer(name)
+  if not repeats[name] then
+    CancelTimer(name)
+  end
   fn(handle, 0)
   return true
 end
