@@ -1002,19 +1002,21 @@ function initiateCommand(command)
   if command == "status" and retrying then
     command = retrying
   end
-  local connecting = pendingConnect
+  -- The link is being set up until its last subscription is answered
+  local settingUp = pendingConnect
+    or pendingSubscribe ~= nil
     or (handshakeState ~= HANDSHAKE_STATE.IDLE and handshakeState ~= HANDSHAKE_STATE.COMPLETE)
-  if connecting and command == "status" and (pendingCommand == "lock" or pendingCommand == "unlock") then
+  if settingUp and command == "status" and (pendingCommand == "lock" or pendingCommand == "unlock") then
     -- The queued command reads the status once it is done
     log:info("Status requested with %s queued, keeping it", pendingCommand)
     return
   end
   pendingCommand = command
 
-  if handshakeState == HANDSHAKE_STATE.COMPLETE and session and session:isReady() then
+  if handshakeState == HANDSHAKE_STATE.COMPLETE and session and session:isReady() and not pendingSubscribe then
     -- Already connected and authenticated, execute immediately
     executePendingCommand()
-  elseif pendingConnect or handshakeState ~= HANDSHAKE_STATE.IDLE then
+  elseif settingUp or handshakeState ~= HANDSHAKE_STATE.IDLE then
     -- A second CONNECT would make the parent fail the one in flight
     log:info("Connect in progress (state=%d), command queued", handshakeState)
   else

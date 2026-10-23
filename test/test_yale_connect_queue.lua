@@ -177,4 +177,75 @@ for _, mode in ipairs({ { name = "Poll", props = POLL }, { name = "Persistent", 
   end)
 end
 
+--- A lock tapped, then the link up to the given point of its setup.
+local function lockConnectedTo(point)
+  H.rfp(ESPHOME, "CONNECTED", { name = "Front Door", mac = "AA:BB:CC:DD:EE:FF", services = SERVICES })
+  if point == "connected" then
+    return
+  end
+  H.rfp(ESPHOME, "GATT_NOTIFY_SUBSCRIBED", { handle = "26", success = "true" })
+  if point == "handshake" then
+    return
+  end
+  H.rfp(ESPHOME, "GATT_NOTIFY_DATA", {
+    handle = "26",
+    data = secureAnswer(yale_protocol.Opcode.SEC_MOBILE_TO_LOCK_KEY_EXCHANGE_RESP),
+  })
+  H.rfp(
+    ESPHOME,
+    "GATT_NOTIFY_DATA",
+    { handle = "26", data = secureAnswer(yale_protocol.Opcode.SEC_INITIALIZATION_RESP) }
+  )
+end
+
+--- The rest of the setup from that point, up to the queued command on the wire.
+local function setupFinishedFrom(point)
+  if point == "connected" then
+    H.rfp(ESPHOME, "GATT_NOTIFY_SUBSCRIBED", { handle = "26", success = "true" })
+  end
+  if point == "connected" or point == "handshake" then
+    H.rfp(ESPHOME, "GATT_NOTIFY_DATA", {
+      handle = "26",
+      data = secureAnswer(yale_protocol.Opcode.SEC_MOBILE_TO_LOCK_KEY_EXCHANGE_RESP),
+    })
+    H.rfp(
+      ESPHOME,
+      "GATT_NOTIFY_DATA",
+      { handle = "26", data = secureAnswer(yale_protocol.Opcode.SEC_INITIALIZATION_RESP) }
+    )
+  end
+  H.rfp(ESPHOME, "GATT_NOTIFY_SUBSCRIBED", { handle = "22", success = "true" })
+end
+
+local SETUP_POINTS = {
+  { name = "before the secure read is subscribed", point = "connected" },
+  { name = "during the handshake", point = "handshake" },
+  { name = "while the regular read subscribes", point = "regular read" },
+}
+
+for _, at in ipairs(SETUP_POINTS) do
+  H.test("Request Status " .. at.name .. " keeps the queued lock", function()
+    H.boot(POLL)
+    H.rfp(PROXY, "LOCK")
+    lockConnectedTo(at.point)
+    H.clearSent()
+    EC.Request_Status()
+    T.eq("no second CONNECT", H.count("CONNECT", ESPHOME), 0)
+    setupFinishedFrom(at.point)
+    T.eq("the lock goes out once", lockWrites(), "LOCK")
+  end)
+
+  H.test("during a status connect, a lock tapped " .. at.name .. " waits for it", function()
+    H.boot(POLL)
+    EC.Request_Status()
+    lockConnectedTo(at.point)
+    H.clearSent()
+    H.rfp(PROXY, "LOCK")
+    T.eq("no second CONNECT", H.count("CONNECT", ESPHOME), 0)
+    T.eq("nothing is written yet", lockWrites(), "")
+    setupFinishedFrom(at.point)
+    T.eq("the lock goes out once", lockWrites(), "LOCK")
+  end)
+end
+
 T.finish()
