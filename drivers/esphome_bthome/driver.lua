@@ -435,7 +435,7 @@ local function getOrCreateEntityEvent(reading)
   -- Create unique event key that includes entity index
   local eventKey = reading.name .. "_" .. reading.instance .. eventDef.key
   local eventDisplayName = displayName .. " " .. eventDef.name
-  local eventDescription = displayName .. " " .. eventDef.description
+  local eventDescription = "NAME " .. displayName .. " " .. eventDef.description
   return events:getOrAddEvent(EVENT_NAMESPACE, eventKey, eventDisplayName, eventDescription)
 end
 
