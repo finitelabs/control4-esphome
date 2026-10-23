@@ -95,6 +95,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   being undone when a Control4 ramp ended, or not shown while it was off
 - Fixed a light sent a level and then a color, such as from Programming, being
   shown for a moment in the color it had before
+- Fixed a Yale lock or unlock sent while the driver was still connecting being
+  lost, with "Connection failed: Superseded by a newer request" in the log
 
 ### Changed
 

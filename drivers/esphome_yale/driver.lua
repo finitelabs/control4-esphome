@@ -940,10 +940,9 @@ function initiateCommand(command)
   if handshakeState == HANDSHAKE_STATE.COMPLETE and session and session:isReady() then
     -- Already connected and authenticated, execute immediately
     executePendingCommand()
-  elseif handshakeState ~= HANDSHAKE_STATE.IDLE then
-    -- Handshake already in progress - pendingCommand is set above,
-    -- it will execute when the current handshake completes
-    log:info("Handshake in progress (state=%d), command queued", handshakeState)
+  elseif pendingConnect or handshakeState ~= HANDSHAKE_STATE.IDLE then
+    -- A second CONNECT would make the parent fail the one in flight
+    log:info("Connect in progress (state=%d), command queued", handshakeState)
   else
     -- Not connected, need to connect first
     requestConnection()
@@ -1697,6 +1696,11 @@ function RFP.CONNECTION_FAILED(idBinding, strCommand, tParams, args)
   end
 
   local errMsg = Select(tParams, "error") or "unknown"
+  -- The parent replaced this connect with a newer one, which still answers
+  if errMsg:find("Superseded", 1, true) then
+    log:debug("Ignoring superseded connect: %s", errMsg)
+    return
+  end
   -- The parent answers a CONNECT the timeout already gave up on, or one sent
   -- before the link that is up now: recovery, if any, is already scheduled.
   if not pendingConnect then
