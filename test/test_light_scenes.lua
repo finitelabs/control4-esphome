@@ -104,6 +104,16 @@ local capabilitiesTold = false
 function C4:GetProxyDevices()
   return 643
 end
+-- The proxy's Current Color Chromaticity (1200), which it keeps over a load or
+-- bind: the current a CHANGED or CHANGING told it, to six figures as a dev
+-- proxy shows it, or nil for a proxy never told one. Its target (1210) is a
+-- CHANGING's target or a CHANGED's color.
+local proxyColor, proxyTarget
+function C4:GetDeviceVariable(id, variable)
+  if id == 643 then
+    return ({ [1200] = proxyColor, [1210] = proxyTarget })[variable]
+  end
+end
 local uiRequest = C4.SendUIRequest
 function C4:SendUIRequest(id, request, params)
   if request == "GET_SETUP" then
@@ -120,6 +130,13 @@ local function restart(modes, on)
   dofile(DRIVER)
   function SendToProxy(idBinding, strCommand, tParams)
     capabilitiesTold = capabilitiesTold or strCommand == "DYNAMIC_CAPABILITIES_CHANGED"
+    if idBinding == PROXY and (strCommand == "LIGHT_COLOR_CHANGED" or strCommand == "LIGHT_COLOR_CHANGING") then
+      local p, form = tParams, "%g,%g,%d"
+      proxyColor = form:format(p.LIGHT_COLOR_CURRENT_X, p.LIGHT_COLOR_CURRENT_Y, p.LIGHT_COLOR_CURRENT_COLOR_MODE)
+      proxyTarget = p.LIGHT_COLOR_TARGET_X
+          and form:format(p.LIGHT_COLOR_TARGET_X, p.LIGHT_COLOR_TARGET_Y, p.LIGHT_COLOR_TARGET_COLOR_MODE)
+        or proxyColor
+    end
     sent[#sent + 1] = { at = now - start, binding = idBinding, command = strCommand, params = tParams or {} }
   end
   OnDriverLateInit()
@@ -138,6 +155,7 @@ local function light(modes, on)
   for _, key in ipairs({ "color_on_mode", "color_presets", "previous_color", "white_point" }) do
     persist:delete(key)
   end
+  proxyColor, proxyTarget = nil, nil
   restart(modes, on)
 end
 
@@ -4887,10 +4905,15 @@ do
   restart()
   OBC[ESPHOME](ESPHOME, "ESPHOME", true)
   inWhite()
-  T.eq("a white, then a restart of the driver with the light still in it: the proxy is told that white", {
+  T.eq("a white, then a restart of the driver with the light still in it: the proxy shows that white", {
     colorsTold(),
     modesTold(),
-  }, { { 0.4 }, { FULL_MODE } })
+  }, { {}, {} })
+  proxyColor, proxyTarget = nil, nil
+  restart()
+  OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+  inWhite()
+  T.eq("and one that shows no color is told it", { colorsTold(), modesTold() }, { { 0.4 }, { FULL_MODE } })
   OBC[ESPHOME](ESPHOME, "ESPHOME", false)
   OBC[ESPHOME](ESPHOME, "ESPHOME", true)
   mark()
@@ -5135,7 +5158,16 @@ do
     restart()
     OBC[ESPHOME](ESPHOME, "ESPHOME", true)
     pushed(kind[2], state, kind[3])
-    T.eq("a restart of the driver with the light still in that white: the color picked", toldColors(), PICKED)
+    T.eq(
+      "a restart of the driver with the light still in that white: the proxy shows the color picked",
+      toldColors(),
+      {}
+    )
+    proxyColor, proxyTarget = nil, nil
+    restart()
+    OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+    pushed(kind[2], state, kind[3])
+    T.eq("and one that shows no color is told it", toldColors(), PICKED)
     if kind[7] then
       restart()
       OBC[ESPHOME](ESPHOME, "ESPHOME", true)
@@ -7763,7 +7795,12 @@ do
     restart()
     OBC[ESPHOME](ESPHOME, "ESPHOME", true)
     pushed(kind[2], state, RANGE)
-    T.eq("a restart of the driver with the light still at the range's end: 2200 K", toldOf(), ASKED)
+    T.eq("a restart of the driver with the light still at the range's end: the proxy shows 2200 K", toldOf(), {})
+    proxyColor, proxyTarget = nil, nil
+    restart()
+    OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+    pushed(kind[2], state, RANGE)
+    T.eq("and one that shows no color is told 2200 K", toldOf(), ASKED)
     mark()
     state.color_temperature = 250
     pushed(kind[2], state, RANGE)
@@ -8380,6 +8417,107 @@ do
   proxy("GET_LIGHT_LEVEL")
   proxy("TOGGLE")
   T.eq("Get Light Level and a Toggle tell nothing", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), {})
+end
+
+T.section("a light's first report after a load, bind or disconnect tells the proxy only a color it does not show")
+do
+  -- A Zigbee light's color read back a hair off the one told, and its start re-told it: Color Changed (4002) fired
+  -- (dev, 2026-10-23). An ESPHome light reports its channels as 32-bit floats, a hair off the ones it was sent.
+  local pb = require("protobuf")
+  local modes = { ColorMode.COLOR_MODE_RGB }
+  local SUNSET, AQUA = { 0.608506, 0.357644 }, { 0.147231, 0.358549 }
+  --- The device's report of the light on in the color sent as `rgb`.
+  local function report(rgb)
+    local function float(v)
+      return (pb.decode_float(pb.encode_float(v), 1))
+    end
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = modes }),
+      state = SerializeSafe({
+        state = true,
+        brightness = 1.0,
+        color_mode = ColorMode.COLOR_MODE_RGB,
+        red = float(rgb[1]),
+        green = float(rgb[2]),
+        blue = float(rgb[3]),
+      }),
+    })
+  end
+  local function xs()
+    return told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")
+  end
+  for _, how in ipairs({ "an update", "a bind", "a suspend", "the device back online" }) do
+    light(modes)
+    local rgb = setColor(SUNSET)
+    report(rgb)
+    local aqua = setColor(AQUA)
+    setColor(SUNSET)
+    report(rgb)
+    run(15000)
+    local shown = proxyColor
+    mark()
+    if how == "an update" then
+      restart(nil)
+    elseif how == "a bind" then
+      OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+    elseif how == "a suspend" then
+      RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", { suspended = "true" })
+    else
+      RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
+    end
+    report(rgb)
+    run(15000)
+    T.eq(how .. ": the device's report of the color the proxy shows tells it no color", xs(), {})
+    T.eq(how .. ": so it shows the one it did", proxyColor, shown)
+    mark()
+    report(aqua)
+    T.check(
+      how .. ": a color set elsewhere after it is told",
+      #xs() == 1 and math.abs(xs()[1] - AQUA[1]) < 5e-3,
+      T.show(xs())
+    )
+  end
+  for _, how in ipairs({ "an update", "a bind", "a suspend" }) do
+    light(modes)
+    local rgb = setColor(SUNSET)
+    report(rgb)
+    run(15000)
+    proxyTarget = "0.3,0.6,0" -- a ramp it was told of, still waiting on its end
+    mark()
+    if how == "an update" then
+      restart(nil)
+    elseif how == "a bind" then
+      OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+    else
+      RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", { suspended = "true" })
+    end
+    report(rgb)
+    T.check(
+      how .. " with the proxy in a ramp: it is told the color the light is in",
+      #xs() == 1 and math.abs(xs()[1] - SUNSET[1]) < 5e-3,
+      T.show(xs())
+    )
+    T.eq(how .. " with the proxy in a ramp: which ends it", proxyTarget, proxyColor)
+  end
+  for _, c in ipairs({
+    { "a proxy that shows no color", nil },
+    { "one whose value is no color", "" },
+    { "one that shows another color", "0.2,0.5,0" },
+    { "one that shows the color as a color temperature", ("%g,%g,1"):format(SUNSET[1], SUNSET[2]) },
+  }) do
+    light(modes)
+    local rgb = setColor(SUNSET)
+    run(15000)
+    proxyColor, proxyTarget = c[2], c[2]
+    restart(nil)
+    report(rgb)
+    T.check(
+      c[1] .. ": an update, and it is told the device's color once",
+      #xs() == 1 and math.abs(xs()[1] - SUNSET[1]) < 5e-3,
+      T.show(xs())
+    )
+    T.eq(c[1] .. ": in its mode", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE"), { 0 })
+  end
 end
 
 T.finish()

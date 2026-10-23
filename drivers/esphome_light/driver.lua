@@ -3406,8 +3406,24 @@ end
 ---------------------------------------------------------------------------
 
 -- Tell the color a report's fields show, if it is not the one told or `force`.
-local function tellShownColor(fields, force)
+-- A `first` report since a load, bind or disconnect is held against the
+-- proxy's Current Color Chromaticity ("x,y,mode") instead, unless its target
+-- (a ramp's) is another: it fires Color Changed for any other color it is told.
+local function tellShownColor(fields, force, first)
   local newX, newY, newColorMode = shownColor(fields)
+  if first and newX and newY and newColorMode and not force then
+    local ok, value, target = pcall(function()
+      local proxy = C4:GetProxyDevices()
+      return C4:GetDeviceVariable(proxy, 1200), C4:GetDeviceVariable(proxy, 1210)
+    end)
+    local x, y, mode = string.match(ok and tostring(value or "") or "", "^([^,]+),([^,]+),([^,]+)$")
+    x, y, mode = tonumber(x), tonumber(y), tointeger(mode)
+    if x and y and mode and target == value and sameColor(newX, newY, toldMode(newColorMode), x, y, mode) then
+      currentColorX, currentColorY, currentColorMode = newX, newY, newColorMode
+      return
+    end
+    force = true
+  end
   -- Threshold matches xy round-trip drift through RGB / HSV (typically
   -- 1-2e-3 in either coordinate). Tighter than this fires spurious notifies
   -- and clears the active preset id when the bulb just echoes our own cmd
@@ -3614,7 +3630,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
       end)
     else
       CancelTimer("SentColor")
-      tellShownColor(reported, isFirstUpdate or taken)
+      tellShownColor(reported, taken, isFirstUpdate and gInitialized)
     end
   end
 end
