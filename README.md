@@ -1082,7 +1082,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   their script title in Composer Pro, as in "Button pressed once"; the title now
   names the device
 - Fixed a Yale lock or unlock sent while the driver was still connecting being
-  lost, with "Connection failed: Superseded by a newer request" in the log
+  lost, with "Connection failed: Superseded by a newer request" in the log, and
+  a lock or unlock retried after a failed connection undoing one sent since
 
 ### Changed
 

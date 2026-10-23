@@ -59,6 +59,33 @@ local function session()
   H.rfp(ESPHOME, "GATT_NOTIFY_SUBSCRIBED", { handle = "22", success = "true" })
 end
 
+--- The lock and unlock commands written to the lock, in order.
+local function lockWrites()
+  local writes = {}
+  for _, s in ipairs(H.sent) do
+    if s.command == "GATT_WRITE" and s.params.handle == "20" then
+      local opcode = string.byte(C4:Base64Decode(s.params.data), 2)
+      if opcode == yale_protocol.Opcode.LOCK then
+        table.insert(writes, "LOCK")
+      elseif opcode == yale_protocol.Opcode.UNLOCK then
+        table.insert(writes, "UNLOCK")
+      end
+    end
+  end
+  return table.concat(writes, ",")
+end
+
+--- A Persistent-mode lock whose link dropped before its handshake: the lock now
+--- waits on Reconnect.
+local function lockDroppedBeforeHandshake()
+  H.boot(PERSISTENT)
+  H.rfp(PROXY, "LOCK")
+  H.rfp(ESPHOME, "CONNECTED", { name = "Front Door", mac = "AA:BB:CC:DD:EE:FF", services = SERVICES })
+  H.rfp(ESPHOME, "GATT_NOTIFY_SUBSCRIBED", { handle = "26", success = "true" })
+  H.rfp(ESPHOME, "DISCONNECTED", { reason = "BLE connection closed" })
+  T.truthy("the lock waits on Reconnect", H.armed("Reconnect"))
+end
+
 --- The opcode of the last command written to the regular write handle.
 local function lastCommand()
   for i = #H.sent, 1, -1 do
@@ -98,5 +125,56 @@ H.test("any other connect failure still ends the attempt", function()
   H.rfp(ESPHOME, "CONNECTION_FAILED", { error = "GATT discovery failed" })
   T.truthy("the next poll is scheduled", H.armed("PollCycle"))
 end)
+
+H.test("in Persistent mode an unlock tapped while a lock waits to retry replaces it", function()
+  lockDroppedBeforeHandshake()
+  H.rfp(PROXY, "UNLOCK")
+  T.falsy("the lock's retry is dropped", H.armed("Reconnect"))
+  H.clearSent()
+  session()
+  T.eq("only the unlock goes out", lockWrites(), "UNLOCK")
+end)
+
+H.test("in Persistent mode an unlock tapped after a failed connect replaces the status retry", function()
+  H.boot(PERSISTENT)
+  H.rfp(PROXY, "LOCK")
+  H.rfp(ESPHOME, "CONNECTION_FAILED", { error = "No connection slots available" })
+  H.rfp(PROXY, "UNLOCK")
+  T.falsy("the retry is dropped", H.armed("Reconnect"))
+  H.clearSent()
+  session()
+  T.eq("the unlock goes out", lockWrites(), "UNLOCK")
+end)
+
+H.test("in Persistent mode Request Status while a lock waits to retry sends the lock now", function()
+  lockDroppedBeforeHandshake()
+  EC.Request_Status()
+  T.falsy("the retry is not left to fire later", H.armed("Reconnect"))
+  H.clearSent()
+  session()
+  T.eq("the lock goes out", lockWrites(), "LOCK")
+end)
+
+H.test("a lock waiting to retry is dropped with a change of Connection Mode", function()
+  lockDroppedBeforeHandshake()
+  UpdateProperty("Connection Mode", "Poll")
+  OPC.Connection_Mode("Poll")
+  H.clearSent()
+  EC.Request_Status()
+  session()
+  T.eq("the status read sends no lock", lockWrites(), "")
+end)
+
+for _, mode in ipairs({ { name = "Poll", props = POLL }, { name = "Persistent", props = PERSISTENT } }) do
+  H.test(mode.name .. ": Request Status during a lock's connect keeps the lock", function()
+    H.boot(mode.props)
+    H.rfp(PROXY, "LOCK")
+    EC.Request_Status()
+    T.eq("one CONNECT", H.count("CONNECT", ESPHOME), 1)
+    H.clearSent()
+    session()
+    T.eq("the lock goes out", lockWrites(), "LOCK")
+  end)
+end
 
 T.finish()

@@ -192,6 +192,19 @@ local reconnectAttempts = 0
 local MAX_RECONNECT_ATTEMPTS = 5
 local BASE_RECONNECT_MS = 5000
 
+--- The lock or unlock a scheduled Reconnect will retry
+--- @type string|nil
+local reconnectCommand = nil
+
+--- Cancel a scheduled Reconnect.
+--- @return string|nil command The lock or unlock it would have retried
+local function cancelReconnect()
+  CancelTimer("Reconnect")
+  local command = reconnectCommand
+  reconnectCommand = nil
+  return command
+end
+
 --- Whether initial status query has been triggered (for Poll mode first-advertisement)
 --- @type boolean
 local initialStatusTriggered = false
@@ -281,7 +294,7 @@ local function resetConnectionState(clearHandles)
   CancelTimer("GattWriteDrain")
   CancelTimer("HandshakeTimeout")
   CancelTimer("Keepalive")
-  CancelTimer("Reconnect")
+  cancelReconnect()
   CancelTimer("PollCycle")
   CancelTimer("JamCheck")
   CancelTimer("CleanDisconnect")
@@ -486,7 +499,7 @@ local function setConnectionMode(newMode)
 
   -- Cancel all mode-related timers
   CancelTimer("Keepalive")
-  CancelTimer("Reconnect")
+  cancelReconnect()
   CancelTimer("PollCycle")
   CancelTimer("DisconnectDelay")
 
@@ -602,6 +615,7 @@ scheduleRecovery = function(status, savedCommand)
     log:info("Retrying in %ds (attempt %d/%d): %s", delay / 1000, reconnectAttempts, MAX_RECONNECT_ATTEMPTS, status)
     updateStatus(string.format("Reconnecting (%d/%d)", reconnectAttempts, MAX_RECONNECT_ATTEMPTS), false)
     local retryCommand = savedCommand or "status"
+    reconnectCommand = (retryCommand == "lock" or retryCommand == "unlock") and retryCommand or nil
     SetTimer("Reconnect", delay, function()
       initiateCommand(retryCommand)
     end)
@@ -983,6 +997,18 @@ function initiateCommand(command)
   log:info("Initiating command: %s", command)
   cancelPendingDisconnect()
   CancelTimer("PollCycle")
+  -- A newer lock or unlock replaces a retry still waiting; a status read takes its command along
+  local retrying = cancelReconnect()
+  if command == "status" and retrying then
+    command = retrying
+  end
+  local connecting = pendingConnect
+    or (handshakeState ~= HANDSHAKE_STATE.IDLE and handshakeState ~= HANDSHAKE_STATE.COMPLETE)
+  if connecting and command == "status" and (pendingCommand == "lock" or pendingCommand == "unlock") then
+    -- The queued command reads the status once it is done
+    log:info("Status requested with %s queued, keeping it", pendingCommand)
+    return
+  end
   pendingCommand = command
 
   if handshakeState == HANDSHAKE_STATE.COMPLETE and session and session:isReady() then
@@ -1424,7 +1450,6 @@ local function runKeyCheck(reason, retryCommand)
         UpdateProperty("Yale Cloud Status", "Keys updated " .. os.date("%Y-%m-%d %H:%M"))
         reconnectAttempts = 0
         if handshakeState == HANDSHAKE_STATE.IDLE then
-          CancelTimer("Reconnect")
           initiateCommand(retryCommand or "status")
         end
       elseif keyRejections >= KEY_REJECTIONS_TO_REPORT then
