@@ -1011,6 +1011,15 @@ local function handleCommandResponse(data)
 
   -- Status response
   if response.flag == 0xBB then
+    if response.operationResult then
+      if response.operationResult ~= 0 then
+        log:warn("Lock operation 0x%02X failed with result 0x%02X", response.opcode, response.operationResult)
+        updateLockStatus("fault")
+      end
+      updateLastSeen()
+      return
+    end
+
     if response.lockStatus then
       local c4Status = yale_protocol.toC4LockStatus(response.lockStatus)
       local statusStr = yale_protocol.parseLockStatus(response.lockStatus)
@@ -1680,6 +1689,10 @@ function RFP.GATT_WRITE_RESPONSE(idBinding, strCommand, tParams, args)
   if success then
     log:debug("Write command successful")
     updateLastSeen()
+  elseif errorCode and errorCode:find("Superseded", 1, true) then
+    -- The init write goes out before the key exchange's is acked, so the parent
+    -- reports the older one superseded; the newer one still answers
+    log:debug("Ignoring superseded write")
   else
     log:error("Write command failed: error=%s", errorCode)
     -- IDLE means the attempt is already over; its late write answers are stale
