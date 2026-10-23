@@ -60,10 +60,6 @@ local STATUS_POLL_DELAY_MS = 1500
 --- Post-operation jam detection delay (ms) - re-query lock status to catch late jams
 local JAM_CHECK_DELAY_MS = 10000
 
---- Longest wait (ms) for the lock to report its motor stopped after a lock or
---- unlock is acked, before the status read goes ahead without it
-local OPERATION_RESULT_TIMEOUT_MS = 8000
-
 --- Handshake timeout (ms) - abort and retry if lock doesn't respond
 local HANDSHAKE_TIMEOUT_MS = 10000
 
@@ -235,7 +231,6 @@ local function resetConnectionState(clearHandles)
   CancelTimer("Reconnect")
   CancelTimer("PollCycle")
   CancelTimer("JamCheck")
-  CancelTimer("OperationResult")
   CancelTimer("CleanDisconnect")
   CancelTimer("DisconnectDelay")
   CancelTimer("StatusPoll")
@@ -1030,7 +1025,6 @@ local function handleCommandResponse(data)
       updateLastSeen()
       if awaitingMotor then
         awaitingMotor = false
-        CancelTimer("OperationResult")
         queueStatusPoll()
       end
       return
@@ -1089,14 +1083,10 @@ local function handleCommandResponse(data)
     end
     updateLastSeen()
 
-    -- Read the full status once the motor stops, then schedule jam check
+    -- The result frame queues the status read; the jam check below covers a
+    -- lock that sends none
     if wasSolicited then
       awaitingMotor = true
-      SetTimer("OperationResult", OPERATION_RESULT_TIMEOUT_MS, function()
-        log:debug("No motor result after %dms - reading status anyway", OPERATION_RESULT_TIMEOUT_MS)
-        awaitingMotor = false
-        queueStatusPoll()
-      end)
       -- Re-query lock status after 10s to catch late-reported jams
       SetTimer("JamCheck", JAM_CHECK_DELAY_MS, function()
         if handshakeState == HANDSHAKE_STATE.COMPLETE then
