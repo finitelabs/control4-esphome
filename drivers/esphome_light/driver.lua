@@ -3617,7 +3617,8 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   -- A first report since a load, bind or disconnect is held against the
   -- proxy's Brightness Percent, unless its target (a ramp's) is another: after
   -- a controller start it fires Brightness Changed for any level it is told.
-  local levelShown = not isFirstUpdate
+  -- One told keeps the level a load starts at, so an off stores no Previous.
+  local shownLevel
   if isFirstUpdate then
     local ok, level, target = pcall(function()
       if gInitialized then
@@ -3626,8 +3627,8 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
       end
     end)
     level = ok and tointeger(level)
-    if level and level >= 0 and level <= 100 then
-      currentBrightness, levelShown = level, tointeger(target) == level
+    if level and level >= 0 and level <= 100 and tointeger(target) == level then
+      shownLevel = level
     end
   end
 
@@ -3645,10 +3646,11 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
         notifyBrightnessChanged(newBrightness)
       end
     end)
-  elseif not levelShown or not sameLevel(newBrightness, currentBrightness) then
-    notifyBrightnessChanged(newBrightness)
-  elseif isFirstUpdate then
+  elseif shownLevel and sameLevel(newBrightness, shownLevel) then
+    currentBrightness = shownLevel
     matchLedState(currentBrightness > 0)
+  elseif isFirstUpdate or not sameLevel(newBrightness, currentBrightness) then
+    notifyBrightnessChanged(newBrightness)
   end
 
   -- Read the color even while off (the light keeps it). A ramp tells its own
