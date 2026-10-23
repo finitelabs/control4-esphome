@@ -172,6 +172,35 @@ local function keyRefused()
   H.rfp(ESPHOME, "DISCONNECTED", { reason = "BLE connection closed" })
 end
 
+--- The lock answering the handshake with the wrong opcode at `step`.
+local function handshakeMismatched(step)
+  startHandshake()
+  H.rfp(ESPHOME, "GATT_WRITE_RESPONSE", { success = "true", error = "0" })
+  if step == "init" then
+    H.rfp(ESPHOME, "GATT_NOTIFY_DATA", {
+      handle = "26",
+      data = secureAnswer(yale_protocol.Opcode.SEC_MOBILE_TO_LOCK_KEY_EXCHANGE_RESP),
+    })
+  end
+  H.rfp(ESPHOME, "GATT_NOTIFY_DATA", { handle = "26", data = secureAnswer(0x7F) })
+end
+
+--- The lock and unlock commands written to the lock, in order.
+local function lockWrites()
+  local writes = {}
+  for _, s in ipairs(H.sent) do
+    if s.command == "GATT_WRITE" and s.params.handle == "20" then
+      local opcode = string.byte(C4:Base64Decode(s.params.data), 2)
+      if opcode == yale_protocol.Opcode.LOCK then
+        table.insert(writes, "LOCK")
+      elseif opcode == yale_protocol.Opcode.UNLOCK then
+        table.insert(writes, "UNLOCK")
+      end
+    end
+  end
+  return table.concat(writes, ",")
+end
+
 --------------------------------------------------------------------------------
 -- Verify and Fetch Keys
 --------------------------------------------------------------------------------
@@ -362,15 +391,44 @@ H.test("a lock the rejected key held up goes out with the new key", function()
   startHandshake()
   handshakeAnswered()
   H.rfp(ESPHOME, "GATT_NOTIFY_SUBSCRIBED", { handle = "22", success = "true" })
-  local sent
-  for i = #H.sent, 1, -1 do
-    if H.sent[i].command == "GATT_WRITE" and H.sent[i].params.handle == "20" then
-      sent = string.byte(C4:Base64Decode(H.sent[i].params.data), 2)
-      break
-    end
-  end
-  T.eq("the lock is what goes out", sent, yale_protocol.Opcode.LOCK)
+  T.eq("the lock is what goes out", lockWrites(), "LOCK")
 end)
+
+H.test("in Persistent mode the held-up lock goes out once", function()
+  boot({ ["Connection Mode"] = "Persistent" })
+  routes["GET /locks/" .. LOCK_ID] = lockDetail(NEW_KEY)
+  lock()
+  keyRefused()
+  T.eq("the new key is set", Properties["Offline Key"], NEW_KEY)
+  T.eq("the backoff retry is dropped", H.armed("Reconnect"), false)
+  startHandshake()
+  handshakeAnswered()
+  H.rfp(ESPHOME, "GATT_NOTIFY_SUBSCRIBED", { handle = "22", success = "true" })
+  T.eq("the lock goes out once", lockWrites(), "LOCK")
+end)
+
+for _, step in ipairs({ "key exchange", "init" }) do
+  H.test("a wrong reply to the " .. step .. " drops the link and retries with the new key", function()
+    boot()
+    routes["GET /locks/" .. LOCK_ID] = lockDetail(NEW_KEY)
+    lock()
+    H.clearSent()
+    handshakeMismatched(step)
+    T.eq("the link is dropped at once", H.count("DISCONNECT", ESPHOME), 1)
+    T.eq("the new key is set", Properties["Offline Key"], NEW_KEY)
+    T.eq("and the lock is connected again with it", H.count("CONNECT", ESPHOME), 1)
+
+    local status = Properties["Yale Cloud Status"]
+    H.rfp(ESPHOME, "DISCONNECTED", { reason = "BLE connection closed" })
+    T.eq("the old link's drop is not a second refusal", count("GET", "/locks/" .. LOCK_ID), 1)
+    T.eq("and leaves the status alone", Properties["Yale Cloud Status"], status)
+
+    startHandshake()
+    handshakeAnswered()
+    H.rfp(ESPHOME, "GATT_NOTIFY_SUBSCRIBED", { handle = "22", success = "true" })
+    T.eq("the lock goes out", lockWrites(), "LOCK")
+  end)
+end
 
 H.test("a refused key with nothing newer in the cloud says so, once per spell", function()
   boot()

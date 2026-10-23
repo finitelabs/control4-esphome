@@ -30,8 +30,9 @@ This driver provides native Control4 lock proxy integration for Yale and August
 smart locks via BLE through an ESPHome Bluetooth proxy. It enables lock/unlock
 control, status monitoring, battery reporting, and door sense.
 
-No cloud connection is required for day-to-day operation - the Yale/August cloud
-is only used during initial setup to retrieve the offline key.
+Lock and unlock never go through the cloud. The driver uses the Yale/August
+cloud only to fetch the offline key, then checks it once a day and when the lock
+rejects it.
 
 # <span style="color:#17BCF2">Index</span>
 

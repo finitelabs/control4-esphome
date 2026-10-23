@@ -770,8 +770,9 @@ local function handleKeyExchangeResponse(data)
       opcode,
       yale_protocol.Opcode.SEC_MOBILE_TO_LOCK_KEY_EXCHANGE_RESP
     )
-    onKeyRejected(pendingCommand)
-    requestDisconnect()
+    local command = pendingCommand
+    abandonAttempt("Error: Key rejected")
+    onKeyRejected(command)
     return
   end
 
@@ -840,8 +841,9 @@ local function handleInitResponse(data)
       opcode,
       yale_protocol.Opcode.SEC_INITIALIZATION_RESP
     )
-    onKeyRejected(pendingCommand)
-    requestDisconnect()
+    local command = pendingCommand
+    abandonAttempt("Error: Key rejected")
+    onKeyRejected(command)
     return
   end
 
@@ -1365,6 +1367,7 @@ local function runKeyCheck(reason, retryCommand)
         UpdateProperty("Yale Cloud Status", "Keys updated " .. os.date("%Y-%m-%d %H:%M"))
         reconnectAttempts = 0
         if handshakeState == HANDSHAKE_STATE.IDLE then
+          CancelTimer("Reconnect")
           initiateCommand(retryCommand or "status")
         end
       elseif statusBeforeRejection ~= nil then
