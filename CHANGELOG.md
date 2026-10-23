@@ -25,6 +25,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Added the ESPHome SereneScent sub-driver for Homedics SereneScent BLE
   diffusers, with power, mist intensity and light color control, keypad button
   links and a power relay
+- Added automatic offline key updates to the Yale driver: after Verify and Fetch
+  Keys it checks the Yale cloud for a new key daily and whenever the lock
+  rejects the key, so a changed key no longer means running the actions again
 
 ### Fixed
 
@@ -161,6 +164,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   never read the lock and Persistent mode gave up after its retries
 - Fixed a Yale lock showing an unknown state for a moment after every lock and
   unlock; a lock or unlock that jams now shows a fault
+- Fixed Verify and Fetch Keys taking another lock's key in a Yale account with
+  several locks when this lock's MAC address was not known yet
+- Fixed Yale cloud errors showing in Yale Cloud Status as "Error: table" instead
+  of the error
+- Fixed the Yale driver writing the lock's offline key to the log at Debug level
+  when fetching keys
 
 ### Changed
 
