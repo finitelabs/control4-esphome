@@ -164,6 +164,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   never read the lock and Persistent mode gave up after its retries
 - Fixed a Yale lock showing an unknown state for a moment after every lock and
   unlock; a lock or unlock that jams now shows a fault
+- Fixed a Yale lock showing as unlocked for a moment just after it locked, and
+  as locked just after it unlocked
 - Fixed Verify and Fetch Keys taking another lock's key in a Yale account with
   several locks when this lock's MAC address was not known yet
 - Fixed Yale cloud errors showing in Yale Cloud Status as "Error: table" instead

@@ -160,6 +160,11 @@ local pendingCommand = nil
 --- @type string|nil "lock", "unlock", "status_lock", "status_door", "status_battery"
 local awaitingResponse = nil
 
+--- Whether an acked lock or unlock is still turning: until its result frame,
+--- the lock answers a status read with the state it had before
+--- @type boolean
+local awaitingMotor = false
+
 --- GATT write queue for 250ms cooldown enforcement
 --- @type table[]
 local gattWriteQueue = {}
@@ -246,6 +251,7 @@ local function resetConnectionState(clearHandles)
   regularReadSubscribed = false
   pendingCommand = nil
   awaitingResponse = nil
+  awaitingMotor = false
   gattWriteQueue = {}
   CancelTimer("ConnectionTimeout")
   CancelTimer("GattWriteDrain")
@@ -1051,6 +1057,10 @@ local function handleCommandResponse(data)
         updateLockStatus("fault")
       end
       updateLastSeen()
+      if awaitingMotor then
+        awaitingMotor = false
+        queueStatusPoll()
+      end
       return
     end
 
@@ -1107,9 +1117,10 @@ local function handleCommandResponse(data)
     end
     updateLastSeen()
 
-    -- Poll for full status after command, then schedule jam check
+    -- The result frame queues the status read; the jam check below covers a
+    -- lock that sends none
     if wasSolicited then
-      queueStatusPoll()
+      awaitingMotor = true
       -- Re-query lock status after 10s to catch late-reported jams
       SetTimer("JamCheck", JAM_CHECK_DELAY_MS, function()
         if handshakeState == HANDSHAKE_STATE.COMPLETE then
