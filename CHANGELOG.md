@@ -22,6 +22,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
+- Added button LED feedback for Event entities: the LED state and colors a
+  bound load reports over an event type's button link are sent to the device's
+  `<name>_<event_type>_led` API action, or its `control4_led` action, as an int
+  or hex string color, and tracked in a `{name} {event_type} LED` variable
 - Added the ESPHome SereneScent sub-driver for Homedics SereneScent BLE
   diffusers, with power, mist intensity and light color control, keypad button
   links and a power relay

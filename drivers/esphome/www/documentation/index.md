@@ -567,6 +567,7 @@ the matching read-only Device Info properties.
 | Date          | `{name}`            | STRING | Writable, formatted as YYYY-MM-DD          |
 | Datetime      | `{name}`            | STRING | Writable, formatted as YYYY-MM-DD HH:MM:SS |
 | Event         | `{name} Last Event` | STRING | Last event type (e.g., "single_press")     |
+| Event         | `{name} {type} LED` | BOOL   | LED state the bound load reports           |
 | Fan           | (none)              | -      | State via Fan proxy                        |
 | Light         | (none)              | -      | State via Light proxy                      |
 | Lock          | (none)              | -      | State via Lock proxy                       |
@@ -655,6 +656,63 @@ bindings are created separately from the entity bindings above:
 > be used in programming, plus a `BUTTON_LINK` connection named
 > `{name} {event_type}` that can be bound straight to a load. The
 > `{name} Last Event` variable tracks the most recent event type.
+
+#### Button LED Feedback
+
+A load bound to an event type's `BUTTON_LINK` connection reports its LED state
+and button colors back over that connection, the same way it does to a Control4
+keypad button. The driver passes this on to the ESPHome device by calling a
+user-defined API action, so the device can show the feedback itself, for
+example as an LED or the background color of a display button. The
+`{name} {event_type} LED` variable tracks the reported state.
+
+For each event type the driver calls the first of these the device declares:
+
+1. `<name>_<event_type>_led`: the event type's own action. The name is the event
+   entity's name and the event type in lowercase, with each run of other
+   characters as one underscore, e.g. "Touch Button 2" + "press" calls
+   `touch_button_2_press_led`. The driver logs the expected name for each event
+   type at the Info level when it connects.
+2. `control4_led`: one action for every event type, which can tell them apart by
+   the `event` and `event_type` variables.
+
+A device with neither is left alone: no feedback is sent, and nothing is logged
+as an error.
+
+The action may declare any of these variables, in any order. Variables it does
+not declare are not sent:
+
+| Variable     | Type          | Value                                         |
+| ------------ | ------------- | --------------------------------------------- |
+| `event`      | string        | Event entity name (e.g., "Touch Button 2")    |
+| `event_type` | string        | Event type (e.g., "press")                    |
+| `state`      | bool          | Whether the load reports the button LED as on |
+| `color`      | int or string | Color to show now                             |
+| `on_color`   | int or string | The load's on color                           |
+| `off_color`  | int or string | The load's off color                          |
+
+A color declared as `int` is sent as `0xRRGGBB`, or `-1` when the load has not
+given one. Declared as `string`, it is sent as hex `RRGGBB`, or empty.
+
+This sets an LVGL button's background to the color the load reports, with
+fixed colors when it reports none:
+
+```yaml
+api:
+  actions:
+    - action: touch_button_2_press_led
+      variables:
+        state: bool
+        color: int
+      then:
+        - lvgl.widget.update:
+            id: lv_button_2
+            bg_color: !lambda 'return lv_color_hex(color >= 0 ? color : (state ? 0x3A3420 : 0x20252B));'
+```
+
+The last feedback is sent again whenever the driver reconnects to the device.
+Every message received on the connection is logged at the Info level, which
+shows exactly what a load sends.
 
 ### Commands
 
