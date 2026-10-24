@@ -5,6 +5,7 @@ local constants = require("constants")
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
 
+local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 local BLEAddress = require("esphome.ble.address")
 local UUID = require("esphome.ble.uuid")
@@ -440,6 +441,10 @@ function BluetoothProxyCapability:_discoverGattServices(mac, callback)
     end
   end, function(err)
     log:error("GATT service discovery failed for %s: %s", mac, err)
+    -- A newer discovery or connect for this MAC owns the link.
+    if err ~= ESPHomeClient.SUPERSEDED and not self._client:isBluetoothDeviceConnecting(mac) then
+      self._client:bluetoothDeviceDisconnect(mac)
+    end
     if callback then
       callback(false)
     end
@@ -1576,6 +1581,19 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
 
     log:info("Coordinator requested GATT connection to %s", mac)
 
+    local state = self._client:getBluetoothConnectionState()
+    if state.initialized and state.free <= 0 and not self._client:isBluetoothDeviceAllocated(mac) then
+      log:warn("No connection slots available for %s (0/%d free)", mac, state.limit)
+      SendToProxy(bindingId, "GATT_CONNECT_RESPONSE", {
+        proxyId = proxyId,
+        mac = mac,
+        requestId = requestId or "",
+        success = "false",
+        error = "No connection slots available",
+      }, "NOTIFY")
+      return
+    end
+
     self._client:bluetoothDeviceConnect(mac, addressType, false):next(function(result)
       -- Discover GATT services
       self._client:bluetoothGattGetServices(mac):next(function(services)
@@ -1588,6 +1606,10 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
           mtu = tostring(result.mtu or 0),
         }, "NOTIFY")
       end, function(err)
+        -- A newer GATT_CONNECT for this MAC owns the link.
+        if err ~= ESPHomeClient.SUPERSEDED and not self._client:isBluetoothDeviceConnecting(mac) then
+          self._client:bluetoothDeviceDisconnect(mac)
+        end
         SendToProxy(bindingId, "GATT_CONNECT_RESPONSE", {
           proxyId = proxyId,
           mac = mac,

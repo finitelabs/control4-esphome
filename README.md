@@ -932,11 +932,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ### Fixed
 
 - Fixed the SwitchBot and Yale drivers waiting indefinitely when the Bluetooth
-  proxy or coordinator never answered a connection request, as when it restarted
+  proxy or coordinator never finished a connection request, as when it restarted
   mid-connect: a SwitchBot stayed Busy with the command queued, and a Yale lock
-  in Poll mode stopped polling; the driver now gives up after a little over
-  three minutes, frees the proxy's connection slot and handles it as a failed
-  connection
+  in Poll mode stopped polling; the proxy now fails a connection after 30
+  seconds and the coordinator tries the next proxy, and the driver still gives
+  up after a little over three minutes if nothing answers
 - Fixed a Yale lock in Persistent mode counting a failed or timed-out handshake
   as two failures, using up its reconnect attempts twice as fast and retrying a
   lock or unlock that hit it as a status read instead
@@ -966,6 +966,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a Yale lock keeping the proxy's connection slot and stopping polling or
   reconnecting when a notification subscription failed or went unanswered; the
   driver now disconnects, frees the slot and handles it as a failed connection
+- Fixed the Bluetooth coordinator trying a proxy with no free connection slot,
+  and a slow connection taking up to 90 seconds on one proxy and four and a half
+  minutes through the coordinator; the coordinator now moves on from a full
+  proxy at once, and one proxy's attempt takes about a minute at most
+- Fixed a Bluetooth connection that failed or gave up leaving the ESPHome
+  proxy's connection slot in use, which could keep other SwitchBot and Yale
+  devices on that proxy from connecting; the proxy now disconnects and frees the
+  slot
 - Fixed Advanced Lighting scenes on an ESPHome light: a flash scene with no
   delay or ramp time hung the driver, Stop Scene Ramp did not stop the light,
   and a scene kept moving a light that was sent another command, or showed it
