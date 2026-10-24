@@ -501,8 +501,9 @@ local function updateDynamicCapabilities(entity)
   end
   -- Told only where the proxy's Navigator Dynamic Capabilities (6661) list
   -- another: after a controller start it fires its color variables' events for
-  -- any it is told. It lists supports_color_stop False without CCT, whatever
-  -- it is told. Before late init the proxy is not read.
+  -- any it is told. Whatever it is told, it lists supports_color_stop False
+  -- without CCT, and for a light that does not dim supports_brightness_stop
+  -- True and brightness_rate_max 0. Before late init the proxy is not read.
   local ok, xml = pcall(function()
     return gInitialized and C4:GetDeviceVariable(C4:GetProxyDevices(), 6661)
   end)
@@ -510,8 +511,13 @@ local function updateDynamicCapabilities(entity)
   for key, value in string.gmatch(ok and tostring(xml or "") or "", "<([%w_]+)>([^<]*)</%1>") do
     shown[key] = value
   end
+  local proxyOwn = {
+    supports_color_stop = true,
+    supports_brightness_stop = not supportsDimming,
+    brightness_rate_max = not supportsDimming,
+  }
   for key, value in pairs(caps) do
-    if shown[key] ~= nil and key ~= "supports_color_stop" then
+    if shown[key] ~= nil and not proxyOwn[key] then
       local want = type(value) == "boolean" and (value and "True" or "False") or value
       same = same ~= false and (shown[key] == want or tonumber(shown[key]) == want)
     end
@@ -2494,8 +2500,9 @@ function RFP.GET_LIGHT_LEVEL(idBinding, strCommand, tParams, args)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  -- Until the device reports, only a level a suspend kept is known; a 0 would run Light Off Programming.
-  if STATE == nil and not suspended then
+  -- Until a report is read, only a level a suspend kept is known; a 0 would run Light Off Programming. An on/off
+  -- light's proxy asks at a first report's ONLINE_CHANGED, before its level is read: the report tells it.
+  if lightBrightness == nil and not suspended then
     return
   end
   -- A CHANGED level is one the light has stopped at: in a ramp, tell where it has got to.
@@ -3615,9 +3622,10 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
 
   -- A first report since a load, bind or disconnect is held against the
-  -- proxy's Brightness Percent, unless its target (a ramp's) is another: after
-  -- a controller start it fires Brightness Changed for any level it is told.
-  -- One told keeps the level a load starts at, so an off stores no Previous.
+  -- proxy's Brightness Percent, unless its target (a ramp's; an on/off light's
+  -- proxy has none) is another: after a controller start it fires Brightness
+  -- Changed for any level it is told. One told keeps the level a load starts
+  -- at, so an off stores no Previous.
   local shownLevel
   if isFirstUpdate then
     local ok, level, target = pcall(function()
@@ -3627,7 +3635,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
       end
     end)
     level = ok and tointeger(level)
-    if level and level >= 0 and level <= 100 and tointeger(target) == level then
+    if level and level >= 0 and level <= 100 and (target == nil or tointeger(target) == level) then
       shownLevel = level
     end
   end
