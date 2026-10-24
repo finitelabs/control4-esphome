@@ -104,6 +104,90 @@ local capabilitiesTold = false
 function C4:GetProxyDevices()
   return 643
 end
+-- The proxy's Current Color Chromaticity (1200), which it keeps over a load or
+-- bind: the current a CHANGED or CHANGING told it, to six figures as a dev
+-- proxy shows it, or nil for a proxy never told one. Its target (1210) is a
+-- CHANGING's target or a CHANGED's color.
+local proxyColor, proxyTarget
+-- Its Brightness Percent (1001) and target (1110) the same way, from a
+-- CHANGED's level or a CHANGING's current and target. One that lists the light
+-- does not dim has no 1110 (dev, 2026-10-24: the on/off light's 638).
+local proxyLevel, proxyLevelTarget
+-- Whether it was last told the light is online.
+local proxyOnline
+-- Its Navigator Dynamic Capabilities (6661) as dev's proxies list them:
+-- driver.xml's until it is told others, and again after a controller start.
+-- It lists supports_color_stop False for a light without CCT, and for one that
+-- does not dim supports_brightness_stop True and its rates 0 (638).
+local CAPABILITY_KEYS = {
+  "dimmer",
+  "supports_target",
+  "supports_brightness_stop",
+  "supports_color",
+  "supports_color_correlated_temperature",
+  "supports_color_stop",
+  "brightness_rate_min",
+  "brightness_rate_max",
+  "color_correlated_temperature_min",
+  "color_correlated_temperature_max",
+  "color_rate_behavior",
+  "color_rate_min",
+  "color_rate_max",
+  "has_extras",
+  "click_rate_min",
+  "click_rate_max",
+  "hold_rate_min",
+  "hold_rate_max",
+  "cold_start",
+  "supports_color_cycling",
+  "advanced_scene_support",
+  "hide_proxy_properties",
+  "hide_proxy_commands",
+  "hide_proxy_events",
+  "hide_proxy_conditionals_loops",
+}
+local proxyCapabilities = {}
+--- Tell the modelled proxy capabilities, or put it on driver.xml's with none.
+local function showCapabilities(caps)
+  if caps == nil then
+    local f = assert(io.open(HERE .. "/../drivers/esphome_light/driver.xml", "rb"))
+    local static = f:read("*a"):match("<capabilities>(.-)</capabilities>")
+    f:close()
+    for _, key in ipairs(CAPABILITY_KEYS) do
+      proxyCapabilities[key] = static:match("<" .. key .. ">([^<]*)</" .. key .. ">") or "False"
+    end
+  end
+  for key, value in pairs(caps or {}) do
+    if proxyCapabilities[key] ~= nil then
+      proxyCapabilities[key] = type(value) == "boolean" and (value and "True" or "False") or tostring(value)
+    end
+  end
+  if proxyCapabilities.supports_color_correlated_temperature ~= "True" then
+    proxyCapabilities.supports_color_stop = "False"
+  end
+  if proxyCapabilities.dimmer == "False" then
+    proxyCapabilities.supports_brightness_stop = "True"
+    for _, rate in ipairs({ "brightness_rate", "click_rate", "hold_rate" }) do
+      proxyCapabilities[rate .. "_min"], proxyCapabilities[rate .. "_max"] = "0", "0"
+    end
+  end
+end
+local function capabilitiesShown()
+  local xml = {}
+  for _, key in ipairs(CAPABILITY_KEYS) do
+    xml[#xml + 1] = ("<%s>%s</%s>"):format(key, proxyCapabilities[key], key)
+  end
+  return "<DynamicCapabilities>" .. table.concat(xml) .. "</DynamicCapabilities>"
+end
+function C4:GetDeviceVariable(id, variable)
+  if id == 643 and variable == 6661 then
+    return capabilitiesShown()
+  elseif id == 643 and variable == 1110 then
+    return proxyCapabilities.dimmer ~= "False" and proxyLevelTarget or nil
+  elseif id == 643 then
+    return ({ [1001] = proxyLevel, [1200] = proxyColor, [1210] = proxyTarget })[variable]
+  end
+end
 local uiRequest = C4.SendUIRequest
 function C4:SendUIRequest(id, request, params)
   if request == "GET_SETUP" then
@@ -120,7 +204,29 @@ local function restart(modes, on)
   dofile(DRIVER)
   function SendToProxy(idBinding, strCommand, tParams)
     capabilitiesTold = capabilitiesTold or strCommand == "DYNAMIC_CAPABILITIES_CHANGED"
+    if idBinding == PROXY and (strCommand == "LIGHT_COLOR_CHANGED" or strCommand == "LIGHT_COLOR_CHANGING") then
+      local p, form = tParams, "%g,%g,%d"
+      proxyColor = form:format(p.LIGHT_COLOR_CURRENT_X, p.LIGHT_COLOR_CURRENT_Y, p.LIGHT_COLOR_CURRENT_COLOR_MODE)
+      proxyTarget = p.LIGHT_COLOR_TARGET_X
+          and form:format(p.LIGHT_COLOR_TARGET_X, p.LIGHT_COLOR_TARGET_Y, p.LIGHT_COLOR_TARGET_COLOR_MODE)
+        or proxyColor
+    elseif
+      idBinding == PROXY and (strCommand == "LIGHT_BRIGHTNESS_CHANGED" or strCommand == "LIGHT_BRIGHTNESS_CHANGING")
+    then
+      proxyLevel = tostring(tParams.LIGHT_BRIGHTNESS_CURRENT)
+      proxyLevelTarget = tostring(tParams.LIGHT_BRIGHTNESS_TARGET or tParams.LIGHT_BRIGHTNESS_CURRENT)
+    elseif idBinding == PROXY and strCommand == "DYNAMIC_CAPABILITIES_CHANGED" then
+      showCapabilities(tParams)
+    end
     sent[#sent + 1] = { at = now - start, binding = idBinding, command = strCommand, params = tParams or {} }
+    -- One that lists the light does not dim asks its level as it comes online (dev, 2026-10-24: 638 at an update).
+    if idBinding == PROXY and strCommand == "ONLINE_CHANGED" then
+      local was = proxyOnline
+      proxyOnline = tParams.STATE
+      if proxyOnline and not was and proxyCapabilities.dimmer == "False" then
+        RFP.GET_LIGHT_LEVEL(PROXY, "GET_LIGHT_LEVEL", {})
+      end
+    end
   end
   OnDriverLateInit()
   if modes then
@@ -138,6 +244,8 @@ local function light(modes, on)
   for _, key in ipairs({ "color_on_mode", "color_presets", "previous_color", "white_point" }) do
     persist:delete(key)
   end
+  proxyColor, proxyTarget, proxyLevel, proxyLevelTarget, proxyOnline = nil, nil, nil, nil, nil
+  showCapabilities()
   restart(modes, on)
 end
 
@@ -4887,10 +4995,15 @@ do
   restart()
   OBC[ESPHOME](ESPHOME, "ESPHOME", true)
   inWhite()
-  T.eq("a white, then a restart of the driver with the light still in it: the proxy is told that white", {
+  T.eq("a white, then a restart of the driver with the light still in it: the proxy shows that white", {
     colorsTold(),
     modesTold(),
-  }, { { 0.4 }, { FULL_MODE } })
+  }, { {}, {} })
+  proxyColor, proxyTarget = nil, nil
+  restart()
+  OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+  inWhite()
+  T.eq("and one that shows no color is told it", { colorsTold(), modesTold() }, { { 0.4 }, { FULL_MODE } })
   OBC[ESPHOME](ESPHOME, "ESPHOME", false)
   OBC[ESPHOME](ESPHOME, "ESPHOME", true)
   mark()
@@ -5135,7 +5248,16 @@ do
     restart()
     OBC[ESPHOME](ESPHOME, "ESPHOME", true)
     pushed(kind[2], state, kind[3])
-    T.eq("a restart of the driver with the light still in that white: the color picked", toldColors(), PICKED)
+    T.eq(
+      "a restart of the driver with the light still in that white: the proxy shows the color picked",
+      toldColors(),
+      {}
+    )
+    proxyColor, proxyTarget = nil, nil
+    restart()
+    OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+    pushed(kind[2], state, kind[3])
+    T.eq("and one that shows no color is told it", toldColors(), PICKED)
     if kind[7] then
       restart()
       OBC[ESPHOME](ESPHOME, "ESPHOME", true)
@@ -7763,7 +7885,12 @@ do
     restart()
     OBC[ESPHOME](ESPHOME, "ESPHOME", true)
     pushed(kind[2], state, RANGE)
-    T.eq("a restart of the driver with the light still at the range's end: 2200 K", toldOf(), ASKED)
+    T.eq("a restart of the driver with the light still at the range's end: the proxy shows 2200 K", toldOf(), {})
+    proxyColor, proxyTarget = nil, nil
+    restart()
+    OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+    pushed(kind[2], state, RANGE)
+    T.eq("and one that shows no color is told 2200 K", toldOf(), ASKED)
     mark()
     state.color_temperature = 250
     pushed(kind[2], state, RANGE)
@@ -8187,7 +8314,10 @@ do
   suspendedAt60()
   mark()
   answer(true, 0.6)
-  T.eq("back at the level it was at: told it once, and the LEDs nothing", { levels(), leds() }, { { 60 }, {} })
+  T.eq("back at the level it was at, which the proxy shows: told nothing, and the LEDs nothing", { levels(), leds() }, {
+    {},
+    {},
+  })
   suspendedAt60()
   mark()
   answer(false)
@@ -8219,7 +8349,7 @@ do
   mark()
   answer(true, 0.6)
   proxy("OFF")
-  T.eq("back, its report tells 60 and an Off turns it off", levels(), { 60, 0 })
+  T.eq("back at the 60 the proxy shows, and an Off turns it off", levels(), { 0 })
   proxy("CLEAR_ALL_SCENES")
 
   -- The light runs the fade it was sent, so the proxy keeps the level it was told the light is heading to.
@@ -8239,7 +8369,7 @@ do
   T.eq("and Get Light Level then tells the ramp's 60", levels(), { 60 })
   mark()
   answer(true, 0.6)
-  T.eq("back: the device's report tells its level", levels(), { 60 })
+  T.eq("back at the 60 the proxy shows since: the device's report tells nothing", levels(), {})
   light(dimmer)
   answer(true, 0.6)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
@@ -8256,7 +8386,7 @@ do
   })
   mark()
   answer(false)
-  T.eq("back: the device's report tells it off", levels(), { 0 })
+  T.eq("back off, which the proxy shows since: the device's report tells nothing", levels(), {})
 
   -- A device that drops off has usually lost power: it still reads off.
   light(dimmer)
@@ -8380,6 +8510,343 @@ do
   proxy("GET_LIGHT_LEVEL")
   proxy("TOGGLE")
   T.eq("Get Light Level and a Toggle tell nothing", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), {})
+end
+
+T.section("a light's first report after a load, bind or disconnect tells the proxy only a color it does not show")
+do
+  -- A Zigbee light's color read back a hair off the one told, and its start re-told it: Color Changed (4002) fired
+  -- (dev, 2026-10-23). An ESPHome light reports its channels as 32-bit floats, a hair off the ones it was sent.
+  local pb = require("protobuf")
+  local modes = { ColorMode.COLOR_MODE_RGB }
+  local SUNSET, AQUA = { 0.608506, 0.357644 }, { 0.147231, 0.358549 }
+  --- The device's report of the light on in the color sent as `rgb`.
+  local function report(rgb)
+    local function float(v)
+      return (pb.decode_float(pb.encode_float(v), 1))
+    end
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = modes }),
+      state = SerializeSafe({
+        state = true,
+        brightness = 1.0,
+        color_mode = ColorMode.COLOR_MODE_RGB,
+        red = float(rgb[1]),
+        green = float(rgb[2]),
+        blue = float(rgb[3]),
+      }),
+    })
+  end
+  local function xs()
+    return told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")
+  end
+  for _, how in ipairs({ "an update", "a bind", "a suspend", "the device back online" }) do
+    light(modes)
+    local rgb = setColor(SUNSET)
+    report(rgb)
+    local aqua = setColor(AQUA)
+    setColor(SUNSET)
+    report(rgb)
+    run(15000)
+    local shown = proxyColor
+    mark()
+    if how == "an update" then
+      restart(nil)
+    elseif how == "a bind" then
+      OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+    elseif how == "a suspend" then
+      RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", { suspended = "true" })
+    else
+      RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
+    end
+    report(rgb)
+    run(15000)
+    T.eq(how .. ": the device's report of the color the proxy shows tells it no color", xs(), {})
+    T.eq(how .. ": so it shows the one it did", proxyColor, shown)
+    mark()
+    report(aqua)
+    T.check(
+      how .. ": a color set elsewhere after it is told",
+      #xs() == 1 and math.abs(xs()[1] - AQUA[1]) < 5e-3,
+      T.show(xs())
+    )
+  end
+  for _, how in ipairs({ "an update", "a bind", "a suspend" }) do
+    light(modes)
+    local rgb = setColor(SUNSET)
+    report(rgb)
+    run(15000)
+    proxyTarget = "0.3,0.6,0" -- a ramp it was told of, still waiting on its end
+    mark()
+    if how == "an update" then
+      restart(nil)
+    elseif how == "a bind" then
+      OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+    else
+      RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", { suspended = "true" })
+    end
+    report(rgb)
+    T.check(
+      how .. " with the proxy in a ramp: it is told the color the light is in",
+      #xs() == 1 and math.abs(xs()[1] - SUNSET[1]) < 5e-3,
+      T.show(xs())
+    )
+    T.eq(how .. " with the proxy in a ramp: which ends it", proxyTarget, proxyColor)
+  end
+  -- Before late init the proxy is not read, so a report then is told, even of the white a load starts in.
+  local toXY = C4.ColorCCTtoXY
+  function C4:ColorCCTtoXY()
+    return 0.3127, 0.329
+  end
+  light({ CT })
+  proxyColor, proxyTarget = "0.3127,0.329,1", "0.3127,0.329,1" -- a read would take the report as shown
+  restart(nil)
+  gInitialized = false
+  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { CT } }),
+    state = SerializeSafe({ state = true, brightness = 1.0, color_mode = CT, color_temperature = 200 }),
+  })
+  gInitialized = true
+  C4.ColorCCTtoXY = toXY
+  T.check(
+    "a first report before late init is told, of the white a load starts in too",
+    #xs() == 1 and math.abs(xs()[1] - 0.3127) < 5e-3,
+    T.show(xs())
+  )
+  for _, c in ipairs({
+    { "a proxy that shows no color", nil },
+    { "one whose value is no color", "" },
+    { "one that shows another color", "0.2,0.5,0" },
+    { "one that shows the color as a color temperature", ("%g,%g,1"):format(SUNSET[1], SUNSET[2]) },
+  }) do
+    light(modes)
+    local rgb = setColor(SUNSET)
+    run(15000)
+    proxyColor, proxyTarget = c[2], c[2]
+    restart(nil)
+    report(rgb)
+    T.check(
+      c[1] .. ": an update, and it is told the device's color once",
+      #xs() == 1 and math.abs(xs()[1] - SUNSET[1]) < 5e-3,
+      T.show(xs())
+    )
+    T.eq(c[1] .. ": in its mode", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE"), { 0 })
+  end
+end
+
+T.section("a light's first report after a load, bind or disconnect tells the proxy only a level it does not show")
+do
+  -- After a controller start the proxy fires Brightness Changed (3002) for any level it is told, the one it shows
+  -- too (dev, 2026-10-23: every ESPHome light, at 0 and at 100).
+  local dimmer = { ColorMode.COLOR_MODE_BRIGHTNESS }
+  local function answer(on, brightness)
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = dimmer }),
+      state = SerializeSafe({ state = on, brightness = brightness }),
+    })
+  end
+  local function levels()
+    return told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT")
+  end
+  local function leds()
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.binding == TOP_LINK and s.command == "MATCH_LED_STATE" then
+        out[#out + 1] = s.params.STATE
+      end
+    end
+    return out
+  end
+  for _, how in ipairs({ "an update", "a controller start", "a bind", "a suspend", "the device back online" }) do
+    for _, on in ipairs({ true, false }) do
+      local name = ("%s, the light %s"):format(how, on and "at 60" or "off")
+      light(dimmer)
+      answer(on, 0.6)
+      run(15000)
+      local shown = proxyLevel
+      mark()
+      if how == "an update" then
+        restart(nil)
+      elseif how == "a controller start" then
+        restart(nil)
+        OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+      elseif how == "a bind" then
+        OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+      elseif how == "a suspend" then
+        RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", { suspended = "true" })
+      else
+        RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
+        mark()
+      end
+      answer(on, 0.6)
+      run(15000)
+      -- A device lost was shown off, so it is told the light is back on.
+      local want = how == "the device back online" and on and { 60 } or {}
+      T.eq(name .. ": the device's report tells the proxy the level only where it shows another", levels(), want)
+      T.eq(name .. ": which it then shows", proxyLevel, shown)
+      if how == "an update" or how == "a controller start" then
+        T.eq(name .. ": and the LEDs whether the light is on", leds(), on and { true } or {})
+      end
+      mark()
+      answer(true, 0.3)
+      T.eq(name .. ": a level set elsewhere after it is told", levels(), { 30 })
+    end
+  end
+  -- An on/off light's proxy has no target (1110) and asks Get Light Level as the light comes online at an update
+  -- (dev, 2026-10-24: 638, off).
+  local onOff = { ColorMode.COLOR_MODE_ON_OFF }
+  local function switched(on)
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = onOff }),
+      state = SerializeSafe({ state = on, brightness = 1.0 }),
+    })
+  end
+  for _, how in ipairs({ "an update", "a controller start", "a bind", "a suspend", "the device back online" }) do
+    for _, on in ipairs({ true, false }) do
+      local name = ("an on/off light %s at %s"):format(on and "on" or "off", how)
+      light(onOff, on)
+      run(15000)
+      local shown = proxyLevel
+      mark()
+      if how == "an update" then
+        restart(nil)
+      elseif how == "a controller start" then
+        showCapabilities()
+        restart(nil)
+        OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+      elseif how == "a bind" then
+        OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+      elseif how == "a suspend" then
+        RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", { suspended = "true" })
+      else
+        RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
+        mark()
+      end
+      switched(on)
+      run(15000)
+      local want = how == "the device back online" and on and { 100 } or {}
+      T.eq(name .. ": the proxy is told the level only where it shows another", levels(), want)
+      T.eq(name .. ": which it then shows", proxyLevel, shown)
+      if how == "an update" or how == "a controller start" then
+        T.eq(name .. ": and the LEDs whether the light is on", leds(), on and { true } or {})
+      end
+      mark()
+      switched(not on)
+      T.eq(name .. ": switched elsewhere after it, it is told", levels(), { on and 0 or 100 })
+    end
+  end
+  for _, on in ipairs({ true, false }) do
+    light(onOff, not on)
+    run(15000)
+    restart(nil)
+    switched(on)
+    local name = ("an on/off light switched %s while its driver was updated"):format(on and "on" or "off")
+    T.eq(name .. ": told it once", levels(), { on and 100 or 0 })
+  end
+  for _, c in ipairs({
+    { "a proxy that shows no level", nil, nil },
+    { "one whose value is no level", "", "" },
+    { "one that shows another level", "30", "30" },
+    { "one in a ramp to another level", "60", "20" },
+  }) do
+    light(dimmer)
+    answer(true, 0.6)
+    run(15000)
+    proxyLevel, proxyLevelTarget = c[2], c[3]
+    restart(nil)
+    answer(true, 0.6)
+    T.eq(c[1] .. ": an update, and it is told the device's level once", levels(), { 60 })
+    T.eq(c[1] .. ": which it then shows, with no ramp left", { proxyLevel, proxyLevelTarget }, { "60", "60" })
+  end
+  -- Before late init the proxy is not read, so a first report then is told.
+  light(dimmer)
+  answer(true, 0.6)
+  run(15000)
+  restart(nil)
+  gInitialized = false
+  answer(true, 0.6)
+  gInitialized = true
+  T.eq("a first report before late init tells the proxy the level", levels(), { 60 })
+  -- Found off where the proxy shows it on, as after a power cut, it keeps the color it last went off in for Previous.
+  light({ RGB }, false)
+  onMode(PREVIOUS_ON)
+  proxy("ON")
+  local previous = setColor({ 0.2, 0.5 })
+  proxy("OFF")
+  proxy("ON")
+  run(15000)
+  restart(nil)
+  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { RGB } }),
+    state = SerializeSafe({ state = false }),
+  })
+  T.eq("found off at an update, the proxy showing it on: it is told off", levels(), { 0 })
+  mark()
+  proxy("ON")
+  T.eq("and with Color On Mode set to Previous it comes on in the color it last went off in", colors(), { previous })
+end
+
+T.section("a light tells the proxy its capabilities at a start only where the proxy lists others")
+do
+  -- A controller start puts the proxy back on driver.xml's capabilities, and those it is told then fire its color
+  -- variables' events (1200 to 1214, 1300, 1301; dev, 2026-10-23): a light with driver.xml's is told none.
+  local function capabilities()
+    return #told("DYNAMIC_CAPABILITIES_CHANGED", "dimmer")
+  end
+  for _, kind in ipairs({
+    { "a full color light", { RGB }, true },
+    { "a color temperature light", { CT }, true },
+    { "a full color and color temperature light", { RGBCT }, true },
+    { "a dimmer", { ColorMode.COLOR_MODE_BRIGHTNESS }, false },
+    { "an on/off light", { ColorMode.COLOR_MODE_ON_OFF }, true },
+  }) do
+    for _, how in ipairs({ "an update", "a controller start", "a bind", "a suspend", "the device back online" }) do
+      local name = ("%s at %s"):format(kind[1], how)
+      light(kind[2])
+      local shown = capabilitiesShown()
+      mark()
+      if how == "an update" then
+        restart(nil)
+      elseif how == "a controller start" then
+        showCapabilities()
+        restart(nil)
+        OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+      elseif how == "a bind" then
+        OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+      elseif how == "a suspend" then
+        RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", { suspended = "true" })
+      else
+        RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
+      end
+      RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+        entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = kind[2] }),
+        state = SerializeSafe({ state = true, brightness = 1.0 }),
+      })
+      run(15000)
+      local want = how == "a controller start" and kind[3] and 1 or 0
+      T.eq(name .. ": the proxy is told its capabilities " .. want .. " times", capabilities(), want)
+      T.eq(name .. ": and lists the ones it did", capabilitiesShown(), shown)
+    end
+  end
+  light({ RGBCT })
+  local shown = capabilitiesShown()
+  proxyCapabilities.color_correlated_temperature_max = "6000" -- as another light or build told it
+  restart(nil)
+  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { RGBCT } }),
+    state = SerializeSafe({ state = true, brightness = 1.0 }),
+  })
+  T.eq("a proxy that lists other capabilities is told the light's once", capabilities(), 1)
+  T.eq("and lists them", capabilitiesShown(), shown)
+  -- Before late init the proxy is not read, so a first report then tells them.
+  light({ RGBCT })
+  restart(nil)
+  gInitialized = false
+  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { RGBCT } }),
+    state = SerializeSafe({ state = true, brightness = 1.0 }),
+  })
+  gInitialized = true
+  T.eq("a first report before late init tells the proxy its capabilities", capabilities(), 1)
 end
 
 T.finish()

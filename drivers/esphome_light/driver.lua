@@ -499,7 +499,34 @@ local function updateDynamicCapabilities(entity)
     caps.color_correlated_temperature_min = miredsToKelvin(maxMireds)
     caps.color_correlated_temperature_max = miredsToKelvin(minMireds)
   end
-  SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
+  -- Told only where the proxy's Navigator Dynamic Capabilities (6661) list
+  -- another: after a controller start it fires its color variables' events for
+  -- any it is told. Whatever it is told, it lists supports_color_stop False
+  -- without CCT, and for a light that does not dim supports_brightness_stop
+  -- True and brightness_rate_max 0. Before late init the proxy is not read.
+  local ok, xml = pcall(function()
+    return gInitialized and C4:GetDeviceVariable(C4:GetProxyDevices(), 6661)
+  end)
+  local shown, same = {}, nil
+  for key, value in string.gmatch(ok and tostring(xml or "") or "", "<([%w_]+)>([^<]*)</%1>") do
+    shown[key] = value
+  end
+  local proxyOwn = {
+    supports_color_stop = true,
+    supports_brightness_stop = not supportsDimming,
+    brightness_rate_max = not supportsDimming,
+  }
+  for key, value in pairs(caps) do
+    if shown[key] ~= nil and not proxyOwn[key] then
+      local want = type(value) == "boolean" and (value and "True" or "False") or value
+      same = same ~= false and (shown[key] == want or tonumber(shown[key]) == want)
+    end
+  end
+  if same then
+    log:debug("The proxy shows the light's capabilities")
+  else
+    SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
+  end
   -- A new light's setup lists no colors until the proxy hears it has color.
   readProxySetup()
 
@@ -2473,8 +2500,9 @@ function RFP.GET_LIGHT_LEVEL(idBinding, strCommand, tParams, args)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  -- Until the device reports, only a level a suspend kept is known; a 0 would run Light Off Programming.
-  if STATE == nil and not suspended then
+  -- Until a report is read, only a level a suspend kept is known; a 0 would run Light Off Programming. An on/off
+  -- light's proxy asks at a first report's ONLINE_CHANGED, before its level is read: the report tells it.
+  if lightBrightness == nil and not suspended then
     return
   end
   -- A CHANGED level is one the light has stopped at: in a ramp, tell where it has got to.
@@ -3406,8 +3434,27 @@ end
 ---------------------------------------------------------------------------
 
 -- Tell the color a report's fields show, if it is not the one told or `force`.
-local function tellShownColor(fields, force)
+-- A `first` report since a load, bind or disconnect is held against the
+-- proxy's Current Color Chromaticity ("x,y,mode") instead, unless its target
+-- (a ramp's) is another: it fires Color Changed for any other color it is told.
+-- One before late init, when the proxy is not read, is told.
+local function tellShownColor(fields, force, first)
   local newX, newY, newColorMode = shownColor(fields)
+  if first and newX and newY and newColorMode and not force then
+    local ok, value, target = pcall(function()
+      if gInitialized then
+        local proxy = C4:GetProxyDevices()
+        return C4:GetDeviceVariable(proxy, 1200), C4:GetDeviceVariable(proxy, 1210)
+      end
+    end)
+    local x, y, mode = string.match(ok and tostring(value or "") or "", "^([^,]+),([^,]+),([^,]+)$")
+    x, y, mode = tonumber(x), tonumber(y), tointeger(mode)
+    if x and y and mode and target == value and sameColor(newX, newY, toldMode(newColorMode), x, y, mode) then
+      currentColorX, currentColorY, currentColorMode = newX, newY, newColorMode
+      return
+    end
+    force = true
+  end
   -- Threshold matches xy round-trip drift through RGB / HSV (typically
   -- 1-2e-3 in either coordinate). Tighter than this fires spurious notifies
   -- and clears the active preset id when the bulb just echoes our own cmd
@@ -3574,6 +3621,25 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     lightFade = nil
   end
 
+  -- A first report since a load, bind or disconnect is held against the
+  -- proxy's Brightness Percent, unless its target (a ramp's; an on/off light's
+  -- proxy has none) is another: after a controller start it fires Brightness
+  -- Changed for any level it is told. One told keeps the level a load starts
+  -- at, so an off stores no Previous.
+  local shownLevel
+  if isFirstUpdate then
+    local ok, level, target = pcall(function()
+      if gInitialized then
+        local proxy = C4:GetProxyDevices()
+        return C4:GetDeviceVariable(proxy, 1001), C4:GetDeviceVariable(proxy, 1110)
+      end
+    end)
+    level = ok and tointeger(level)
+    if level and level >= 0 and level <= 100 and (target == nil or tointeger(target) == level) then
+      shownLevel = level
+    end
+  end
+
   -- During a ramp ESPHome's echo confirms the level the ramp is heading for,
   -- not where the bulb is, so it is ignored: the ramp's end tells the level.
   if rampingBrightness and taken then
@@ -3588,10 +3654,10 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
         notifyBrightnessChanged(newBrightness)
       end
     end)
+  elseif shownLevel and sameLevel(newBrightness, shownLevel) then
+    currentBrightness = shownLevel
+    matchLedState(currentBrightness > 0)
   elseif isFirstUpdate or not sameLevel(newBrightness, currentBrightness) then
-    -- Spec note: LIGHT_BRIGHTNESS_CHANGED should always be sent when the
-    -- driver starts and/or when the hardware comes online so the proxy is
-    -- seeded with the actual brightness, even if it matches our default.
     notifyBrightnessChanged(newBrightness)
   end
 
@@ -3614,7 +3680,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
       end)
     else
       CancelTimer("SentColor")
-      tellShownColor(reported, isFirstUpdate or taken)
+      tellShownColor(reported, taken, isFirstUpdate)
     end
   end
 end

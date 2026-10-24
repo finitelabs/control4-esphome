@@ -150,7 +150,11 @@ the light keeps the level it had.
 The light ignores commands while its device is offline or its **ESPHome Light**
 connection is removed, so a command sent meanwhile changes nothing in Control4
 and runs no light programming. Once the device reports again, the light shows
-its level.
+its level and color. A level or color the light still has runs no Brightness
+Changed, Level Change or Color Changed programming, after a controller restart
+or a driver update too. After a controller restart Control4 still reports the
+color variables of a light with color or color temperature as changed, as it
+learns the light's capabilities again.
 
 <!-- #ifdef DRIVERCENTRAL -->
 

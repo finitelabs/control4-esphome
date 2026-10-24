@@ -125,6 +125,17 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Mode turns itself off after three hours
 - Fixed a light asked for its level before its ESPHome device had reported being
   shown as off
+- Fixed a light running its Brightness Changed, Level Change or Color Changed
+  Programming after a controller restart, and a light in a full color running
+  its Color Changed Programming when its driver was updated, its ESPHome Light
+  connection was bound or its device reported again, as Control4 was told its
+  level and color again; it is now told only a level, color or capability that
+  differs from the one it shows. After a controller restart Control4 still
+  reports the color variables of a light with color or color temperature as
+  changed, as it learns the light's capabilities again
+- Fixed an on/off light being shown as off, and running its Light Off
+  Programming and then its Light On Programming, when its driver was updated
+  while it was on
 - Fixed a light sent a command while its ESPHome device was offline, or its
   ESPHome Light connection was removed, being shown on, off or at the level
   sent, and running its Light On or Light Off Programming; it now ignores the
