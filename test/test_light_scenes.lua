@@ -8692,7 +8692,7 @@ do
     end
   end
   -- An on/off light's proxy has no target (1110) and asks Get Light Level as the light comes online at an update
-  -- (dev, 2026-10-24: 638, off, was told 0 twice there and fired Level Change at a controller start).
+  -- (dev, 2026-10-24: 638, off).
   local onOff = { ColorMode.COLOR_MODE_ON_OFF }
   local function switched(on)
     RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
