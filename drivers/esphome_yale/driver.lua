@@ -9,6 +9,9 @@ require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
+--#ifndef DRIVERCENTRAL
+local mainDriverCatchup = require("esphome.main_driver_catchup")
+--#endif
 
 JSON = require("JSON")
 
@@ -1660,6 +1663,10 @@ function OnDriverLateInit()
   end
 
   scheduleKeyCheck(KEY_CHECK_STARTUP_DELAY_MS)
+
+  --#ifndef DRIVERCENTRAL
+  mainDriverCatchup.schedule()
+  --#endif
 end
 
 --------------------------------------------------------------------------------

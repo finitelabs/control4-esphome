@@ -11,6 +11,9 @@ require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
+--#ifndef DRIVERCENTRAL
+local mainDriverCatchup = require("esphome.main_driver_catchup")
+--#endif
 
 JSON = require("JSON")
 
@@ -123,6 +126,10 @@ function OnDriverLateInit()
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   notifyPresetSpeed()
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
+
+  --#ifndef DRIVERCENTRAL
+  mainDriverCatchup.schedule()
+  --#endif
 end
 
 function OPC.Driver_Status(propertyValue)

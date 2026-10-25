@@ -12,6 +12,9 @@ require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
+--#ifndef DRIVERCENTRAL
+local mainDriverCatchup = require("esphome.main_driver_catchup")
+--#endif
 
 local log = require("lib.logging")
 local persist = require("lib.persist")
@@ -715,6 +718,10 @@ function OnDriverLateInit()
 
   initialized = true
   log:info("Bluetooth Coordinator initialized")
+
+  --#ifndef DRIVERCENTRAL
+  mainDriverCatchup.schedule()
+  --#endif
 end
 
 function OnDriverDestroyed()

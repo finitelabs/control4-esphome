@@ -918,6 +918,16 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed automatic updates leaving drivers a version behind. Since v20260922,
+  with two or more drivers from this repository installed, only one or two of
+  them updated and the ESPHome driver stayed on its old version. Each driver now
+  updates in turn, and a system left behind catches up on its own: the first
+  companion driver to update installs the waiting ESPHome driver update
+
 ## v20261024 - 2026-10-24
 
 ### Added
