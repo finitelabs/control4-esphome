@@ -458,6 +458,19 @@ function Router:onGattDisconnectResponse(response)
   end
 end
 
+--- Handle a proxy reporting that a device's link closed without a request.
+--- @param proxyDeviceId integer The reporting proxy's device ID
+--- @param mac string|nil MAC address
+--- @return boolean dropped True when that proxy held the device's link
+function Router:onGattDisconnected(proxyDeviceId, mac)
+  -- A proxy the device has since moved away from reports a link nobody uses
+  if not mac or self._connectedDevices[mac] ~= proxyDeviceId then
+    return false
+  end
+  self:onGattDisconnectResponse({ mac = mac })
+  return true
+end
+
 --- Handle proxy disconnection - clean up pending requests and tracked devices for that proxy
 --- @param proxyDeviceId integer The disconnected proxy's device ID
 function Router:onProxyDisconnected(proxyDeviceId)

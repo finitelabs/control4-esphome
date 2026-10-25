@@ -359,6 +359,18 @@ local function handleProxyMessage(proxyDeviceId, strCommand, tParams)
     router:onGattNotifyData(tParams)
   elseif strCommand == "GATT_DISCONNECT_RESPONSE" then
     router:onGattDisconnectResponse(tParams)
+  elseif strCommand == "GATT_DISCONNECTED" then
+    local mac = Select(tParams, "mac")
+    if router:onGattDisconnected(proxyDeviceId, mac) then
+      local device = deviceRegistry:getDevice(mac)
+      if device and device.bindingId then
+        log:info("Device %s disconnected from proxy %d", mac, proxyDeviceId)
+        SendToProxy(device.bindingId, "DISCONNECTED", {
+          mac = mac,
+          reason = Select(tParams, "reason") or "BLE connection closed",
+        }, "NOTIFY")
+      end
+    end
   end
 end
 

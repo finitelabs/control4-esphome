@@ -1201,41 +1201,7 @@ function BluetoothProxyCapability:discovered(deviceInfo)
 
   -- Register callback for ongoing connection slot updates
   self._client:addBluetoothConnectionsCallback("bluetooth_proxy_entity", function(state)
-    log:debug("BT connection slots: %d/%d free, %d connected", state.free, state.limit, #state.allocated)
-
-    -- Build set of currently allocated MACs
-    local currentAllocated = {}
-    for _, mac in ipairs(state.allocated) do
-      currentAllocated[mac] = true
-    end
-
-    -- Detect disconnects: devices that were allocated but no longer are
-    for mac in pairs(self._previousAllocated) do
-      if not currentAllocated[mac] then
-        self._coordinatorServices[mac] = nil
-        local device = self._addedDevices[mac]
-        if device then
-          -- Clear cached services on disconnect - handles may change after reconnect
-          device.services = nil
-          if device.bindingId then
-            log:info("Device %s disconnected (no longer allocated)", mac)
-            SendToProxy(device.bindingId, "DISCONNECTED", {
-              mac = mac,
-              reason = "BLE connection closed",
-            }, "NOTIFY")
-          end
-        end
-      end
-    end
-
-    -- Update previous allocated for next comparison
-    self._previousAllocated = currentAllocated
-
-    -- Set the limit on the property selector
-    bleScannerProperties:setLimit(self.PROPERTY_NAME, state.limit)
-
-    -- Update the status property
-    self:_updateStatusProperty()
+    self:_onConnectionSlots(state)
   end)
 
   -- Register callback for scanner state updates
@@ -1265,6 +1231,57 @@ function BluetoothProxyCapability:discovered(deviceInfo)
   end, function(err)
     log:error("Failed to initialize Bluetooth proxy: %s", err or "unknown")
   end)
+end
+
+--- Track the proxy's connected devices: a device that is no longer connected
+--- hears DISCONNECTED, through the coordinator when the coordinator holds the
+--- link and did not ask for it to close.
+--- @param state BluetoothConnectionState
+--- @private
+function BluetoothProxyCapability:_onConnectionSlots(state)
+  log:debug("BT connection slots: %d/%d free, %d connected", state.free, state.limit, #state.allocated)
+
+  -- Build set of currently allocated MACs
+  local currentAllocated = {}
+  for _, mac in ipairs(state.allocated) do
+    currentAllocated[mac] = true
+  end
+
+  -- Detect disconnects: devices that were allocated but no longer are
+  for mac in pairs(self._previousAllocated) do
+    if not currentAllocated[mac] then
+      if self._coordinatorServices[mac] and self._coordinatorBindingId then
+        log:info("Coordinator device %s disconnected (no longer allocated)", mac)
+        SendToProxy(self._coordinatorBindingId, "GATT_DISCONNECTED", {
+          proxyId = tostring(C4:GetDeviceID()),
+          mac = mac,
+          reason = "BLE connection closed",
+        }, "NOTIFY")
+      end
+      self._coordinatorServices[mac] = nil
+      local device = self._addedDevices[mac]
+      if device then
+        -- Clear cached services on disconnect - handles may change after reconnect
+        device.services = nil
+        if device.bindingId then
+          log:info("Device %s disconnected (no longer allocated)", mac)
+          SendToProxy(device.bindingId, "DISCONNECTED", {
+            mac = mac,
+            reason = "BLE connection closed",
+          }, "NOTIFY")
+        end
+      end
+    end
+  end
+
+  -- Update previous allocated for next comparison
+  self._previousAllocated = currentAllocated
+
+  -- Set the limit on the property selector
+  bleScannerProperties:setLimit(self.PROPERTY_NAME, state.limit)
+
+  -- Update the status property
+  self:_updateStatusProperty()
 end
 
 --- Check all added devices for already-bound child drivers and notify them.
