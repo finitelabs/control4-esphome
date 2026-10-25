@@ -413,6 +413,144 @@ def process_directory(
             process_file(build_item_path, conditions, variant_map)
 
 
+def parse_env_file(path: Path) -> dict[str, str]:
+    """
+    Read KEY=VALUE lines from a dotenv-style file. Blank lines and # comments are
+    skipped, an optional leading `export ` is dropped, and one pair of matching
+    surrounding quotes is removed from the value.
+    """
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        key, sep, value = line.partition("=")
+        key = key.strip()
+        if not sep or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            print(f"Warning: {path.name}: ignoring a line that is not KEY=VALUE")
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        values[key] = value
+    return values
+
+
+def resolve_build_secrets(repo_root: Path) -> dict[str, str]:
+    """
+    Resolve each name `.env.default` declares from the environment, then `.env`.
+    A missing value resolves to "" with a warning, or exits when REQUIRE_SECRETS is
+    set. Only whether each name was set is printed.
+    """
+    declared = list(parse_env_file(repo_root / ".env.default"))
+    if not declared:
+        return {}
+
+    local = parse_env_file(repo_root / ".env")
+    required = os.environ.get("REQUIRE_SECRETS", "") not in ("", "0", "false")
+    secrets: dict[str, str] = {}
+    missing: list[str] = []
+    for name in declared:
+        value = os.environ.get(name) or local.get(name) or ""
+        if value:
+            print(f"Build secret {name}: set")
+        else:
+            print(f"Warning: build secret {name} is not set; it builds as empty")
+            missing.append(name)
+        secrets[name] = value
+
+    if missing and required:
+        raise SystemExit(
+            "Error: REQUIRE_SECRETS is set and these build secrets have no value: "
+            + ", ".join(missing)
+        )
+    return secrets
+
+
+def write_dotenv_from_secrets(repo_root: Path) -> None:
+    """
+    Append to `.env` each name `.env.default` declares that SECRETS_JSON (a JSON
+    object, CI's `toJSON(secrets)`) gives a value. No other secret is written.
+    """
+    declared = parse_env_file(repo_root / ".env.default")
+    if not declared:
+        return
+    secrets = json.loads(os.environ.get("SECRETS_JSON") or "{}")
+    lines = [f"{name}={secrets[name]}\n" for name in declared if secrets.get(name)]
+    with open(repo_root / ".env", "a", encoding="utf-8") as f:
+        f.writelines(lines)
+    print(f"Wrote {len(lines)} of {len(declared)} build secrets to .env")
+
+
+SECRETS_MARKER = ".build-secrets"
+
+
+def substitute_build_secrets(build_dir: Path, secrets: dict[str, str]) -> None:
+    """
+    Replace __NAME__ (and %%NAME%%) for each build secret in every built file.
+
+    Works on bytes and rewrites only a file that holds a placeholder, so binary
+    files and line endings are left exactly as they are. When any file held one,
+    every driver in the build is set to encrypt its Lua (see encrypt_drivers) and
+    build_dir gets SECRETS_MARKER, which tells `make package` to delete the
+    plain-text squished Lua it leaves in dist/<build>/source.
+    """
+    pairs = []
+    for name, value in secrets.items():
+        encoded = value.encode("utf-8")
+        pairs.append((f"__{name}__".encode(), encoded))
+        pairs.append((f"%%{name}%%".encode(), encoded))
+    substituted = False
+    for path in sorted(build_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        content = path.read_bytes()
+        replaced = content
+        for placeholder, encoded in pairs:
+            replaced = replaced.replace(placeholder, encoded)
+        if replaced != content:
+            path.write_bytes(replaced)
+            substituted = True
+    if substituted:
+        encrypt_drivers(build_dir / "drivers")
+        (build_dir / SECRETS_MARKER).write_text(
+            "Build secrets were substituted into this build.\n", encoding="utf-8"
+        )
+
+
+def encrypt_drivers(drivers_dir: Path) -> None:
+    """
+    Set encryption="2" on each driver.xml's <script> so the packager encrypts it.
+
+    A secret can sit in a src/ module that any driver squishes in, so every driver
+    in the build is encrypted, not only one whose own files held a placeholder.
+    """
+    script_tag = re.compile(rb"<script\b[^>]*?/?>")
+    encryption_attr = re.compile(rb"""\sencryption\s*=\s*(["'])[^"']*\1""")
+    for xml_path in sorted(drivers_dir.glob("*/driver.xml")):
+        content = xml_path.read_bytes()
+
+        def encrypted(match: "re.Match[bytes]") -> bytes:
+            tag = match.group(0)
+            if encryption_attr.search(tag):
+                return encryption_attr.sub(b' encryption="2"', tag)
+            return tag.replace(b"<script", b'<script encryption="2"', 1)
+
+        replaced, count = script_tag.subn(encrypted, content)
+        if count == 0:
+            raise SystemExit(
+                f"Error: {xml_path} has no <script> to encrypt, and build secrets "
+                "were substituted into this build"
+            )
+        if replaced != content:
+            xml_path.write_bytes(replaced)
+        print(f"Encrypting {xml_path.parent.name}: build secrets were substituted")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Build the project with conditional directives."
@@ -427,7 +565,16 @@ def main():
         help="Enable DRIVERCENTRAL + DRIVERCENTRAL_DEV build",
     )
     group.add_argument("--oss", action="store_true", help="Enable OSS build")
+    group.add_argument(
+        "--write-dotenv",
+        action="store_true",
+        help="Write .env.default's names from SECRETS_JSON into .env, then exit",
+    )
     args = parser.parse_args()
+
+    if args.write_dotenv:
+        write_dotenv_from_secrets(Path(__file__).parent.parent)
+        return
 
     if args.drivercentral:
         distribution = "drivercentral"
@@ -459,6 +606,7 @@ def main():
     shutil.rmtree(build_dir / "drivers", ignore_errors=True)
     shutil.rmtree(build_dir / "vendor", ignore_errors=True)
     shutil.rmtree(build_dir / "documentation", ignore_errors=True)
+    (build_dir / SECRETS_MARKER).unlink(missing_ok=True)
 
     shutil.copytree(src_dir, build_dir / "src")
     shutil.copytree(drivers_dir, build_dir / "drivers")
@@ -473,6 +621,10 @@ def main():
 
     # Copy and process src directory
     process_directory(build_dir, conditions, variant_map)
+
+    secrets = resolve_build_secrets(repo_root)
+    if secrets:
+        substitute_build_secrets(build_dir, secrets)
 
     print(f"Build completed successfully. Output in {build_dir}")
 

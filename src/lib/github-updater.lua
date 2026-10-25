@@ -219,35 +219,51 @@ function GitHubUpdater:updateAll(repo, driverFilenames, includePrereleases, forc
         table.insert(updateOrder, ownFilenameToUpdate)
       end
 
-      C4:CreateTCPClient()
-        :OnConnect(function(client)
-          for _, driverFilename in ipairs(updateOrder) do
-            local c4soap = XMLTag(
-              "c4soap",
-              XMLTag("param", driverFilename, nil, nil, {
-                name = "name",
-                type = "string",
-              }),
-              false,
-              false,
-              {
-                name = "UpdateProjectC4i",
-                session = "0",
-                operation = "RWX",
-                category = "composer",
-                async = "0",
-              }
-            ) .. "\0"
+      -- Director drops UpdateProjectC4i commands still queued on a socket that
+      -- closes, so each update waits for Director's reply before the next is sent.
+      local function sendUpdate(index)
+        local driverFilename = updateOrder[index]
+        if driverFilename == nil then
+          return d:resolve(downloadedDriverFilenames)
+        end
+        local c4soap = XMLTag(
+          "c4soap",
+          XMLTag("param", driverFilename, nil, nil, {
+            name = "name",
+            type = "string",
+          }),
+          false,
+          false,
+          {
+            name = "UpdateProjectC4i",
+            session = "0",
+            operation = "RWX",
+            category = "composer",
+            async = "0",
+          }
+        ) .. "\0"
+        C4:CreateTCPClient()
+          :OnConnect(function(client)
             client:Write(c4soap)
-          end
-          client:Close()
-          d:resolve(downloadedDriverFilenames)
-        end)
-        :OnError(function(client, errCode, errMsg)
-          client:Close()
-          d:reject("Error " .. errCode .. ": " .. errMsg)
-        end)
-        :Connect("127.0.0.1", 5020)
+            client:ReadUntil("\0")
+            if driverFilename == ownFilenameToUpdate then
+              -- Its update reloads this driver, usually before Director replies.
+              d:resolve(downloadedDriverFilenames)
+            end
+          end)
+          :OnRead(function(client)
+            client:Close()
+            if driverFilename ~= ownFilenameToUpdate then
+              sendUpdate(index + 1)
+            end
+          end)
+          :OnError(function(client, errCode, errMsg)
+            client:Close()
+            d:reject("Error " .. errCode .. ": " .. errMsg)
+          end)
+          :Connect("127.0.0.1", 5020)
+      end
+      sendUpdate(1)
       return d
     end)
 end
