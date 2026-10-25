@@ -18,6 +18,17 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed a Yale lock or unlock, or a SwitchBot press, running long after it was
+  tapped when the connection was slow: a Yale lock in Persistent mode kept
+  retrying an unlock for over 20 minutes and ran it whenever a retry connected.
+  A command that has waited more than 60 seconds is now dropped and reported as
+  failed, a Yale lock showing a fault until its status is read, so tap again to
+  retry
+
 <!-- #ifndef DRIVERCENTRAL -->
 
 ## v20261025 - 2026-10-25

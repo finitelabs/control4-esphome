@@ -8,6 +8,9 @@
 --- The coordinator answers the timeout's DISCONNECT with DISCONNECTED. That answer
 --- must not turn the failure back into "Listening", nor reset a press made since.
 ---
+--- A press queued more than 60s before its CONNECTED is dropped and reported as
+--- failed rather than sent late.
+---
 --- Run from the driver root:
 ---   make test
 --- or:
@@ -228,6 +231,67 @@ H.test("the parent closing the link after its CONNECTION_FAILED keeps a press ma
   H.clearSent()
   connected()
   T.eq("and is written once connected", H.count("GATT_WRITE", ESPHOME), 1)
+end)
+
+--- What os.time reads inside withClock.
+local now = 0
+
+--- Run fn with os.time pinned to `now`, so a test sets how long a press waited.
+--- @param fn function
+local function withClock(fn)
+  local realTime = os.time
+  os.time = function(...) -- luacheck: ignore
+    if select("#", ...) > 0 then
+      return realTime(...)
+    end
+    return now
+  end
+  local ok, err = pcall(fn)
+  os.time = realTime -- luacheck: ignore
+  assert(ok, err)
+end
+
+H.test("a press whose CONNECTED arrives 59s after it is written", function()
+  withClock(function()
+    now = 1000
+    boot()
+    press()
+    now = 1059
+    connected()
+    T.eq("the press is written", H.count("GATT_WRITE", ESPHOME), 1)
+  end)
+end)
+
+H.test("a press whose CONNECTED arrives 61s after it is dropped and reported failed", function()
+  withClock(function()
+    now = 1000
+    boot()
+    press()
+    now = 1061
+    H.clearSent()
+    connected()
+    T.eq("the press is not written", H.count("GATT_WRITE", ESPHOME), 0)
+    T.eq("the link is released", H.count("DISCONNECT", ESPHOME), 1)
+    T.eq("status says why", Properties["Driver Status"], "Error: Command expired")
+    T.eq("Connected is false", H.variable("Connected"), false)
+    T.eq("the relay is never closed", H.count("CLOSED"), 0)
+
+    disconnectAnswered()
+    T.eq("the parent's answer keeps the failure status", Properties["Driver Status"], "Error: Command expired")
+  end)
+end)
+
+H.test("a newer press is timed from when it was made", function()
+  withClock(function()
+    now = 1000
+    boot()
+    press()
+    now = 1050
+    press()
+    now = 1100
+    connected()
+    T.eq("the newer press is written", H.count("GATT_WRITE", ESPHOME), 1)
+  end)
 end)
 
 T.finish()
