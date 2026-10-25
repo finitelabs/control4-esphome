@@ -93,19 +93,26 @@ function F.withShim(opts, body)
   return ok, err
 end
 
---- Replace C4:CreateTCPClient with one that records what is written and
---- completes the connect synchronously.
+--- Replace C4:CreateTCPClient with one that records what is written, completes
+--- the connect synchronously, and answers each read the way Director answers
+--- UpdateProjectC4i.
 ---
 --- Returns a handle whose `writes` holds every Write payload in order, and whose
---- `restore()` puts the real constructor back.
-function F.captureTcpClient()
-  local capture = { writes = {} }
+--- `restore()` puts the real constructor back. With `holdReplies`, reads wait
+--- until `reply()` answers the oldest one.
+--- @param opts? { holdReplies?: boolean }
+function F.captureTcpClient(opts)
+  local capture = { writes = {}, pendingReplies = {} }
   local real = C4.CreateTCPClient
 
   C4.CreateTCPClient = function()
     local client = {}
     function client:OnConnect(callback)
       self._onConnect = callback
+      return self
+    end
+    function client:OnRead(callback)
+      self._onRead = callback
       return self
     end
     function client:OnError()
@@ -115,7 +122,21 @@ function F.captureTcpClient()
       table.insert(capture.writes, data)
       return self
     end
-    function client:Close() end
+    function client:ReadUntil()
+      local function answer()
+        if self._onRead and not self._closed then
+          self._onRead(self, '<c4soap name="UpdateProjectC4i" result="1"/>\0')
+        end
+      end
+      if opts and opts.holdReplies then
+        table.insert(capture.pendingReplies, answer)
+      else
+        answer()
+      end
+    end
+    function client:Close()
+      self._closed = true
+    end
     function client:Connect()
       if self._onConnect then
         self._onConnect(self)
@@ -123,6 +144,13 @@ function F.captureTcpClient()
       return self
     end
     return client
+  end
+
+  function capture.reply()
+    local answer = table.remove(capture.pendingReplies, 1)
+    if answer then
+      answer()
+    end
   end
 
   function capture.restore()

@@ -1703,12 +1703,14 @@ if has_ffi then
           digest.fn(data, #data, buf)
           return ffi.string(buf, digest.len)
         end,
-        -- AES-128-CBC with PKCS7 padding (kCCAlgorithmAES128=0, kCCOptionPKCS7Padding=1)
-        aes128cbc = function(encrypt, key, iv, data)
+        -- AES-CBC; kCCAlgorithmAES128 (0) takes 16-, 24- and 32-byte keys, and
+        -- kCCOptionPKCS7Padding (1) is the padding.
+        aescbc = function(encrypt, key, iv, data, padding)
           local outLen = #data + 16
           local buf = ffi.new("unsigned char[?]", outLen)
           local moved = ffi.new("size_t[1]")
-          local status = C.CCCrypt(encrypt and 0 or 1, 0, 1, key, 16, iv, data, #data, buf, outLen, moved)
+          local status =
+            C.CCCrypt(encrypt and 0 or 1, 0, padding and 1 or 0, key, #key, iv, data, #data, buf, outLen, moved)
           if status ~= 0 then
             return nil, "CCCrypt failed: " .. tonumber(status)
           end
@@ -1737,6 +1739,9 @@ if has_ffi then
           unsigned char *SHA256(const unsigned char *d, size_t n, unsigned char *md);
           typedef struct evp_cipher_ctx_st EVP_CIPHER_CTX;
           const void *EVP_aes_128_cbc(void);
+          const void *EVP_aes_192_cbc(void);
+          const void *EVP_aes_256_cbc(void);
+          int EVP_CIPHER_CTX_set_padding(EVP_CIPHER_CTX *ctx, int padding);
           EVP_CIPHER_CTX *EVP_CIPHER_CTX_new(void);
           void EVP_CIPHER_CTX_free(EVP_CIPHER_CTX *ctx);
           int EVP_CipherInit_ex(EVP_CIPHER_CTX *ctx, const void *cipher, void *impl,
@@ -1762,7 +1767,12 @@ if has_ffi then
             digest.fn(data, #data, buf)
             return ffi.string(buf, digest.len)
           end,
-          aes128cbc = function(encrypt, key, iv, data)
+          aescbc = function(encrypt, key, iv, data, padding)
+            local ciphers = {
+              [16] = libcrypto.EVP_aes_128_cbc,
+              [24] = libcrypto.EVP_aes_192_cbc,
+              [32] = libcrypto.EVP_aes_256_cbc,
+            }
             local ctx = libcrypto.EVP_CIPHER_CTX_new()
             if ctx == nil then
               return nil, "EVP_CIPHER_CTX_new failed"
@@ -1771,7 +1781,8 @@ if has_ffi then
             local outl = ffi.new("int[1]")
             local finl = ffi.new("int[1]")
             local result = nil
-            if libcrypto.EVP_CipherInit_ex(ctx, libcrypto.EVP_aes_128_cbc(), nil, key, iv, encrypt and 1 or 0) == 1 then
+            if libcrypto.EVP_CipherInit_ex(ctx, ciphers[#key](), nil, key, iv, encrypt and 1 or 0) == 1 then
+              libcrypto.EVP_CIPHER_CTX_set_padding(ctx, padding and 1 or 0)
               if libcrypto.EVP_CipherUpdate(ctx, out, outl, data, #data) == 1 then
                 if libcrypto.EVP_CipherFinal_ex(ctx, out + outl[0], finl) == 1 then
                   result = ffi.string(out, outl[0] + finl[0])
@@ -1823,30 +1834,78 @@ function C4:Hash(algorithm, data, options)
   return to_hex(raw)
 end
 
-local function aes_options_ok(cipher, key, iv)
-  return string.upper(cipher or "") == "AES-128-CBC" and type(key) == "string" and #key == 16 and type(iv) == "string"
+--- Decode an Encrypt/Decrypt argument by its *_encoding option: NONE (or absent)
+--- is raw bytes, BASE64 is decoded. Anything else is refused, as C4:Hash does.
+local function decode_arg(value, encoding)
+  local e = string.upper(encoding or "NONE")
+  if e == "NONE" then
+    return value
+  elseif e == "BASE64" then
+    return base64_decode_impl(value)
+  end
+  return nil, "C4 shim: encoding " .. tostring(encoding) .. " is not modelled (only NONE or BASE64)"
 end
 
---- C4:Encrypt(cipher, key, iv, data, options): AES-128-CBC/PKCS7, raw in/out.
+--- Run C4:Encrypt / C4:Decrypt. AES-128/192/256-CBC; options carry
+--- key_encoding, iv_encoding, data_encoding and return_encoding (NONE or BASE64,
+--- raw when absent) and padding (PKCS7, on unless false).
+---
+--- A nil iv is 16 zero bytes, as on a controller (measured on OS 4.3: a nil iv
+--- and an explicit zero iv encrypt identically, and match this shim byte for
+--- byte; test_c4_shim.lua pins both vectors).
+local function aes(encrypt, cipher, key, iv, data, options)
+  if not crypto_backend then
+    return nil, "C4 shim: no crypto backend"
+  end
+  options = type(options) == "table" and options or {}
+  local bits = tonumber(string.upper(cipher or ""):match("^AES%-(%d+)%-CBC$"))
+  if bits ~= 128 and bits ~= 192 and bits ~= 256 then
+    return nil, "C4 shim: only AES-128-CBC, AES-192-CBC and AES-256-CBC are modelled"
+  end
+  local err
+  key, err = decode_arg(key, options.key_encoding)
+  if key == nil then
+    return nil, err
+  end
+  if type(key) ~= "string" or #key ~= bits / 8 then
+    return nil, "C4 shim: AES-" .. bits .. "-CBC takes a " .. (bits / 8) .. "-byte key"
+  end
+  if iv == nil then
+    iv = string.rep("\0", 16)
+  else
+    iv, err = decode_arg(iv, options.iv_encoding)
+    if iv == nil then
+      return nil, err
+    end
+  end
+  if type(iv) ~= "string" or #iv ~= 16 then
+    return nil, "C4 shim: the iv must be 16 bytes"
+  end
+  data, err = decode_arg(data or "", options.data_encoding)
+  if data == nil then
+    return nil, err
+  end
+  local result, cipherErr = crypto_backend.aescbc(encrypt, key, iv, data, options.padding ~= false)
+  if result == nil then
+    return nil, cipherErr
+  end
+  local returnEncoding = string.upper(options.return_encoding or "NONE")
+  if returnEncoding == "BASE64" then
+    return base64_encode_impl(result)
+  elseif returnEncoding ~= "NONE" then
+    return nil, "C4 shim: return_encoding " .. tostring(options.return_encoding) .. " is not modelled"
+  end
+  return result
+end
+
+--- C4:Encrypt(cipher, key, iv, data, options). See aes above.
 function C4:Encrypt(cipher, key, iv, data, options)
-  if not crypto_backend then
-    return nil, "C4 shim: no crypto backend"
-  end
-  if not aes_options_ok(cipher, key, iv) then
-    return nil, "C4 shim: only raw AES-128-CBC is supported"
-  end
-  return crypto_backend.aes128cbc(true, key, iv, data or "")
+  return aes(true, cipher, key, iv, data, options)
 end
 
---- C4:Decrypt(cipher, key, iv, data, options): AES-128-CBC/PKCS7, raw in/out.
+--- C4:Decrypt(cipher, key, iv, data, options). See aes above.
 function C4:Decrypt(cipher, key, iv, data, options)
-  if not crypto_backend then
-    return nil, "C4 shim: no crypto backend"
-  end
-  if not aes_options_ok(cipher, key, iv) then
-    return nil, "C4 shim: only raw AES-128-CBC is supported"
-  end
-  return crypto_backend.aes128cbc(false, key, iv, data or "")
+  return aes(false, cipher, key, iv, data, options)
 end
 
 print("C4 shim layer loaded" .. (has_socket and " (with luasocket)" or " (stubs only)"))

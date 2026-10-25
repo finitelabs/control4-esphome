@@ -333,3 +333,39 @@ where `__NAME__` would render as bold instead. In `.c4zproj` files,
 `readme_driver_slug` may name a generated variant, e.g. `<driver>_<suffix>`.
 `make build` takes the README and its images from the build output, where only
 the generated variants exist.
+
+### Build Secrets
+
+Values that must not live in the repository, such as a cloud API's OAuth client
+secret, are substituted into the build tree at preprocess time. Each one is a
+`__NAME__` placeholder in source (`%%NAME%%` in Markdown), the same syntax as a
+variant value:
+
+```lua
+API_CLIENT_SECRET = "__EXAMPLE_CLIENT_SECRET__"
+```
+
+`.env.default`, committed at the repository root, declares every name, one
+`NAME=` line each, with a comment saying what it is and where to get it. A repo
+without it has no build secrets. `tools/preprocess.py` reads only the declared
+names, and takes each value from, in order:
+
+1. the process environment
+1. `.env`, gitignored: for a local build, `cp .env.default .env` and fill it in
+
+In CI, the Build workflow writes `.env` from the repository's GitHub Actions
+secrets (add each name under Settings > Secrets and variables > Actions) in a
+step of its own, copying only the names `.env.default` declares, so `make build`
+and the tools it runs never see any other secret. Each value is a single line.
+
+A name with no value builds as an empty string with a warning, so a pull request
+from a fork, which gets no secrets, still builds. A tag build sets
+`REQUIRE_SECRETS`, and a missing value fails it, so a release never ships
+without them. The build log says only whether each name was set.
+
+When a build substitutes any placeholder, every driver in it is packaged
+encrypted (`encryption="2"` on its `<script>`, set in the build copy of
+`driver.xml`), and `make package` deletes the plain-text squished Lua in
+`dist/<build>/source`, so neither the `.c4z` nor a CI artifact carries the value
+in the clear. Only `build/` keeps it, and that is gitignored and never uploaded.
+Keep placeholders out of documentation: a PDF is not encrypted.

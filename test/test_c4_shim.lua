@@ -671,13 +671,70 @@ do
     T.eq("decrypt reverses encrypt", C4:Decrypt("AES-128-CBC", key, iv, ciphertext), "hello")
     T.neq("ciphertext is not the plaintext", ciphertext, "hello")
 
-    -- Everything outside raw AES-128-CBC is refused rather than quietly
-    -- mis-encrypted: SaltedEncrypt in global/lib.lua asks for AES-256-CBC with
-    -- no iv, and a shim that guessed would hand back an unusable result.
-    T.check("AES-256-CBC is refused", C4:Encrypt("AES-256-CBC", key, iv, "x") == nil)
-    T.contains("and says why", select(2, C4:Encrypt("AES-256-CBC", key, iv, "x")), "AES-128-CBC")
-    T.check("a key that is not 16 bytes is refused", C4:Encrypt("AES-128-CBC", "short", iv, "x") == nil)
-    T.check("a nil iv is refused", C4:Encrypt("AES-128-CBC", key, nil, "x") == nil)
+    -- NIST SP 800-38A F.2.5, CBC-AES256.Encrypt, first block, with padding off
+    -- so the output is exactly the published block.
+    local function unhex(h)
+      return (h:gsub("..", function(b)
+        return string.char(tonumber(b, 16))
+      end))
+    end
+    local key256 = unhex("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4")
+    local nistIv = unhex("000102030405060708090a0b0c0d0e0f")
+    local block = unhex("6bc1bee22e409f96e93d7e117393172a")
+    local nist = C4:Encrypt("AES-256-CBC", key256, nistIv, block, { padding = false })
+    T.eq("AES-256-CBC matches NIST F.2.5", nist, unhex("f58c4c04d6e5f1ba779eabfb5f7bfbd6"))
+    T.eq("and decrypts back", C4:Decrypt("AES-256-CBC", key256, nistIv, nist or "", { padding = false }), block)
+
+    -- The options lib.lua's AES_ENC_DEFAULTS / AES_DEC_DEFAULTS pass: BASE64
+    -- out of Encrypt and into Decrypt.
+    local b64 = C4:Encrypt("AES-256-CBC", key256, nistIv, "hello", { return_encoding = "BASE64" })
+    T.check("BASE64 return_encoding is Base64 text", type(b64) == "string" and b64:match("^[%w+/]+=*$") ~= nil)
+    T.eq(
+      "and BASE64 data_encoding reads it back",
+      C4:Decrypt("AES-256-CBC", key256, nistIv, b64, { data_encoding = "BASE64" }),
+      "hello"
+    )
+
+    -- A nil iv is modelled as zero; with CBC it reaches only the first block.
+    local zero = C4:Encrypt("AES-256-CBC", key256, string.rep("\0", 16), "abc")
+    T.eq("a nil iv is the zero iv", C4:Encrypt("AES-256-CBC", key256, nil, "abc"), zero)
+
+    -- Arguments the controller would reject are refused, not quietly guessed.
+    T.check("an unmodelled cipher is refused", C4:Encrypt("AES-256-GCM", key256, nistIv, "x") == nil)
+    T.contains("and says which are", select(2, C4:Encrypt("DES-CBC", key, iv, "x")), "AES-256-CBC")
+    T.check("a key the wrong size for its cipher is refused", C4:Encrypt("AES-256-CBC", key, iv, "x") == nil)
+    T.check("an iv that is not 16 bytes is refused", C4:Encrypt("AES-128-CBC", key, "short", "x") == nil)
+    T.check(
+      "an unmodelled encoding is refused",
+      C4:Encrypt("AES-128-CBC", key, iv, "x", { return_encoding = "HEX" }) == nil
+    )
+
+    -- Captured on a 4.3 controller: C4:Encrypt with lib.lua's AES_ENC_DEFAULTS
+    -- options and a nil iv, and a SaltedEncrypt the shim has to read back.
+    local controllerOptions = {
+      return_encoding = "BASE64",
+      key_encoding = "NONE",
+      iv_encoding = "NONE",
+      data_encoding = "NONE",
+      padding = true,
+    }
+    T.eq(
+      "a nil iv encrypts as the controller does",
+      C4:Encrypt("AES-256-CBC", string.rep("k", 32), nil, "hello world, salted", controllerOptions),
+      "0VC3a7Pm+wLzZuJUoix64v6kYXRJcBXg2UaPOSuBEjE="
+    )
+    T.eq(
+      "a controller's SaltedEncrypt decrypts",
+      SaltedDecrypt("device-key", "UE/lhd3fPDbBZUt4iJAtZapMTybvPQT7SF8cuL0uY40="),
+      "refresh-token"
+    )
+
+    -- lib.lua's SaltedEncrypt/SaltedDecrypt, which auth_code_grant uses to store
+    -- a refresh token, round trip under the shim.
+    local sealed = SaltedEncrypt("device-key", "refresh-token")
+    T.truthy("SaltedEncrypt returns a ciphertext", sealed)
+    T.eq("SaltedDecrypt recovers the plaintext", SaltedDecrypt("device-key", sealed), "refresh-token")
+    T.neq("a different key does not", SaltedDecrypt("other-key", sealed), "refresh-token")
   end
 end
 
