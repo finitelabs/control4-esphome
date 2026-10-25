@@ -35,6 +35,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   the lock dropped the link at the handshake because its notifications were
   never turned on; devices that answer by notification now work through the
   coordinator as they do bound to a proxy
+- Fixed a device connected through the Bluetooth Coordinator not noticing when
+  its connection closed: a Yale lock that turned its key down waited out a
+  10-second timeout every time instead of handling it as a closed connection
 - Fixed the SwitchBot and Yale drivers waiting indefinitely when the Bluetooth
   proxy or coordinator never finished a connection request, as when it restarted
   mid-connect: a SwitchBot stayed Busy with the command queued, and a Yale lock
