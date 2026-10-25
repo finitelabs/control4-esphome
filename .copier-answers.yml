@@ -1,5 +1,5 @@
 # Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
-_commit: v0.9.49
+_commit: v0.9.50
 _src_path: git@github.com:finitelabs/control4-driver-template.git
 distributions: drivercentral oss
 github_org: finitelabs
@@ -10,4 +10,8 @@ project_description: Control4 drivers for ESPHome integration. Connect your Cont
 project_name: control4-esphome
 readme_build: oss
 readme_driver_slug: esphome
+stale_close_days: 14
+stale_days: 30
+stale_exempt_authors: derek-miller svc-finitelabs[bot]
+stale_issues: true
 vendor_modules: bitn crypto bthome noiseprotocol protobuf

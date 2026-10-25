@@ -1,0 +1,50 @@
+name: Stale issues
+
+on:
+  issues:
+    types: [opened, reopened]
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  label-external:
+    if: >-
+      github.event_name == 'issues' &&
+      !contains(fromJSON('["derek-miller", "svc-finitelabs[bot]"]'), github.event.issue.user.login)
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Label the issue external
+        run: |
+          gh label create external --description "Pinged when inactive, then closed" 2>/dev/null || true
+          gh api "repos/$GH_REPO/issues/$ISSUE/labels" -f 'labels[]=external' > /dev/null
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+
+  stale:
+    if: github.event_name != 'issues'
+    runs-on: ubuntu-26.04
+    # actions/stale keeps its progress in the Actions cache and replaces it through the API.
+    permissions:
+      actions: write
+      issues: write
+    steps:
+      - uses: actions/stale@v11
+        with:
+          any-of-issue-labels: external
+          days-before-issue-stale: 30
+          days-before-issue-close: 14
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          close-issue-reason: not_planned
+          stale-issue-message: >-
+            This issue has had no activity for 30 days. If it still matters,
+            leave a comment and it stays open. Otherwise it closes in 14 days.
+          close-issue-message: >-
+            Closed after another 14 days without activity. If it
+            still matters, leave a comment and it can be reopened.
