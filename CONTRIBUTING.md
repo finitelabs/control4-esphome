@@ -22,7 +22,11 @@ then pull the change in with `copier update`.
   release only when its tag's date is later than the installed driver's version,
   so give each release a later date than the last. A suffixed tag such as
   `v20260918-rc1` publishes as a pre-release, which only drivers on the
-  Prerelease update channel pick up
+  Prerelease update channel pick up. Title the pull request that dates the
+  changelog `release: vYYYYMMDD` (case and the colon don't matter):
+  `.github/workflows/label-release-pr.yml` then labels it `skip-release-notes`,
+  which `.github/release.yml` leaves out of the generated release notes. Adding
+  that label by hand leaves any other pull request out of the notes too
 
 **Common libraries (`src/lib/`):**
 

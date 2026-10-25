@@ -1,0 +1,27 @@
+name: Label release PR
+
+on:
+  pull_request:
+    types: [opened, edited, reopened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  label:
+    if: "startsWith(github.event.pull_request.title, 'release')"
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Label the release PR
+        run: |
+          shopt -s nocasematch
+          re='^release:?[[:space:]]*v[0-9]{8}'
+          [[ "$TITLE" =~ $re ]] || exit 0
+          gh label create skip-release-notes --description "Left out of the generated release notes" 2>/dev/null || true
+          gh api "repos/$GH_REPO/issues/$PR/labels" -f 'labels[]=skip-release-notes' > /dev/null
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
