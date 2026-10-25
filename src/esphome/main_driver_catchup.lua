@@ -1,10 +1,4 @@
---- Lets a companion driver install an ESPHome driver update that the ESPHome
---- driver's own updater wrote to disk but Director never applied.
----
---- Through v20261024 the updater sent every update in one burst on a socket it
---- closed at once, and Director applied only the first one or two. The ESPHome
---- driver goes last, so with two or more companions installed it never updated.
---- The companions that did update find its new c4z on disk and send it alone.
+--- Installs an ESPHome driver c4z that an updater from v20261024 or earlier wrote to disk but Director never applied.
 
 local log = require("lib.logging")
 local version = require("version")
