@@ -96,6 +96,7 @@ local SCANNER_MODE_NAMES = {
 --- @field _coordinatorConnected boolean Whether coordinator is connected
 --- @field _coordinatorBindingId number|nil Binding ID for coordinator (5001 if connected)
 --- @field _coordinatorCallbackId string|nil Callback ID for coordinator advertisement forwarding
+--- @field _coordinatorServices table<string, table?> GATT services discovered for the coordinator's connections, by MAC
 --- @field _advertisementFilter table<string, boolean>|nil MAC filter set (nil = pass all)
 --- @field _scannerWatchdogActive boolean Whether the scanner watchdog is active
 --- @field _scannerWatchdogSeen boolean Whether any advertisements were received since last watchdog check
@@ -169,7 +170,6 @@ function BluetoothProxyCapability:new(client)
   instance._coordinatorConnected = false
   instance._coordinatorCallbackId = nil
   instance._coordinatorBindingId = nil
-  --- GATT services discovered for the coordinator's connections, by MAC
   instance._coordinatorServices = {}
   instance._advertisementFilter = nil
   instance._scannerWatchdogActive = false
