@@ -96,6 +96,7 @@ local SCANNER_MODE_NAMES = {
 --- @field _coordinatorConnected boolean Whether coordinator is connected
 --- @field _coordinatorBindingId number|nil Binding ID for coordinator (5001 if connected)
 --- @field _coordinatorCallbackId string|nil Callback ID for coordinator advertisement forwarding
+--- @field _coordinatorServices table<string, table?> GATT services discovered for the coordinator's connections, by MAC
 --- @field _advertisementFilter table<string, boolean>|nil MAC filter set (nil = pass all)
 --- @field _scannerWatchdogActive boolean Whether the scanner watchdog is active
 --- @field _scannerWatchdogSeen boolean Whether any advertisements were received since last watchdog check
@@ -169,6 +170,7 @@ function BluetoothProxyCapability:new(client)
   instance._coordinatorConnected = false
   instance._coordinatorCallbackId = nil
   instance._coordinatorBindingId = nil
+  instance._coordinatorServices = {}
   instance._advertisementFilter = nil
   instance._scannerWatchdogActive = false
   instance._scannerWatchdogSeen = false
@@ -778,25 +780,11 @@ function BluetoothProxyCapability:handleCommand(mac, idBinding, strCommand, tPar
         end
 
         if enable and device.services then
-          local cccdHandle, cccdValue = self:_findCccdForHandle(device.services, handle)
-          if cccdHandle and cccdValue then
-            log:debug("Writing CCCD for handle %d: descriptor handle=%d", handle, cccdHandle)
-            self._client:bluetoothGattWriteDescriptor(mac, cccdHandle, cccdValue, addressType):next(function()
-              log:trace("CCCD write confirmed for handle %d", handle)
-              notifyChild()
-            end, function(err)
-              log:warn("CCCD write failed for handle %d: %s (notifying child anyway)", handle, err)
-              notifyChild()
-            end)
-            return -- notifyChild called from promise
-          else
-            log:trace("No CCCD descriptor found for handle %d", handle)
-          end
+          self:_writeCccd(mac, device.services, handle, addressType, notifyChild)
         else
           log:trace("No services cached, skipping CCCD write for handle %d", handle)
+          notifyChild()
         end
-
-        notifyChild()
       end, function(error)
         log:error("GATT notify failed for %s handle %d: %s", mac, handle, error)
         SendToProxy(idBinding, "GATT_NOTIFY_SUBSCRIBED", {
@@ -1115,6 +1103,31 @@ function BluetoothProxyCapability:_findCccdForHandle(services, charHandle)
   return nil, nil
 end
 
+--- Write the CCCD that turns on a characteristic's notifications, then call
+--- `done`, which also runs when the characteristic has no CCCD or the write
+--- fails. ESPHome leaves this write to the API client on V3 connections.
+--- @param mac string MAC address
+--- @param services table|nil GATT services discovered for the connection
+--- @param handle number Characteristic handle
+--- @param addressType BLEAddressType
+--- @param done fun()
+function BluetoothProxyCapability:_writeCccd(mac, services, handle, addressType, done)
+  local cccdHandle, cccdValue = self:_findCccdForHandle(services, handle)
+  if not cccdHandle or not cccdValue then
+    log:trace("No CCCD descriptor found for handle %d", handle)
+    done()
+    return
+  end
+  log:debug("Writing CCCD for handle %d: descriptor handle=%d", handle, cccdHandle)
+  self._client:bluetoothGattWriteDescriptor(mac, cccdHandle, cccdValue, addressType):next(function()
+    log:trace("CCCD write confirmed for handle %d", handle)
+    done()
+  end, function(err)
+    log:warn("CCCD write failed for handle %d: %s (answering anyway)", handle, err)
+    done()
+  end)
+end
+
 --- Check if an active device has a GATT connection.
 --- Note: Passive devices (BTHome) are never "connected" - they just receive advertisements.
 --- @param mac string MAC address
@@ -1199,6 +1212,7 @@ function BluetoothProxyCapability:discovered(deviceInfo)
     -- Detect disconnects: devices that were allocated but no longer are
     for mac in pairs(self._previousAllocated) do
       if not currentAllocated[mac] then
+        self._coordinatorServices[mac] = nil
         local device = self._addedDevices[mac]
         if device then
           -- Clear cached services on disconnect - handles may change after reconnect
@@ -1484,6 +1498,7 @@ function BluetoothProxyCapability:onCoordinatorBindingChanged(bIsBound)
     end
 
     self._coordinatorConnected = false
+    self._coordinatorServices = {}
     self:_stopCoordinatorForwarding()
 
     -- Switch back to standalone mode properties: hide room, show device selection
@@ -1597,6 +1612,7 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
     self._client:bluetoothDeviceConnect(mac, addressType, false):next(function(result)
       -- Discover GATT services
       self._client:bluetoothGattGetServices(mac):next(function(services)
+        self._coordinatorServices[mac] = services
         SendToProxy(bindingId, "GATT_CONNECT_RESPONSE", {
           proxyId = proxyId,
           mac = mac,
@@ -1631,6 +1647,7 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
     local mac = Select(tParams, "mac")
 
     if mac then
+      self._coordinatorServices[mac] = nil
       self._client:bluetoothDeviceDisconnect(mac)
       SendToProxy(bindingId, "GATT_DISCONNECT_RESPONSE", {
         proxyId = proxyId,
@@ -1719,13 +1736,22 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
         }, "NOTIFY")
       end, addressType)
       :next(function()
-        SendToProxy(bindingId, "GATT_NOTIFY_SUBSCRIBED", {
-          proxyId = proxyId,
-          mac = mac or "",
-          requestId = requestId or "",
-          handle = tostring(handle),
-          success = "true",
-        }, "NOTIFY")
+        local function answer()
+          SendToProxy(bindingId, "GATT_NOTIFY_SUBSCRIBED", {
+            proxyId = proxyId,
+            mac = mac or "",
+            requestId = requestId or "",
+            handle = tostring(handle),
+            success = "true",
+          }, "NOTIFY")
+        end
+        -- The device must not be written to before its notifications are on
+        local services = self._coordinatorServices[mac]
+        if enable and services then
+          self:_writeCccd(mac, services, handle, addressType, answer)
+        else
+          answer()
+        end
       end, function(error)
         SendToProxy(bindingId, "GATT_NOTIFY_SUBSCRIBED", {
           proxyId = proxyId,

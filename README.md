@@ -931,6 +931,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed a Yale lock bound to the Bluetooth Coordinator failing every connection:
+  the lock dropped the link at the handshake because its notifications were
+  never turned on; devices that answer by notification now work through the
+  coordinator as they do bound to a proxy
 - Fixed the SwitchBot and Yale drivers waiting indefinitely when the Bluetooth
   proxy or coordinator never finished a connection request, as when it restarted
   mid-connect: a SwitchBot stayed Busy with the command queued, and a Yale lock
