@@ -18,6 +18,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+<!-- #ifndef DRIVERCENTRAL -->
+
 ## v20261025 - 2026-10-25
 
 ### Fixed
@@ -27,6 +29,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   them updated and the ESPHome driver stayed on its old version. Each driver now
   updates in turn, and a system left behind catches up on its own: the first
   companion driver to update installs the waiting ESPHome driver update
+
+<!-- #endif -->
 
 ## v20261024 - 2026-10-24
 
