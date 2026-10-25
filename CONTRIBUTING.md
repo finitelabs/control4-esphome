@@ -27,6 +27,8 @@ then pull the change in with `copier update`.
   `.github/workflows/label-release-pr.yml` then labels it `skip-release-notes`,
   which `.github/release.yml` leaves out of the generated release notes. Adding
   that label by hand leaves any other pull request out of the notes too
+- `.github/workflows/stale.yml`: pings inactive issues, then closes them (see
+  [Stale Issues](#stale-issues))
 
 **Common libraries (`src/lib/`):**
 
@@ -117,6 +119,48 @@ Copier shows diffs for any files that changed and lets you resolve conflicts. It
 tracks which template version you're on via the `.copier-answers.yml` file
 (committed to the repo). To update every driver repo, run the same command in
 each one.
+
+## Stale Issues
+
+`.github/workflows/stale.yml` pings an issue that has gone quiet, then closes
+it, unless an exempt author opened it. Four copier questions control it:
+
+- `stale_issues`: turns it on. When false, neither the workflow nor this section
+  is rendered.
+- `stale_exempt_authors` (default empty): space-separated GitHub logins whose
+  issues are left alone. Empty exempts no one, and a bot that is not listed is
+  treated like anyone else. List a GitHub App as `name[bot]`, the form the issue
+  event and the REST API give. `gh issue list --json author` shows the same app
+  as `app/name` and GraphQL as `name`, and neither matches.
+- `stale_days` (default 30): days without activity before the ping.
+- `stale_close_days` (default 14): days after the ping, still without activity,
+  before the issue is closed as not planned.
+
+To change one, run `uvx copier update --trust --data '<question>=<value>'`.
+
+When an issue is opened or reopened and its author is not on the list, the
+workflow labels it `external`, creating the label if the repo lacks it. A daily
+run of `actions/stale` looks only at issues with that label: after `stale_days`
+it labels the issue `Stale` and comments, and `stale_close_days` later it closes
+it. A comment or any other update removes `Stale` and restarts the clock. Pull
+requests are never touched. An issue opened with a workflow's `GITHUB_TOKEN`
+starts no workflow, so it is never labelled.
+
+The list is checked only when an issue is opened or reopened. Changing it leaves
+existing labels as they are, and issues opened before the workflow was turned on
+have none. Add or remove `external` by hand to put an issue on the clock or take
+it off; reopening the issue checks the list again.
+
+GitHub disables scheduled workflows in a public repository after 60 days without
+activity in it. Re-enable this one from the Actions tab.
+
+In this repo:
+
+- Ping after 30 days without activity
+- Close 14 days after the ping
+- Exempt authors:
+  - `derek-miller`
+  - `svc-finitelabs[bot]`
 
 ## Build System
 
