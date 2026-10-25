@@ -7,6 +7,9 @@ require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
+--#ifndef DRIVERCENTRAL
+local mainDriverCatchup = require("esphome.main_driver_catchup")
+--#endif
 
 JSON = require("JSON")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
@@ -832,6 +835,10 @@ function OnDriverLateInit()
   updateStatus("Disconnected", false)
   sendConnectionState(false)
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
+
+  --#ifndef DRIVERCENTRAL
+  mainDriverCatchup.schedule()
+  --#endif
 end
 
 function OPC.Driver_Status(propertyValue)
