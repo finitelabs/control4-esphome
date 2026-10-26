@@ -18,6 +18,25 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Added
+
+- Added Button LEDs to the ESPHome driver: an ESPHome button (event) bound to a
+  load like a keypad button can light one of the device's lights the way a
+  Control4 keypad lights its button, on in the load's on color while the load is
+  on and in its off color while it is off. Choose each button's light under
+  Configure Button LED; a button and light alone together on an ESPHome
+  sub-device are paired automatically
+- Added the ESPHome Light driver's button LED colors to Composer, under Button
+  and Button Connection Status LED Colors, for keypad buttons linked to it
+
+### Fixed
+
+- Fixed a keypad button linked to an ESPHome light showing the wrong LED until
+  the light next changed: the light now answers the button's request for its
+  state and colors, and sends it new colors as soon as they change
+
 <!-- #ifndef DRIVERCENTRAL -->
 
 ## v20261025 - 2026-10-25

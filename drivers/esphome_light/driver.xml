@@ -115,7 +115,7 @@
     <click_rates>True</click_rates>
     <hold_rates>True</hold_rates>
     <cold_start>False</cold_start>
-    <has_leds>False</has_leds>
+    <has_leds>True</has_leds>
     <has_button_events>True</has_button_events>
     <supports_broadcast_scenes>False</supports_broadcast_scenes>
     <supports_multichannel_scenes>False</supports_multichannel_scenes>

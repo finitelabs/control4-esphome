@@ -3,27 +3,25 @@ local bindings = require("lib.bindings")
 local events = require("lib.events")
 local values = require("lib.values")
 local ESPHomeClient = require("esphome.client")
+local ButtonLeds = require("esphome.button_leds")
 
 --- @class EventEntity:Entity
+--- @field buttonLeds ButtonLeds|nil
 local EventEntity = {
   TYPE = ESPHomeClient.EntityType.EVENT,
 }
 EventEntity.__index = EventEntity
 
---- Build the binding key for one of an entity's event types.
---- @param entity table<string, any> The entity data received from the ESPHome client.
---- @param eventType string The event type name declared by the entity.
---- @return string key
-local function bindingKey(entity, eventType)
-  return "event_" .. entity.ref .. ":" .. eventType
-end
+local bindingKey = ButtonLeds.bindingKey
 
 --- Create a new instance of the event entity.
 --- @param client ESPHomeClient The ESPHome client instance.
+--- @param buttonLeds? ButtonLeds Where a load's LED feedback over a button link goes.
 --- @return EventEntity entity A new instance of the EventEntity entity.
-function EventEntity:new(client)
+function EventEntity:new(client, buttonLeds)
   local instance = setmetatable({}, self)
   instance.client = client
+  instance.buttonLeds = buttonLeds
   return instance
 end
 
@@ -41,14 +39,24 @@ function EventEntity:discovered(entity)
 
     -- provider=false is the keypad side: this driver sends button events rather
     -- than receiving them, and each event type drives its own load.
-    bindings:getOrAddDynamicBinding(
-      self.TYPE,
-      bindingKey(entity, eventType),
-      "CONTROL",
-      false,
-      entity.name .. " " .. eventType,
-      "BUTTON_LINK"
-    )
+    local key = bindingKey(entity, eventType)
+    local binding =
+      bindings:getOrAddDynamicBinding(self.TYPE, key, "CONTROL", false, entity.name .. " " .. eventType, "BUTTON_LINK")
+
+    local buttonLeds = self.buttonLeds
+    if binding ~= nil and buttonLeds ~= nil then
+      -- The load answers over the link with its LED state and colors, as it does a keypad button.
+      RFP[binding.bindingId] = function(_idBinding, strCommand, tParams)
+        buttonLeds:received(key, strCommand, tParams)
+      end
+      OBC[binding.bindingId] = function(idBinding, _strClass, bIsBound)
+        if toboolean(bIsBound) then
+          buttonLeds:requestState(idBinding)
+        else
+          buttonLeds:linkUnbound(key)
+        end
+      end
+    end
   end
 
   -- Create the Last Event variable so programming can reference it before the

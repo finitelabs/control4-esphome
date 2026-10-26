@@ -3231,9 +3231,32 @@ end
 -- RFP: button colors
 ---------------------------------------------------------------------------
 
+local function buttonIdFromBinding(idBinding)
+  if idBinding == ON_BINDING then
+    return constants.ButtonIds.TOP
+  elseif idBinding == OFF_BINDING then
+    return constants.ButtonIds.BOTTOM
+  elseif idBinding == TOGGLE_BINDING then
+    return constants.ButtonIds.TOGGLE
+  end
+  return nil
+end
+
 function RFP.REQUEST_BUTTON_COLORS(idBinding, strCommand, tParams, args)
   log:trace("RFP.REQUEST_BUTTON_COLORS(%s, %s)", idBinding, strCommand)
   if idBinding ~= PROXY_BINDING then
+    -- A keypad button bound to a button link asks over that link, and is answered on it.
+    local buttonId = buttonIdFromBinding(idBinding)
+    if buttonId == nil then
+      return
+    end
+    local onColor, offColor = getButtonColors(buttonId)
+    SendToProxy(idBinding, "BUTTON_COLORS", { ON_COLOR = onColor, OFF_COLOR = offColor }, "NOTIFY")
+    local isOn = ledState
+    if idBinding == OFF_BINDING then
+      isOn = not isOn
+    end
+    SendToProxy(idBinding, "MATCH_LED_STATE", { STATE = isOn }, "NOTIFY", true)
     return
   end
   for _, buttonId in ipairs({ 0, 1, 2 }) do
@@ -3269,6 +3292,13 @@ function RFP.SET_BUTTON_COLOR(idBinding, strCommand, tParams, args)
   end
   if offColor then
     SendToProxy(PROXY_BINDING, "BUTTON_INFO", { BUTTON_ID = buttonId, OFF_COLOR = offColor }, "NOTIFY")
+  end
+  -- A keypad button bound to this button's link shows the new colors at once.
+  for _, link in ipairs({ ON_BINDING, OFF_BINDING, TOGGLE_BINDING }) do
+    if buttonIdFromBinding(link) == buttonId then
+      local savedOn, savedOff = getButtonColors(buttonId)
+      SendToProxy(link, "BUTTON_COLORS", { ON_COLOR = savedOn, OFF_COLOR = savedOff }, "NOTIFY")
+    end
   end
 end
 
@@ -3392,17 +3422,6 @@ end
 ---------------------------------------------------------------------------
 -- RFP: button link bindings (DO_CLICK, DO_PUSH, DO_RELEASE)
 ---------------------------------------------------------------------------
-
-local function buttonIdFromBinding(idBinding)
-  if idBinding == ON_BINDING then
-    return constants.ButtonIds.TOP
-  elseif idBinding == OFF_BINDING then
-    return constants.ButtonIds.BOTTOM
-  elseif idBinding == TOGGLE_BINDING then
-    return constants.ButtonIds.TOGGLE
-  end
-  return nil
-end
 
 -- Button-link bindings forward to handleButtonAction directly. Unlike the
 -- proxy-initiated BUTTON_ACTION path, we don't send a BUTTON_ACTION echo

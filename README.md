@@ -33,12 +33,14 @@ monitoring and control of ESPHome devices directly from your Control4 system.
       - [Driver Settings](#driver-settings)
       - [Device Settings](#device-settings)
       - [Bluetooth Proxy Settings](#bluetooth-proxy-settings)
+      - [Button LEDs](#button-leds)
       - [Device Info](#device-info)
     - [Driver Actions](#driver-actions)
   - [Programming Reference](#programming-reference)
 - [Configuration Guides](#configuration-guides)
   - [Garage Door Configuration Guide](#garage-door-configuration-guide)
   - [Bluetooth Proxy Configuration Guide](#bluetooth-proxy-configuration-guide)
+  - [Button LED Configuration Guide](#button-led-configuration-guide)
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -377,6 +379,26 @@ room. Use this when a room has different size or characteristics than others.
 > the Bluetooth Coordinator when this proxy connects or when the setting
 > changes.
 
+#### Button LEDs
+
+> Only visible when the device has both event entities and light entities.
+
+An event bound to a load acts as a keypad button. These properties choose which
+of the device's lights is that button's LED, which then shows the load the way a
+Control4 keypad lights its buttons. See the
+[Button LED Configuration Guide](#button-led-configuration-guide).
+
+##### Configure Button LED
+
+Lists each event entity, with its LED when one is chosen (e.g.,
+`Gang 3 Paddle Event -> Gang 3 LED`). Select one to choose its LED below.
+
+##### Button LED
+
+The light that is the selected button's LED, or **(None)** to leave the light
+alone. A button and light that are alone together on an ESPHome sub-device are
+paired automatically.
+
 #### Device Info
 
 ##### Name (read-only)
@@ -455,6 +477,7 @@ the matching read-only Device Info properties.
 | Date          | `{name}`            | STRING | Writable, formatted as YYYY-MM-DD          |
 | Datetime      | `{name}`            | STRING | Writable, formatted as YYYY-MM-DD HH:MM:SS |
 | Event         | `{name} Last Event` | STRING | Last event type (e.g., "single_press")     |
+| Event         | `{name} LED`        | BOOL   | "1" = the button's linked load is lit      |
 | Fan           | (none)              | -      | State via Fan proxy                        |
 | Light         | (none)              | -      | State via Light proxy                      |
 | Lock          | (none)              | -      | State via Lock proxy                       |
@@ -542,7 +565,9 @@ bindings are created separately from the entity bindings above:
 > doorbell rings). Each discovered event type creates a Control4 event that can
 > be used in programming, plus a `BUTTON_LINK` connection named
 > `{name} {event_type}` that can be bound straight to a load. The
-> `{name} Last Event` variable tracks the most recent event type.
+> `{name} Last Event` variable tracks the most recent event type, and
+> `{name} LED` whether the button's linked load is lit (see
+> [Button LEDs](#button-leds)).
 
 ### Commands
 
@@ -889,6 +914,123 @@ When an ESPHome driver is connected to the coordinator:
 See the **ESPHome Bluetooth Coordinator** driver documentation for full details
 on presence tracking settings and events.
 
+# <span style="color:#17BCF2">Button LED Configuration Guide</span>
+
+An ESPHome event bound to a load acts as a Control4 keypad button: pressing it
+drives the load. With a Button LED, the device also shows the load's state on
+one of its own lights, as a keypad lights its button.
+
+## Requirements
+
+The device needs:
+
+- **The button as an `event` entity.** Only events create button connections. A
+  button exposed only as a `binary_sensor` appears as a contact sensor instead.
+- **The LED as a `light` entity.** Any light platform works: `binary` or
+  `monochromatic` lights turn on and off, and `rgb` (or any light that can show
+  a color) shows the load's colors. The `status_led:` component is not a light
+  entity; use `light: - platform: status_led` instead.
+
+No other YAML is needed.
+
+```yaml
+binary_sensor:
+  - platform: gpio
+    pin: GPIO0
+    id: button_1
+    internal: true
+    on_multi_click:
+      - timing: [ON for at most 1s, OFF for at least 0.5s]
+        then:
+          - event.trigger: { id: button_1_event, event_type: press }
+      - timing: [ON for at least 1s]
+        then:
+          - event.trigger: { id: button_1_event, event_type: long_press }
+
+event:
+  - platform: template
+    id: button_1_event
+    name: "Button 1"
+    event_types: [press, long_press]
+
+output:
+  - platform: gpio
+    pin: GPIO2
+    id: led_1_out
+
+light:
+  - platform: binary
+    name: "Button 1 LED"
+    output: led_1_out
+```
+
+To pair them without any setup in Composer, put the button and its LED alone
+together on an ESPHome sub-device (ESPHome 2025.7 or later):
+
+```yaml
+esphome:
+  devices:
+    - id: button_1
+      name: "Button 1"
+event:
+  - platform: template
+    id: button_1_event
+    name: "Button"
+    device_id: button_1
+    event_types: [press, long_press]
+light:
+  - platform: binary
+    name: "LED"
+    device_id: button_1
+    output: led_1_out
+```
+
+On a display, a template output can recolor a widget instead of driving a pin:
+
+```yaml
+output:
+  - platform: template
+    id: button_2_led_out
+    type: binary
+    write_action:
+      - lvgl.widget.update:
+          id: lv_button_2
+          bg_color: !lambda 'return lv_color_hex(state ? 0x3A3420 : 0x20252B);'
+light:
+  - platform: binary
+    name: "Button 2 LED"
+    output: button_2_led_out
+```
+
+## Setup
+
+1. Bind the event's `{name} {event_type}` connection to the load, as you would a
+   keypad button. Bind it to a light's Toggle, On or Off button link to have the
+   button toggle, turn on or turn off the light.
+1. In the ESPHome driver's properties, select the button under **Configure
+   Button LED** and its light under **Button LED**. A pair already made from a
+   sub-device shows next to the button.
+
+## How the LED Behaves
+
+- A light that can show a color shows the load's on color while the load is on
+  and its off color while it is off; black is dark. Set the colors on the load,
+  as for any keypad button linked to it: for a light, under its **Button and
+  Button Connection Status LED Colors**. A load that sends no colors lights the
+  LED blue. A light that cannot show a color is on while the load is on and off
+  while it is off.
+- When the link is bound, when the device connects and after the driver reloads,
+  the driver asks the load for its state, so the LED is right without waiting
+  for the load to change.
+- A button has one LED but a connection for each event type. The LED follows the
+  first event type with a load bound, in the order the device declares them
+  (normally press). Unbinding it hands the LED to the next one; with none left
+  it goes dark.
+
+> **Note:** Leave a light used as a button LED unbound from an ESPHome Light
+> driver. Both would command it, and the button's load would win each time it
+> changes.
+
 # <span style="color:#17BCF2">Support</span>
 
 If you have any questions or issues integrating this driver with Control4, you
@@ -917,6 +1059,25 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ### Removed
 - Removed
 -->
+
+## Unreleased
+
+### Added
+
+- Added Button LEDs to the ESPHome driver: an ESPHome button (event) bound to a
+  load like a keypad button can light one of the device's lights the way a
+  Control4 keypad lights its button, on in the load's on color while the load is
+  on and in its off color while it is off. Choose each button's light under
+  Configure Button LED; a button and light alone together on an ESPHome
+  sub-device are paired automatically
+- Added the ESPHome Light driver's button LED colors to Composer, under Button
+  and Button Connection Status LED Colors, for keypad buttons linked to it
+
+### Fixed
+
+- Fixed a keypad button linked to an ESPHome light showing the wrong LED until
+  the light next changed: the light now answers the button's request for its
+  state and colors, and sends it new colors as soon as they change
 
 ## v20261025 - 2026-10-25
 
