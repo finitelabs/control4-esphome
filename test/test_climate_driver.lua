@@ -2103,8 +2103,8 @@ test("A reload does not rewrite a schedule and preset list that have not changed
 end)
 
 test("The proxy is not sent a notification it does not implement", function()
-  -- ONLINE_CHANGED is absent from the thermostat notification set and Control4's
-  -- own thermostat never sends it. Connection state travels on CONNECTION.
+  -- ONLINE_CHANGED is absent from the thermostat notification set. Connection
+  -- state travels on CONNECTION.
   disconnect()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -2268,7 +2268,7 @@ local function boundaryFixture(events)
   clearHold()
 end
 
-test("Only a first-party wording is learned as the until-next hold", function()
+test("Only Until Next or Next Event is learned as the until-next hold", function()
   -- One stray value through programming must not rewrite the mode offered
   -- forever after.
   boundaryFixture()
