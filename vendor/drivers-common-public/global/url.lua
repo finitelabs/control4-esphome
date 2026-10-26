@@ -1,10 +1,10 @@
--- Copyright 2025 Snap One, LLC. All rights reserved.
+-- Copyright 2026 Snap One, LLC. All rights reserved.
 --
--- LOCAL FORK of Snap One's drivers-common-public url module, upstream URL 28.
+-- LOCAL FORK of Snap One's drivers-common-public url module, upstream URL 29.
 -- Re-vendoring from upstream silently drops everything listed here, in every repo the
 -- template renders. Keep this list current.
 --
--- Deltas against upstream URL 28:
+-- Deltas against upstream URL 29:
 --   1. JSON is vendor/JSON.lua rather than upstream's module/json.lua, which is not
 --      vendored.
 --   2. Metrics are removed, with SEND_SUCCESS_METRICS.
@@ -13,7 +13,7 @@
 --
 -- test/test_url_json.lua covers 3.
 
-COMMON_URL_VER = 28
+COMMON_URL_VER = 29
 
 JSON = require("JSON")
 
@@ -40,17 +40,10 @@ do -- Globals defined by importing drivers
   --string or bool
 end
 
-function MakeURL(path, args, suppressDefaultArgs)
-  local url = {}
+function MakeURL(path, args, suppressDefaultArgs, appendToURL)
   local args = (type(args) == "table" and args) or {}
 
   local schemePart, authorityPart, pathPart, pagePart, queryPart, fragmentPart
-
-  if DEFAULT_URL_ARGS and type(DEFAULT_URL_ARGS) == "table" and suppressDefaultArgs ~= true then
-    for k, v in pairs(DEFAULT_URL_ARGS) do
-      args[k] = v
-    end
-  end
 
   local alreadyHasHTTP = string.find((path or ""), "^https?:")
   local alreadyHasController = string.find((path or ""), "^controller:")
@@ -119,6 +112,16 @@ function MakeURL(path, args, suppressDefaultArgs)
     end
   end
 
+  if type(DEFAULT_URL_ARGS) == "table" and suppressDefaultArgs ~= true then
+    for k, v in pairs(DEFAULT_URL_ARGS) do
+      if args[k] == nil then
+        args[k] = v
+      end
+    end
+  end
+
+  local url = {}
+
   if schemePart then
     table.insert(url, schemePart)
   end
@@ -130,6 +133,9 @@ function MakeURL(path, args, suppressDefaultArgs)
   end
   if pagePart then
     table.insert(url, pagePart)
+  end
+  if appendToURL then
+    table.insert(url, appendToURL)
   end
 
   local urlargs = {}
