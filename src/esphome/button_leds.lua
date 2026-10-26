@@ -335,20 +335,17 @@ end
 --- @param darkWithoutLoad? boolean Turn the light off when none of the button's links has a load.
 function ButtonLeds:apply(button, darkWithoutLoad)
   local feedback = self:followed(button)
-  if feedback ~= nil then
-    values:update(button.label .. " LED", feedback.state, "BOOL")
-  elseif not darkWithoutLoad then
+  if feedback == nil and not darkWithoutLoad then
     return
   end
+  local state = feedback ~= nil and feedback.state or false
+  values:update(button.label .. " LED", state, "BOOL")
   local ref = getPairs()[button.key]
   local light = ref and self.lights[ref]
   if light == nil or not self.client:isConnected() then
     return
   end
 
-  -- Like a keypad: the load's on color while it is on, its off color while it is
-  -- off, and black is dark. A light that cannot show a color is just on or off.
-  local state = feedback ~= nil and feedback.state or false
   local body = { key = light.entity.key, device_id = light.entity.device_id, has_state = true, state = state }
   local color
   if state then

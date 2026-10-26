@@ -127,6 +127,7 @@ OBC[gang3Press](gang3Press, "BUTTON_LINK", false)
 T.eq("press unbound, it follows double_press", last().state, true)
 OBC[gang3Double](gang3Double, "BUTTON_LINK", false)
 T.eq("with no load left it goes dark", last().state, false)
+T.eq("and its LED variable says so", Variables["Gang 3 Paddle Event LED"], "0")
 
 T.section("Pairing a button in the form")
 leds:configureChanged("Gang 1 Paddle Event")
