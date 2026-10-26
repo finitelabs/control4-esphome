@@ -1138,8 +1138,8 @@ function C4:DeleteVariable(identifier)
   end
 end
 
--- Undocumented; first-party drivers call it unguarded from OS 4.0.0. It keeps
--- the id, and returns false for a missing id or a name any variable has.
+-- Undocumented. As measured on 4.3.0, it keeps the id, and returns false for a
+-- missing id or a name any variable has.
 local function set_variable_name(_, id, name)
   local meta = variable_meta[tonumber(id)]
   name = tostring(name)

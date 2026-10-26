@@ -1,4 +1,4 @@
-name: Label release PR
+name: Label release and template PRs
 
 on:
   pull_request:
@@ -10,18 +10,27 @@ permissions:
 
 jobs:
   label:
-    if: "startsWith(github.event.pull_request.title, 'release')"
     runs-on: ubuntu-26.04
     steps:
-      - name: Label the release PR
+      - name: Leave release and template-update PRs out of the release notes
         run: |
           shopt -s nocasematch
-          re='^release:?[[:space:]]*v[0-9]{8}'
-          [[ "$TITLE" =~ $re ]] || exit 0
+          release='^release:?[[:space:]]*v[0-9]{8}'
+          template='^chore(\([^)]*\))?:[[:space:]]*(copier[[:space:]]+)?update[[:space:]]+to[[:space:]]+template'
+          if [[ ! "$TITLE" =~ $release && ! "$TITLE" =~ $template ]]; then
+            # A copier update rewrites _commit, however the PR is titled. Checked
+            # only when the PR opens, so removing a wrong label by hand sticks.
+            [[ "$ACTION" == opened || "$ACTION" == reopened ]] || exit 0
+            patch=$(gh api "repos/$GH_REPO/pulls/$PR/files" --paginate \
+              --jq '.[] | select(.filename == ".copier-answers.yml") | .patch // ""') || exit 0
+            grep -q '^+_commit:' <<< "$patch" || exit 0
+          fi
+          # Only ever added: a label set by hand must survive later edits.
           gh label create skip-release-notes --description "Left out of the generated release notes" 2>/dev/null || true
           gh api "repos/$GH_REPO/issues/$PR/labels" -f 'labels[]=skip-release-notes' > /dev/null
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          ACTION: ${{ github.event.action }}
           PR: ${{ github.event.pull_request.number }}
           TITLE: ${{ github.event.pull_request.title }}

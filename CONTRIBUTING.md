@@ -25,7 +25,12 @@ then pull the change in with `copier update`.
   Prerelease update channel pick up. Title the pull request that dates the
   changelog `release: vYYYYMMDD` (case and the colon don't matter):
   `.github/workflows/label-release-pr.yml` then labels it `skip-release-notes`,
-  which `.github/release.yml` leaves out of the generated release notes. Adding
+  which `.github/release.yml` leaves out of the generated release notes. It
+  labels a template update the same way: a title like
+  `chore: copier update to template vX.Y.Z`, or any pull request opened with a
+  change to `_commit` in `.copier-answers.yml`. So keep a template update in a
+  pull request of its own, or the changes riding along with it drop out of the
+  notes too; if one does ride along, remove the label and it stays off. Adding
   that label by hand leaves any other pull request out of the notes too
 - `.github/workflows/stale.yml`: pings inactive issues, then closes them (see
   [Stale Issues](#stale-issues))
