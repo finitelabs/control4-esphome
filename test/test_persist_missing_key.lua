@@ -13,6 +13,7 @@ require("c4_shim")
 
 -- A fresh instance has an empty cache, so get() reads storage as it does after a reload.
 local function reload()
+  ShimPersistLand()
   return getmetatable(require("lib.persist")):new()
 end
 
@@ -46,6 +47,7 @@ T.section("a default is the call's alone")
 T.eq("the default it was read with", p:get("Level", 5), 5)
 T.eq("another default at the next read", p:get("Level", 7), 7)
 T.eq("and nil with none", p:get("Level"), nil)
+ShimPersistLand()
 T.eq("nothing was stored for it", C4:PersistGetValue("Level"), nil)
 
 T.section("a table default comes back as a copy")
@@ -59,7 +61,7 @@ T.eq("and the key is still not stored", p:get("Rates"), nil)
 
 T.section("a deleted key reads as one that was never stored")
 p:set("Room", "Den")
-p:set("Room", nil)
+p:set("Room", nil) -- in the call that set it, so the set lands after the delete
 T.eq("nil with no default", p:get("Room"), nil)
 T.eq("the default with one", p:get("Room", "default"), "default")
 T.eq("and the same after a reload", reload():get("Room"), nil)
@@ -87,9 +89,11 @@ T.eq("a write into it does not reach the stored value", p:get("Scene"), { level 
 T.section("a migration is not run for a key that is not stored")
 C4:PersistSetValue("Stored", 1)
 C4:PersistSetValue("Emptied", 1)
+ShimPersistLand()
 p:get("Legacy")
 p:get("Seeded", 5)
 T.eq("with a default or without", migrated, {})
+ShimPersistLand()
 T.eq("so the default is not stored", C4:PersistGetValue("Seeded"), nil)
 T.eq("one for a stored key still runs", { p:get("Stored", 5), migrated[1] }, { 1, "number" })
 T.eq("and one that deletes its key leaves the read its default", p:get("Emptied", "default"), "default")

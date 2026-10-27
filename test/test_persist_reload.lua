@@ -13,6 +13,7 @@ require("c4_shim")
 
 -- A fresh instance has an empty cache, so get() reads storage as it does after a reload.
 local function reload()
+  ShimPersistLand()
   return getmetatable(require("lib.persist")):new()
 end
 
@@ -26,7 +27,6 @@ local q = reload()
 T.eq("one with a space", q:get("Room", "default"), "Living Room")
 T.eq("one under four characters", q:get("Short", "default"), "Den")
 T.eq("one that looks like a number, as a string", q:get("Numeric", "default"), "12.5")
--- The shim keeps one store for both flags, so this only documents that an encrypted string reads the same.
 T.eq("one set encrypted", q:get("Secret", "default", true), "Living Room")
 T.eq("stored raw, as every shipped build stored it", C4:PersistGetValue("Room"), "Living Room")
 
@@ -45,10 +45,21 @@ T.eq("not as Director's text for it", reload():get("NaN", "default"), "default")
 
 T.section('"" or NaN deletes the key')
 p:set("Code", "1234", true)
-p:set("Code", "", true)
+p:set("Code", "", true) -- in the call that set it, so the set lands after the delete
 T.eq('an encrypted string set to "" reads as the default', reload():get("Code", "default", true), "default")
+p:set("Reading", 5)
 p:set("Reading", 0 / 0)
+ShimPersistLand()
 T.eq("a NaN is not stored", C4:PersistGetValue("Reading"), nil)
+
+T.section('a key stored as "" reads as the default')
+-- Persist:set deletes with a "" that 4.3.0 deletes; an OS that stores it must read it as not stored.
+local storedGet = C4.PersistGetValue
+C4.PersistGetValue = function()
+  return ""
+end
+T.eq("not as an empty string", reload():get("Kept", "default"), "default")
+C4.PersistGetValue = storedGet
 
 -- Known limits: telling these from a string would need a new stored form.
 T.section("a string that is base64 of JSON reads as that JSON, as it always did")
@@ -59,6 +70,7 @@ T.section("a string that is a JSON object or array reads as that JSON, as it alw
 -- Director reads '{"a":1}' back from storage as a table, and '{":number:":5}' as 5. The shim
 -- keeps the text, so this puts back what Director returns.
 p:set("JsonText", '{"a":1}')
+ShimPersistLand()
 C4:PersistSetValue("JsonText", JSON:decode(C4:PersistGetValue("JsonText")))
 T.eq('{"a":1} reads as a table', reload():get("JsonText"), { a = 1 })
 

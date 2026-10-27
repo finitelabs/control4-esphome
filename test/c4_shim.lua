@@ -7,6 +7,10 @@
 -- Try to load luasocket (optional dependency)
 local has_socket, socket = pcall(require, "socket")
 
+local function clock()
+  return has_socket and socket.gettime() or 0
+end
+
 -- Lua 5.2+ compatibility: loadstring was removed in favor of load
 if not loadstring then
   loadstring = load
@@ -670,18 +674,19 @@ function C4:Base64Encode(data, ...)
   end
 end
 
--- Handle both C4:Base64Decode() and C4.Base64Decode(C4, ...) calling styles
-function C4:Base64Decode(data, ...)
-  -- If called as C4.Base64Decode(C4, data), first arg is C4
-  -- If called as C4:Base64Decode(data), first arg is data
-  if type(data) == "table" and data == C4 then
-    -- Called as C4.Base64Decode(C4, data) - get the real data argument
-    local realData = select(1, ...)
-    return base64_decode_impl(realData)
-  else
-    -- Called as C4:Base64Decode(data)
-    return base64_decode_impl(data)
+-- As 4.3.0 takes its argument: a number is read as its digits, and anything else that is not a
+-- string raises, C4 itself included.
+function C4:Base64Decode(...)
+  if select("#", ...) == 0 then
+    error("Not enough arguments passed (expected 1: strDecode)", 0)
   end
+  local data = ...
+  if type(data) == "number" then
+    data = tostring(data)
+  elseif type(data) ~= "string" then
+    error("strDecode should be a string", 0)
+  end
+  return base64_decode_impl(data)
 end
 
 ---------------------------------------------------------------------------
@@ -1161,14 +1166,17 @@ function ShimVariableRename(enabled)
   C4.SetVariableName = enabled and set_variable_name or nil
 end
 
---- Harness: a driver update. Director keeps every variable, and the new load's
---- counter starts again at 1001.
+--- Harness: a driver update. Director keeps every variable and every persist write
+--- has landed, and the new load's counter starts again at 1001.
 function ShimUpdateDriver()
+  ShimPersistLand()
   next_variable_id = 1001
 end
 
---- Harness: a Director restart or controller boot. No driver variable survives it.
+--- Harness: a Director restart or controller boot. No driver variable survives it,
+--- and every persist write has landed.
 function ShimRestartDirector()
+  ShimPersistLand()
   for _, meta in pairs(variable_meta) do
     Variables[meta.name] = nil
   end
@@ -1351,29 +1359,88 @@ end
 -- PersistGetValue/SetValue/DeleteValue globals belong to global/lib.lua, whose
 -- wrappers delegate here when C4.PersistSetValue exists; stubbing the globals
 -- instead would be paved over the moment any module requires global.lib.
-local persist_store = {}
+--
+-- As on 4.3.0, a write reads back only once it lands, about 50 ms after the call. It
+-- lands as the shim moves time on: at ShimFireTimers, by C4:ProcessTimers' clock, at a
+-- driver update or Director restart, and at ShimPersistLand.
+local persist_store = {} -- the text Director's row holds, one per key whichever flag wrote it
+local persist_pending = {} -- writes not landed yet, oldest first; nil while ShimPersistLater(false)
+local PERSIST_LANDS_AFTER = 0.05 -- seconds
 
+-- Stands in for Director's cipher, a fixed XOR keystream; flipping each byte's top bit undoes itself.
+local function persist_cipher(text)
+  return (text:gsub(".", function(c)
+    return string.char((c:byte() + 128) % 256)
+  end))
+end
+
+-- As on 4.3.0: a plain read answers the row's text, so an encrypted value reads as base64, and an
+-- encrypted read decrypts whatever the row holds. An absent key, or a row that decrypts to "", answers no value.
 function C4:PersistGetValue(key, encrypted)
-  return persist_store[key]
+  local value = persist_store[key]
+  if encrypted and type(value) == "string" then
+    value = persist_cipher(C4:Base64Decode(value))
+  end
+  if value ~= nil and value ~= "" then
+    return value
+  end
 end
 
 -- As on 4.3.0: a string is cut at its first NUL and a NaN is stored as Director's text for it.
--- "" deletes a plain key and leaves an encrypted one as it was.
-function C4:PersistSetValue(key, value, encrypted)
+-- A plain "" deletes the key, whichever flag wrote it, and an encrypted "" is ignored.
+local function persist_land(key, value, encrypted)
   if type(value) == "string" then
     value = value:match("^[^%z]*")
   elseif value ~= value then
     value = '{":number:":null}'
   end
   if value ~= "" then
-    persist_store[key] = value
+    persist_store[key] = encrypted and type(value) == "string" and C4:Base64Encode(persist_cipher(value)) or value
   elseif not encrypted then
     persist_store[key] = nil
   end
 end
 
+--- Land every waiting write due by `now` on the shim's clock, oldest first.
+local function persist_land_by(now)
+  local waiting = persist_pending
+  if not waiting then
+    return
+  end
+  persist_pending = {}
+  for _, write in ipairs(waiting) do
+    if write.at + PERSIST_LANDS_AFTER <= now then
+      persist_land(write.key, write.value, write.encrypted)
+    else
+      persist_pending[#persist_pending + 1] = write
+    end
+  end
+end
+
+function C4:PersistSetValue(key, value, encrypted)
+  if persist_pending then
+    persist_pending[#persist_pending + 1] = { key = key, value = value, encrypted = encrypted, at = clock() }
+  else
+    persist_land(key, value, encrypted)
+  end
+end
+
+-- A delete reads back at once, and a write still waiting lands after it.
 function C4:PersistDeleteValue(key)
   persist_store[key] = nil
+end
+
+--- Harness: land every write still waiting, for the time between two calls a test makes
+--- into the driver.
+function ShimPersistLand()
+  persist_land_by(math.huge)
+end
+
+--- Harness: whether a write reads back only once it lands, as on 4.3.0 (the default),
+--- or at once, for a suite that needs that. Either way it lands what waits.
+function ShimPersistLater(enabled)
+  ShimPersistLand()
+  persist_pending = enabled and {} or nil
 end
 
 ---------------------------------------------------------------------------
@@ -1415,10 +1482,6 @@ end
 local timers = {}
 local timer_id = 0
 
-local function clock()
-  return has_socket and socket.gettime() or 0
-end
-
 function C4:SetTimer(delay_ms, callback, repeating)
   timer_id = timer_id + 1
   local id = timer_id
@@ -1449,6 +1512,7 @@ function C4:ProcessTimers()
     return
   end
   local now = socket.gettime()
+  persist_land_by(now)
   for id, timer in pairs(timers) do
     if not timer.cancelled and now >= timer.next_fire then
       timer.callback(timer.handle, 0)
@@ -1465,8 +1529,10 @@ end
 --- delay, so a test can drive a long timeout without waiting for it. Works on
 --- both branches, which is what lets a test avoid defining its own SetTimer.
 --- The slot is cleared before the callback runs, so a callback that re-arms the
---- same timer is not immediately fired again.
+--- same timer is not immediately fired again. Every persist write made before it
+--- lands first; one a callback makes waits for the next.
 function ShimFireTimers()
+  ShimPersistLand()
   local due = {}
   for id, timer in pairs(timers) do
     if not timer.cancelled then

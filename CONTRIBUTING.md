@@ -75,6 +75,7 @@ then pull the change in with `copier update`.
 - `github-markdown.css`: vendored stylesheet for the rendered docs
 - `github-setup`: checks the GitHub repo against the standard settings and
   prints the drift; `--apply` fixes it
+- `test_preprocess.py`: tests for `preprocess.py`'s `#embed` directive
 
 **Other:**
 
@@ -203,7 +204,7 @@ make init          # Install all dependencies (safe to re-run)
 make check-deps    # Install if needed, then verify .venv matches requirements.txt
 make build         # Full build, from clean through zip (see Build Pipeline)
 make build-nodocs  # Build without generating docs
-make test          # Run the Lua test suite (test/test_*.lua)
+make test          # Run the Lua test suite (test/test_*.lua) and tools/test_*.py
 make fmt           # Format all code (Lua, Python, Markdown)
 make check         # Assert formatting without rewriting; this is what CI runs
 make clean         # Remove build artifacts and dist/ (including driverpackager)
@@ -324,6 +325,21 @@ runs `fn` with `print` collected and returns `ok, err, output`, and
   write and completes the connect synchronously. Read `.writes`, then
   `.restore()`.
 
+### Persisted values
+
+As on a controller, a `C4:PersistSetValue` reads back only once it lands, about
+50 ms after the call, and until then `C4:PersistGetValue` answers what the store
+held. A delete reads back at once, and a write still waiting lands after it. A
+value written encrypted reads back only with the encrypted flag, so a suite that
+seeds or reads such a key passes the flag the driver does.
+
+The shim lands a write when it moves time on: `ShimFireTimers` lands every write
+made before it, `C4:ProcessTimers` each one 50 ms old by its clock, and
+`ShimUpdateDriver` and `ShimRestartDirector` all of them. A suite that calls
+into the driver itself calls `ShimPersistLand()` where one call ends and the
+next begins, such as before a reload, and before it reads what was stored. A
+suite that needs a write read back at once calls `ShimPersistLater(false)`.
+
 ### Driver-local test support
 
 Support code specific to this driver stays in this repo. Two files mirror the
@@ -343,6 +359,12 @@ it. Neither runner needs telling about them: `make test` collects only
 resolves on its own.
 
 Promote either one into the template only once a second driver needs it.
+
+### Tools tests
+
+`make test` also runs each `tools/test_*.py` with `python3`. These test the
+Python tools in `tools/` with the standard library's `unittest` and need no
+`.venv`.
 
 ## Preprocessor Directives
 
@@ -369,8 +391,10 @@ DRIVER_GITHUB_REPO = "finitelabs/control4-esphome"
 ```
 
 It also resolves `<!-- #embed-changelog -->`, which splices `CHANGELOG.md` into
-the generated documentation. That runs as a pre-pass, so directives inside the
-changelog are still honored.
+the generated documentation, and `<!-- #embed <path> -->`, which splices the
+file at `<path>`, relative to the file holding the directive. Both run as a
+pre-pass, so directives inside the spliced text are still honored. A missing
+`<path>`, or an `#embed` inside an embedded file, fails the build.
 
 ### Variant Expansion
 
