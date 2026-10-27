@@ -205,6 +205,11 @@
         <description>Override the coordinator's global Minimum Room RSSI for this proxy's room. -100 means use coordinator default.</description>
       </property>
       <property>
+        <name>Restart Bluetooth Proxy When Stuck</name>
+        <type>DYNAMIC_LIST</type>
+        <description>Restart button to press when the proxy stops scanning or stops answering a connected device, at most once every 6 hours. Off only reports it in Bluetooth Proxy Status. Pick the device's Restart button, never Safe Mode or Factory Reset.</description>
+      </property>
+      <property>
         <name>Button LEDs</name>
         <type>LABEL</type>
         <default>Button LEDs</default>

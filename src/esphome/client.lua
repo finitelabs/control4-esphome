@@ -98,6 +98,9 @@ ESPHomeClient.SUPERSEDED = setmetatable({ reason = "Superseded by a newer reques
   end,
 })
 
+--- Rejection reason when a service discovery gets no answer at all from the proxy.
+ESPHomeClient.GATT_SERVICES_TIMEOUT = "GATT service discovery timeout"
+
 --- Normalise a rejection reason for logging and propagation, without laundering the
 --- SUPERSEDED sentinel: downstream handlers compare it by identity, so collapsing it to a
 --- plain string here would silently turn a benign supersession into a generic failure.
@@ -1002,7 +1005,7 @@ function ESPHomeClient:bluetoothGattGetServices(mac)
       end,
       30 * ONE_SECOND,
       function(err)
-        d:reject(err or "GATT service discovery timeout")
+        d:reject(err or ESPHomeClient.GATT_SERVICES_TIMEOUT)
       end
     )
   )

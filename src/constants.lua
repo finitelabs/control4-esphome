@@ -29,6 +29,11 @@ return {
   --- @type string
   ABORT_SCAN_OPTION = " --  Abort Scan",
 
+  --- Error a Bluetooth proxy child is given when only restarting the ESP32 will
+  --- let it connect again.
+  --- @type string
+  BLUETOOTH_PROXY_NEEDS_RESTART = "Bluetooth proxy needs a restart",
+
   --- Constant for button action IDs.
   --- @type table<string, integer>
   ButtonIds = {

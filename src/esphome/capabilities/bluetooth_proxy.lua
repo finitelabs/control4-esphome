@@ -4,6 +4,7 @@ local constants = require("constants")
 
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
+local persist = require("lib.persist")
 
 local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
@@ -81,6 +82,27 @@ local SCANNER_NO_RECOVERY_INTERVALS = 3
 
 local SCANNER_UNRECOVERABLE_STATUS = "Not Recovering - Power Cycle Device"
 
+--- Consecutive watchdog intervals in a SCANNER_STATE_NO_RECOVERY state before the
+--- installer-selected restart button is pressed.
+local SCANNER_RESTART_INTERVALS = 10
+
+--- Consecutive unanswered service discoveries, with the device still allocated,
+--- before its allocation is treated as stale.
+local STALE_ALLOCATION_TIMEOUTS = 3
+
+--- Minimum time between two automatic restarts of the proxy.
+local AUTO_RESTART_MIN_INTERVAL_SECONDS = 6 * 60 * 60
+
+--- ESPHome's restart, safe_mode and factory_reset buttons all report this device
+--- class, so it narrows the choice offered but never picks the button.
+local RESTART_DEVICE_CLASS = "restart"
+
+local RESTART_BUTTON_OFF = "Off"
+
+local RESTART_BUTTON_PERSIST_KEY = "BluetoothProxyRestartButton"
+
+local LAST_AUTO_RESTART_PERSIST_KEY = "BluetoothProxyLastAutoRestart"
+
 --- Reverse lookup for BluetoothScannerMode enum (value -> display name)
 --- @type table<ProtoBluetoothScannerMode, string?>
 local SCANNER_MODE_NAMES = {
@@ -103,6 +125,8 @@ local SCANNER_MODE_NAMES = {
 --- @field _scannerRecoveryAttempts integer Number of recovery attempts since last successful scan
 --- @field _scannerNoRecoveryIntervals integer Consecutive watchdog intervals spent in a state the driver cannot act from
 --- @field _scannerUnrecoverable boolean Whether advertisements are absent and recovery is exhausted or impossible
+--- @field _discoveryTimeouts table<string, integer?> Consecutive unanswered service discoveries of an allocated device, by MAC
+--- @field _restartButtons table<string, ProtoListEntitiesButtonResponse>|nil Restart-class buttons by name, nil until entities are listed
 local BluetoothProxyCapability = {
   TYPE = "bluetooth_proxy",
   LABEL_PROPERTY_NAME = "Bluetooth Proxy Settings",
@@ -112,6 +136,7 @@ local BluetoothProxyCapability = {
   ROOM_PROPERTY_NAME = "Bluetooth Proxy Room",
   SCAN_DURATION_PROPERTY_NAME = "Bluetooth Scan Duration",
   MIN_RSSI_OVERRIDE_PROPERTY_NAME = "Minimum Room RSSI Override (dBm)",
+  RESTART_BUTTON_PROPERTY_NAME = "Restart Bluetooth Proxy When Stuck",
   COORDINATOR_BINDING_KEY = "coordinator", -- Key for dynamic binding
 }
 BluetoothProxyCapability.__index = BluetoothProxyCapability
@@ -177,6 +202,8 @@ function BluetoothProxyCapability:new(client)
   instance._scannerRecoveryAttempts = 0
   instance._scannerNoRecoveryIntervals = 0
   instance._scannerUnrecoverable = false
+  instance._discoveryTimeouts = {}
+  instance._restartButtons = nil
   return instance
 end
 
@@ -199,6 +226,9 @@ function BluetoothProxyCapability:setPropertiesAttribs(show)
     C4:SetPropertyAttribs(self.PROPERTY_NAME, show)
     C4:SetPropertyAttribs(self.SCAN_DURATION_PROPERTY_NAME, show)
   end
+
+  local hasRestartButton = next(self._restartButtons or {}) ~= nil
+  C4:SetPropertyAttribs(self.RESTART_BUTTON_PROPERTY_NAME, hasRestartButton and show or constants.HIDE_PROPERTY)
 end
 
 --- Mark that an advertisement was received.
@@ -310,6 +340,11 @@ function BluetoothProxyCapability:_onScannerWatchdogFired()
   -- RUNNING only: the mode round trip acts through the firmware's stop, which
   -- no-ops from every other state, and FAILED is ESPHome's own to recover.
   local scannerState = self._client:getBluetoothScannerState()
+  -- The client puts an IDLE placeholder here while the API is down.
+  if not scannerState.initialized then
+    self._scannerNoRecoveryIntervals = 0
+    return
+  end
   if scannerState.state ~= ESPHomeProtoSchema.Enum.BluetoothScannerState.BLUETOOTH_SCANNER_STATE_RUNNING then
     log:debug("Scanner watchdog: no advertisements but scanner not running (state=%s), ignoring", scannerState.state)
     if not SCANNER_STATE_NO_RECOVERY[scannerState.state] then
@@ -333,6 +368,15 @@ function BluetoothProxyCapability:_onScannerWatchdogFired()
       )
     end
     self:_setScannerUnrecoverable(true)
+    if self._scannerNoRecoveryIntervals >= SCANNER_RESTART_INTERVALS then
+      self:_autoRestart(
+        string.format(
+          "scanner stuck in state %s for %d intervals",
+          scannerState.state,
+          self._scannerNoRecoveryIntervals
+        )
+      )
+    end
     return
   end
 
@@ -357,6 +401,138 @@ function BluetoothProxyCapability:_onScannerWatchdogFired()
     log:warn("Scanner watchdog: Scanner did not recover after %d restarts", SCANNER_RECOVERY_RESTART_ATTEMPTS)
   end
   self:_setScannerUnrecoverable(true)
+end
+
+--- Whether any allocated device has stopped answering service discovery.
+--- @private
+--- @return boolean
+function BluetoothProxyCapability:_hasStaleAllocation()
+  for _, count in pairs(self._discoveryTimeouts) do
+    if count >= STALE_ALLOCATION_TIMEOUTS then
+      return true
+    end
+  end
+  return false
+end
+
+--- Whether the proxy is in a state only a restart of the device clears.
+--- @private
+--- @return boolean
+function BluetoothProxyCapability:_needsRestart()
+  return self._scannerUnrecoverable or self:_hasStaleAllocation()
+end
+
+--- The error a bound child is given when service discovery fails.
+--- @private
+--- @return string
+function BluetoothProxyCapability:_discoveryFailedError()
+  return self:_needsRestart() and constants.BLUETOOTH_PROXY_NEEDS_RESTART or "GATT discovery failed"
+end
+
+--- @private
+--- @param mac string
+function BluetoothProxyCapability:_clearDiscoveryTimeouts(mac)
+  if not self._discoveryTimeouts[mac] then
+    return
+  end
+  local wasStale = self:_hasStaleAllocation()
+  self._discoveryTimeouts[mac] = nil
+  if wasStale ~= self:_hasStaleAllocation() then
+    self:_updateStatusProperty()
+  end
+end
+
+--- Count a service discovery that got no answer while the device stayed
+--- allocated; any successful discovery of the device clears the count.
+--- @private
+--- @param mac string
+--- @param err any The rejection reason, nil on success
+function BluetoothProxyCapability:_onDiscoveryResult(mac, err)
+  if err == nil then
+    self:_clearDiscoveryTimeouts(mac)
+    return
+  end
+
+  if err ~= ESPHomeClient.GATT_SERVICES_TIMEOUT or not self._client:isBluetoothDeviceAllocated(mac) then
+    return
+  end
+
+  local count = (self._discoveryTimeouts[mac] or 0) + 1
+  self._discoveryTimeouts[mac] = count
+  if count < STALE_ALLOCATION_TIMEOUTS then
+    return
+  end
+  if count == STALE_ALLOCATION_TIMEOUTS then
+    log:warn("Device %s is still allocated after %d unanswered service discoveries", mac, count)
+    self:_updateStatusProperty()
+  end
+  self:_autoRestart(string.format("%s allocated but not answering service discovery", mac))
+end
+
+--- Press the installer-selected restart button, at most once per
+--- AUTO_RESTART_MIN_INTERVAL_SECONDS.
+--- @private
+--- @param reason string
+function BluetoothProxyCapability:_autoRestart(reason)
+  local name = persist:get(RESTART_BUTTON_PERSIST_KEY, RESTART_BUTTON_OFF)
+  local button = (self._restartButtons or {})[name]
+  if not button or not self._client:isConnected() then
+    return
+  end
+
+  local elapsed = os.time() - persist:get(LAST_AUTO_RESTART_PERSIST_KEY, 0)
+  if elapsed >= 0 and elapsed < AUTO_RESTART_MIN_INTERVAL_SECONDS then
+    log:debug("Bluetooth proxy needs a restart (%s); last automatic restart was %ds ago", reason, elapsed)
+    return
+  end
+
+  log:warn("Bluetooth proxy needs a restart (%s), pressing %s", reason, name)
+  self._client
+    :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.button_command, {
+      key = button.key,
+      device_id = button.device_id,
+    })
+    :next(function()
+      persist:set(LAST_AUTO_RESTART_PERSIST_KEY, os.time())
+    end, function(err)
+      log:error("Failed to press %s: %s", name, err)
+    end)
+end
+
+--- Offer the device's restart-class buttons for the automatic restart.
+--- @param entities table<string, table?> Entities as listed by the client
+function BluetoothProxyCapability:setRestartButtons(entities)
+  local buttons = {}
+  for _, entity in pairs(entities) do
+    if entity.entity_type == ESPHomeClient.EntityType.BUTTON and entity.device_class == RESTART_DEVICE_CLASS then
+      buttons[entity.name] = entity
+    end
+  end
+  self._restartButtons = buttons
+
+  local names = TableKeys(buttons)
+  table.sort(names)
+  table.insert(names, 1, RESTART_BUTTON_OFF)
+  local selected = persist:get(RESTART_BUTTON_PERSIST_KEY, RESTART_BUTTON_OFF)
+  if not buttons[selected] then
+    selected = RESTART_BUTTON_OFF
+  end
+  C4:UpdatePropertyList(self.RESTART_BUTTON_PROPERTY_NAME, table.concat(names, ","), selected)
+  C4:UpdateProperty(self.RESTART_BUTTON_PROPERTY_NAME, selected)
+  self:setPropertiesAttribs(self._featureFlags ~= 0 and constants.SHOW_PROPERTY or constants.HIDE_PROPERTY)
+end
+
+--- Record the installer's restart button choice.
+--- @param value string
+function BluetoothProxyCapability:onRestartButtonChanged(value)
+  -- The startup property pass runs before any button is listed.
+  if self._restartButtons == nil then
+    return
+  end
+  if value ~= RESTART_BUTTON_OFF and not self._restartButtons[value] then
+    return
+  end
+  persist:set(RESTART_BUTTON_PERSIST_KEY, value)
 end
 
 --- Update the read-only status property.
@@ -388,7 +564,7 @@ function BluetoothProxyCapability:_updateStatusProperty()
     table.insert(parts, stateName)
   end
 
-  if self._scannerUnrecoverable then
+  if self:_needsRestart() then
     table.insert(parts, SCANNER_UNRECOVERABLE_STATUS)
   end
 
@@ -438,11 +614,13 @@ function BluetoothProxyCapability:_discoverGattServices(mac, callback)
   self._client:bluetoothGattGetServices(mac):next(function(services)
     device.services = services
     log:info("GATT service discovery complete for %s (%d services)", mac, #services)
+    self:_onDiscoveryResult(mac, nil)
     if callback then
       callback(true)
     end
   end, function(err)
     log:error("GATT service discovery failed for %s: %s", mac, err)
+    self:_onDiscoveryResult(mac, err)
     -- A newer discovery or connect for this MAC owns the link.
     if err ~= ESPHomeClient.SUPERSEDED and not self._client:isBluetoothDeviceConnecting(mac) then
       self._client:bluetoothDeviceDisconnect(mac)
@@ -550,7 +728,7 @@ function BluetoothProxyCapability:_connectAndNotify(mac, idBinding)
           name = device.name,
           mac = mac,
           deviceType = device.deviceType,
-          error = "GATT discovery failed",
+          error = self:_discoveryFailedError(),
         }, "NOTIFY")
       end
     end)
@@ -611,6 +789,7 @@ function BluetoothProxyCapability:disconnectDevice(mac)
   -- Disconnect from device
   self._client:bluetoothDeviceDisconnect(mac)
 
+  self:_clearDiscoveryTimeouts(mac)
   self._addedDevices[mac] = nil
   log:info("Disconnected from Bluetooth device: %s", mac)
 end
@@ -659,7 +838,7 @@ function BluetoothProxyCapability:handleCommand(mac, idBinding, strCommand, tPar
           else
             SendToProxy(idBinding, "CONNECTION_FAILED", {
               mac = mac,
-              error = "GATT discovery failed",
+              error = self:_discoveryFailedError(),
             }, "NOTIFY")
           end
         end)
@@ -918,6 +1097,7 @@ function BluetoothProxyCapability:removeDevice(mac)
     self._client:bluetoothDeviceDisconnect(mac)
   end
 
+  self:_clearDiscoveryTimeouts(mac)
   self._addedDevices[mac] = nil
   log:info("Removed device: %s", mac)
 end
@@ -1214,6 +1394,8 @@ function BluetoothProxyCapability:discovered(deviceInfo)
   self._client:addBluetoothAdvertisementCallback("scanner_watchdog", function(_advertisement)
     self:_onAdvertisementReceived()
   end)
+
+  self._discoveryTimeouts = {}
 
   -- Clear cached GATT services for active devices - handles may change after reconnect
   for mac, device in pairs(self._addedDevices) do
@@ -1629,6 +1811,7 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
     self._client:bluetoothDeviceConnect(mac, addressType, false):next(function(result)
       -- Discover GATT services
       self._client:bluetoothGattGetServices(mac):next(function(services)
+        self:_onDiscoveryResult(mac, nil)
         self._coordinatorServices[mac] = services
         SendToProxy(bindingId, "GATT_CONNECT_RESPONSE", {
           proxyId = proxyId,
@@ -1639,6 +1822,7 @@ function BluetoothProxyCapability:handleCoordinatorCommand(strCommand, tParams)
           mtu = tostring(result.mtu or 0),
         }, "NOTIFY")
       end, function(err)
+        self:_onDiscoveryResult(mac, err)
         -- A newer GATT_CONNECT for this MAC owns the link.
         if err ~= ESPHomeClient.SUPERSEDED and not self._client:isBluetoothDeviceConnecting(mac) then
           self._client:bluetoothDeviceDisconnect(mac)

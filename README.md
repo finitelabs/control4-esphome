@@ -299,6 +299,13 @@ Components explained:
   [Oversubscription](#oversubscription))
 - **MAC Filter** - (Coordinator mode only) Shows how many device MACs are being
   filtered for, or "none" if forwarding all advertisements
+- **Not Recovering - Power Cycle Device** - The proxy is wedged and only a
+  restart of the ESP32 will clear it: the scanner has stopped receiving
+  advertisements and the driver cannot restart it, or a device the proxy still
+  holds connected has stopped answering. Bound devices report "Bluetooth proxy
+  needs a restart". Press the device's Restart button or power cycle it, or let
+  [Restart Bluetooth Proxy When Stuck](#restart-bluetooth-proxy-when-stuck) do
+  it
 
 ##### Bluetooth Proxy Capabilities (read-only)
 
@@ -378,6 +385,24 @@ room. Use this when a room has different size or characteristics than others.
 > **Note:** Only affects room assignment for this proxy. The value is sent to
 > the Bluetooth Coordinator when this proxy connects or when the setting
 > changes.
+
+##### Restart Bluetooth Proxy When Stuck \[ default: **_Off_** \]
+
+> Only visible when the ESPHome device has a `restart`, `safe_mode` or
+> `factory_reset` button.
+
+The restart button to press when the proxy is wedged (see
+[Bluetooth Proxy Status](#bluetooth-proxy-status-read-only)): its scanner has
+been stuck for about 15 minutes, or a device it holds connected has failed
+service discovery three times in a row. The button is pressed at most once every
+6 hours.
+
+- **Off (default)** - Only report the condition in Bluetooth Proxy Status
+- **_button name_** - Press this button
+
+> **Warning:** ESPHome's Restart, Safe Mode and Factory Reset buttons are all
+> offered here. Pick the Restart button. Factory Reset erases the device's
+> settings.
 
 #### Button LEDs
 
@@ -1062,8 +1087,18 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added Restart Bluetooth Proxy When Stuck, which presses the chosen ESPHome
+  restart button when the proxy is wedged, at most once every 6 hours. Off by
+  default
+
 ### Fixed
 
+- Fixed a Bluetooth proxy that still held a device connected but no longer
+  answered it going unreported: Bluetooth Proxy Status now asks for a power
+  cycle, and the device shows "Bluetooth proxy needs a restart" instead of "GATT
+  discovery failed"
 - Fixed a SwitchBot command sent while the device was still connecting failing
   with "GATT discovery failed", and a Relay Switch 2PM turning on only one
   channel when a scene set both

@@ -2021,6 +2021,15 @@ function RFP.DISCONNECTED(idBinding, strCommand, tParams, args)
   end
 end
 
+--- Retries cannot clear a wedged proxy, so its error replaces the retry and
+--- poll schedule text that would otherwise hide it.
+--- @param errMsg string
+local function showProxyNeedsRestart(errMsg)
+  if errMsg == constants.BLUETOOTH_PROXY_NEEDS_RESTART then
+    updateStatus(errMsg, false)
+  end
+end
+
 --- Handle connection failure
 function RFP.CONNECTION_FAILED(idBinding, strCommand, tParams, args)
   log:trace("RFP.CONNECTION_FAILED(%s, %s, %s, %s)", idBinding, strCommand, tParams, args)
@@ -2048,6 +2057,7 @@ function RFP.CONNECTION_FAILED(idBinding, strCommand, tParams, args)
       log:info("Parent connect failed after retries ran out, retrying: %s", errMsg)
       linkAbandoned = true
       scheduleRecovery("Connection failed: " .. errMsg)
+      showProxyNeedsRestart(errMsg)
       return
     end
     log:warn("Ignoring CONNECTION_FAILED with no CONNECT outstanding: %s", errMsg)
@@ -2060,6 +2070,7 @@ function RFP.CONNECTION_FAILED(idBinding, strCommand, tParams, args)
   -- to lose until the next CONNECTED.
   linkAbandoned = true
   scheduleRecovery("Connection failed: " .. errMsg, savedCommand)
+  showProxyNeedsRestart(errMsg)
 end
 
 --------------------------------------------------------------------------------
