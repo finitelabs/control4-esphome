@@ -1,17 +1,17 @@
 -- Copyright 2026 Snap One, LLC. All rights reserved.
 --
--- LOCAL FORK of Snap One's drivers-common-public timer module, upstream Timer 13.
+-- LOCAL FORK of Snap One's drivers-common-public timer module, upstream Timer 14.
 -- Re-vendoring from upstream silently drops everything listed here, in every repo the
 -- template renders. Keep this list current.
 --
--- Deltas against upstream Timer 13:
+-- Deltas against upstream Timer 14:
 --   1. SetTimer and ExpireTimer run the callback through xpcall with debug.traceback
 --      and report a failure to ON_TIMER_ERROR when a driver sets it.
 --   2. SetTimer carries LuaDoc.
 --
 -- test/test_dispatch.lua covers 1.
 
-COMMON_TIMER_VER = 13
+COMMON_TIMER_VER = 14
 
 do --Globals
   Timer = Timer or {}
@@ -78,14 +78,6 @@ end
 --- @return C4LuaTimer|nil timer The timer instance.
 function SetTimer(timerId, delay, timerFunction, repeating)
   CancelTimer(timerId)
-
-  if type(timerId) == "nil" then
-    local output = {
-      "SetTimer anonymous timerId",
-      tostring(debug.getinfo(2, "n").name),
-    }
-    dbg(table.concat(output, " : "))
-  end
 
   if type(timerFunction) ~= "function" then
     timerFunction = nil

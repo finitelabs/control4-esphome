@@ -57,7 +57,7 @@ local LAST_WATER_HEATER_MODE = nil -- restored from persist in OnDriverLateInit
 --- The proxy's wording for a hold; restored in OnDriverLateInit.
 local HOLD_UNTIL_NEXT
 
---- The only wordings learnable as "until next"; both are first-party.
+--- The only wordings learnable as "until next".
 local HOLD_UNTIL_NEXT_NAMES = { ["Until Next"] = true, ["Next Event"] = true }
 
 --- Read a numeric state field, treating a missing one as zero when the entity

@@ -79,6 +79,9 @@ local CONNECT_TIMEOUT_MS = 200000
 --- confirmation, then up to 10s for the descriptor write.
 local SUBSCRIBE_TIMEOUT_MS = 25000
 
+--- Age (s) past which a tapped lock or unlock is dropped rather than run
+local COMMAND_MAX_AGE_S = 60
+
 --- Minimum delay between GATT writes (ms) per Yale BLE protocol
 local GATT_WRITE_COOLDOWN_MS = 250
 
@@ -167,6 +170,10 @@ local regularReadSubscribed = false
 --- Pending command to execute after handshake
 --- @type string|nil "lock", "unlock", "status"
 local pendingCommand = nil
+
+--- When the lock or unlock in pendingCommand or reconnectCommand was tapped (os.time)
+--- @type integer|nil
+local commandRequestedAt = nil
 
 --- What command response we're awaiting (nil = none)
 --- @type string|nil "lock", "unlock", "status_lock", "status_door", "status_battery"
@@ -957,6 +964,13 @@ function executePendingCommand()
 
   local cmd = pendingCommand
   pendingCommand = nil
+
+  if (cmd == "lock" or cmd == "unlock") and os.time() - commandRequestedAt > COMMAND_MAX_AGE_S then
+    log:warn("Dropping %s requested %ds ago", cmd, os.time() - commandRequestedAt)
+    updateStatus(cmd == "lock" and "Error: Lock expired" or "Error: Unlock expired", true)
+    updateLockStatus("fault")
+    cmd = "status"
+  end
 
   if cmd == "lock" then
     log:info("Sending LOCK command")
@@ -1779,6 +1793,7 @@ function RFP.LOCK(idBinding, strCommand)
   if idBinding ~= PROXY_BINDING then
     return
   end
+  commandRequestedAt = os.time()
   initiateCommand("lock")
 end
 
@@ -1787,6 +1802,7 @@ function RFP.UNLOCK(idBinding, strCommand)
   if idBinding ~= PROXY_BINDING then
     return
   end
+  commandRequestedAt = os.time()
   initiateCommand("unlock")
 end
 
@@ -1795,6 +1811,7 @@ function RFP.TOGGLE(idBinding, strCommand)
   if idBinding ~= PROXY_BINDING then
     return
   end
+  commandRequestedAt = os.time()
   if currentLockStatus == "locked" then
     initiateCommand("unlock")
   else

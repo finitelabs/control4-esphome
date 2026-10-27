@@ -289,7 +289,7 @@ local requiresEncryption = false
 local isDualChannel = false
 
 -- Connection state (runtime only, not persisted)
---- @type { cmd: string, channel: 1|2|nil, requiresEncryption: boolean, isOn: boolean }|nil
+--- @type { cmd: string, channel: 1|2|nil, requiresEncryption: boolean, isOn: boolean, queuedAt: integer }|nil
 local pendingCommand = nil
 --- @type boolean
 local awaitingCommandResponse = false
@@ -315,6 +315,9 @@ local DISCONNECT_DELAY_MS = 4000
 --- that, so it only catches an answer that never comes.
 --- @type integer
 local CONNECT_TIMEOUT_MS = 200000
+--- Age (s) past which a queued press is dropped rather than sent
+--- @type integer
+local COMMAND_MAX_AGE_S = 60
 --- @type integer
 local PRESS_REVERT_DELAY_MS = 5000
 --- @type integer
@@ -1403,6 +1406,11 @@ local function executePendingCommand()
   end
 
   local cmd = pendingCommand
+  if os.time() - cmd.queuedAt > COMMAND_MAX_AGE_S then
+    log:warn("Dropping a command queued %ds ago", os.time() - cmd.queuedAt)
+    abandonAttempt("Error: Command expired")
+    return
+  end
   log:debug("Executing pending command")
 
   local needsEncryption = cmd.requiresEncryption
@@ -1475,6 +1483,7 @@ local function initiateCommand(cmd, channel, isOn)
     channel = channel,
     requiresEncryption = requiresEncryption,
     isOn = isOn,
+    queuedAt = os.time(),
   }
 
   updateStatus("Busy", true)

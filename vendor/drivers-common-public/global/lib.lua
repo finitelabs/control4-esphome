@@ -1,10 +1,10 @@
 -- Copyright 2026 Snap One, LLC. All rights reserved.
 --
--- LOCAL FORK of Snap One's drivers-common-public lib module, upstream LIB 58.
+-- LOCAL FORK of Snap One's drivers-common-public lib module, upstream LIB 59.
 -- Re-vendoring from upstream silently drops everything listed here, in every repo the
 -- template renders. Keep this list current.
 --
--- Deltas against upstream LIB 58:
+-- Deltas against upstream LIB 59:
 --   1. JSON is vendor/JSON.lua rather than upstream's module/json.lua, which is not
 --      vendored.
 --   2. Deserialize pcall-wraps its Base64 and JSON decodes. JSON.lua raises on input
@@ -18,7 +18,7 @@
 -- test/test_persist_undecodable.lua and test/test_persist_reload.lua cover 2;
 -- test/test_watched_variable.lua covers 5.
 
-COMMON_LIB_VER = 58
+COMMON_LIB_VER = 59
 
 JSON = require("JSON")
 
@@ -1225,24 +1225,6 @@ function BuildRoomHierarchy()
     floorsById = floorsById,
     roomsById = roomsById,
   }
-end
-
-function GetLocals(depth)
-  local vars = {}
-  local i = 1
-  depth = depth or 2
-
-  while true do
-    local name, value = debug.getlocal(depth, i)
-    if name ~= nil then
-      vars[name] = value
-    else
-      break
-    end
-    i = i + 1
-  end
-
-  return vars
 end
 
 function GetRandomString(length, alphaFirst)
