@@ -1263,9 +1263,9 @@ end)
 
 test("Heat engages on a water heater that has never stored a mode", function()
   -- A mode never stored reads as nil; Heat must still send an enum.
+  ShimPersistLand()
   C4:PersistDeleteValue("LastWaterHeaterMode")
   package.loaded["lib.persist"] = nil
-  ShimPersistLand()
   dofile(DRIVER)
   OnDriverLateInit()
 
