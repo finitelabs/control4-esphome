@@ -1067,6 +1067,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a SwitchBot command sent while the device was still connecting failing
   with "GATT discovery failed", and a Relay Switch 2PM turning on only one
   channel when a scene set both
+- Fixed a Yale lock or unlock tapped in Persistent mode being dropped when the
+  connection failed; it is now retried like after a dropped connection
 
 ## v20261027 - 2026-10-27
 
