@@ -289,8 +289,9 @@ local requiresEncryption = false
 local isDualChannel = false
 
 -- Connection state (runtime only, not persisted)
---- @type { cmd: string, channel: 1|2|nil, requiresEncryption: boolean, isOn: boolean, queuedAt: integer }|nil
-local pendingCommand = nil
+--- Commands waiting for the link, sent in order, each after the previous one's answer
+--- @type { cmd: string, channel: 1|2|nil, requiresEncryption: boolean, isOn: boolean, queuedAt: integer }[]
+local pendingCommands = {}
 --- @type boolean
 local awaitingCommandResponse = false
 --- @type boolean
@@ -443,7 +444,7 @@ local function resetConnectionState(clearHandles)
   -- Connection state
   CancelTimer("ConnectionTimeout")
   pendingConnect = false
-  pendingCommand = nil
+  pendingCommands = {}
   awaitingCommandResponse = false
   notificationsSubscribed = false
   notificationsSubscribing = false
@@ -501,7 +502,7 @@ end
 local function disconnectUnconfigured()
   log:warn("Encryption not configured - control commands will fail")
   UpdateProperty("Encryption Status", "Required - Not Configured")
-  pendingCommand = nil
+  pendingCommands = {}
   requestDisconnect()
 end
 
@@ -1398,20 +1399,24 @@ local function sendCommand(cmd, needsEncryption)
   return true
 end
 
---- Execute pending command if one exists and we're ready
+--- Send the next queued command, if there is one and the link is ready for it
 local function executePendingCommand()
   log:trace("executePendingCommand()")
-  if not pendingCommand then
-    return
+  local expired = false
+  while pendingCommands[1] and os.time() - pendingCommands[1].queuedAt > COMMAND_MAX_AGE_S do
+    log:warn("Dropping a command queued %ds ago", os.time() - pendingCommands[1].queuedAt)
+    table.remove(pendingCommands, 1)
+    expired = true
   end
 
-  local cmd = pendingCommand
-  if os.time() - cmd.queuedAt > COMMAND_MAX_AGE_S then
-    log:warn("Dropping a command queued %ds ago", os.time() - cmd.queuedAt)
-    abandonAttempt("Error: Command expired")
+  local cmd = pendingCommands[1]
+  if not cmd then
+    if expired then
+      abandonAttempt("Error: Command expired")
+    end
     return
   end
-  log:debug("Executing pending command")
+  log:debug("Executing pending command (%d queued)", #pendingCommands)
 
   local needsEncryption = cmd.requiresEncryption
   if needsEncryption and not isEncryptionReady() then
@@ -1419,6 +1424,7 @@ local function executePendingCommand()
     return
   end
 
+  table.remove(pendingCommands, 1)
   if sendCommand(cmd.cmd, needsEncryption) then
     -- Optimistically update state
     if deviceCategory == DEVICE_CATEGORY.BOT then
@@ -1432,11 +1438,43 @@ local function executePendingCommand()
     end
   else
     log:error("Failed to execute pending command")
-    pendingCommand = nil
+    pendingCommands = {}
     requestDisconnect()
   end
+end
 
-  pendingCommand = nil
+--- The command on the wire has its answer: send the next queued one, or release the link.
+local function commandDone()
+  log:trace("commandDone()")
+  awaitingCommandResponse = false
+  if pendingCommands[1] then
+    executePendingCommand()
+  else
+    requestDisconnect()
+  end
+end
+
+--- Queue a command for when the link is ready. A newer command for a channel
+--- replaces one already queued for it, since only the last on or off matters.
+--- @param cmd string The command bytes
+--- @param channel 1|2|nil The channel (1 or 2)
+--- @param isOn boolean Whether this is an ON command
+local function queueCommand(cmd, channel, isOn)
+  log:trace("queueCommand(%s, %s, %s)", cmd, channel, isOn)
+  local entry = {
+    cmd = cmd,
+    channel = channel,
+    requiresEncryption = requiresEncryption,
+    isOn = isOn,
+    queuedAt = os.time(),
+  }
+  for i, queued in ipairs(pendingCommands) do
+    if (queued.channel or 1) == (channel or 1) then
+      pendingCommands[i] = entry
+      return
+    end
+  end
+  table.insert(pendingCommands, entry)
 end
 
 --- Check if we're ready to send a command
@@ -1461,7 +1499,7 @@ local function initiateCommand(cmd, channel, isOn)
   log:trace("initiateCommand(%s, %s, %s)", cmd, channel, isOn)
   cancelPendingDisconnect()
 
-  if isReadyToSend() then
+  if not pendingCommands[1] and isReadyToSend() then
     log:debug("Ready to send, executing command immediately")
     if sendCommand(cmd, requiresEncryption) then
       if deviceCategory == DEVICE_CATEGORY.BOT then
@@ -1477,16 +1515,15 @@ local function initiateCommand(cmd, channel, isOn)
     return
   end
 
-  log:debug("Not ready, queuing command and connecting")
-  pendingCommand = {
-    cmd = cmd,
-    channel = channel,
-    requiresEncryption = requiresEncryption,
-    isOn = isOn,
-    queuedAt = os.time(),
-  }
-
+  queueCommand(cmd, channel, isOn)
   updateStatus("Busy", true)
+  -- A second CONNECT mid-connect makes the parent start over, and the first
+  -- attempt's failure would drop the queue; a ready link is already draining it.
+  if pendingConnect or isReadyToSend() then
+    log:debug("Queued behind the command or connect already under way")
+    return
+  end
+  log:debug("Not ready, queued command and connecting")
   requestConnection()
 end
 
@@ -2433,7 +2470,7 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
 
       if deviceCategory == DEVICE_CATEGORY.BOT then
         -- Bot: execute command immediately or request status
-        if pendingCommand then
+        if pendingCommands[1] then
           executePendingCommand()
         else
           -- An abandoned attempt's late answer, or the parent connecting a newly
@@ -2643,15 +2680,17 @@ function RFP.GATT_WRITE_RESPONSE(idBinding, strCommand, tParams, args)
       UpdateProperty("Encryption Status", "Error: IV request failed")
     end
     if awaitingCommandResponse then
-      awaitingCommandResponse = false
-      requestDisconnect()
+      commandDone()
     end
   end
 
-  -- Bot: disconnect after command
+  -- Bot: the write's answer ends the command
   if deviceCategory == DEVICE_CATEGORY.BOT and awaitingCommandResponse then
+    commandDone()
+  elseif awaitingCommandResponse and not notificationsSubscribed and pendingCommands[1] then
+    -- No reply is read without notifications, so the next command goes on the write's answer
     awaitingCommandResponse = false
-    requestDisconnect()
+    executePendingCommand()
   end
 end
 
@@ -2698,7 +2737,7 @@ function RFP.GATT_NOTIFY_SUBSCRIBED(idBinding, strCommand, tParams, args)
         else
           log:error("Encryption required but not configured")
           UpdateProperty("Encryption Status", "Error: Not configured")
-          pendingCommand = nil
+          pendingCommands = {}
           requestDisconnect()
         end
       else
@@ -2745,7 +2784,7 @@ function RFP.GATT_NOTIFY_DATA(idBinding, strCommand, tParams, args)
       log:error("Failed to process IV response")
       pendingIVRequest = false
       UpdateProperty("Encryption Status", "Error: Invalid IV response")
-      pendingCommand = nil
+      pendingCommands = {}
       requestDisconnect()
     end
     return
@@ -2753,9 +2792,8 @@ function RFP.GATT_NOTIFY_DATA(idBinding, strCommand, tParams, args)
 
   -- Check if this is a command response
   if awaitingCommandResponse then
-    awaitingCommandResponse = false
     checkCommandResult(binaryData)
-    requestDisconnect()
+    commandDone()
     return
   end
 
