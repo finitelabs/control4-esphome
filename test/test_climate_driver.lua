@@ -868,6 +868,7 @@ test("REGRESSION: a persisted schedule is restored without OnDriverLateInit thro
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", {
     XML = '<events><event preset="Night" weekday="1" hour="6" minute="30"/></events>',
   })
+  ShimPersistLand()
   T.check("schedule was persisted", C4:PersistGetValue("Schedule") ~= nil)
 
   local ok, err = pcall(OnDriverLateInit)
@@ -1142,6 +1143,7 @@ test("Connection state is truthful at every stage of the lifecycle", function()
 
   -- 1. Cold start, nothing ever seen.
   package.loaded["lib.persist"] = nil
+  ShimPersistLand()
   dofile(DRIVER)
   resetSent()
   OnDriverLateInit()
@@ -1164,6 +1166,7 @@ test("Connection state is truthful at every stage of the lifecycle", function()
 
   -- 5. Driver reloads while the device is down. Nothing has connected since the
   --    reload, so the declaration at LateInit is the only thing speaking.
+  ShimPersistLand()
   dofile(DRIVER)
   resetSent()
   OnDriverLateInit()
@@ -1196,6 +1199,7 @@ test("Rebinding the driver keeps the user's presets", function()
   OBC[5002](5002, "ESPHOME", false)
   OBC[5002](5002, "ESPHOME", true)
 
+  ShimPersistLand()
   T.check("the persisted preset list survives a rebind", C4:PersistGetValue("Presets") ~= nil)
 
   resetSent()
@@ -1218,11 +1222,14 @@ test("Schedule and presets both survive a reload during an outage", function()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Survivor" } }) })
 
   -- Reload with the device still absent: no UPDATE_STATE, no SET_PRESETS.
+  ShimPersistLand()
   dofile(DRIVER)
   resetSent()
   OnDriverLateInit()
 
+  ShimPersistLand()
   T.check("the schedule is persisted", C4:PersistGetValue("Schedule") ~= nil)
+  ShimPersistLand()
   T.check("and so is the preset list", C4:PersistGetValue("Presets") ~= nil)
 
   -- The distinguishing claim: applyPreset works BY NAME with no SET_PRESETS resend.
@@ -1241,6 +1248,7 @@ test("A driver that has never seen a device still reports itself offline", funct
   -- thermostatV2 starts IS_CONNECTED true unless has_connection_status is
   -- declared, so a fresh install must declare offline without a cached shape.
   package.loaded["lib.persist"] = nil
+  ShimPersistLand()
   dofile(DRIVER)
   resetSent()
   OnDriverLateInit()
@@ -1257,6 +1265,7 @@ test("Heat engages on a water heater that has never stored a mode", function()
   -- A mode never stored reads as nil; Heat must still send an enum.
   C4:PersistDeleteValue("LastWaterHeaterMode")
   package.loaded["lib.persist"] = nil
+  ShimPersistLand()
   dofile(DRIVER)
   OnDriverLateInit()
 
@@ -1320,6 +1329,7 @@ test("After a reload the proxy's re-announcement applies a preset still pending"
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Persisted" } }) })
   RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Persisted" })
 
+  ShimPersistLand()
   dofile(DRIVER)
   local ok, err = pcall(OnDriverLateInit)
   T.check("OnDriverLateInit survives the restore" .. (ok and "" or ": " .. tostring(err)), ok)
@@ -1352,6 +1362,7 @@ test("A reload does not re-apply the preset the proxy re-announces", function()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
 
   package.loaded["lib.persist"] = nil
+  ShimPersistLand()
   dofile(DRIVER)
   OnDriverLateInit()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
@@ -1610,6 +1621,7 @@ test("Preset lists that differ only in where a preset ends are told apart", func
     { name = "d", fields = { e = "f" } },
     { name = "g", fields = { h = "i" } },
   })
+  ShimPersistLand()
   local stored = Deserialize(C4:PersistGetValue("Presets"))
   T.check("the second list reached persistent storage", type(stored) == "table" and stored.g ~= nil)
 end)
@@ -1617,6 +1629,7 @@ end)
 test("A fresh install does not forward a bound sensor before the proxy enables it", function()
   -- Nothing is stored on a fresh install, which must not read as in use.
   package.loaded["lib.persist"] = nil
+  ShimPersistLand()
   dofile(DRIVER)
   OnDriverLateInit()
   Properties["Remote Temperature Service"] = "set_remote_temperature"
@@ -1800,6 +1813,7 @@ test("Clearing the applied preset writes an empty marker rather than deleting th
   -- unreadable; an empty table marker avoids the delete.
   scheduledFixture()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = "<events></events>" })
+  ShimPersistLand()
   local stored = C4:PersistGetValue("ScheduledPreset")
   T.check("the key survives the clear", stored ~= nil)
   local marker = stored and Deserialize(stored)
@@ -1807,6 +1821,7 @@ test("Clearing the applied preset writes an empty marker rather than deleting th
 
   -- A reload reads the marker as no preset, so the next announcement applies.
   package.loaded["lib.persist"] = nil
+  ShimPersistLand()
   dofile(DRIVER)
   OnDriverLateInit()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 })
@@ -1847,6 +1862,7 @@ test("A rename reaches the SCHEDULE entries", function()
     { name = "Early", previous = "Morning", fields = { hvac_mode = "Heat", single_setpoint_c = "21" } },
   })
 
+  ShimPersistLand()
   local stored = Deserialize(C4:PersistGetValue("Schedule"))
   T.check(
     "the persisted schedule carries the new name",
@@ -1906,6 +1922,7 @@ test("A reload republishes hold mode and active preset even when they read as em
   -- shows whatever it was last told.
   RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Comfort" })
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
+  ShimPersistLand()
   dofile(DRIVER)
   OnDriverLateInit()
 
@@ -1916,6 +1933,7 @@ test("A reload republishes hold mode and active preset even when they read as em
   T.check("the first report after a reload states the hold mode", hold ~= nil and hold.params.MODE == "Off")
 
   -- Mirror case: a no-match report resolves to "none"; both sentinels need exercising.
+  ShimPersistLand()
   dofile(DRIVER)
   OnDriverLateInit()
   resetSent()
@@ -1931,11 +1949,13 @@ test("The proxy's own hold wording survives a reload", function()
   scheduledFixture()
   RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Next Event" })
 
+  ShimPersistLand()
   local stored = Deserialize(C4:PersistGetValue("HoldWording"))
   T.check("the learned wording persists in a form that deserialises", type(stored) == "table")
   T.eq("and it round-trips to what the proxy said", stored and stored.mode, "Next Event")
 
   -- A real reload: the in-memory value is still set, so only re-loading the chunk observes the restore.
+  ShimPersistLand()
   dofile(DRIVER)
   local ok, err = pcall(OnDriverLateInit)
   T.check("OnDriverLateInit survives the restore" .. (ok and "" or ": " .. tostring(err)), ok)
@@ -2026,6 +2046,7 @@ test("An unreadable schedule frame leaves the stored schedule alone", function()
   resetSent()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = "this is not xml" })
 
+  ShimPersistLand()
   local stored = Deserialize(C4:PersistGetValue("Schedule"))
   T.check("the stored schedule survives an unreadable frame", type(stored) == "table" and #stored == 1)
   T.eq("and the hold modes are not republished", lastSent("ALLOWED_HOLD_MODES_CHANGED"), nil)
@@ -2079,6 +2100,7 @@ test("A reload does not rewrite a schedule and preset list that have not changed
   local events = '<events><event preset="Morning" weekday="1" hour="6" minute="0"/></events>'
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = events })
 
+  ShimPersistLand()
   dofile(DRIVER)
   local ok = pcall(OnDriverLateInit)
   T.check("OnDriverLateInit survives the restore", ok)
@@ -2130,6 +2152,7 @@ test("A water heater ignores a schedule inherited from a climate entity", functi
   RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Morning" })
   T.eq("the inherited event does not command the water heater", lastCommandBody(), nil)
   T.eq("and does not move its hold state", lastSent("HOLD_MODE_CHANGED"), nil)
+  ShimPersistLand()
   local stored = C4:PersistGetValue("ScheduledPreset")
   local marker = stored and Deserialize(stored)
   T.check("and does not record it as applied", not (type(marker) == "table" and marker.preset == "Morning"))
@@ -2255,6 +2278,7 @@ local function boundaryFixture(events)
   -- A fresh driver each time: the poll remembers the last minute it acted on and
   -- the hold wording is learned, so both leak into the next test otherwise.
   package.loaded["lib.persist"] = nil
+  ShimPersistLand()
   dofile(DRIVER)
   disconnect()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 })
@@ -2297,6 +2321,7 @@ end)
 test("A persisted hold wording outside the allow-list is ignored on restore", function()
   C4:PersistSetValue("HoldWording", { mode = "Vacation" })
   package.loaded["lib.persist"] = nil
+  ShimPersistLand()
   dofile(DRIVER)
   OnDriverLateInit()
   resetSent()
@@ -2306,6 +2331,7 @@ test("A persisted hold wording outside the allow-list is ignored on restore", fu
 
   C4:PersistSetValue("HoldWording", { mode = "Next Event" })
   package.loaded["lib.persist"] = nil
+  ShimPersistLand()
   dofile(DRIVER)
   OnDriverLateInit()
   resetSent()
@@ -2638,6 +2664,7 @@ test("A preset chosen with no schedule survives the proxy's empty event frames",
   -- SET_EVENTS with zero events arrives on every client connection, so a device
   -- with presets and no schedule gets one within a second of any choice.
   package.loaded["lib.persist"] = nil
+  ShimPersistLand()
   dofile(DRIVER)
   disconnect()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 })
@@ -2707,6 +2734,7 @@ end)
 --- Three presets and a schedule on Comfort, on a fresh driver: the restore tests read what the last one stored.
 local function threePresetFixture()
   package.loaded["lib.persist"] = nil
+  ShimPersistLand()
   dofile(DRIVER)
   disconnect()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 })
@@ -2724,6 +2752,7 @@ end
 --- Reload the way Director does: a new chunk, an empty persist cache, then LateInit.
 local function reload()
   package.loaded["lib.persist"] = nil
+  ShimPersistLand()
   dofile(DRIVER)
   OnDriverLateInit()
 end
@@ -2841,6 +2870,7 @@ test("Restoring a hold commands nothing", function()
   RFP.SET_MODE_HOLD(PROXY, "SET_MODE_HOLD", { MODE = "Permanent" })
 
   package.loaded["lib.persist"] = nil
+  ShimPersistLand()
   dofile(DRIVER)
   resetSent()
   OnDriverLateInit()
@@ -2892,6 +2922,7 @@ test("A restored hold on a deleted preset is released and forgotten", function()
     { name = "Comfort", fields = { single_setpoint_c = "22" } },
     { name = "Night", fields = { single_setpoint_c = "16" } },
   })
+  ShimPersistLand()
   local stored = Deserialize(C4:PersistGetValue("Hold"))
   T.check("the stored hold no longer names the deleted preset", type(stored) == "table" and stored.preset == nil)
   T.check("and no longer reads as the user's hold", type(stored) == "table" and stored.user ~= true)
@@ -2911,6 +2942,7 @@ test("A restored hold is not carried onto a water heater", function()
   updateState(heater, { mode = Mode.HEAT, target_temperature = 50 })
 
   T.eq("no hold is reported for a water heater", lastSent("HOLD_MODE_CHANGED"), nil)
+  ShimPersistLand()
   local stored = Deserialize(C4:PersistGetValue("Hold"))
   T.check("and the restored hold is dropped from storage", type(stored) == "table" and stored.mode == nil)
 end)
