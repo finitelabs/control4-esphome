@@ -2680,7 +2680,9 @@ function RFP.GATT_WRITE_RESPONSE(idBinding, strCommand, tParams, args)
       UpdateProperty("Encryption Status", "Error: IV request failed")
     end
     if awaitingCommandResponse then
+      -- Any command it sends next waits for its own answer
       commandDone()
+      return
     end
   end
 
