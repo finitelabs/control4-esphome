@@ -10,6 +10,9 @@
 --- used to schedule recovery a second time: two reconnect attempts spent on one
 --- failure, and a queued lock or unlock retried as a status read.
 ---
+--- A lock or unlock tapped more than 60s before it would be written, retries
+--- included, is dropped and reported as a fault rather than run late.
+---
 --- Run from the driver root:
 ---   make test
 --- or:
@@ -636,6 +639,106 @@ H.test("once the retries have run out a late failure leaves the parent's link be
   H.rfp(ESPHOME, "CONNECTION_FAILED", { error = "GATT discovery failed" })
   T.falsy("nothing is scheduled to reconnect", H.armed("Reconnect"))
   T.truthy("and the subscription is still waited on", H.armed("SubscribeTimeout"))
+end)
+
+--- What os.time reads inside withClock.
+local now = 0
+
+--- Run fn with os.time pinned to `now`, and every cipher passed through so the
+--- command written to the lock can be read.
+--- @param fn function
+local function withClock(fn)
+  local realTime, encrypt, decrypt = os.time, C4.Encrypt, C4.Decrypt
+  os.time = function(...) -- luacheck: ignore
+    if select("#", ...) > 0 then
+      return realTime(...)
+    end
+    return now
+  end
+  function C4:Encrypt(_cipher, _key, _iv, data)
+    return data
+  end
+  function C4:Decrypt(_cipher, _key, _iv, data)
+    return data
+  end
+  local ok, err = pcall(fn)
+  os.time, C4.Encrypt, C4.Decrypt = realTime, encrypt, decrypt -- luacheck: ignore
+  assert(ok, err)
+end
+
+--- From CONNECTED to the queued command on the wire.
+local function session()
+  handshakeDone()
+  H.rfp(ESPHOME, "GATT_NOTIFY_SUBSCRIBED", { handle = "22", success = "true" })
+end
+
+--- The opcode of the last command written to the regular write handle.
+local function lastCommand()
+  for i = #H.sent, 1, -1 do
+    local s = H.sent[i]
+    if s.command == "GATT_WRITE" and s.params.handle == "20" then
+      return string.byte(C4:Base64Decode(s.params.data), 2)
+    end
+  end
+end
+
+--- The last lock status sent to the proxy.
+local function lastLockStatus()
+  for i = #H.sent, 1, -1 do
+    local s = H.sent[i]
+    if s.command == "LOCK_STATUS_CHANGED" and s.binding == PROXY then
+      return s.params.LOCK_STATUS
+    end
+  end
+end
+
+for _, mode in ipairs({
+  { name = "Poll", props = { ["Offline Key"] = OFFLINE_KEY } },
+  { name = "Persistent", props = PERSISTENT },
+}) do
+  H.test(mode.name .. ": an unlock whose CONNECTED arrives 59s after the tap goes out", function()
+    withClock(function()
+      now = 1000
+      H.boot(mode.props)
+      H.rfp(PROXY, "UNLOCK")
+      now = 1059
+      session()
+      T.eq("the unlock is written", lastCommand(), yale_protocol.Opcode.UNLOCK)
+      T.eq("and nothing reports a fault", lastLockStatus(), nil)
+    end)
+  end)
+
+  H.test(mode.name .. ": an unlock whose CONNECTED arrives 61s after the tap is dropped", function()
+    withClock(function()
+      now = 1000
+      H.boot(mode.props)
+      H.rfp(PROXY, "UNLOCK")
+      now = 1061
+      session()
+      T.eq("a status read goes out instead", lastCommand(), yale_protocol.Opcode.GET_STATUS)
+      T.eq("the proxy is told the command failed", lastLockStatus(), "fault")
+      T.eq("as is Lock Status", Properties["Lock Status"], "fault")
+      T.eq("and Driver Status says why", Properties["Driver Status"], "Error: Unlock expired")
+    end)
+  end)
+end
+
+H.test("Persistent: a lock retried after the connect timeout is dropped when the retry connects", function()
+  withClock(function()
+    now = 1000
+    H.boot(PERSISTENT)
+    lock()
+    now = 1200
+    H.fire("ConnectionTimeout")
+    T.eq("the timeout retries the lock", retryCommand(), "lock")
+    now = 1205
+    H.fire("Reconnect")
+    H.clearSent()
+    session()
+    T.eq("a status read goes out instead", lastCommand(), yale_protocol.Opcode.GET_STATUS)
+    T.eq("the proxy is told the command failed", lastLockStatus(), "fault")
+    T.eq("and Driver Status says why", Properties["Driver Status"], "Error: Lock expired")
+  end)
 end)
 
 T.finish()
