@@ -145,6 +145,51 @@ H.test("a second Bot press during a connect sends no second CONNECT", function()
   T.eq("the press is written once", H.count("GATT_WRITE", ESPHOME), 1)
 end)
 
+local function writeAnswered()
+  H.rfp(ESPHOME, "GATT_WRITE_RESPONSE", { success = "true", error = "0" })
+end
+
+H.test("a command sent while another waits for its reply goes out after that reply", function()
+  boot(RELAY_2PM)
+  channel(1, "ON")
+  relayReady()
+  writeAnswered()
+  channel(2, "ON")
+  T.eq("channel 2 waits", commandsWritten(), { CH1_ON })
+  T.eq("without connecting again", H.count("CONNECT", ESPHOME), 1)
+
+  deviceSays("\x01")
+  T.eq("and goes out on channel 1's reply", commandsWritten(), { CH1_ON, CH2_ON })
+end)
+
+H.test("a reply that never comes does not hold the next command", function()
+  boot(RELAY_2PM)
+  channel(1, "ON")
+  relayReady()
+  writeAnswered()
+  channel(2, "ON")
+  T.truthy("the reply is timed", H.armed("CommandReply"))
+  T.truthy("the wait runs out", H.fire("CommandReply"))
+  T.eq("channel 2 goes out", commandsWritten(), { CH1_ON, CH2_ON })
+end)
+
+H.test("a Plug Mini sends the next command on the write's answer and then lets the link go", function()
+  local PLUG = SwitchBot.DEVICE_NAMES[SwitchBot.DeviceTypeCode.PLUG_MINI]
+  boot(PLUG)
+  channel(1, "ON")
+  connected(PLUG)
+  T.eq("the first command goes out", H.count("GATT_WRITE", ESPHOME), 1)
+  channel(1, "OFF")
+  T.eq("the next one waits for its answer", H.count("GATT_WRITE", ESPHOME), 1)
+
+  writeAnswered()
+  T.eq("and goes out on it", H.count("GATT_WRITE", ESPHOME), 2)
+  T.falsy("the link stays up meanwhile", H.armed("DisconnectDelay"))
+
+  writeAnswered()
+  T.truthy("then the link is released", H.armed("DisconnectDelay"))
+end)
+
 --- What os.time reads inside withClock.
 local now = 0
 

@@ -319,6 +319,9 @@ local CONNECT_TIMEOUT_MS = 200000
 --- Age (s) past which a queued press is dropped rather than sent
 --- @type integer
 local COMMAND_MAX_AGE_S = 60
+--- How long a written command waits for its reply notification
+--- @type integer
+local COMMAND_REPLY_TIMEOUT_MS = 5000
 --- @type integer
 local PRESS_REVERT_DELAY_MS = 5000
 --- @type integer
@@ -443,6 +446,7 @@ local function resetConnectionState(clearHandles)
   log:trace("resetConnectionState(%s)", clearHandles)
   -- Connection state
   CancelTimer("ConnectionTimeout")
+  CancelTimer("CommandReply")
   pendingConnect = false
   pendingCommands = {}
   awaitingCommandResponse = false
@@ -1446,6 +1450,7 @@ end
 --- The command on the wire has its answer: send the next queued one, or release the link.
 local function commandDone()
   log:trace("commandDone()")
+  CancelTimer("CommandReply")
   awaitingCommandResponse = false
   if pendingCommands[1] then
     executePendingCommand()
@@ -1499,7 +1504,7 @@ local function initiateCommand(cmd, channel, isOn)
   log:trace("initiateCommand(%s, %s, %s)", cmd, channel, isOn)
   cancelPendingDisconnect()
 
-  if not pendingCommands[1] and isReadyToSend() then
+  if not pendingCommands[1] and not awaitingCommandResponse and isReadyToSend() then
     log:debug("Ready to send, executing command immediately")
     if sendCommand(cmd, requiresEncryption) then
       if deviceCategory == DEVICE_CATEGORY.BOT then
@@ -2686,13 +2691,18 @@ function RFP.GATT_WRITE_RESPONSE(idBinding, strCommand, tParams, args)
     end
   end
 
-  -- Bot: the write's answer ends the command
-  if deviceCategory == DEVICE_CATEGORY.BOT and awaitingCommandResponse then
+  if not awaitingCommandResponse then
+    return
+  end
+  if deviceCategory == DEVICE_CATEGORY.BOT or not notificationsSubscribed then
+    -- No reply is read without notifications, so the write's answer ends the command
     commandDone()
-  elseif awaitingCommandResponse and not notificationsSubscribed and pendingCommands[1] then
-    -- No reply is read without notifications, so the next command goes on the write's answer
-    awaitingCommandResponse = false
-    executePendingCommand()
+  else
+    -- A reply that never comes must not hold the commands queued behind it
+    SetTimer("CommandReply", COMMAND_REPLY_TIMEOUT_MS, function()
+      log:warn("No reply to the command after %dms", COMMAND_REPLY_TIMEOUT_MS)
+      commandDone()
+    end)
   end
 end
 
