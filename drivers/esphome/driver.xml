@@ -205,6 +205,21 @@
         <description>Override the coordinator's global Minimum Room RSSI for this proxy's room. -100 means use coordinator default.</description>
       </property>
       <property>
+        <name>Button LEDs</name>
+        <type>LABEL</type>
+        <default>Button LEDs</default>
+      </property>
+      <property>
+        <name>Configure Button LED</name>
+        <type>DYNAMIC_LIST</type>
+        <description>Pick a button to choose which of the device's lights shows the state of the load the button is bound to, the way a Control4 keypad lights its buttons.</description>
+      </property>
+      <property>
+        <name>Button LED</name>
+        <type>DYNAMIC_LIST</type>
+        <description>The light that shows the selected button's load in the load's button colors, the way a Control4 keypad lights its buttons. (None) leaves the light alone.</description>
+      </property>
+      <property>
         <name>Device Info</name>
         <type>LABEL</type>
         <default>Device Info</default>

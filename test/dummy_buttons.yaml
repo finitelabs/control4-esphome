@@ -6,7 +6,10 @@
 #   - event   x1   a paddle exposed via the modern `event` entity instead
 #   - button  x1   a device-side action (an ESPHome `button` is an actuator you
 #                  press FROM the controller, NOT a paddle that reports presses)
-#   - light   x1   the gang-3 status LED, to test pushing C4 LED feedback back
+#   - event   x1   gang 1's paddle as an event, with an RGB LED, on the main device
+#   - light   x2   gang 1's RGB LED and gang 3's single-color LED, to test the
+#                  Button LED mirror: gang 3's event and LED share a sub-device
+#                  (pre-filled pairing), gang 1's are paired in Composer
 #
 # The point of the mock is the direction of each binding: a paddle must drive
 # Control4 loads (keypad role) while an ESPHome `button` must be pressable from
@@ -20,11 +23,15 @@
 #   - paddle_press(gang)     paddle down then up on gang 1-3 (binary_sensor)
 #   - paddle_hold(gang)      paddle down, stays down until paddle_release
 #   - paddle_release(gang)   paddle up
-#   - fire_event(kind)       fire press/double_press/long_press on the event entity
+#   - fire_event(kind)       fire press/double_press/long_press on gang 3's event
+#   - fire_gang_event(gang, kind)  fire an event on gang 1's or gang 3's event entity
 
 esphome:
   name: dummy-buttons
   friendly_name: Dummy Buttons
+  devices:
+    - id: gang_3
+      name: "Gang 3"
 
 host:
 
@@ -68,6 +75,15 @@ api:
         - lambda: |-
             ESP_LOGI("paddle", "event %s", kind.c_str());
             id(paddle_3_event).trigger(kind);
+    - service: fire_gang_event
+      variables:
+        gang: int
+        kind: string
+      then:
+        - lambda: |-
+            ESP_LOGI("paddle", "gang %d event %s", gang, kind.c_str());
+            if (gang == 1) { id(paddle_1_event).trigger(kind); }
+            if (gang == 3) { id(paddle_3_event).trigger(kind); }
 
 output:
   - platform: template
@@ -75,6 +91,21 @@ output:
     type: float
     write_action:
       - lambda: 'ESP_LOGI("led", "gang3 led -> %.3f", state);'
+  - platform: template
+    id: out_gang1_red
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("led", "gang1 led red -> %.3f", state);'
+  - platform: template
+    id: out_gang1_green
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("led", "gang1 led green -> %.3f", state);'
+  - platform: template
+    id: out_gang1_blue
+    type: float
+    write_action:
+      - lambda: 'ESP_LOGI("led", "gang1 led blue -> %.3f", state);'
 
 switch:
   - platform: template
@@ -109,8 +140,16 @@ binary_sensor:
 
 event:
   - platform: template
-    name: "Gang 3 Paddle Event"
+    name: "Gang 1 Paddle Event"
+    id: paddle_1_event
+    device_class: button
+    event_types:
+      - "press"
+      - "long_press"
+  - platform: template
+    name: "Paddle Event"
     id: paddle_3_event
+    device_id: gang_3
     device_class: button
     event_types:
       - "press"
@@ -125,8 +164,16 @@ button:
       - lambda: 'ESP_LOGI("button", "Identify pressed from the controller");'
 
 light:
+  - platform: rgb
+    name: "Gang 1 LED"
+    id: gang_1_led
+    red: out_gang1_red
+    green: out_gang1_green
+    blue: out_gang1_blue
+    default_transition_length: 0s
   - platform: monochromatic
-    name: "Gang 3 LED"
+    name: "LED"
     id: gang_3_led
+    device_id: gang_3
     output: out_gang3_led
     default_transition_length: 0s

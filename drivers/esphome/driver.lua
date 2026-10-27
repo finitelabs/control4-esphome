@@ -40,6 +40,7 @@ local bleScanner = require("esphome.ble.scanner")
 local bleScannerProperties = require("esphome.ble.scanner_properties")
 
 local BluetoothProxyCapability = require("esphome.capabilities.bluetooth_proxy")
+local ButtonLeds = require("esphome.button_leds")
 
 local BinarySensorEntity = require("esphome.entities.binary_sensor")
 local ButtonEntity = require("esphome.entities.button")
@@ -68,6 +69,7 @@ local localScannerNode = LocalScannerNode:new(esphome)
 bleScanner:addNode(localScannerNode)
 
 local bluetoothProxyCapability = BluetoothProxyCapability:new(esphome)
+local buttonLeds = ButtonLeds:new(esphome)
 
 --- @type table<EntityType, Entity>
 local Entities = {
@@ -77,7 +79,7 @@ local Entities = {
   [CoverEntity.TYPE] = CoverEntity:new(esphome),
   [DateEntity.TYPE] = DateEntity:new(esphome),
   [DateTimeEntity.TYPE] = DateTimeEntity:new(esphome),
-  [EventEntity.TYPE] = EventEntity:new(esphome),
+  [EventEntity.TYPE] = EventEntity:new(esphome, buttonLeds),
   [FanEntity.TYPE] = FanEntity:new(esphome),
   [LightEntity.TYPE] = LightEntity:new(esphome),
   [LockEntity.TYPE] = LockEntity:new(esphome),
@@ -151,6 +153,9 @@ function OnDriverLateInit()
 
   -- Hide Bluetooth Proxy properties until we detect support
   bluetoothProxyCapability:setPropertiesAttribs(constants.HIDE_PROPERTY)
+
+  -- Shown once a connect finds both event buttons and lights to pair
+  buttonLeds:hideProperties()
 
   -- Back the device selection property before anything can reach it. The
   -- selection is persisted configuration, so it must not wait on the connect
@@ -244,6 +249,16 @@ function OPC.Log_Level(propertyValue)
   if esphome:isLogsSubscribed() then
     disconnectForLogs()
   end
+end
+
+function OPC.Configure_Button_LED(propertyValue)
+  log:trace("OPC.Configure_Button_LED('%s')", propertyValue)
+  buttonLeds:configureChanged(propertyValue)
+end
+
+function OPC.Button_LED(propertyValue)
+  log:trace("OPC.Button_LED('%s')", propertyValue)
+  buttonLeds:ledChanged(propertyValue)
 end
 
 function OPC.IP_Address(propertyValue)
@@ -468,6 +483,7 @@ function Connect()
 
   --- @param suspend? boolean The driver dropped the connection itself; the device was not lost.
   local function notifyEntitiesDisconnected(suspend)
+    buttonLeds:disconnected()
     for _, handler in pairs(Entities) do
       if type(handler.disconnected) == "function" then
         local success, err = pcall(handler.disconnected, handler, suspend)
@@ -651,6 +667,13 @@ function RefreshStatus()
           else
             log:debug("No Entities['%s']:discovered() handler", entity.entity_type)
           end
+        end
+
+        local success, ret = xpcall(function()
+          buttonLeds:discovered(entities)
+        end, debug.traceback)
+        if not success then
+          log:error("Button LEDs discovery failed; %s", ret)
         end
 
         return entities
