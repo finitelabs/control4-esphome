@@ -2054,7 +2054,6 @@ function RFP.CONNECTION_FAILED(idBinding, strCommand, tParams, args)
     return
   end
   log:error("Connection failed: %s", errMsg)
-  -- Retry a tapped lock or unlock, as a timeout or dropped link does
   local savedCommand = (pendingCommand == "lock" or pendingCommand == "unlock") and pendingCommand or nil
   resetConnectionState()
   -- The parent can close the link after reporting the failure; there is no link
