@@ -496,8 +496,8 @@ room. Use this when a room has different size or characteristics than others.
 
 ##### Restart Bluetooth Proxy When Stuck \[ default: **_Off_** \]
 
-> Only visible when the ESPHome device has a `restart`, `safe_mode` or
-> `factory_reset` button.
+> Only visible when the ESPHome device has a `restart` button with its default
+> icon.
 
 The restart button to press when the proxy is wedged (see
 [Bluetooth Proxy Status](#bluetooth-proxy-status-read-only)): its scanner has
@@ -508,9 +508,10 @@ service discovery three times in a row. The button is pressed at most once every
 - **Off (default)** - Only report the condition in Bluetooth Proxy Status
 - **_button name_** - Press this button
 
-> **Warning:** ESPHome's Restart, Safe Mode and Factory Reset buttons are all
-> offered here. Pick the Restart button. Factory Reset erases the device's
-> settings.
+Only buttons that report the `restart` device class, the config entity category
+and the `mdi:restart` icon are offered, so ESPHome's Safe Mode and Factory Reset
+buttons never are. A Restart button whose icon the YAML overrides is not offered
+either.
 
 #### Button LEDs
 

@@ -93,9 +93,12 @@ local STALE_ALLOCATION_TIMEOUTS = 3
 --- Minimum time between two automatic restarts of the proxy.
 local AUTO_RESTART_MIN_INTERVAL_SECONDS = 6 * 60 * 60
 
---- ESPHome's restart, safe_mode and factory_reset buttons all report this device
---- class, so it narrows the choice offered but never picks the button.
+--- ESPHome's restart, safe_mode and factory_reset buttons share this device class and
+--- the config category; only restart's default icon is RESTART_ICON, safe_mode and
+--- factory_reset use mdi:restart-alert.
 local RESTART_DEVICE_CLASS = "restart"
+
+local RESTART_ICON = "mdi:restart"
 
 local RESTART_BUTTON_OFF = "Off"
 
@@ -126,7 +129,7 @@ local SCANNER_MODE_NAMES = {
 --- @field _scannerNoRecoveryIntervals integer Consecutive watchdog intervals spent in a state the driver cannot act from
 --- @field _scannerUnrecoverable boolean Whether advertisements are absent and recovery is exhausted or impossible
 --- @field _discoveryTimeouts table<string, integer?> Consecutive unanswered service discoveries of an allocated device, by MAC
---- @field _restartButtons table<string, ProtoListEntitiesButtonResponse>|nil Restart-class buttons by name, nil until entities are listed
+--- @field _restartButtons table<string, ProtoListEntitiesButtonResponse>|nil Restart buttons by name, nil until entities are listed
 local BluetoothProxyCapability = {
   TYPE = "bluetooth_proxy",
   LABEL_PROPERTY_NAME = "Bluetooth Proxy Settings",
@@ -443,17 +446,17 @@ function BluetoothProxyCapability:_clearDiscoveryTimeouts(mac)
 end
 
 --- Count a service discovery that got no answer while the device stayed
---- allocated; any successful discovery of the device clears the count.
+--- allocated; any other result except a supersession clears the count.
 --- @private
 --- @param mac string
 --- @param err any The rejection reason, nil on success
 function BluetoothProxyCapability:_onDiscoveryResult(mac, err)
-  if err == nil then
-    self:_clearDiscoveryTimeouts(mac)
+  if err == ESPHomeClient.SUPERSEDED then
     return
   end
 
   if err ~= ESPHomeClient.GATT_SERVICES_TIMEOUT or not self._client:isBluetoothDeviceAllocated(mac) then
+    self:_clearDiscoveryTimeouts(mac)
     return
   end
 
@@ -499,12 +502,17 @@ function BluetoothProxyCapability:_autoRestart(reason)
     end)
 end
 
---- Offer the device's restart-class buttons for the automatic restart.
+--- Offer the device's restart buttons for the automatic restart.
 --- @param entities table<string, table?> Entities as listed by the client
 function BluetoothProxyCapability:setRestartButtons(entities)
   local buttons = {}
   for _, entity in pairs(entities) do
-    if entity.entity_type == ESPHomeClient.EntityType.BUTTON and entity.device_class == RESTART_DEVICE_CLASS then
+    if
+      entity.entity_type == ESPHomeClient.EntityType.BUTTON
+      and entity.device_class == RESTART_DEVICE_CLASS
+      and entity.entity_category == ESPHomeProtoSchema.Enum.EntityCategory.ENTITY_CATEGORY_CONFIG
+      and entity.icon == RESTART_ICON
+    then
       buttons[entity.name] = entity
     end
   end

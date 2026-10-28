@@ -46,12 +46,31 @@ local RESTART_BUTTON_KEY = "BluetoothProxyRestartButton"
 local LAST_RESTART_KEY = "BluetoothProxyLastAutoRestart"
 local MARKER = "Power Cycle Device"
 
+local CONFIG = ESPHomeProtoSchema.Enum.EntityCategory.ENTITY_CATEGORY_CONFIG
+
+local DIAGNOSTIC = ESPHomeProtoSchema.Enum.EntityCategory.ENTITY_CATEGORY_DIAGNOSTIC
+
+--- A restart-class button as ESPHome lists it.
+local function restartClassButton(name, key, icon, category)
+  return {
+    entity_type = "button",
+    device_class = "restart",
+    entity_category = category or CONFIG,
+    icon = icon,
+    name = name,
+    key = key,
+    device_id = 0,
+  }
+end
+
 local ENTITIES = {
-  restart = { entity_type = "button", device_class = "restart", name = "Restart", key = 101, device_id = 0 },
-  safe = { entity_type = "button", device_class = "restart", name = "Safe Mode", key = 102, device_id = 0 },
-  factory = { entity_type = "button", device_class = "restart", name = "Factory Reset", key = 103, device_id = 0 },
+  restart = restartClassButton("Restart", 101, "mdi:restart"),
+  safe = restartClassButton("Safe Mode", 102, "mdi:restart-alert"),
+  factory = restartClassButton("Factory Reset", 103, "mdi:restart-alert"),
   doorbell = { entity_type = "button", name = "Doorbell", key = 104, device_id = 0 },
   sensor = { entity_type = "sensor", device_class = "restart", name = "Uptime", key = 105, device_id = 0 },
+  reboot = restartClassButton("Reboot", 106, "mdi:power"),
+  radarReset = restartClassButton("Radar Factory Reset", 107, "mdi:restart", DIAGNOSTIC),
 }
 
 local status, restartList, sent, calls
@@ -145,10 +164,14 @@ local function unansweredDiscovery(proxy)
   ShimFireTimers()
 end
 
-T.section("the restart choice offers only restart-class buttons and defaults to Off")
+T.section("the restart choice offers only the Restart button and defaults to Off")
 do
   newProxy()
-  T.eq("Off first, then the restart-class buttons by name", restartList.list, "Off,Factory Reset,Restart,Safe Mode")
+  T.eq(
+    "Off, then Restart; no Safe Mode, Factory Reset, re-iconed Reboot or diagnostic reset",
+    restartList.list,
+    "Off,Restart"
+  )
   T.eq("nothing is chosen for the installer", restartList.selected, "Off")
 end
 
@@ -203,20 +226,14 @@ do
   T.eq("pressed again once the window has passed", #presses(), 2)
 end
 
-T.section("only the chosen button is ever pressed")
+T.section("a saved choice that is not offered presses nothing")
 do
-  for _, choice in ipairs({ "Safe Mode", "Factory Reset" }) do
+  for _, choice in ipairs({ "Safe Mode", "Factory Reset", "Reboot", "Radar Factory Reset", "Gone" }) do
     local proxy = newProxy(choice)
+    T.eq("a saved " .. choice .. " shows as Off", restartList.selected, "Off")
     stuckFor(proxy, RESTART_INTERVALS)
-    local key = choice == "Safe Mode" and ENTITIES.safe.key or ENTITIES.factory.key
-    T.eq("the installer's choice of " .. choice .. " is what is pressed", presses()[1], key)
+    T.eq("and " .. choice .. " is never pressed", #presses(), 0)
   end
-
-  -- A saved name the device no longer lists is not matched to anything else.
-  local proxy = newProxy("Reboot")
-  T.eq("an unlisted saved choice shows as Off", restartList.selected, "Off")
-  stuckFor(proxy, RESTART_INTERVALS)
-  T.eq("and presses nothing", #presses(), 0)
 end
 
 T.section("time with the API down does not count towards a restart")
@@ -333,6 +350,52 @@ do
   end
   T.excludes("not after timeouts of a released device", status, MARKER)
   T.eq("the child heard only the plain failure", childErrors()[#childErrors()], "GATT discovery failed")
+end
+
+--- A CONNECT for the allocated device whose service discovery answers with a GATT error.
+local function erroredDiscovery(proxy, client)
+  proxy:handleCommand(MAC, DEVICE_BINDING, "CONNECT", {}, {})
+  client:_invokeCallback(
+    Message.BluetoothGATTErrorResponse.id,
+    { address = ADDRESS, error = 133 },
+    Message.BluetoothGATTErrorResponse
+  )
+end
+
+T.section("a GATT error between timeouts starts the count over")
+do
+  local proxy, client = newProxy("Restart")
+  unansweredDiscovery(proxy)
+  erroredDiscovery(proxy, client)
+  unansweredDiscovery(proxy)
+  unansweredDiscovery(proxy)
+  T.eq("timeout, error, timeout, timeout presses nothing", #presses(), 0)
+  T.excludes("and reports nothing", status, MARKER)
+  unansweredDiscovery(proxy)
+  T.eq("a third timeout in a row presses", presses()[1], ENTITIES.restart.key)
+end
+
+T.section("a released device between timeouts starts the count over")
+do
+  local proxy, client = newProxy("Restart")
+  unansweredDiscovery(proxy)
+  unansweredDiscovery(proxy)
+  proxy:handleCommand(MAC, DEVICE_BINDING, "CONNECT", {}, {})
+  client._btConnections.allocated = {}
+  ShimFireTimers()
+  client._btConnections.allocated = { MAC }
+  unansweredDiscovery(proxy)
+  T.eq("presses nothing", #presses(), 0)
+end
+
+T.section("a superseded discovery leaves the count as it was")
+do
+  local proxy = newProxy("Restart")
+  unansweredDiscovery(proxy)
+  unansweredDiscovery(proxy)
+  proxy:handleCommand(MAC, DEVICE_BINDING, "CONNECT", {}, {})
+  unansweredDiscovery(proxy)
+  T.eq("the timeout after the supersession is the third", presses()[1], ENTITIES.restart.key)
 end
 
 T.section("removing the device takes its stale allocation down")
