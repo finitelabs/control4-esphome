@@ -261,6 +261,11 @@ function OPC.Button_LED(propertyValue)
   buttonLeds:ledChanged(propertyValue)
 end
 
+function OPC.Restart_Bluetooth_Proxy_When_Stuck(propertyValue)
+  log:trace("OPC.Restart_Bluetooth_Proxy_When_Stuck('%s')", propertyValue)
+  bluetoothProxyCapability:onRestartButtonChanged(propertyValue)
+end
+
 function OPC.IP_Address(propertyValue)
   log:trace("OPC.IP_Address('%s')", propertyValue)
   if not gInitialized then
@@ -674,6 +679,13 @@ function RefreshStatus()
         end, debug.traceback)
         if not success then
           log:error("Button LEDs discovery failed; %s", ret)
+        end
+
+        success, ret = xpcall(function()
+          bluetoothProxyCapability:setRestartButtons(entities)
+        end, debug.traceback)
+        if not success then
+          log:error("Bluetooth proxy restart button discovery failed; %s", ret)
         end
 
         return entities
