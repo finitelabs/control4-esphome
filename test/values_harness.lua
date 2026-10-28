@@ -85,6 +85,7 @@ end
 
 --- The stored values, decoded.
 function H.blob()
+  ShimPersistLand()
   local raw = C4:PersistGetValue("Values")
   return raw and Deserialize(raw) or {}
 end

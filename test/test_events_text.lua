@@ -20,6 +20,7 @@ end
 
 -- A restart: fresh modules over the same storage, then restoreEvents() as at OnDriverLateInit.
 local function restart()
+  ShimPersistLand()
   T.unload("^lib%.")
   ShimResetEvents()
   local events = require("lib.events")

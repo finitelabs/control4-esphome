@@ -11,12 +11,12 @@ local T = require("testlib")
 require("c4_shim")
 require("drivers-common-public.global.lib") -- Serialize
 
--- Every storage call, in order, as "set <key>" or "delete <key>", and the
--- encrypted flag of each key's last write.
+-- Every storage call, in order, as "set <key>", 'set <key> ""' or "delete <key>",
+-- and the encrypted flag of each key's last write.
 local calls, encryptedFlag = {}, {}
 local realSet, realDelete = C4.PersistSetValue, C4.PersistDeleteValue
 function C4:PersistSetValue(key, value, encrypted)
-  table.insert(calls, "set " .. key)
+  table.insert(calls, "set " .. key .. (value == "" and ' ""' or ""))
   encryptedFlag[key] = encrypted
   return realSet(self, key, value, encrypted)
 end
@@ -37,6 +37,7 @@ local function reset()
 end
 
 local function stored(key)
+  ShimPersistLand()
   return Deserialize(C4:PersistGetValue(key))
 end
 
@@ -56,6 +57,7 @@ p:defer(function()
   p:set("Plain", { n = 2 })
 end)
 T.eq("each set is its own write", calls, { "set Plain", "set Plain" })
+ShimPersistLand()
 T.eq("the bytes are the value serialized, as before", C4:PersistGetValue("Plain"), Serialize({ n = 2 }))
 T.eq("and no timer is armed", #timers, 0)
 
@@ -128,10 +130,10 @@ p:defer(function()
   p:set("Hot", { n = 1 })
   p:delete("Hot")
 end)
-T.eq("the delete went out inside defer", calls, { "delete Hot" })
+T.eq("the delete went out inside defer", calls, { "delete Hot", 'set Hot ""' })
 ShimFireTimers()
 p:flush()
-T.eq("neither the timer nor flush writes it again", calls, { "delete Hot" })
+T.eq("neither the timer nor flush writes it again", calls, { "delete Hot", 'set Hot ""' })
 T.eq("storage has no key", C4:PersistGetValue("Hot"), nil)
 
 p = newPersist()
@@ -143,7 +145,7 @@ p:defer(function()
 end)
 p:reset({ "Hot", "Warm" })
 ShimFireTimers()
-T.eq("reset drops every pending write", calls, { "delete Hot", "delete Warm" })
+T.eq("reset drops every pending write", calls, { "delete Hot", 'set Hot ""', "delete Warm", 'set Warm ""' })
 
 -- ── The scope ────────────────────────────────────────────────────────────────
 

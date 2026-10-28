@@ -22,7 +22,8 @@
 #   - Squash merges only, auto-merge allowed, head branches deleted on merge
 #   - Default branch "main" (renames "master" if found)
 #   - Branch ruleset "Default": no deletions or force pushes, PRs require one
-#     approval and a passing "build" check, admins can bypass
+#     approval and a passing "build" check, plus extra_required_checks from
+#     the copier answers, admins can bypass
 #   - Dependabot alerts and security updates enabled
 #
 # Requires the GitHub CLI (gh) authenticated with admin access to the
@@ -92,7 +93,7 @@ RULESET=$(cat << EOF
     }},
     {"type": "required_status_checks", "parameters": {
       "do_not_enforce_on_create": false,
-      "required_status_checks": [{"context": "build", "integration_id": 15368}],
+      "required_status_checks": [{"context": "build", "integration_id": 15368}, {"context": "proto-schema", "integration_id": 15368}],
       "strict_required_status_checks_policy": false
     }}
   ]

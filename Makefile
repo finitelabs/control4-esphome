@@ -1,6 +1,7 @@
 # Control4 Driver Build System
 # Run `make help` for available targets.
 
+PROJECT_NAME  := control4-esphome
 DISTRIBUTIONS := drivercentral oss
 README_DRIVER := esphome
 README_BUILD  := oss
@@ -235,11 +236,10 @@ package: $(VENV_STAMP) $(PACKAGER) ## Create .c4z driver packages
 
 .PHONY: zip
 zip: $(VENV_STAMP) ## Zip the c4z/ and docs/ subfolders per distribution
-	@repo="$$(basename "$$(pwd)")"; \
-	for build in $(DISTRIBUTIONS); do \
+	@for build in $(DISTRIBUTIONS); do \
 		(cd "dist/$$build" && \
 			"$(CURDIR)/$(VENV_PY)" "$(CURDIR)/tools/package.py" zip \
-				"$$repo.zip" c4z docs); \
+				"$(PROJECT_NAME).zip" c4z docs); \
 	done
 
 # ─── Test ─────────────────────────────────────────────────────────────────────
@@ -249,7 +249,8 @@ zip: $(VENV_STAMP) ## Zip the c4z/ and docs/ subfolders per distribution
 # test/run_test.sh sets up. Existing suites are written against that shim and
 # fail on a bare `luajit <file>` with "attempt to index global 'C4'". A test that
 # defines its own C4 still wins, since it assigns after the preload has run.
-test: ## Run the Lua test suite (test/test_*.lua)
+# tools/test_*.py are stdlib unittest, run with python3 as preprocess.py is, so need no .venv.
+test: ## Run the Lua test suite (test/test_*.lua) and the tools' tests (tools/test_*.py)
 	@found=0; \
 	for f in test/test_*.lua; do \
 		[ -e "$$f" ] || continue; \
@@ -259,6 +260,11 @@ test: ## Run the Lua test suite (test/test_*.lua)
 			luajit -e "require('c4_shim')" "$$f" || exit 1; \
 	done; \
 	if [ "$$found" = "0" ]; then echo "No test/test_*.lua files found; nothing to run."; fi
+	@for f in tools/test_*.py; do \
+		[ -e "$$f" ] || continue; \
+		echo "==> $$f"; \
+		python3 "$$f" || exit 1; \
+	done
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 

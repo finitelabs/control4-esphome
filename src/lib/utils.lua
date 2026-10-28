@@ -3,7 +3,7 @@
 local deferred = require("deferred")
 
 local log = require("lib.logging")
-local lru = require("lib.lru")
+local LRUCache = require("lib.lru")
 
 local constants = require("constants")
 
@@ -174,13 +174,13 @@ function SendUIRequest(id, request, tParams)
 end
 
 --- @type LRUCache<string,table<string,ExtendedDeviceDefinition>>
-local devicesCache = lru:new(1000, 180)
+local devicesCache = LRUCache:new(1000, 180)
 
 --- @type LRUCache<string,table|nil>
-local devicesDataCache = lru:new(1000, 180)
+local devicesDataCache = LRUCache:new(1000, 180)
 
 --- @type LRUCache<string,integer|nil>
-local agentIdCache = lru:new(1000, 180)
+local agentIdCache = LRUCache:new(1000, 180)
 
 --- Clears the specific device ID from the cache.
 --- @param deviceId DeviceId The ID of the device to clear from the cache.

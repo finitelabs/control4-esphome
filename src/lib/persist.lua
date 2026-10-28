@@ -189,8 +189,8 @@ function Persist:_get(key, default, encrypted)
     local stored = PersistGetValue(key, encrypted)
     value = Deserialize(stored)
     -- A string is stored raw, and C4:Base64Decode reads one under four characters or with a space or
-    -- punctuation as "", which Deserialize reads as nil.
-    if value == nil and type(stored) == "string" and stored ~= STORED_NAN then
+    -- punctuation as "", which Deserialize reads as nil. A stored "" is a key set() deleted.
+    if value == nil and type(stored) == "string" and stored ~= STORED_NAN and stored ~= "" then
       value = stored
     elseif value == stored and type(stored) == "string" then
       -- Deserialize hands back what it cannot read, such as a table with text that is not UTF-8
@@ -223,7 +223,9 @@ function Persist:set(key, value, encrypted)
   if value == nil or value == "" or value ~= value then
     self._persist[key] = EMPTY
     self._pending[key] = nil -- a later flush must not bring the key back
+    -- A delete applies at once, and a write still waiting lands after it; "" lands in order.
     PersistDeleteValue(key)
+    PersistSetValue(key, "")
   else
     if type(value) == "table" then
       self._persist[key] = TableDeepCopy(value)
