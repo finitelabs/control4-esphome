@@ -37,6 +37,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   channel when a scene set both
 - Fixed a Yale lock or unlock tapped in Persistent mode being dropped when the
   connection failed; it is now retried like after a dropped connection
+- Fixed a light's color in Navigator and in its variables staying on the old
+  color after a color preset was picked, one of the Color Agent's (such as
+  Relax) or one of the light's own, or after the light turned on with Color On
+  Mode set to Previous or to one of the light's own presets; the light itself
+  changed color
 
 ### Changed
 

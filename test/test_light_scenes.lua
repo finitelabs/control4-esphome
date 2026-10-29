@@ -204,7 +204,15 @@ local function restart(modes, on)
   dofile(DRIVER)
   function SendToProxy(idBinding, strCommand, tParams)
     capabilitiesTold = capabilitiesTold or strCommand == "DYNAMIC_CAPABILITIES_CHANGED"
-    if idBinding == PROXY and (strCommand == "LIGHT_COLOR_CHANGED" or strCommand == "LIGHT_COLOR_CHANGING") then
+    -- The proxy drops a CHANGED that names a preset id without its origin (dev, 2026-10-29).
+    local dropped = strCommand == "LIGHT_COLOR_CHANGED"
+      and tParams.LIGHT_COLOR_CURRENT_PRESET_ID ~= nil
+      and tParams.LIGHT_COLOR_CURRENT_PRESET_ORIGIN == nil
+    if
+      idBinding == PROXY
+      and (strCommand == "LIGHT_COLOR_CHANGED" or strCommand == "LIGHT_COLOR_CHANGING")
+      and not dropped
+    then
       local p, form = tParams, "%g,%g,%d"
       proxyColor = form:format(p.LIGHT_COLOR_CURRENT_X, p.LIGHT_COLOR_CURRENT_Y, p.LIGHT_COLOR_CURRENT_COLOR_MODE)
       proxyTarget = p.LIGHT_COLOR_TARGET_X
@@ -241,7 +249,7 @@ end
 --- A fresh light: clears what the process-wide store holds of the last one.
 --- @param modes table supported_color_modes.
 local function light(modes, on)
-  for _, key in ipairs({ "color_on_mode", "color_presets", "previous_color", "white_point" }) do
+  for _, key in ipairs({ "color_on_mode", "previous_color", "white_point" }) do
     persist:delete(key)
   end
   proxyColor, proxyTarget, proxyLevel, proxyLevelTarget, proxyOnline = nil, nil, nil, nil, nil
@@ -416,13 +424,15 @@ do
     LIGHT_COLOR_TARGET_Y = ON[2],
     LIGHT_COLOR_TARGET_COLOR_RATE = 750,
     LIGHT_COLOR_TARGET_PRESET_ID = ON.id,
+    LIGHT_COLOR_TARGET_PRESET_ORIGIN = 1,
   })
   run(15000)
   T.eq("with its preset: the light is sent nothing more, and the proxy is told the On color once, in that preset", {
     #colors(),
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ID"),
-  }, { 2, { ON[1] }, { ON.id } })
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ORIGIN"),
+  }, { 2, { ON[1] }, { ON.id }, { 1 } })
   offInBlue()
   local asked = setColor({ 0.2, 0.5 })
   setColor(BLUE)
@@ -680,25 +690,30 @@ do
   T.eq("and the proxy is told it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
 end
 
-T.section("a rated on tells its On color as the device preset it is, and again only in another one the proxy names")
+T.section("a rated on tells its On color as the preset it is, and again only in another one the proxy names")
 do
-  --- The preset each LIGHT_COLOR_CHANGED since the mark names, false for none.
+  --- The preset each LIGHT_COLOR_CHANGED since the mark names, as "id/origin", false for none.
   local function presetsTold()
     local out = {}
     for _, s in ipairs(sent) do
       if s.binding == PROXY and s.command == "LIGHT_COLOR_CHANGED" then
-        out[#out + 1] = s.params.LIGHT_COLOR_CURRENT_PRESET_ID or false
+        local p = s.params
+        out[#out + 1] = p.LIGHT_COLOR_CURRENT_PRESET_ID
+            and p.LIGHT_COLOR_CURRENT_PRESET_ID .. "/" .. tostring(p.LIGHT_COLOR_CURRENT_PRESET_ORIGIN)
+          or false
       end
     end
     return out
   end
+  local RELAX, ENERGIZE = { id = 5, origin = 2 }, { ON[1], ON[2], id = 1, origin = 2 }
   -- { the Color On Mode's preset, the one the proxy's send names, those the proxy is told the color in }
   for _, case in ipairs({
-    { "the On color, its own named", ON, ON.id, { ON.id } },
-    { "the On color, another named", ON, 5, { ON.id, 5 } },
-    { "the On color, none named", ON, nil, { ON.id } },
-    { "Previous On", PREVIOUS_ON, PREVIOUS_ON.id, { PREVIOUS_ON.id } },
-    { "an agent's preset", { ON[1], ON[2], id = 1, origin = 2 }, nil, { false } },
+    { "the On color, its own named", ON, ON, { "1/1" } },
+    { "the On color, an agent's named", ON, RELAX, { "1/1", "5/2" } },
+    { "the On color, none named", ON, nil, { "1/1" } },
+    { "Previous On", PREVIOUS_ON, PREVIOUS_ON, { "10/1" } },
+    { "an agent's preset, its own named", ENERGIZE, ENERGIZE, { "1/2" } },
+    { "an agent's preset, the device's of the same id named", ENERGIZE, ON, { "1/2", "1/1" } },
   }) do
     local name, preset = case[1], case[2]
     light({ ColorMode.COLOR_MODE_RGB }, false)
@@ -712,7 +727,8 @@ do
       LIGHT_COLOR_TARGET_X = preset[1],
       LIGHT_COLOR_TARGET_Y = preset[2],
       LIGHT_COLOR_TARGET_COLOR_RATE = 750,
-      LIGHT_COLOR_TARGET_PRESET_ID = case[3],
+      LIGHT_COLOR_TARGET_PRESET_ID = case[3] and case[3].id,
+      LIGHT_COLOR_TARGET_PRESET_ORIGIN = case[3] and (case[3].origin or 1),
     })
     run(15000)
     local each = {}
@@ -770,6 +786,77 @@ do
   proxy("ON")
   T.eq("it is sent the edited color", colors(), { edited })
   T.eq("and the proxy is told it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
+end
+
+T.section("a preset picked from Control4 is told by id and origin, which the proxy needs to show its color")
+do
+  -- The proxy sends a preset's xy with its id and origin, and drops a report of an id without one (dev, 2026-10-29).
+  for _, case in ipairs({
+    { "a Color Agent preset", { id = 5, origin = 2 }, { 0.5, 0.41 } },
+    { "a device preset", { id = 1, origin = 1 }, { 0.42, 0.4 } },
+  }) do
+    local name, preset, xy = case[1], case[2], case[3]
+    light({ ColorMode.COLOR_MODE_RGB })
+    mark()
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = xy[1],
+      LIGHT_COLOR_TARGET_Y = xy[2],
+      LIGHT_COLOR_TARGET_MODE = 0,
+      LIGHT_COLOR_TARGET_COLOR_RATE = 0,
+      LIGHT_COLOR_TARGET_PRESET_ID = preset.id,
+      LIGHT_COLOR_TARGET_PRESET_ORIGIN = preset.origin,
+    })
+    run(15000)
+    T.eq(name .. ": told in it, by id and origin", {
+      told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ID"),
+      told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ORIGIN"),
+    }, { { preset.id }, { preset.origin } })
+    T.eq(name .. ": so the proxy shows it", proxyColor, ("%g,%g,%d"):format(xy[1], xy[2], 0))
+    mark()
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = 0.2,
+      LIGHT_COLOR_TARGET_Y = 0.5,
+      LIGHT_COLOR_TARGET_MODE = 0,
+      LIGHT_COLOR_TARGET_COLOR_RATE = 2000,
+      LIGHT_COLOR_TARGET_PRESET_ID = 8,
+      LIGHT_COLOR_TARGET_PRESET_ORIGIN = 2,
+    })
+    run(15000)
+    T.eq(name .. ", then another over a rate: its ramp names it by id and origin, start and end", {
+      told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_PRESET_ID"),
+      told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_PRESET_ORIGIN"),
+      told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ID"),
+      told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ORIGIN"),
+    }, { { 8 }, { 2 }, { 8 }, { 2 } })
+    T.eq(name .. ", then another over a rate: the proxy shows it", proxyColor, ("%g,%g,%d"):format(0.2, 0.5, 0))
+  end
+end
+
+T.section("an edit of the preset the light is in leaves the light's color")
+do
+  -- The proxy sends the edit alone and goes on showing the light's color (dev, 2026-10-29).
+  light({ ColorMode.COLOR_MODE_RGB })
+  onMode(ON)
+  proxy("SET_COLOR_TARGET", {
+    LIGHT_COLOR_TARGET_X = ON[1],
+    LIGHT_COLOR_TARGET_Y = ON[2],
+    LIGHT_COLOR_TARGET_MODE = 0,
+    LIGHT_COLOR_TARGET_COLOR_RATE = 0,
+    LIGHT_COLOR_TARGET_PRESET_ID = 1,
+    LIGHT_COLOR_TARGET_PRESET_ORIGIN = 1,
+  })
+  run(15000)
+  mark()
+  proxy(
+    "UPDATE_COLOR_PRESET",
+    { COMMAND = "MODIFIED", ID = 1, NAME = "On Color", COLOR_X = 0.2, COLOR_Y = 0.5, COLOR_MODE = 0 }
+  )
+  run(15000)
+  T.eq(
+    "the light is sent nothing, and the proxy is told no color",
+    { commands(), told("LIGHT_COLOR_CHANGED", "at") },
+    { 0, {} }
+  )
 end
 
 T.section("a ramped off ends the on cycle, as an instant one does")
@@ -2116,17 +2203,19 @@ do
 
   -- A color preset and a scene step's color are picks too.
   lit()
-  proxy(
-    "UPDATE_COLOR_PRESET",
-    { COMMAND = "ADDED", ID = 5, NAME = "green", COLOR_X = green[1], COLOR_Y = green[2], COLOR_MODE = 0 }
-  )
   mark()
-  proxy("SET_COLOR_TARGET", { LIGHT_COLOR_TARGET_PRESET_ID = 5, LIGHT_COLOR_TARGET_COLOR_RATE = 0 })
-  T.eq(
-    "a color preset: the proxy is told it by its id",
+  proxy("SET_COLOR_TARGET", {
+    LIGHT_COLOR_TARGET_X = green[1],
+    LIGHT_COLOR_TARGET_Y = green[2],
+    LIGHT_COLOR_TARGET_MODE = 0,
+    LIGHT_COLOR_TARGET_COLOR_RATE = 0,
+    LIGHT_COLOR_TARGET_PRESET_ID = 5,
+    LIGHT_COLOR_TARGET_PRESET_ORIGIN = 2,
+  })
+  T.eq("a color preset: the proxy is told it by id and origin", {
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ID"),
-    { 5 }
-  )
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ORIGIN"),
+  }, { { 5 }, { 2 } })
   mark()
   proxy("SET_LEVEL", { LEVEL = 50 })
   kept("a dim after a color preset, which the proxy still shows")
@@ -2438,15 +2527,18 @@ do
       toldOnce(setX, setY, CCT),
       T.show(sent)
     )
-    proxy(
-      "UPDATE_COLOR_PRESET",
-      { COMMAND = "ADDED", ID = 5, NAME = "mix", COLOR_X = lineX, COLOR_Y = lineY, COLOR_MODE = CCT }
-    )
     mark()
-    proxy("SET_COLOR_TARGET", { LIGHT_COLOR_TARGET_PRESET_ID = 5, LIGHT_COLOR_TARGET_COLOR_RATE = 0 })
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = lineX,
+      LIGHT_COLOR_TARGET_Y = lineY,
+      LIGHT_COLOR_TARGET_MODE = CCT,
+      LIGHT_COLOR_TARGET_COLOR_RATE = 0,
+      LIGHT_COLOR_TARGET_PRESET_ID = 5,
+      LIGHT_COLOR_TARGET_PRESET_ORIGIN = 1,
+    })
     echo(kind)
     T.check(
-      case[1] .. ", a preset off the curve by its id: the proxy is told its point once",
+      case[1] .. ", a preset off the curve: the proxy is told its point once",
       toldOnce(pointX, pointY, CCT),
       T.show(sent)
     )
@@ -3746,6 +3838,7 @@ do
     LIGHT_COLOR_TARGET_X = ON[1],
     LIGHT_COLOR_TARGET_Y = ON[2],
     LIGHT_COLOR_TARGET_PRESET_ID = 5,
+    LIGHT_COLOR_TARGET_PRESET_ORIGIN = 2,
   })
   activate(colorStep(nil, green, 1000) .. levelStep(50))
   T.eq("a scene step's color for a light that is off: it is sent at once, as an off", lastState(), { false, 0 })
@@ -4461,7 +4554,7 @@ local SETUP_KEYS = {
 
 --- Forget what the driver stores of the proxy's on modes, presets and rates.
 local function forgetSetup()
-  for _, key in ipairs({ "color_presets", "brightness_presets", "previous_color" }) do
+  for _, key in ipairs({ "brightness_presets", "previous_color" }) do
     persist:delete(key)
   end
   for _, key in ipairs(SETUP_KEYS) do
