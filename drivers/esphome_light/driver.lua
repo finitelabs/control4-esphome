@@ -1622,7 +1622,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor, at)
       -- color is treated as already applied. 250ms covers the proxy's
       -- typical inter-cmd gap (~6-50ms) with a margin.
       mergedColorSent = { x = mergedColor.x, y = mergedColor.y, mode = mergedColor.mode, untilMs = C4:GetTime() + 250 }
-      -- Told as the device preset the on mode's color is, which the proxy's
+      -- Told as the preset the on mode's color is, if any, which the proxy's
       -- follow-up names too; a Dim-To-Warm mix is no preset's.
       currentColorPreset = mergedColor.preset
       -- Stash on the ramp metadata so brightnessRampFinished can emit the
