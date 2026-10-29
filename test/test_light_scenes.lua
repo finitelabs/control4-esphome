@@ -2208,6 +2208,27 @@ do
   setColor(green)
   restart({ RGB })
   mixed("a reload")
+  -- So does a rebind of the light's connection.
+  lit()
+  local sentGreen = setColor(green)
+  OBC[ESPHOME](ESPHOME, "ESPHOME", false)
+  OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+  report(sentGreen, 1.0)
+  mixed("a rebind")
+  -- A fade to off sent on again as it reaches off has ended its on cycle: the on is in the On color.
+  lit()
+  setColor(green)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 1000 })
+  run(999)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  run(15000)
+  T.eq(
+    "a fade to off sent on again as it reaches off: the proxy is told the On color",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] }
+  )
+  mixed("a fade to off sent on again as it reaches off")
 
   -- None of these is a pick: a color set while the light is off or fading to off is the one it next comes on in,
   -- which the Color On Mode replaces, and another client's is no Control4 command.
