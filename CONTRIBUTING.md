@@ -39,11 +39,14 @@ then pull the change in with `copier update`.
 
 - `bindings.lua`: binding management
 - `conditionals.lua`: conditional/programming UI management
+- `driver-filenames.lua`: every `.c4z` the repo builds, written in by the build
 - `events.lua`: event firing and management
 - `http.lua`: HTTP client wrapper
 - `logging.lua`: structured logging with configurable levels
 - `lru.lua`: LRU cache utility
 - `persist.lua`: persistent storage abstraction
+- `update-settings.lua`: keeps Automatic Updates and Update Channel the same on
+  every item of the drivers the repo builds, in DriverCentral and OSS builds
 - `utils.lua`: general utilities (XML, device queries, table helpers, type
   coercion)
 - `values.lua`: value parsing, coercion, and formatting
@@ -75,7 +78,8 @@ then pull the change in with `copier update`.
 - `github-markdown.css`: vendored stylesheet for the rendered docs
 - `github-setup`: checks the GitHub repo against the standard settings and
   prints the drift; `--apply` fixes it
-- `test_preprocess.py`: tests for `preprocess.py`'s `#embed` directive
+- `test_preprocess.py`: tests for `preprocess.py`'s `#embed` and
+  `#driver-filenames` directives
 
 **Other:**
 
@@ -260,6 +264,13 @@ preprocessor recognizes three distributions: `drivercentral` and
 `DRIVERCENTRAL_DEV`) and `oss` (which defines `OSS`). Any other token in the
 answers file fails the build.
 
+Every DriverCentral build (`drivercentral` and `drivercentral-dev`) is packaged
+encrypted, `encryption="2"` on each driver's `<script>`, and `make package`
+deletes its plain-text `dist/<build>/source`: a sold driver's Lua, its license
+check included, never ships or uploads readable. Only `driver.lua` is encrypted,
+so any other file a driver loads from its `.c4z` stays readable. An `oss` build
+is encrypted only when it substitutes a build secret.
+
 ## Writing Tests
 
 A test is a plain Lua script in `test/`, named `test_*.lua`, run by `make test`
@@ -404,8 +415,13 @@ these into multiple driver directories with substituted values, generating one
 `dimensions`, in which case the cross-product is expanded.
 
 Substitute a variant value with `__NAME__`, or with `%%NAME%%` in Markdown,
-where `__NAME__` would render as bold instead. In `.c4zproj` files,
-`--#variant-filenames <template>` emits one filename line per generated variant.
+where `__NAME__` would render as bold instead.
+
+In any Lua file, `-- #driver-filenames` emits one `"<name>.c4z",` line per
+driver the build packages, variants included, `<name>` being the `<Driver name>`
+its `driver.c4zproj` gives in that build, so a list of the repo's drivers never
+goes stale. `lib/driver-filenames.lua` holds the repo's list that way, for the
+GitHub updater and `lib/update-settings.lua`.
 
 `readme_driver_slug` may name a generated variant, e.g. `<driver>_<suffix>`.
 `make build` takes the README and its images from the build output, where only

@@ -179,7 +179,7 @@ end
 --- Update all given drivers to the latest release from GitHub.
 --- Downloads new drivers, writes them, and sends them for update over TCP to the local system.
 --- @param repo string The GitHub repository, in the format "owner/repo".
---- @param driverFilenames string[] List of driver filenames to update.
+--- @param driverFilenames string[] List of driver filenames to update: the repo's own is `require("lib.driver-filenames")`.
 --- @param includePrereleases? boolean If true, includes pre-releases (optional).
 --- @param forceUpdate? boolean If true, runs update even if drivers are up to date (optional).
 --- @return Deferred<string[], string|table<number, string>> updatedDrivers Deferred resolving to a list of updated driver filenames, or rejected with an error message or table.
