@@ -38,6 +38,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a Yale lock or unlock tapped in Persistent mode being dropped when the
   connection failed; it is now retried like after a dropped connection
 
+### Changed
+
+- Changed how long a color set on a light with Dim-To-Warm lasts: one set while
+  the light is on now stays when the light is dimmed or brightened, until the
+  light turns off, instead of until the next brightness command. The next time
+  the light turns on, Dim-To-Warm applies again
+
 ## v20261027 - 2026-10-27
 
 ### Added
