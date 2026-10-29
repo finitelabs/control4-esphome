@@ -42,6 +42,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Relax) or one of the light's own, or after the light turned on with Color On
   Mode set to Previous or to one of the light's own presets; the light itself
   changed color
+  <!-- #ifndef DRIVERCENTRAL -->
+- Fixed changing Automatic Updates or Update Channel on an ESPHome driver
+  briefly holding up every other ESPHome driver, longer in a project with many,
+  while the change was copied to them
+  <!-- #endif -->
 
 ### Changed
 
@@ -49,6 +54,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   the light is on now stays when the light is dimmed or brightened, until the
   light turns off, instead of until the next brightness command. The next time
   the light turns on, Dim-To-Warm applies again
+  <!-- #ifdef DRIVERCENTRAL -->
+- Changed Automatic Updates to one setting for the ESPHome driver and its
+  sub-drivers: changing it on any of them now changes it on all of them, so the
+  drivers update together
+  <!-- #endif -->
 
 ## v20261027 - 2026-10-27
 

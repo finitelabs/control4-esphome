@@ -287,16 +287,19 @@ is active.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
-Enables or disables automatic driver updates via DriverCentral.
+Enables or disables automatic driver updates via DriverCentral. Changing it on
+any ESPHome driver or sub-driver changes it on all of them.
 
 <!-- #else -->
 
-Enables or disables automatic driver updates from GitHub releases.
+Enables or disables automatic driver updates from GitHub releases. Changing it
+on any ESPHome driver changes it on all of them.
 
 ##### Update Channel \[ **_Production_** | Prerelease \]
 
 Sets the update channel for which releases are considered during automatic
-updates from GitHub releases.
+updates from GitHub releases. Changing it on any ESPHome driver changes it on
+all of them.
 
 <!-- #endif -->
 

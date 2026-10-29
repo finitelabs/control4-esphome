@@ -17,6 +17,9 @@ JSON = require("JSON")
 
 local deferred = require("deferred")
 local log = require("lib.logging")
+--#ifdef DRIVERCENTRAL
+local updateSettings = require("lib.update-settings")
+--#endif
 local bindings = require("lib.bindings")
 local values = require("lib.values")
 local persist = require("lib.persist")
@@ -1698,6 +1701,21 @@ function OPC.Driver_Version(propertyValue)
   log:trace("OPC.Driver_Version('%s')", propertyValue)
   C4:UpdateProperty("Driver Version", C4:GetDriverConfigInfo("version"))
 end
+
+--#ifdef DRIVERCENTRAL
+function OPC.Automatic_Updates(propertyValue)
+  log:trace("OPC.Automatic_Updates('%s')", propertyValue)
+  if gInitialized then
+    updateSettings:share("Automatic Updates", propertyValue)
+  end
+end
+
+--- An update setting changed on another item.
+function EC.SET_UPDATE_SETTING(params)
+  log:trace("EC.SET_UPDATE_SETTING(%s)", params)
+  updateSettings:take(params)
+end
+--#endif
 
 function OPC.Log_Mode(propertyValue)
   log:trace("OPC.Log_Mode('%s')", propertyValue)
