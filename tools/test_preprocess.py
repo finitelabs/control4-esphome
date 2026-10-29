@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from preprocess import process_file  # noqa: E402
+from preprocess import packaged_driver_names, process_file  # noqa: E402
 
 
 class EmbedDirectiveTest(unittest.TestCase):
@@ -51,6 +51,78 @@ class EmbedDirectiveTest(unittest.TestCase):
         out = self._process("<r>\n<!-- #embed-changelog -->\n</r>\n")
         self.assertNotIn("#embed-changelog", out)
         self.assertIn("Changelog", out)
+
+
+class DriverFilenamesDirectiveTest(unittest.TestCase):
+    def _process(self, content, driver_names):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        f = Path(tmp.name) / "driver.lua"
+        f.write_text(content, encoding="utf-8")
+        process_file(f, {"OSS"}, driver_names=driver_names)
+        return f.read_text(encoding="utf-8")
+
+    def test_expands_to_one_line_per_packaged_driver(self):
+        out = self._process(
+            "LIST = {\n  -- #driver-filenames\n}\n", ["hub", "hub_light"]
+        )
+        self.assertEqual(out, 'LIST = {\n  "hub.c4z",\n  "hub_light.c4z",\n}\n')
+
+    def test_left_in_place_while_the_drivers_are_unknown(self):
+        out = self._process("LIST = {\n  -- #driver-filenames\n}\n", None)
+        self.assertEqual(out, "LIST = {\n  -- #driver-filenames\n}\n")
+
+    def test_a_leftover_variant_filenames_line_fails_the_build(self):
+        with self.assertRaisesRegex(ValueError, "lib.driver-filenames"):
+            self._process(
+                'LIST = {\n  "hub.c4z",\n  -- #variant-filenames hub_fan\n}\n', ["hub"]
+            )
+
+    def test_dropped_with_a_branch_the_build_leaves_out(self):
+        out = self._process(
+            "--#ifdef DRIVERCENTRAL\nLIST = {\n  -- #driver-filenames\n}\n--#endif\n",
+            ["hub"],
+        )
+        self.assertEqual(out, "")
+
+
+class PackagedDriverNamesTest(unittest.TestCase):
+    def _drivers(self, projects):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = Path(tmp.name)
+        for name, project in projects.items():
+            (d / name).mkdir()
+            if project is not None:
+                (d / name / "driver.c4zproj").write_text(project, encoding="utf-8")
+        return d
+
+    def test_names_come_from_the_project_resolved_for_the_build(self):
+        dev = (
+            "<!-- #ifdef DRIVERCENTRAL_DEV -->\n"
+            '<Driver type="c4z" name="hc_dev">\n'
+            "<!-- #else -->\n"
+            '<Driver type="c4z" name="hc">\n'
+            "<!-- #endif -->\n"
+            "</Driver>\n"
+        )
+        plain = '<Driver type="c4z" name="hc_light" squishLua="true">\n</Driver>\n'
+        projects = {"hc": dev, "hc_light": plain, "notes": None}
+        self.assertEqual(
+            packaged_driver_names(self._drivers(projects), {"DRIVERCENTRAL"}),
+            ["hc", "hc_light"],
+        )
+        self.assertEqual(
+            packaged_driver_names(
+                self._drivers(projects), {"DRIVERCENTRAL", "DRIVERCENTRAL_DEV"}
+            ),
+            ["hc_dev", "hc_light"],
+        )
+
+    def test_a_project_without_a_name_is_a_hard_error(self):
+        d = self._drivers({"hc": '<Driver type="c4z">\n</Driver>\n'})
+        with self.assertRaises(ValueError):
+            packaged_driver_names(d, {"OSS"})
 
 
 if __name__ == "__main__":

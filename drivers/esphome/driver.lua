@@ -4,19 +4,6 @@ DC_X = nil
 DC_FILENAME = "esphome.c4z"
 --#else
 DRIVER_GITHUB_REPO = "finitelabs/control4-esphome"
-DRIVER_FILENAMES = {
-  "esphome.c4z",
-  "esphome_bluetooth_coordinator.c4z",
-  "esphome_govee.c4z",
-  "esphome_bthome.c4z",
-  -- #variant-filenames esphome_fan
-  "esphome_climate.c4z",
-  "esphome_light.c4z",
-  "esphome_lock.c4z",
-  "esphome_serenescent.c4z",
-  "esphome_switchbot.c4z",
-  "esphome_yale.c4z",
-}
 --#endif
 
 require("lib.utils")
@@ -30,6 +17,7 @@ local events = require("lib.events")
 --#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
 --#endif
+local updateSettings = require("lib.update-settings")
 local values = require("lib.values")
 
 local ESPHomeClient = require("esphome.client")
@@ -106,21 +94,6 @@ local function getESPHomeDriverIds()
   return ids
 end
 
---- Sync a property value to all other ESPHome driver instances
---- Only syncs if the other instance has a different value (avoids infinite loops)
---- @param propertyName string The property name to sync
---- @param propertyValue string The property value to sync
-local function syncPropertyToOtherInstances(propertyName, propertyValue)
-  local ids = getESPHomeDriverIds()
-  local myId = C4:GetDeviceID()
-  for _, deviceId in ipairs(ids) do
-    if deviceId ~= myId then
-      log:info("Syncing property '%s' = '%s' to device %d", propertyName, propertyValue, deviceId)
-      SetDeviceProperties(deviceId, { [propertyName] = propertyValue }, true)
-    end
-  end
-end
-
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
   require("cloud-client-byte")
@@ -176,23 +149,25 @@ end
 
 function OPC.Automatic_Updates(propertyValue)
   log:trace("OPC.Automatic_Updates('%s')", propertyValue)
-  --#ifndef DRIVERCENTRAL
-  if not gInitialized then
-    return
+  if gInitialized then
+    updateSettings:share("Automatic Updates", propertyValue)
   end
-  syncPropertyToOtherInstances("Automatic Updates", propertyValue)
-  --#endif
 end
 
 --#ifndef DRIVERCENTRAL
 function OPC.Update_Channel(propertyValue)
   log:trace("OPC.Update_Channel('%s')", propertyValue)
-  if not gInitialized then
-    return
+  if gInitialized then
+    updateSettings:share("Update Channel", propertyValue)
   end
-  syncPropertyToOtherInstances("Update Channel", propertyValue)
 end
 --#endif
+
+--- An update setting changed on another item.
+function EC.SET_UPDATE_SETTING(params)
+  log:trace("EC.SET_UPDATE_SETTING(%s)", params)
+  updateSettings:take(params)
+end
 
 function OPC.Driver_Version(propertyValue)
   log:trace("OPC.Driver_Version('%s')", propertyValue)
@@ -877,7 +852,12 @@ end
 function UpdateDrivers(forceUpdate)
   log:trace("UpdateDrivers(%s)", forceUpdate)
   githubUpdater
-    :updateAll(DRIVER_GITHUB_REPO, DRIVER_FILENAMES, Properties["Update Channel"] == "Prerelease", forceUpdate)
+    :updateAll(
+      DRIVER_GITHUB_REPO,
+      require("lib.driver-filenames"),
+      Properties["Update Channel"] == "Prerelease",
+      forceUpdate
+    )
     :next(function(updatedDrivers)
       if not IsEmpty(updatedDrivers) then
         log:info("Updated driver(s): %s", table.concat(updatedDrivers, ","))

@@ -217,7 +217,7 @@ docs-pdf: $(VENV_STAMP)
 # The packager writes the .c4z into the output dir passed here (c4z/); the
 # squished .lua goes to source/ via the squishy Output path (see gen-squishy.lua),
 # so both subfolders are created up front. preprocess.py writes
-# build/<build>/.build-secrets when it substitutes a secret.
+# build/<build>/.encrypted for a DriverCentral build or one it substituted a secret into.
 package: $(VENV_STAMP) $(PACKAGER) ## Create .c4z driver packages
 	@for build in $(DISTRIBUTIONS); do \
 		mkdir -p "dist/$$build/c4z" "dist/$$build/source"; \
@@ -226,11 +226,11 @@ package: $(VENV_STAMP) $(PACKAGER) ## Create .c4z driver packages
 			pwd_saved="$$(pwd)"; \
 			cd "build/$$build/drivers/$$dir" && \
 			"$$pwd_saved/$(VENV_PY)" "$$pwd_saved/$(PACKAGER)" . "$$pwd_saved/dist/$$build/c4z" driver.c4zproj && \
-			cd "$$pwd_saved"; \
+			cd "$$pwd_saved" || exit 1; \
 		done; \
-		if [ -e "build/$$build/.build-secrets" ]; then \
+		if [ -e "build/$$build/.encrypted" ]; then \
 			rm -rf "dist/$$build/source"; \
-			echo "$$build: build secrets present; removed the plain-text dist/$$build/source"; \
+			echo "$$build: encrypted; removed the plain-text dist/$$build/source"; \
 		fi; \
 	done
 

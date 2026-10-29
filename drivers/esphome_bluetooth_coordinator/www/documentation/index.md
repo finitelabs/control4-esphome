@@ -281,7 +281,8 @@ whole **Away Timeout** to be heard again.
 ### Automatic Updates \[ Off | **_On_** \]
 
 When enabled, the driver will automatically update to the latest version when
-available. Default is `On`.
+available. Changing it on any ESPHome driver or sub-driver changes it on all of
+them. Default is `On`.
 
 <!-- #endif -->
 

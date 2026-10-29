@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+# Keeps PEP 604 annotations (`list[str] | None`) readable on the documented 3.9
+# floor, where they would otherwise raise TypeError at import.
+from __future__ import annotations
+
 import argparse
 import itertools
 import json
@@ -12,8 +16,8 @@ from pathlib import Path
 def process_file(
     file_path: Path,
     conditions: set[str],
-    variant_map: dict[str, list[str]] = {},
     passthrough_unknown: bool = False,
+    driver_names: list[str] | None = None,
 ) -> None:
     """
     Process a file for conditional directives.
@@ -21,11 +25,12 @@ def process_file(
     Args:
         file_path: Path to the file to process
         conditions: Set of conditions to check against, e.g., {"DRIVERCENTRAL"} or {"DRIVERCENTRAL", "DRIVERCENTRAL_DEV"}
-        variant_map: Dict mapping template names to generated variant names
         passthrough_unknown: If True, directives referencing conditions not in
             the conditions set are passed through unchanged (directive lines and
             content preserved). Used during variant expansion so that
             distribution-level conditions survive for the next processing pass.
+        driver_names: Every driver the build packages, which `#driver-filenames`
+            expands to; None leaves the directive in place for a later pass.
     """
     # Stack to track nested conditions: (condition, parent_including, transparent)
     # transparent=True means this condition is unknown and should be passed through
@@ -72,8 +77,10 @@ def process_file(
     # pre-pass so directives inside the fragment are handled by the main loop.
     embed_pattern = re.compile(r"^\s*<!--\s*#embed\s+(\S+)\s*-->\s*$")
 
-    # Variant filenames pattern (Lua comment style)
-    variant_filenames_pattern = re.compile(r"^(\s*)--\s*#variant-filenames\s+(\w+)\s*$")
+    # One "<driver>.c4z", line per packaged driver (Lua comment style)
+    driver_filenames_pattern = re.compile(r"^(\s*)--\s*#driver-filenames\s*$")
+    # Retired #variant-filenames (Lua comment style)
+    variant_filenames_pattern = re.compile(r"^\s*--\s*#variant-filenames\b")
 
     ifdef_patterns = [
         xml_ifdef_pattern,
@@ -148,7 +155,7 @@ def process_file(
         endif_match = next(
             (m for pattern in endif_patterns if (m := pattern.match(line))), None
         )
-        variant_filenames_match = variant_filenames_pattern.match(line)
+        driver_filenames_match = driver_filenames_pattern.match(line)
 
         # Check for #ifdef
         if ifdef_match:
@@ -200,17 +207,17 @@ def process_file(
                 including = parent_including if condition_stack else True
             continue
 
-        # Check for #variant-filenames <template_name>
-        if variant_filenames_match and including:
-            indent = variant_filenames_match.group(1)
-            template_name = variant_filenames_match.group(2)
-            names = variant_map.get(template_name)
-            if names is None:
-                raise ValueError(
-                    f"Unknown variant template '{template_name}' in {file_path}. "
-                    f"Known templates: {list(variant_map.keys())}"
-                )
-            for name in names:
+        if including and variant_filenames_pattern.match(line):
+            raise ValueError(
+                f"{file_path}: #variant-filenames is retired; list the repo's"
+                ' drivers with require("lib.driver-filenames"), which the build'
+                " writes with every variant in it"
+            )
+
+        # #driver-filenames: one line per driver the build packages
+        if driver_filenames_match and including and driver_names is not None:
+            indent = driver_filenames_match.group(1)
+            for name in driver_names:
                 output_lines.append(f'{indent}"{name}.c4z",\n')
             continue
 
@@ -278,7 +285,7 @@ def compute_cross_product(dimensions: list[list[dict]]) -> list[dict]:
     return variants
 
 
-def expand_variants(drivers_dir: Path) -> dict[str, list[str]]:
+def expand_variants(drivers_dir: Path) -> None:
     """
     Expand driver template directories that contain a variants.json file.
 
@@ -293,12 +300,7 @@ def expand_variants(drivers_dir: Path) -> dict[str, list[str]]:
 
     Args:
         drivers_dir: Path to the drivers directory in the build output
-
-    Returns:
-        Dict mapping template driver names to lists of generated variant names.
-        e.g., {"esphome_fan": ["esphome_fan_1_speed", "esphome_fan_2_speed", ...]}
     """
-    variant_map = {}
 
     for driver_dir in sorted(drivers_dir.iterdir()):
         if not driver_dir.is_dir():
@@ -322,7 +324,6 @@ def expand_variants(drivers_dir: Path) -> dict[str, list[str]]:
 
         pdf_name = variants_config.get("pdf")
         driver_name = driver_dir.name
-        generated_names = []
         print(f"Expanding {len(variants)} variants for {driver_name}")
 
         # Separate empty-suffix variant from the rest. Non-empty suffixes must
@@ -342,7 +343,6 @@ def expand_variants(drivers_dir: Path) -> dict[str, list[str]]:
             conditions = set(variant.pop("conditions", []))
             variant_name = f"{driver_name}_{suffix}"
             variant_dir = drivers_dir / variant_name
-            generated_names.append(variant_name)
 
             # Copy the template directory to the variant directory
             shutil.copytree(driver_dir, variant_dir)
@@ -368,7 +368,6 @@ def expand_variants(drivers_dir: Path) -> dict[str, list[str]]:
         if empty_suffix_variant is not None:
             empty_suffix_variant.pop("suffix")
             conditions = set(empty_suffix_variant.pop("conditions", []))
-            generated_names.insert(0, driver_name)
             (driver_dir / "variants.json").unlink(missing_ok=True)
 
             for root, _, files in os.walk(driver_dir):
@@ -385,13 +384,33 @@ def expand_variants(drivers_dir: Path) -> dict[str, list[str]]:
         else:
             shutil.rmtree(driver_dir)
 
-        variant_map[driver_name] = generated_names
 
-    return variant_map
+def packaged_driver_names(drivers_dir: Path, conditions: set[str]) -> list[str]:
+    """
+    The `.c4z` names a build packages: each driver's `driver.c4zproj`, its
+    directives resolved for this build, names its package in `<Driver name>`.
+
+    Args:
+        drivers_dir: The build's drivers directory, after variant expansion
+        conditions: Set of enabled conditions
+    """
+    names = []
+    for driver_dir in sorted(drivers_dir.iterdir()):
+        project = driver_dir / "driver.c4zproj"
+        if not project.is_file():
+            continue
+        process_file(project, conditions)
+        match = re.search(r'<Driver\b[^>]*\bname="([^"]+)"', project.read_text())
+        if not match:
+            raise ValueError(f"{project} names no <Driver name>")
+        names.append(match.group(1))
+    return sorted(names)
 
 
 def process_directory(
-    build_dir: Path, conditions: set[str], variant_map: dict[str, list[str]] = {}
+    build_dir: Path,
+    conditions: set[str],
+    driver_names: list[str] | None = None,
 ):
     """
     Copy a directory and process all files for conditional directives.
@@ -399,7 +418,7 @@ def process_directory(
     Args:
         build_dir: Build directory
         conditions: Set of enabled conditions
-        variant_map: Dict mapping template names to generated variant names
+        driver_names: Every driver the build packages, for `#driver-filenames`
     """
     # Copy and process all files and subdirectories
     for item in os.listdir(build_dir):
@@ -407,10 +426,10 @@ def process_directory(
 
         if build_item_path.is_dir():
             # Recursively copy and process subdirectories
-            process_directory(build_item_path, conditions, variant_map)
+            process_directory(build_item_path, conditions, driver_names)
         else:
             # Process the file for conditional directives
-            process_file(build_item_path, conditions, variant_map)
+            process_file(build_item_path, conditions, driver_names=driver_names)
 
 
 def parse_env_file(path: Path) -> dict[str, str]:
@@ -486,18 +505,16 @@ def write_dotenv_from_secrets(repo_root: Path) -> None:
     print(f"Wrote {len(lines)} of {len(declared)} build secrets to .env")
 
 
-SECRETS_MARKER = ".build-secrets"
+ENCRYPTED_MARKER = ".encrypted"
 
 
-def substitute_build_secrets(build_dir: Path, secrets: dict[str, str]) -> None:
+def substitute_build_secrets(build_dir: Path, secrets: dict[str, str]) -> bool:
     """
     Replace __NAME__ (and %%NAME%%) for each build secret in every built file.
 
     Works on bytes and rewrites only a file that holds a placeholder, so binary
-    files and line endings are left exactly as they are. When any file held one,
-    every driver in the build is set to encrypt its Lua (see encrypt_drivers) and
-    build_dir gets SECRETS_MARKER, which tells `make package` to delete the
-    plain-text squished Lua it leaves in dist/<build>/source.
+    files and line endings are left exactly as they are. Returns whether any file
+    held one: such a build is encrypted (see encrypt_build).
     """
     pairs = []
     for name, value in secrets.items():
@@ -515,14 +532,20 @@ def substitute_build_secrets(build_dir: Path, secrets: dict[str, str]) -> None:
         if replaced != content:
             path.write_bytes(replaced)
             substituted = True
-    if substituted:
-        encrypt_drivers(build_dir / "drivers")
-        (build_dir / SECRETS_MARKER).write_text(
-            "Build secrets were substituted into this build.\n", encoding="utf-8"
-        )
+    return substituted
 
 
-def encrypt_drivers(drivers_dir: Path) -> None:
+def encrypt_build(build_dir: Path, why: str) -> None:
+    """
+    Encrypt every driver's Lua in the build (encrypt_drivers) and write
+    ENCRYPTED_MARKER, which tells `make package` to delete the plain-text squished
+    Lua it leaves in dist/<build>/source.
+    """
+    encrypt_drivers(build_dir / "drivers", why)
+    (build_dir / ENCRYPTED_MARKER).write_text(f"Encrypted: {why}.\n", encoding="utf-8")
+
+
+def encrypt_drivers(drivers_dir: Path, why: str) -> None:
     """
     Set encryption="2" on each driver.xml's <script> so the packager encrypts it.
 
@@ -542,13 +565,10 @@ def encrypt_drivers(drivers_dir: Path) -> None:
 
         replaced, count = script_tag.subn(encrypted, content)
         if count == 0:
-            raise SystemExit(
-                f"Error: {xml_path} has no <script> to encrypt, and build secrets "
-                "were substituted into this build"
-            )
+            raise SystemExit(f"Error: {xml_path} has no <script> to encrypt, and {why}")
         if replaced != content:
             xml_path.write_bytes(replaced)
-        print(f"Encrypting {xml_path.parent.name}: build secrets were substituted")
+        print(f"Encrypting {xml_path.parent.name}: {why}")
 
 
 def main():
@@ -606,7 +626,7 @@ def main():
     shutil.rmtree(build_dir / "drivers", ignore_errors=True)
     shutil.rmtree(build_dir / "vendor", ignore_errors=True)
     shutil.rmtree(build_dir / "documentation", ignore_errors=True)
-    (build_dir / SECRETS_MARKER).unlink(missing_ok=True)
+    (build_dir / ENCRYPTED_MARKER).unlink(missing_ok=True)
 
     shutil.copytree(src_dir, build_dir / "src")
     shutil.copytree(drivers_dir, build_dir / "drivers")
@@ -617,14 +637,18 @@ def main():
         shutil.copytree(documentation_dir, build_dir / "documentation")
 
     # Expand template variants before processing conditionals
-    variant_map = expand_variants(build_dir / "drivers")
+    expand_variants(build_dir / "drivers")
+
+    driver_names = packaged_driver_names(build_dir / "drivers", conditions)
 
     # Copy and process src directory
-    process_directory(build_dir, conditions, variant_map)
+    process_directory(build_dir, conditions, driver_names)
 
     secrets = resolve_build_secrets(repo_root)
-    if secrets:
-        substitute_build_secrets(build_dir, secrets)
+    if secrets and substitute_build_secrets(build_dir, secrets):
+        encrypt_build(build_dir, "build secrets were substituted")
+    elif "DRIVERCENTRAL" in conditions:
+        encrypt_build(build_dir, "a DriverCentral build")
 
     print(f"Build completed successfully. Output in {build_dir}")
 

@@ -185,12 +185,14 @@ is an outline of the basic steps for your convenience.
 
 ##### Automatic Updates \[ Off | **_On_** \]
 
-Enables or disables automatic driver updates from GitHub releases.
+Enables or disables automatic driver updates from GitHub releases. Changing it
+on any ESPHome driver changes it on all of them.
 
 ##### Update Channel \[ **_Production_** | Prerelease \]
 
 Sets the update channel for which releases are considered during automatic
-updates from GitHub releases.
+updates from GitHub releases. Changing it on any ESPHome driver changes it on
+all of them.
 
 #### Driver Settings
 
@@ -1110,6 +1112,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Relax) or one of the light's own, or after the light turned on with Color On
   Mode set to Previous or to one of the light's own presets; the light itself
   changed color
+- Fixed changing Automatic Updates or Update Channel on an ESPHome driver
+  briefly holding up every other ESPHome driver, longer in a project with many,
+  while the change was copied to them
 
 ### Changed
 

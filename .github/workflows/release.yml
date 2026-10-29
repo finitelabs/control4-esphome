@@ -11,7 +11,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    timeout-minutes: 75
 
     steps:
       # Only the Build run this tag push started stamps the tag's date as the .c4z
@@ -48,7 +48,7 @@ jobs:
             --dir dist/oss
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          WAIT_MINUTES: 20
+          WAIT_MINUTES: 60
 
       - name: Create release
         uses: softprops/action-gh-release@v2
