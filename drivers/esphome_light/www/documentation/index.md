@@ -195,6 +195,12 @@ unavailable on its own.
 The Control4 Light proxy connection. This is automatically managed by the driver
 and provides the light functionality to Control4.
 
+> **Note:** With **Color On Mode** set to Dim-To-Warm, a color set while the
+> light is on, from a Navigator, programming, a color preset or an Advanced
+> Lighting Scene, stays when the light is dimmed or brightened. The light
+> follows Dim-To-Warm again the next time it turns on, and from its first level
+> change after a controller restart or a driver update.
+
 ### ESPHome Light (consumer)
 
 Bind this connection to the light entity exposed by the main ESPHome driver.
