@@ -1,9 +1,8 @@
 -- Tests the commands a switch's RELAY connection accepts from its bound consumer.
 --
--- A command the handler did not know went to the device as a switch command
--- with no state, which ESPHome reads as off. Relay drivers that ask for state
--- with GET_STATE therefore turned the switch off. GET_STATE now answers with
--- the last known state, and any other unknown command is ignored.
+-- A switch command with no state reads as off on the device, so GET_STATE
+-- answers from the last known state and other unknown commands never reach
+-- the device.
 --
 -- Run from the driver root:
 --   make test
