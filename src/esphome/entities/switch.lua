@@ -30,7 +30,7 @@ function SwitchEntity:discovered(entity)
 
   RFP[bindingId] = function(idBinding, strCommand, tParams, args)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
-    local response
+    local known = Select(values:getValue(entity.name .. " State"), "value")
     local state
     local pulseTime = 0
     if strCommand == "ON" or strCommand == "CLOSE" then
@@ -38,13 +38,22 @@ function SwitchEntity:discovered(entity)
     elseif strCommand == "OFF" or strCommand == "OPEN" then
       state = false
     elseif strCommand == "TOGGLE" then
-      state = not toboolean(Select(values:getValue(entity.name .. " State"), "value"))
+      state = not toboolean(known)
     elseif strCommand == "TRIGGER" then
       state = true
       pulseTime = tonumber_locale(tParams.TIME) or 0
+    elseif strCommand == "GET_STATE" then
+      if known ~= nil then
+        SendToProxy(bindingId, toboolean(known) and "STATE_CLOSED" or "STATE_OPENED", {}, "NOTIFY")
+      end
+      return
+    else
+      -- A command sent with no state reads as off on the device.
+      log:debug("Ignoring relay command %s for %s", strCommand, ESPHomeClient.describeEntity(entity))
+      return
     end
 
-    response = self.client
+    self.client
       :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
         key = entity.key,
         device_id = entity.device_id,
