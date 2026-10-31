@@ -793,6 +793,7 @@ function EC.Reset_Driver(params)
   -- Clear in-memory notify memos so recreated bindings receive the next state
   CoverEntity.clearNotifiedState()
   SensorEntity.clearNotifiedState()
+  SwitchEntity.clearNotifiedState()
 
   -- Reset BLE scanner state
   bleScanner:abortScan()
