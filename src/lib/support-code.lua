@@ -5,6 +5,9 @@
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.timer")
 
+-- At Trace the dispatcher prints a property's value before its handler runs, and this property's value is the code.
+OPC.suppressDebug["Support Code"] = true
+
 --- @class SupportCode
 --- @field _secret string The build secret the day's code comes from.
 --- @field _open boolean Whether this code opened the Lua window.
@@ -39,12 +42,16 @@ end
 
 --- The code for a UTC day, without its dash.
 --- @param day string The day, `YYYY-MM-DD`.
---- @return string|nil code Ten Crockford Base32 characters, or nil when the secret is unset.
+--- @return string|nil code Ten Crockford Base32 characters, or nil when the secret is unset or C4:HMAC fails.
 function SupportCode:codeFor(day)
   if #self._secret < MIN_SECRET_LENGTH then
     return nil
   end
   local hex = C4:HMAC("SHA256", self._secret, "Support Code " .. day)
+  -- A raise would reach the dispatcher's error print, which shows the typed value.
+  if type(hex) ~= "string" then
+    return nil
+  end
   -- 13 hex digits are 52 bits, exact in a double; the code takes the low 50.
   local n = tonumber(hex:sub(1, 13), 16)
   local code = ""
@@ -69,6 +76,18 @@ function SupportCode:accepts(value)
     end
   end
   return false
+end
+
+--- Tells the driver's `onChange` callback, if any. A raise there would reach the dispatcher's error print, which shows
+--- the typed value, so it is caught and reported without it.
+--- @param open boolean Whether the window is now open.
+function SupportCode:_tell(open)
+  if self._onChange then
+    local ok, err = pcall(self._onChange, open)
+    if not ok then
+      print("The Support Code's onChange failed: " .. tostring(err))
+    end
+  end
 end
 
 --- Calls `callback(true)` each time the code opens the Lua window and `callback(false)` each time it closes, for a
@@ -100,9 +119,7 @@ function SupportCode:enter(value)
       self:close()
     end)
     print("Support Code accepted: the Lua window is open for an hour, or until the code is entered again")
-    if self._onChange then
-      self._onChange(true)
-    end
+    self:_tell(true)
   end
 end
 
@@ -112,9 +129,7 @@ function SupportCode:close()
   self._open = false
   C4:AllowExecute(false)
   print("The Lua window is closed")
-  if self._onChange then
-    self._onChange(false)
-  end
+  self:_tell(false)
 end
 
 return SupportCode:new()

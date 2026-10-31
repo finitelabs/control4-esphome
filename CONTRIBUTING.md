@@ -521,6 +521,7 @@ end
 --#endif
 ```
 
-The library clears the property at once and prints its answer to the Lua output
-whatever Log Mode is. A driver that shows more while the window is open (extra
-properties or log levels) passes `supportCode:onChange(function(open) ... end)`.
+The library clears the property at once, keeps its value out of the dispatcher's
+Trace output, and prints its answer to the Lua output whatever Log Mode is. A
+driver that shows more while the window is open (extra properties or log levels)
+passes `supportCode:onChange(function(open) ... end)`.

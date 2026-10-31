@@ -140,5 +140,46 @@ T.eq("and when the hour does", told, { true, false, true, false })
 enter(sc, "nonsense")
 T.eq("but not for a wrong code", told, { true, false, true, false })
 
+T.section("The code never reaches the Lua output")
+-- The driver's handler, as CONTRIBUTING.md shows it.
+function OPC.Support_Code(propertyValue)
+  sc:enter(propertyValue)
+end
+DEBUGPRINT = true
+Properties["Support Code"] = "VEAFA-RSBWM"
+local _, _, traced = T.capture(function()
+  OnPropertyChanged("Support Code")
+end)
+DEBUGPRINT = false
+T.excludes("the dispatcher's Trace output leaves the value out", traced, "VEAFA")
+T.contains("while the handler still ran", traced, "Support Code accepted")
+enter(sc, "VEAFA-RSBWM")
+local realHMAC = C4.HMAC
+C4.HMAC = function()
+  return nil, "failed"
+end
+Properties["Support Code"] = "VEAFA-RSBWM"
+_, _, traced = T.capture(function()
+  OnPropertyChanged("Support Code")
+end)
+C4.HMAC = realHMAC
+T.excludes("a C4:HMAC failure raises nothing that would print the value", traced, "VEAFA")
+T.contains("and the code is just not accepted", traced, "not accepted")
+sc:onChange(function()
+  error("the driver's hook broke")
+end)
+allowed = {}
+Properties["Support Code"] = "VEAFA-RSBWM"
+_, _, traced = T.capture(function()
+  OnPropertyChanged("Support Code")
+end)
+T.excludes("a driver's onChange that raises does not print the value either", traced, "VEAFA")
+T.contains("its error is reported", traced, "the driver's hook broke")
+T.eq("and the window still opened", allowed, { true })
+traced = anHourOn()
+T.eq("and closes on the hour", allowed, { true, false })
+T.contains("reporting the hook again", traced, "the driver's hook broke")
+sc:onChange(nil)
+
 os.time = realTime -- luacheck: ignore
 T.finish()
