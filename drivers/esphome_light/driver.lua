@@ -16,6 +16,8 @@ JSON = require("JSON")
 local log = require("lib.logging")
 --#ifdef DRIVERCENTRAL
 local updateSettings = require("lib.update-settings")
+-- No local: this chunk is at Lua's 200-local limit.
+require("lib.support-code")
 --#endif
 local values = require("lib.values")
 local persist = require("lib.persist")
@@ -383,6 +385,11 @@ end
 function EC.SET_UPDATE_SETTING(params)
   log:trace("EC.SET_UPDATE_SETTING(%s)", params)
   updateSettings:take(params)
+end
+
+--- Not logged: the value is the code.
+function OPC.Support_Code(propertyValue)
+  require("lib.support-code"):enter(propertyValue)
 end
 --#endif
 

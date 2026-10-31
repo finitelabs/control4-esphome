@@ -1745,7 +1745,10 @@ if has_ffi then
       ffi.cdef([[
         unsigned char *CC_MD5(const void *data, uint32_t len, unsigned char *md);
         unsigned char *CC_SHA1(const void *data, uint32_t len, unsigned char *md);
+        unsigned char *CC_SHA224(const void *data, uint32_t len, unsigned char *md);
         unsigned char *CC_SHA256(const void *data, uint32_t len, unsigned char *md);
+        unsigned char *CC_SHA384(const void *data, uint32_t len, unsigned char *md);
+        unsigned char *CC_SHA512(const void *data, uint32_t len, unsigned char *md);
         int CCCrypt(uint32_t op, uint32_t alg, uint32_t options,
                     const void *key, size_t keyLength, const void *iv,
                     const void *dataIn, size_t dataInLength,
@@ -1757,7 +1760,10 @@ if has_ffi then
       local digests = {
         MD5 = { fn = C.CC_MD5, len = 16 },
         SHA1 = { fn = C.CC_SHA1, len = 20 },
+        SHA224 = { fn = C.CC_SHA224, len = 28 },
         SHA256 = { fn = C.CC_SHA256, len = 32 },
+        SHA384 = { fn = C.CC_SHA384, len = 48 },
+        SHA512 = { fn = C.CC_SHA512, len = 64 },
       }
       crypto_backend = {
         hash = function(algorithm, data)
@@ -1802,7 +1808,10 @@ if has_ffi then
         ffi.cdef([[
           unsigned char *MD5(const unsigned char *d, size_t n, unsigned char *md);
           unsigned char *SHA1(const unsigned char *d, size_t n, unsigned char *md);
+          unsigned char *SHA224(const unsigned char *d, size_t n, unsigned char *md);
           unsigned char *SHA256(const unsigned char *d, size_t n, unsigned char *md);
+          unsigned char *SHA384(const unsigned char *d, size_t n, unsigned char *md);
+          unsigned char *SHA512(const unsigned char *d, size_t n, unsigned char *md);
           typedef struct evp_cipher_ctx_st EVP_CIPHER_CTX;
           const void *EVP_aes_128_cbc(void);
           const void *EVP_aes_192_cbc(void);
@@ -1821,7 +1830,10 @@ if has_ffi then
         local digests = {
           MD5 = { fn = libcrypto.MD5, len = 16 },
           SHA1 = { fn = libcrypto.SHA1, len = 20 },
+          SHA224 = { fn = libcrypto.SHA224, len = 28 },
           SHA256 = { fn = libcrypto.SHA256, len = 32 },
+          SHA384 = { fn = libcrypto.SHA384, len = 48 },
+          SHA512 = { fn = libcrypto.SHA512, len = 64 },
         }
         crypto_backend = {
           hash = function(algorithm, data)
@@ -1871,37 +1883,163 @@ end
 --- with no loadable CommonCrypto/libcrypto.
 C4.SHIM_HAS_CRYPTO = crypto_backend ~= nil
 
+-- C4:GetSupportedDigests() on a 4.3.0 controller. Names match in any case.
+local CONTROLLER_DIGESTS = {}
+for name in
+  (
+    "BLAKE2b512 BLAKE2s256 MD4 MD5-SHA1 MD5 MDC2 RIPEMD160 SHA1 SHA224 SHA256 SHA3-224 SHA3-256 "
+    .. "SHA3-384 SHA3-512 SHA384 SHA512-224 SHA512-256 SHA512 SHAKE128 SHAKE256 SM3 whirlpool"
+  ):gmatch("%S+")
+do
+  CONTROLLER_DIGESTS[name:upper()] = true
+end
+
 local function to_hex(s)
   return (s:gsub(".", function(c)
-    return string.format("%02X", c:byte())
+    return string.format("%02x", c:byte())
   end))
 end
 
---- C4:Hash(algorithm, data, options): raw ("NONE") or, with no return_encoding,
---- hex. Any other value is refused rather than answered in hex, since the shim
---- has never been measured against one and a wrong-encoding digest still looks
---- like a digest. Checked ahead of the backend, so the refusal also holds on a
---- host with no crypto at all.
-function C4:Hash(algorithm, data, options)
-  local encoding = type(options) == "table" and options.return_encoding or nil
-  if encoding ~= nil and string.upper(encoding) ~= "NONE" then
-    return nil, "C4 shim: return_encoding " .. tostring(encoding) .. " is not modelled (only NONE, or absent for hex)"
+local function from_hex(s)
+  if #s % 2 ~= 0 or s:find("%X") then
+    return nil
+  end
+  return (s:gsub("..", function(b)
+    return string.char(tonumber(b, 16))
+  end))
+end
+
+--- C4:Hash as a 4.3.0 controller answers it: lower-case hex unless return_encoding is NONE or
+--- BASE64 (any case; other values give hex), and data_encoding HEX or BASE64 decodes the data.
+--- An explicit nil options argument raises there, while an omitted one does not.
+function C4:Hash(...)
+  local algorithm, data, options = ...
+  if algorithm == "" then
+    return nil, 'The value of the "digest" parameter is invalid'
+  end
+  if type(data) == "number" then
+    data = tostring(data)
+  elseif type(data) ~= "string" then
+    error("data should be a string", 2)
+  end
+  if options == nil and select("#", ...) >= 3 then
+    error("An unknown error occurred", 2)
+  elseif options ~= nil and type(options) ~= "table" then
+    error("options should be a table (or nil)", 2)
+  end
+  options = options or {}
+  local dataEncoding = string.upper(options.data_encoding or "")
+  if dataEncoding == "HEX" or dataEncoding == "BASE64" then
+    if data == "" then
+      return nil, 'Failed to decode the data: "The specified encoded data was empty"'
+    end
+    if dataEncoding == "HEX" then
+      data = from_hex(data)
+    else
+      data = base64_decode_impl(data)
+    end
+    -- base64_decode_impl answers "" for bad input, as C4:Base64Decode does; Hash refuses it.
+    if data == nil or data == "" then
+      return nil, 'Failed to decode the data: "Failed to decode"'
+    end
+  end
+  local name = string.upper(algorithm)
+  if not CONTROLLER_DIGESTS[name] then
+    return nil, 'Failed to compute the hash: "The digest name argument specified an unknown message digest"'
   end
   if not crypto_backend then
     return nil, "C4 shim: no crypto backend (requires LuaJIT + CommonCrypto/libcrypto)"
   end
-  local raw, err = crypto_backend.hash(algorithm, data or "")
+  local raw = crypto_backend.hash(name, data)
   if not raw then
-    return nil, err
+    return nil, "C4 shim: " .. algorithm .. " is a controller digest the shim does not compute"
   end
-  if encoding ~= nil then
+  local returnEncoding = string.upper(options.return_encoding or "")
+  if returnEncoding == "NONE" then
     return raw
+  elseif returnEncoding == "BASE64" then
+    return base64_encode_impl(raw)
   end
   return to_hex(raw)
 end
 
+local HMAC_BLOCK_SIZES = { MD5 = 64, SHA1 = 64, SHA224 = 64, SHA256 = 64, SHA384 = 128, SHA512 = 128 }
+
+--- C4:HMAC as a 4.3.0 controller answers it: the result and a nil error, lower-case hex unless
+--- return_encoding is NONE or BASE64 (any case). An empty digest, key or data is refused before
+--- key_encoding or data_encoding (HEX or BASE64) decodes it; a number key or data is its string.
+function C4:HMAC(...)
+  local algorithm, key, data, options = ...
+  if type(key) == "number" then
+    key = tostring(key)
+  elseif type(key) ~= "string" then
+    error("key should be a string", 2)
+  end
+  if type(data) == "number" then
+    data = tostring(data)
+  elseif type(data) ~= "string" then
+    error("data should be a string", 2)
+  end
+  if options == nil and select("#", ...) >= 4 then
+    error("An unknown error occurred", 2)
+  elseif options ~= nil and type(options) ~= "table" then
+    error("options should be a table (or nil)", 2)
+  end
+  options = options or {}
+  if algorithm == "" then
+    return nil, 'The value of the "digest" parameter is invalid'
+  elseif key == "" then
+    return nil, 'The value of the "key" parameter is invalid'
+  elseif data == "" then
+    return nil, 'The value of the "data" parameter is invalid'
+  end
+  local decoded = { key = key, data = data }
+  for _, name in ipairs({ "key", "data" }) do
+    local encoding = string.upper(options[name .. "_encoding"] or "")
+    if encoding == "HEX" then
+      decoded[name] = from_hex(decoded[name])
+    elseif encoding == "BASE64" then
+      decoded[name] = base64_decode_impl(decoded[name])
+    end
+    if decoded[name] == nil or decoded[name] == "" then
+      return nil, "Failed to decode the " .. name .. ': "Failed to decode"'
+    end
+  end
+  local name = string.upper(algorithm)
+  if not CONTROLLER_DIGESTS[name] then
+    return nil, 'Failed to compute the HMAC: "The digest name argument specified an unknown message digest"'
+  end
+  if not crypto_backend then
+    return nil, "C4 shim: no crypto backend (requires LuaJIT + CommonCrypto/libcrypto)"
+  end
+  local blockSize = HMAC_BLOCK_SIZES[name]
+  if not blockSize then
+    return nil, "C4 shim: " .. algorithm .. " is a controller digest the shim does not compute"
+  end
+  local bit = require("bit")
+  key = decoded.key
+  if #key > blockSize then
+    key = crypto_backend.hash(name, key)
+  end
+  key = key .. string.rep("\0", blockSize - #key)
+  local inner, outer = {}, {}
+  for i = 1, blockSize do
+    inner[i] = string.char(bit.bxor(key:byte(i), 0x36))
+    outer[i] = string.char(bit.bxor(key:byte(i), 0x5c))
+  end
+  local raw =
+    crypto_backend.hash(name, table.concat(outer) .. crypto_backend.hash(name, table.concat(inner) .. decoded.data))
+  local returnEncoding = string.upper(options.return_encoding or "")
+  if returnEncoding == "NONE" then
+    return raw, nil
+  elseif returnEncoding == "BASE64" then
+    return base64_encode_impl(raw), nil
+  end
+  return to_hex(raw), nil
+end
+
 --- Decode an Encrypt/Decrypt argument by its *_encoding option: NONE (or absent)
---- is raw bytes, BASE64 is decoded. Anything else is refused, as C4:Hash does.
+--- is raw bytes, BASE64 is decoded. Anything else is refused.
 local function decode_arg(value, encoding)
   local e = string.upper(encoding or "NONE")
   if e == "NONE" then

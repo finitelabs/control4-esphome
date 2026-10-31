@@ -266,6 +266,10 @@ test: ## Run the Lua test suite (test/test_*.lua) and the tools' tests (tools/te
 		python3 "$$f" || exit 1; \
 	done
 
+.PHONY: support-code
+support-code: ## Print today's Support Code, which opens a DriverCentral build's Lua window
+	@python3 tools/support_code.py
+
 # ─── Build ────────────────────────────────────────────────────────────────────
 
 .PHONY: build build-nodocs

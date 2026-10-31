@@ -200,6 +200,15 @@ Sets the logging level. Default is `3 - Info`.
 
 Sets the logging mode. Default is `Off`.
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+#### Support Code
+
+Leave it blank unless Finite Labs support gives you a code: it opens Composer's
+Lua tab to this driver for an hour.
+
+<!-- #endif -->
+
 ### Encryption Settings
 
 > These properties are only shown for Relay Switch devices that require

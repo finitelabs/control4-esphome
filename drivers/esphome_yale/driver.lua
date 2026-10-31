@@ -19,6 +19,7 @@ local deferred = require("deferred")
 local log = require("lib.logging")
 --#ifdef DRIVERCENTRAL
 local updateSettings = require("lib.update-settings")
+local supportCode = require("lib.support-code")
 --#endif
 local bindings = require("lib.bindings")
 local values = require("lib.values")
@@ -1714,6 +1715,11 @@ end
 function EC.SET_UPDATE_SETTING(params)
   log:trace("EC.SET_UPDATE_SETTING(%s)", params)
   updateSettings:take(params)
+end
+
+--- Not logged: the value is the code.
+function OPC.Support_Code(propertyValue)
+  supportCode:enter(propertyValue)
 end
 --#endif
 

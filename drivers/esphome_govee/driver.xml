@@ -86,6 +86,15 @@
           <item>Print and Log</item>
         </items>
       </property>
+      <!-- #ifdef DRIVERCENTRAL -->
+      <property>
+        <name>Support Code</name>
+        <type>STRING</type>
+        <default/>
+        <description>Enter only a code from Finite Labs support. It opens the Lua window for an hour.</description>
+        <password>true</password>
+      </property>
+      <!-- #endif -->
       <property>
         <name>Device Info</name>
         <type>LABEL</type>
