@@ -259,6 +259,15 @@ Sets the logging level. Default is `3 - Info`.
 Sets the logging mode. Logging automatically turns off after 3 hours to prevent
 excessive log output. Default is `Off`.
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+#### Support Code
+
+Leave it blank unless Finite Labs support gives you a code: it opens Composer's
+Lua tab to this driver for an hour.
+
+<!-- #endif -->
+
 #### Polling Interval \[ 1 - 10, default: **_5_** \]
 
 How often, in minutes, the driver connects to read the diffuser's status.

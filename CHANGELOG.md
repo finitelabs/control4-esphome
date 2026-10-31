@@ -25,6 +25,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Added Restart Bluetooth Proxy When Stuck, which presses the chosen ESPHome
   restart button when the proxy is wedged, at most once every 6 hours. Off by
   default
+  <!-- #ifdef DRIVERCENTRAL -->
+- Added a `Support Code` property to the ESPHome driver and its sub-drivers. A
+  code from Finite Labs support opens the driver's Lua tab in Composer for an
+  hour; leave it blank otherwise.
+  <!-- #endif -->
 
 ### Fixed
 

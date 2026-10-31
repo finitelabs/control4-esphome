@@ -18,6 +18,9 @@ local events = require("lib.events")
 local githubUpdater = require("lib.github-updater")
 --#endif
 local updateSettings = require("lib.update-settings")
+--#ifdef DRIVERCENTRAL
+local supportCode = require("lib.support-code")
+--#endif
 local values = require("lib.values")
 
 local ESPHomeClient = require("esphome.client")
@@ -168,6 +171,13 @@ function EC.SET_UPDATE_SETTING(params)
   log:trace("EC.SET_UPDATE_SETTING(%s)", params)
   updateSettings:take(params)
 end
+
+--#ifdef DRIVERCENTRAL
+--- Not logged: the value is the code.
+function OPC.Support_Code(propertyValue)
+  supportCode:enter(propertyValue)
+end
+--#endif
 
 function OPC.Driver_Version(propertyValue)
   log:trace("OPC.Driver_Version('%s')", propertyValue)

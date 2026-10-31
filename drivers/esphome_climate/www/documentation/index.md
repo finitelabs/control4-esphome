@@ -165,6 +165,15 @@ Sets the logging level. Default is `3 - Info`.
 Sets the logging mode. Default is `Off`. Automatically reverts to `Off` after 3
 hours to prevent excessive logging.
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+#### Support Code
+
+Leave it blank unless Finite Labs support gives you a code: it opens Composer's
+Lua tab to this driver for an hour.
+
+<!-- #endif -->
+
 ### Remote Sensor Properties
 
 These properties become visible when the ESPHome device exposes user-defined
