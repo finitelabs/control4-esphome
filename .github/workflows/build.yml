@@ -54,10 +54,11 @@ jobs:
         with:
           node-version-file: .node-version
 
+      # Pinned: a new StyLua release can reformat committed Lua with no change in the repo.
       - name: Setup stylua
         run: |
           curl -fsSL --retry 3 --retry-all-errors -o "$RUNNER_TEMP/stylua.zip" \
-            "https://github.com/JohnnyMorganz/StyLua/releases/latest/download/stylua-linux-$(uname -m).zip"
+            "https://github.com/JohnnyMorganz/StyLua/releases/download/v2.6.0/stylua-linux-$(uname -m).zip"
           unzip -q "$RUNNER_TEMP/stylua.zip" -d "$RUNNER_TEMP/stylua"
           echo "$RUNNER_TEMP/stylua" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/stylua/stylua" --version
