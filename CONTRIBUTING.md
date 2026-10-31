@@ -45,6 +45,8 @@ then pull the change in with `copier update`.
 - `logging.lua`: structured logging with configurable levels
 - `lru.lua`: LRU cache utility
 - `persist.lua`: persistent storage abstraction
+- `support-code.lua`: the Support Code that opens a DriverCentral build's Lua
+  window (see [The Support Code](#the-support-code))
 - `update-settings.lua`: keeps Automatic Updates and Update Channel the same on
   every item of the drivers the repo builds, in DriverCentral and OSS builds
 - `utils.lua`: general utilities (XML, device queries, table helpers, type
@@ -209,6 +211,7 @@ make check-deps    # Install if needed, then verify .venv matches requirements.t
 make build         # Full build, from clean through zip (see Build Pipeline)
 make build-nodocs  # Build without generating docs
 make test          # Run the Lua test suite (test/test_*.lua) and tools/test_*.py
+make support-code  # Print today's Support Code (see The Support Code)
 make fmt           # Format all code (Lua, Python, Markdown)
 make check         # Assert formatting without rewriting; this is what CI runs
 make clean         # Remove build artifacts and dist/ (including driverpackager)
@@ -445,6 +448,15 @@ names, and takes each value from, in order:
 
 1. the process environment
 1. `.env`, gitignored: for a local build, `cp .env.default .env` and fill it in
+1. on macOS, the login Keychain: a generic password with the service
+   `control4-driver-build` and the name as its account, so no file holds it
+
+To put one in the Keychain (`-w` last, with no value, prompts for it and keeps
+it out of shell history):
+
+```bash
+security add-generic-password -s control4-driver-build -a NAME -w
+```
 
 In CI, the Build workflow writes `.env` from the repository's GitHub Actions
 secrets (add each name under Settings > Secrets and variables > Actions) in a
@@ -462,3 +474,53 @@ encrypted (`encryption="2"` on its `<script>`, set in the build copy of
 `dist/<build>/source`, so neither the `.c4z` nor a CI artifact carries the value
 in the clear. Only `build/` keeps it, and that is gitignored and never uploaded.
 Keep placeholders out of documentation: a PDF is not encrypted.
+
+### The Support Code
+
+A DriverCentral build calls `C4:AllowExecute(false)`, which closes Composer's
+Lua window to anything typed into it. The Support Code opens it again for an
+hour, for support on a system the build runs on. The code changes every UTC day,
+and `make support-code` prints the day's code. Entering it again closes the
+window early, and so does reloading the driver; a code from yesterday is taken
+until 01:00 UTC.
+
+The code is an HMAC of the date under the build secret `SUPPORT_CODE_SECRET`,
+which `lib/support-code.lua` takes inside an `#ifdef DRIVERCENTRAL`, so an OSS
+build never carries it. Declare it in `.env.default`, give it to CI as an
+Actions secret, and keep it in the Keychain for local builds and
+`make support-code`. Make it with `openssl rand -hex 32`: it goes into a Lua
+string as it is. A secret shorter than 32 characters, or none, turns the code
+off: such a build takes no code at all. A tag build fails without it, as for any
+build secret.
+
+Each driver of a DriverCentral build takes the code through a property at the
+end of its Driver Settings:
+
+```xml
+<!-- #ifdef DRIVERCENTRAL -->
+<property>
+  <name>Support Code</name>
+  <type>STRING</type>
+  <default/>
+  <description>Enter only a code from Finite Labs support. It opens the Lua window for an hour.</description>
+  <password>true</password>
+</property>
+<!-- #endif -->
+```
+
+```lua
+--#ifdef DRIVERCENTRAL
+local supportCode = require("lib.support-code")
+--#endif
+
+--#ifdef DRIVERCENTRAL
+--- Not logged: the value is the code.
+function OPC.Support_Code(propertyValue)
+  supportCode:enter(propertyValue)
+end
+--#endif
+```
+
+The library clears the property at once and prints its answer to the Lua output
+whatever Log Mode is. A driver that shows more while the window is open (extra
+properties or log levels) passes `supportCode:onChange(function(open) ... end)`.

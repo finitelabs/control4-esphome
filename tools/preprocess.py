@@ -10,6 +10,8 @@ import json
 import os
 import shutil
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -459,11 +461,46 @@ def parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+KEYCHAIN_SERVICE = "control4-driver-build"
+
+
+def keychain_secret(name: str) -> str:
+    """
+    The build secret `name` from the macOS login Keychain: a generic password with
+    service KEYCHAIN_SERVICE and account `name`. "" off macOS or when there is none.
+    """
+    if sys.platform != "darwin":
+        return ""
+    try:
+        found = subprocess.run(
+            [
+                "security",
+                "find-generic-password",
+                "-s",
+                KEYCHAIN_SERVICE,
+                "-a",
+                name,
+                "-w",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return ""
+    return found.stdout.strip() if found.returncode == 0 else ""
+
+
+def build_secret(name: str, local: dict[str, str]) -> str:
+    """The build secret `name` from the environment, then `.env` (`local`), then the Keychain."""
+    return os.environ.get(name) or local.get(name) or keychain_secret(name)
+
+
 def resolve_build_secrets(repo_root: Path) -> dict[str, str]:
     """
-    Resolve each name `.env.default` declares from the environment, then `.env`.
-    A missing value resolves to "" with a warning, or exits when REQUIRE_SECRETS is
-    set. Only whether each name was set is printed.
+    Resolve each name `.env.default` declares from the environment, then `.env`,
+    then the macOS Keychain. A missing value resolves to "" with a warning, or exits
+    when REQUIRE_SECRETS is set. Only whether each name was set is printed.
     """
     declared = list(parse_env_file(repo_root / ".env.default"))
     if not declared:
@@ -474,7 +511,7 @@ def resolve_build_secrets(repo_root: Path) -> dict[str, str]:
     secrets: dict[str, str] = {}
     missing: list[str] = []
     for name in declared:
-        value = os.environ.get(name) or local.get(name) or ""
+        value = build_secret(name, local)
         if value:
             print(f"Build secret {name}: set")
         else:
