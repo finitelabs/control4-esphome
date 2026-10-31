@@ -19,9 +19,7 @@ local mainDriverCatchup = require("esphome.main_driver_catchup")
 local log = require("lib.logging")
 --#ifdef DRIVERCENTRAL
 local updateSettings = require("lib.update-settings")
---#ifdef DRIVERCENTRAL
 local supportCode = require("lib.support-code")
---#endif
 --#endif
 local persist = require("lib.persist")
 local bindings = require("lib.bindings")
@@ -757,12 +755,10 @@ function EC.SET_UPDATE_SETTING(params)
   updateSettings:take(params)
 end
 
---#ifdef DRIVERCENTRAL
 --- Not logged: the value is the code.
 function OPC.Support_Code(propertyValue)
   supportCode:enter(propertyValue)
 end
---#endif
 --#endif
 
 function OPC.Log_Mode(propertyValue)
