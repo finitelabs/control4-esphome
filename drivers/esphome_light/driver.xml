@@ -92,9 +92,28 @@
         <password>true</password>
       </property>
       <!-- #endif -->
+      <!-- #ifdef DRIVERCENTRAL -->
+      <property>
+        <name>Cloud Monitoring</name>
+        <type>LIST</type>
+        <default>Enabled</default>
+        <items>
+          <item>Disabled</item>
+          <item>Enabled</item>
+        </items>
+        <description>Sends memory and error reports to Finite Labs so we can fix driver problems.</description>
+      </property>
+      <!-- #endif -->
     </properties>
     <commands/>
-    <actions/>
+    <actions>
+      <!-- #ifdef DRIVERCENTRAL -->
+      <action>
+        <name>Diagnostics Snapshot</name>
+        <command>DiagnosticsSnapshot</command>
+      </action>
+      <!-- #endif -->
+    </actions>
   </config>
   <!--
     A dynamic capability overrides these in both directions, so discovery
