@@ -823,6 +823,10 @@ function OnDriverLateInit()
   --#endif
 end
 
+--#ifdef DRIVERCENTRAL
+OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
+--#endif
+
 --------------------------------------------------------------------------------
 -- OPC Handlers
 --------------------------------------------------------------------------------

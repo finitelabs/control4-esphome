@@ -576,6 +576,10 @@ function OnDriverLateInit()
   --#endif
 end
 
+--#ifdef DRIVERCENTRAL
+OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
+--#endif
+
 --------------------------------------------------------------------------------
 -- Property Changed Handlers
 --------------------------------------------------------------------------------
