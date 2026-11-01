@@ -48,6 +48,9 @@ function ProxyRegistry:_fireProxyChange(event, proxyInfo)
     local ok, err = pcall(callback, event, proxyInfo)
     if not ok then
       log:error("Proxy change callback error: %s", err or "unknown error")
+      --#ifdef DRIVERCENTRAL
+      require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BLEProxyChange")
+      --#endif
     end
   end
 end

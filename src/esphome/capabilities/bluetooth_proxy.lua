@@ -1148,6 +1148,9 @@ function BluetoothProxyCapability:onBindingChanged(idBinding, bIsBound)
     end)
     if not advOk then
       log:error("Failed to start advertisement monitoring for %s: %s", mac, advErr or "unknown error")
+      --#ifdef DRIVERCENTRAL
+      require("lib.diagnostics"):captureError(tostring(advErr), nil, "ESPHome.BluetoothProxyMonitor")
+      --#endif
     end
 
     -- For non-passive devices (like switches), also establish GATT connection
@@ -1167,6 +1170,9 @@ function BluetoothProxyCapability:onBindingChanged(idBinding, bIsBound)
         end)
         if not connOk then
           log:error("Failed to initiate connection for %s: %s", mac, connErr or "unknown error")
+          --#ifdef DRIVERCENTRAL
+          require("lib.diagnostics"):captureError(tostring(connErr), nil, "ESPHome.BluetoothProxyConnect")
+          --#endif
         end
       end
     end
@@ -1509,6 +1515,9 @@ function BluetoothProxyCapability:_connectBoundDevices()
       if not ok then
         errorCount = errorCount + 1
         log:error("Error processing device %s (binding %s): %s", mac, device.bindingId, err or "unknown error")
+        --#ifdef DRIVERCENTRAL
+        require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BluetoothProxyBoundDevice")
+        --#endif
       end
     else
       log:warn("Device %s has no bindingId", mac)

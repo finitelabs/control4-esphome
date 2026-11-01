@@ -92,6 +92,9 @@ function BLEScannerProperties:applySelection(propertyName)
   local success, err = pcall(registration.onChanged, selectedDevices)
   if not success then
     log:error("Property '%s' onChanged callback failed: %s", propertyName, err or "unknown error")
+    --#ifdef DRIVERCENTRAL
+    require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BLEScannerSelection")
+    --#endif
   end
 end
 
@@ -325,6 +328,9 @@ function BLEScannerProperties:handleSelection(propertyName, propertyValue)
     local success, err = pcall(registration.onChanged, selected)
     if not success then
       log:error("Property '%s' onChanged callback failed: %s", propertyName, err or "unknown error")
+      --#ifdef DRIVERCENTRAL
+      require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BLEScannerSelection")
+      --#endif
     end
   end
 
@@ -349,6 +355,9 @@ function BLEScannerProperties:reset()
       local success, err = pcall(registration.onChanged, {})
       if not success then
         log:error("Property '%s' onChanged callback failed: %s", propertyName, err or "unknown error")
+        --#ifdef DRIVERCENTRAL
+        require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BLEScannerSelection")
+        --#endif
       end
     end
   end
