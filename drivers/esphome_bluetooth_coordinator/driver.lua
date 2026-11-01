@@ -20,6 +20,7 @@ local log = require("lib.logging")
 --#ifdef DRIVERCENTRAL
 local updateSettings = require("lib.update-settings")
 local supportCode = require("lib.support-code")
+local diagnostics = require("lib.diagnostics")
 --#endif
 local persist = require("lib.persist")
 local bindings = require("lib.bindings")
@@ -758,6 +759,17 @@ end
 --- Not logged: the value is the code.
 function OPC.Support_Code(propertyValue)
   supportCode:enter(propertyValue)
+end
+
+--- Turns Cloud Monitoring on or off.
+--- @param propertyValue string
+function OPC.Cloud_Monitoring(propertyValue)
+  diagnostics:setEnabled(propertyValue == "Enabled")
+end
+
+--- Prints a diagnostics report, and sends it while Cloud Monitoring is on.
+function EC.DiagnosticsSnapshot()
+  diagnostics:dumpSnapshot()
 end
 --#endif
 

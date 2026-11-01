@@ -351,147 +351,159 @@ function ESPHomeClient:connect()
     self:disconnect()
   end)
 
-  -- Create a new TCP client
-  self._client = C4:CreateTCPClient()
-    :OnConnect(function(client)
-      -- Ignore a socket a newer connect() has replaced; the handshake would run on
-      -- the winner's socket. Reject so this attempt's caller isn't left waiting.
-      if client ~= self._client then
-        log:debug("Ignoring connect on a superseded socket; a newer attempt owns the connection")
-        return d:reject(ESPHomeClient.SUPERSEDED)
-      end
+  local onConnect = function(client)
+    -- Ignore a socket a newer connect() has replaced; the handshake would run on
+    -- the winner's socket. Reject so this attempt's caller isn't left waiting.
+    if client ~= self._client then
+      log:debug("Ignoring connect on a superseded socket; a newer attempt owns the connection")
+      return d:reject(ESPHomeClient.SUPERSEDED)
+    end
 
-      log:debug("Connected to ESPHome device at %s:%s", self._ipAddress, self._port)
-      self._connected = true
+    log:debug("Connected to ESPHome device at %s:%s", self._ipAddress, self._port)
+    self._connected = true
 
-      --- @type Deferred<void, string>
-      local dConnect
-      if not IsEmpty(self._encryptionKey) then
-        dConnect = self
-          :sendNoiseHello()
-          :next(function()
-            log:debug("Noise hello message sent successfully")
-            return self:sendHandshake()
-          end, function(err)
-            log:error("Failed to send noise hello message: %s", err)
-            return reject(err)
-          end)
-          :next(function()
-            log:debug("Noise handshake completed")
-          end, function(err)
-            log:error("Failed to complete Noise Handshake: %s", err)
-            return reject(err)
-          end)
-      else
-        log:debug("No encryption key provided, using plaintext protocol")
-        dConnect = deferred.new():resolve(nil)
-      end
-
-      dConnect
+    --- @type Deferred<void, string>
+    local dConnect
+    if not IsEmpty(self._encryptionKey) then
+      dConnect = self
+        :sendNoiseHello()
         :next(function()
-          log:debug("Sending hello message to ESPHome device")
-          -- Send the hello message
-          return self:sendHello()
-        end)
-        :next(function()
-          log:debug("Hello message sent successfully")
-          -- Only authenticate when not using encryption key
-          if IsEmpty(self._encryptionKey) then
-            return self:sendAuthenticate()
-          end
-          log:debug("Skipping authentication request (using Noise encryption)")
-          return deferred.new():resolve({})
+          log:debug("Noise hello message sent successfully")
+          return self:sendHandshake()
         end, function(err)
-          log:error("Failed to send hello message: %s", err)
+          log:error("Failed to send noise hello message: %s", err)
           return reject(err)
         end)
         :next(function()
-          log:debug("Connection established")
+          log:debug("Noise handshake completed")
+        end, function(err)
+          log:error("Failed to complete Noise Handshake: %s", err)
+          return reject(err)
+        end)
+    else
+      log:debug("No encryption key provided, using plaintext protocol")
+      dConnect = deferred.new():resolve(nil)
+    end
 
-          -- Start ping timer to keep connection alive (only ping when idle)
-          self._lastDataReceived = os.time()
-          self._pingTimer = C4:SetTimer(15 * ONE_SECOND, function()
-            local secondsSinceData = os.time() - (self._lastDataReceived or 0)
-            if secondsSinceData < 10 then
-              -- Received data recently, connection is alive, skip ping
-              log:trace("Skipping ping - received data %ds ago", secondsSinceData)
+    dConnect
+      :next(function()
+        log:debug("Sending hello message to ESPHome device")
+        -- Send the hello message
+        return self:sendHello()
+      end)
+      :next(function()
+        log:debug("Hello message sent successfully")
+        -- Only authenticate when not using encryption key
+        if IsEmpty(self._encryptionKey) then
+          return self:sendAuthenticate()
+        end
+        log:debug("Skipping authentication request (using Noise encryption)")
+        return deferred.new():resolve({})
+      end, function(err)
+        log:error("Failed to send hello message: %s", err)
+        return reject(err)
+      end)
+      :next(function()
+        log:debug("Connection established")
+
+        -- Start ping timer to keep connection alive (only ping when idle)
+        self._lastDataReceived = os.time()
+        local ping = function()
+          local secondsSinceData = os.time() - (self._lastDataReceived or 0)
+          if secondsSinceData < 10 then
+            -- Received data recently, connection is alive, skip ping
+            log:trace("Skipping ping - received data %ds ago", secondsSinceData)
+            return
+          end
+          self:sendPing():next(nil, function(err)
+            if err == ESPHomeClient.SUPERSEDED then
+              -- A newer ping displaced this one's response waiter. The newer ping is
+              -- still outstanding and owns the liveness decision, so treating this as
+              -- a dead connection would close the socket out from under it.
+              log:debug("Ignoring ping failure - superseded by a newer ping")
               return
             end
-            self:sendPing():next(nil, function(err)
-              if err == ESPHomeClient.SUPERSEDED then
-                -- A newer ping displaced this one's response waiter. The newer ping is
-                -- still outstanding and owns the liveness decision, so treating this as
-                -- a dead connection would close the socket out from under it.
-                log:debug("Ignoring ping failure - superseded by a newer ping")
-                return
-              end
-              -- Only disconnect if we haven't received data recently
-              local secondsSinceData = os.time() - (self._lastDataReceived or 0)
-              if secondsSinceData < 10 then
-                log:debug("Ignoring ping failure - received data %ds ago", secondsSinceData)
-                return
-              end
-              self:disconnect()
-            end)
-          end, true)
+            -- Only disconnect if we haven't received data recently
+            local secondsSinceData = os.time() - (self._lastDataReceived or 0)
+            if secondsSinceData < 10 then
+              log:debug("Ignoring ping failure - received data %ds ago", secondsSinceData)
+              return
+            end
+            self:disconnect()
+          end)
+        end
+        --#ifdef DRIVERCENTRAL
+        ping = require("lib.diagnostics"):wrap(ping, "ESPHome.PingTimer")
+        --#endif
+        self._pingTimer = C4:SetTimer(15 * ONE_SECOND, ping, true)
 
-          d:resolve(true)
-        end, function(err)
-          if err == ESPHomeClient.SUPERSEDED then
-            -- A newer connect() displaced a handshake waiter under the same key. The
-            -- newer attempt owns self._client now, so tearing down here would close the
-            -- winner's socket. Still reject, so this attempt's caller is not stranded.
-            log:debug("Connection attempt superseded by a newer one; leaving it to the winner")
-            return d:reject(err)
-          end
-          log:error("Failed to establish connection: %s", err)
-          self:disconnect()
-          d:reject(err)
-        end)
+        d:resolve(true)
+      end, function(err)
+        if err == ESPHomeClient.SUPERSEDED then
+          -- A newer connect() displaced a handshake waiter under the same key. The
+          -- newer attempt owns self._client now, so tearing down here would close the
+          -- winner's socket. Still reject, so this attempt's caller is not stranded.
+          log:debug("Connection attempt superseded by a newer one; leaving it to the winner")
+          return d:reject(err)
+        end
+        log:error("Failed to establish connection: %s", err)
+        self:disconnect()
+        d:reject(err)
+      end)
 
-      -- Start reading data from the socket
-      log:debug("Starting to read data from ESPHome device")
-      client:ReadUpTo(4096)
-    end)
-    :OnDisconnect(function(client)
-      -- A superseded socket closing must not disconnect the client the winner owns
-      if client ~= self._client then
-        log:debug("Ignoring disconnect from a superseded socket")
-        return d:reject(ESPHomeClient.SUPERSEDED)
-      end
+    -- Start reading data from the socket
+    log:debug("Starting to read data from ESPHome device")
+    client:ReadUpTo(4096)
+  end
+  local onDisconnect = function(client)
+    -- A superseded socket closing must not disconnect the client the winner owns
+    if client ~= self._client then
+      log:debug("Ignoring disconnect from a superseded socket")
+      return d:reject(ESPHomeClient.SUPERSEDED)
+    end
 
-      log:debug("Disconnected from ESPHome device")
-      self:disconnect()
-    end)
-    :OnError(function(client, errCode, errMsg)
-      -- A superseded socket's error is that attempt's problem, not this connection's
-      if client ~= self._client then
-        log:debug("Ignoring error from a superseded socket: %s (%s)", errMsg, errCode)
-        return d:reject(ESPHomeClient.SUPERSEDED)
-      end
+    log:debug("Disconnected from ESPHome device")
+    self:disconnect()
+  end
+  local onError = function(client, errCode, errMsg)
+    -- A superseded socket's error is that attempt's problem, not this connection's
+    if client ~= self._client then
+      log:debug("Ignoring error from a superseded socket: %s (%s)", errMsg, errCode)
+      return d:reject(ESPHomeClient.SUPERSEDED)
+    end
 
-      log:error("ESPHome connection error: %s (%s)", errMsg, errCode)
-      self:disconnect()
-      d:reject(errMsg)
-    end)
-    :OnRead(function(client, data)
-      -- Ignore stale data from old connections
-      if not self._connected or client ~= self._client then
-        log:trace("Ignoring %d byte(s) from stale connection", #data)
-        return
-      end
+    log:error("ESPHome connection error: %s (%s)", errMsg, errCode)
+    self:disconnect()
+    d:reject(errMsg)
+  end
+  local onRead = function(client, data)
+    -- Ignore stale data from old connections
+    if not self._connected or client ~= self._client then
+      log:trace("Ignoring %d byte(s) from stale connection", #data)
+      return
+    end
 
-      -- Track last data received for keepalive logic
-      self._lastDataReceived = os.time()
+    -- Track last data received for keepalive logic
+    self._lastDataReceived = os.time()
 
-      log:trace("Received %d byte(s) from ESPHome device", #data)
-      --log:ultra("Incoming raw data (hex): %s", to_hex(data))
-      self._buffer = self._buffer .. data
+    log:trace("Received %d byte(s) from ESPHome device", #data)
+    --log:ultra("Incoming raw data (hex): %s", to_hex(data))
+    self._buffer = self._buffer .. data
 
-      self:_processBuffer()
+    self:_processBuffer()
 
-      client:ReadUpTo(4096)
-    end)
+    client:ReadUpTo(4096)
+  end
+  --#ifdef DRIVERCENTRAL
+  local diagnostics = require("lib.diagnostics")
+  onConnect = diagnostics:wrap(onConnect, "ESPHome.OnConnect")
+  onDisconnect = diagnostics:wrap(onDisconnect, "ESPHome.OnDisconnect")
+  onError = diagnostics:wrap(onError, "ESPHome.OnError")
+  onRead = diagnostics:wrap(onRead, "ESPHome.OnRead")
+  --#endif
+
+  -- Create a new TCP client
+  self._client = C4:CreateTCPClient():OnConnect(onConnect):OnDisconnect(onDisconnect):OnError(onError):OnRead(onRead)
   -- Connect to the ESPHome device
   log:debug("Connecting to ESPHome device at %s:%s", self._ipAddress, self._port)
   if self._client:Connect(self._ipAddress, self._port) == nil then
@@ -553,6 +565,9 @@ function ESPHomeClient:disconnect()
         local success, err = pcall(entry.onAbort, "Disconnected")
         if not success then
           log:error("Abort handler for callback %s failed: %s", key, err or "unknown error")
+          --#ifdef DRIVERCENTRAL
+          require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.DisconnectAbort")
+          --#endif
         end
       end
     end
@@ -793,6 +808,9 @@ function ESPHomeClient:subscribeStates(callback)
         local callbackSuccess, err = pcall(callback, message, messageSchema)
         if not callbackSuccess then
           log:error("State callback for %s failed: %s", name, err or "unknown error")
+          --#ifdef DRIVERCENTRAL
+          require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.StateCallback")
+          --#endif
         end
       end)
     end
@@ -840,6 +858,9 @@ function ESPHomeClient:subscribeLogs(callback, level, dumpConfig)
       local callbackSuccess, err = pcall(callback, message.level, message.message)
       if not callbackSuccess then
         log:error("Log callback failed: %s", err or "unknown error")
+        --#ifdef DRIVERCENTRAL
+        require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.LogCallback")
+        --#endif
       end
     end
   )
@@ -910,12 +931,16 @@ function ESPHomeClient:bluetoothDeviceConnect(mac, addressType, withCache)
 
   -- Not the registry's timeout: that is disarmed by the first response, and an
   -- intermediate one (or a proto3 connected=false with error 0) can be the last.
-  local connectTimer = C4:SetTimer(30 * ONE_SECOND, function()
+  local connectTimeout = function()
     log:warn("Bluetooth connection to %s not settled after 30s", mac)
     d:reject("Connection timeout")
     -- The proxy may still be connecting; a late success would hold a slot with no owner.
     self:bluetoothDeviceDisconnect(mac)
-  end)
+  end
+  --#ifdef DRIVERCENTRAL
+  connectTimeout = require("lib.diagnostics"):wrap(connectTimeout, "ESPHome.BluetoothConnectTimer")
+  --#endif
+  local connectTimer = C4:SetTimer(30 * ONE_SECOND, connectTimeout)
 
   local requestType = (withCache == false)
       and ESPHomeProtoSchema.Enum.BluetoothDeviceRequestType.BLUETOOTH_DEVICE_REQUEST_TYPE_CONNECT_V3_WITHOUT_CACHE
@@ -1310,6 +1335,9 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(mac, handle, enable, callbac
         local callbackSuccess, err = pcall(callback, message.data or "")
         if not callbackSuccess then
           log:error("Bluetooth GATT notify callback for %s handle %s failed: %s", mac, handle, err or "unknown error")
+          --#ifdef DRIVERCENTRAL
+          require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.GattNotifyCallback")
+          --#endif
         end
       end)
     end
@@ -1412,9 +1440,13 @@ function ESPHomeClient:subscribeBluetoothConnectionsFree()
   local d = deferred.new()
 
   -- Timeout for initial response (callback persists for ongoing updates)
-  local initialResponseTimer = C4:SetTimer(10 * ONE_SECOND, function()
+  local initialResponseTimeout = function()
     d:reject("Bluetooth connections subscription timeout")
-  end)
+  end
+  --#ifdef DRIVERCENTRAL
+  initialResponseTimeout = require("lib.diagnostics"):wrap(initialResponseTimeout, "ESPHome.BluetoothConnectionsTimer")
+  --#endif
+  local initialResponseTimer = C4:SetTimer(10 * ONE_SECOND, initialResponseTimeout)
 
   self:_registerCallback(
     self:_makeMessageCallbackKey(ESPHomeProtoSchema.Message.BluetoothConnectionsFreeResponse),
@@ -1455,6 +1487,9 @@ function ESPHomeClient:subscribeBluetoothConnectionsFree()
         local callbackSuccess, err = pcall(callback, self._btConnections)
         if not callbackSuccess then
           log:error("Bluetooth connections callback '%s' failed: %s", callbackId, err or "unknown error")
+          --#ifdef DRIVERCENTRAL
+          require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BluetoothConnectionsCallback")
+          --#endif
         end
       end
 
@@ -1521,6 +1556,9 @@ function ESPHomeClient:initBluetoothProxy()
         local callbackSuccess, err = pcall(callback, self._btScannerState)
         if not callbackSuccess then
           log:error("Bluetooth scanner state callback '%s' failed: %s", callbackId, err or "unknown error")
+          --#ifdef DRIVERCENTRAL
+          require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BluetoothScannerStateCallback")
+          --#endif
         end
       end
     end
@@ -1541,6 +1579,9 @@ function ESPHomeClient:initBluetoothProxy()
       local success, err = pcall(callback, advertisement)
       if not success then
         log:error("Bluetooth advertisement callback '%s' failed: %s", callbackId, err or "unknown error")
+        --#ifdef DRIVERCENTRAL
+        require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.AdvertisementCallback")
+        --#endif
       end
     end
   end
@@ -1683,6 +1724,9 @@ function ESPHomeClient:addBluetoothConnectionsCallback(callbackId, callback)
     local success, err = pcall(callback, self._btConnections)
     if not success then
       log:error("Bluetooth connections callback '%s' failed: %s", callbackId, err or "unknown error")
+      --#ifdef DRIVERCENTRAL
+      require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BluetoothConnectionsCallback")
+      --#endif
     end
   end
 end
@@ -1714,6 +1758,9 @@ function ESPHomeClient:addBluetoothScannerStateCallback(callbackId, callback)
     local success, err = pcall(callback, self._btScannerState)
     if not success then
       log:error("Bluetooth scanner state callback '%s' failed: %s", callbackId, err or "unknown error")
+      --#ifdef DRIVERCENTRAL
+      require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BluetoothScannerStateCallback")
+      --#endif
     end
   end
 end
@@ -2138,19 +2185,26 @@ function ESPHomeClient:_registerCallback(key, callback, timeout, onTimeout)
       local success, err = pcall(existing.onAbort, ESPHomeClient.SUPERSEDED)
       if not success then
         log:error("Abort handler for callback %s failed: %s", key, err or "unknown error")
+        --#ifdef DRIVERCENTRAL
+        require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.SupersedeAbort")
+        --#endif
       end
     end
   end
 
   -- Set up timeout timer if specified
   if timeout and timeout > 0 then
-    entry.timer = C4:SetTimer(timeout, function()
+    local expire = function()
       log:warn("Callback timeout for key: %s", key)
       if onTimeout then
         onTimeout()
       end
       self:_unregisterCallback(handle)
-    end)
+    end
+    --#ifdef DRIVERCENTRAL
+    expire = require("lib.diagnostics"):wrap(expire, "ESPHome.CallbackTimer")
+    --#endif
+    entry.timer = C4:SetTimer(timeout, expire)
   end
 
   self._callbacks[key] = entry
@@ -2250,6 +2304,9 @@ function ESPHomeClient:_invokeCallbackByKey(key, ...)
     local success, err = pcall(entry.callback, ...)
     if not success then
       log:error("Callback for key %s failed: %s", key, err or "unknown error")
+      --#ifdef DRIVERCENTRAL
+      require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.MessageCallback")
+      --#endif
     end
     return true
   end

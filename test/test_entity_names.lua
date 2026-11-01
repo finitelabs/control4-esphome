@@ -295,4 +295,35 @@ do
   T.eq("kitchen sensor", find("SensorStateResponse", { key = 9, device_id = KITCHEN, state = 2 }), "Kitchen Status")
 end
 
+T.section("A state handler that raises is reported while Cloud Monitoring is on")
+do
+  local http = require("lib.http")
+  local shared = require("lib.diagnostics")
+  local diagnostics = getmetatable(shared):new({
+    url = "https://influx.example.test",
+    token = "test-token-not-real",
+    metricsDb = "test_metrics",
+    logsDb = "test_logs",
+  })
+  package.loaded["lib.diagnostics"] = diagnostics
+  local post = http.post
+  local posts = {}
+  function http:post(_, body)
+    table.insert(posts, body)
+    return deferred.new():resolve({ code = 204 })
+  end
+
+  diagnostics:setEnabled(true)
+  client:subscribeStates(function()
+    error("state handler failed")
+  end)
+  receive("SensorStateResponse", { key = 9, state = 1 })
+  diagnostics:setEnabled(false)
+  http.post, package.loaded["lib.diagnostics"] = post, shared
+
+  T.eq("one error is posted", #posts, 1)
+  T.contains("from the state callback", posts[1] or "", "source=ESPHome.StateCallback")
+  T.contains("with the handler's message", posts[1] or "", "state handler failed")
+end
+
 T.finish()

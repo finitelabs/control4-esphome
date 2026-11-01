@@ -1,7 +1,7 @@
 -- How handlers.lua and timer.lua hand a call to a driver's handler, where our copy
 -- differs from Snap One's: OnPropertyChanged's name sanitiser, and the
--- ON_HANDLER_ERROR and ON_TIMER_ERROR hooks with the traceback. home-connect's
--- diagnostics install both hooks, so losing one would turn them off silently.
+-- ON_HANDLER_ERROR and ON_TIMER_ERROR hooks with the traceback. lib.diagnostics
+-- installs both hooks, so losing one would turn them off silently.
 --
 -- Run from the driver root:
 --   make test

@@ -18,6 +18,7 @@ local log = require("lib.logging")
 local updateSettings = require("lib.update-settings")
 -- No local: this chunk is at Lua's 200-local limit.
 require("lib.support-code")
+require("lib.diagnostics")
 --#endif
 local values = require("lib.values")
 local persist = require("lib.persist")
@@ -390,6 +391,17 @@ end
 --- Not logged: the value is the code.
 function OPC.Support_Code(propertyValue)
   require("lib.support-code"):enter(propertyValue)
+end
+
+--- Turns Cloud Monitoring on or off.
+--- @param propertyValue string
+function OPC.Cloud_Monitoring(propertyValue)
+  require("lib.diagnostics"):setEnabled(propertyValue == "Enabled")
+end
+
+--- Prints a diagnostics report, and sends it while Cloud Monitoring is on.
+function EC.DiagnosticsSnapshot()
+  require("lib.diagnostics"):dumpSnapshot()
 end
 --#endif
 
