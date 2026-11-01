@@ -493,6 +493,9 @@ function Connect()
         local success, err = pcall(handler.disconnected, handler, suspend)
         if not success then
           log:error("Entity disconnected handler failed: %s", err or "unknown error")
+          --#ifdef DRIVERCENTRAL
+          diagnostics:captureError(tostring(err), nil, "ESPHome.EntityDisconnected")
+          --#endif
         end
       end
     end
@@ -634,6 +637,9 @@ function RefreshStatus()
       refreshInFlight = false
       local startError = tostring(result or "unknown error")
       log:error("An error occurred refreshing device status; %s", startError)
+      --#ifdef DRIVERCENTRAL
+      diagnostics:captureError(startError, nil, "ESPHome.RefreshStatus")
+      --#endif
       updateStatus("Refresh failed: " .. startError, false)
       esphome:disconnect()
       return
@@ -667,6 +673,9 @@ function RefreshStatus()
                 errMessage = errMessage .. "; " .. ret
               end
               log:error("Entities['%s']:discovered() handler failed%s", entity.entity_type, errMessage)
+              --#ifdef DRIVERCENTRAL
+              diagnostics:captureError(tostring(ret):match("^[^\n]*"), tostring(ret), "ESPHome.EntityDiscovered")
+              --#endif
             end
           else
             log:debug("No Entities['%s']:discovered() handler", entity.entity_type)
@@ -678,6 +687,9 @@ function RefreshStatus()
         end, debug.traceback)
         if not success then
           log:error("Button LEDs discovery failed; %s", ret)
+          --#ifdef DRIVERCENTRAL
+          diagnostics:captureError(tostring(ret):match("^[^\n]*"), tostring(ret), "ESPHome.ButtonLedsDiscovered")
+          --#endif
         end
 
         success, ret = xpcall(function()
@@ -685,6 +697,9 @@ function RefreshStatus()
         end, debug.traceback)
         if not success then
           log:error("Bluetooth proxy restart button discovery failed; %s", ret)
+          --#ifdef DRIVERCENTRAL
+          diagnostics:captureError(tostring(ret):match("^[^\n]*"), tostring(ret), "ESPHome.RestartButtonsDiscovered")
+          --#endif
         end
 
         return entities
@@ -723,6 +738,9 @@ function RefreshStatus()
                 errMessage = errMessage .. "; " .. ret
               end
               log:error("Entities['%s']:updated() handler failed%s", entity.entity_type, errMessage)
+              --#ifdef DRIVERCENTRAL
+              diagnostics:captureError(tostring(ret):match("^[^\n]*"), tostring(ret), "ESPHome.EntityUpdated")
+              --#endif
             end
           else
             log:debug("No Entities['%s']:updated() handler", entity.entity_type)
