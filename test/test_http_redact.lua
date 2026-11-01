@@ -1,4 +1,4 @@
--- Tests for the credential redaction in src/lib/http.lua.
+-- Tests for the credential redaction lib.http applies to its log lines (src/lib/redact.lua).
 --
 -- Run from the driver root:
 --   make test
@@ -7,15 +7,14 @@
 
 local T = require("testlib")
 
--- The shim supplies the C4 surface. lib.http pulls in lib.utils (IsEmpty,
--- InRange) and global.lib (tostring_return_period, JSON) through its own
--- requires, so nothing is restubbed here.
+-- The shim supplies the C4 surface. lib.redact pulls in global.lib (JSON)
+-- through its own require, so nothing is restubbed here.
 require("c4_shim")
 
-local Http = require("lib.http")
+local R = require("lib.redact")
 
-local redact = Http._redact
-local isSensitiveKey = Http._isSensitiveKey
+local redact = R.value
+local isSensitiveKey = R.isSensitiveKey
 
 local REDACTED = "***REDACTED***"
 
