@@ -172,10 +172,6 @@ hours to prevent excessive logging.
 Leave it blank unless Finite Labs support gives you a code: it opens Composer's
 Lua tab to this driver for an hour.
 
-<!-- #endif -->
-
-<!-- #ifdef DRIVERCENTRAL -->
-
 #### Cloud Monitoring \[ Disabled | **_Enabled_** \]
 
 When Enabled, the driver sends Finite Labs a short report once an hour, and a

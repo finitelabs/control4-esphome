@@ -610,9 +610,7 @@ end
 function OPC.Support_Code(propertyValue)
   supportCode:enter(propertyValue)
 end
---#endif
 
---#ifdef DRIVERCENTRAL
 --- Turns Cloud Monitoring on or off.
 --- @param propertyValue string
 function OPC.Cloud_Monitoring(propertyValue)

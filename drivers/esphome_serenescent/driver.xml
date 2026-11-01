@@ -94,8 +94,6 @@
         <description>Enter only a code from Finite Labs support. It opens the Lua window for an hour.</description>
         <password>true</password>
       </property>
-      <!-- #endif -->
-      <!-- #ifdef DRIVERCENTRAL -->
       <property>
         <name>Cloud Monitoring</name>
         <type>LIST</type>
