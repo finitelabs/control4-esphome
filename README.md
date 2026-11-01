@@ -141,9 +141,6 @@ See the individual sub-driver documentation for device-specific details.
 
 ## Driver Installation
 
-Driver installation and setup are similar to most other ip-based drivers. Below
-is an outline of the basic steps for your convenience.
-
 1. Download the latest `control4-esphome.zip` from
    [Github](https://github.com/finitelabs/control4-esphome/releases/latest).
 
