@@ -514,6 +514,9 @@ function BLEScanner:scan()
     local ok, err = pcall(self._onScanStart)
     if not ok then
       log:error("onScanStart callback failed: %s", err or "unknown error")
+      --#ifdef DRIVERCENTRAL
+      require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BLEScanStart")
+      --#endif
     end
   end
 
@@ -584,6 +587,9 @@ function BLEScanner:_finalizeScan(save)
     local ok, err = pcall(self._onScanEnd)
     if not ok then
       log:error("onScanEnd callback failed: %s", err or "unknown error")
+      --#ifdef DRIVERCENTRAL
+      require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BLEScanEnd")
+      --#endif
     end
   end
 
