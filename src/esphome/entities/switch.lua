@@ -4,11 +4,32 @@ local values = require("lib.values")
 local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 
+--- Last relay state notified per switch this load. CLOSED/OPENED fire the
+--- bound relay driver's programming, and ESPHome re-sends every state at each
+--- reconnect, so only a change is notified that way.
+--- @type table<string, string>
+local lastNotified = {}
+
 --- @class SwitchEntity:Entity
 local SwitchEntity = {
   TYPE = ESPHomeClient.EntityType.SWITCH,
 }
 SwitchEntity.__index = SwitchEntity
+
+--- Clear the in-memory notify memo (driver reset).
+function SwitchEntity.clearNotifiedState()
+  lastNotified = {}
+end
+
+--- Tell a relay binding the switch's stored state without firing programming.
+--- @param bindingId number The relay binding ID.
+--- @param entity table<string, any> The switch entity.
+local function tellStoredState(bindingId, entity)
+  local known = Select(values:getValue(entity.name .. " State"), "value")
+  if known ~= nil then
+    SendToProxy(bindingId, toboolean(known) and "STATE_CLOSED" or "STATE_OPENED", {}, "NOTIFY")
+  end
+end
 
 --- Create a new instance of the switch entity.
 --- @param client ESPHomeClient The ESPHome client instance.
@@ -43,9 +64,7 @@ function SwitchEntity:discovered(entity)
       state = true
       pulseTime = tonumber_locale(tParams.TIME) or 0
     elseif strCommand == "GET_STATE" then
-      if known ~= nil then
-        SendToProxy(bindingId, toboolean(known) and "STATE_CLOSED" or "STATE_OPENED", {}, "NOTIFY")
-      end
+      tellStoredState(bindingId, entity)
       return
     else
       -- A command sent with no state reads as off on the device.
@@ -70,7 +89,7 @@ function SwitchEntity:discovered(entity)
         )
       end)
     if pulseTime > 0 then
-      SetTimer("FinishPulse", pulseTime, function()
+      SetTimer("FinishPulse_" .. entity.ref, pulseTime, function()
         log:debug("Turning off %s after pulse time of %dms", ESPHomeClient.describeEntity(entity), pulseTime)
         self.client
           :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
@@ -86,7 +105,12 @@ function SwitchEntity:discovered(entity)
       end)
     end
   end
-  OBC[bindingId] = RefreshStatus
+  OBC[bindingId] = function(_idBinding, _strClass, bIsBound)
+    if bIsBound then
+      tellStoredState(bindingId, entity)
+    end
+    RefreshStatus()
+  end
 end
 
 --- Handle updates to the switch entity state.
@@ -97,6 +121,7 @@ function SwitchEntity:updated(entity, state)
   log:trace("SwitchEntity:updated(%s, %s)", entity, state)
 
   local value = toboolean(state.state)
+  local stored = Select(values:getValue(entity.name .. " State"), "value")
   values:update(entity.name .. " State", value and "1" or "0", "BOOL", function(newValue)
     -- Convert the Control4 value (0/1 string) to a boolean for ESPHome
     local boolValue = toboolean(newValue)
@@ -120,10 +145,18 @@ function SwitchEntity:updated(entity, state)
       end)
   end)
 
-  -- Update the relay proxy
   local relayBinding = bindings:getDynamicBinding(self.TYPE, "switch_" .. entity.ref)
   if relayBinding ~= nil then
-    SendToProxy(relayBinding.bindingId, value and "CLOSED" or "OPENED", {}, "NOTIFY")
+    local relayState = value and "CLOSED" or "OPENED"
+    local told = lastNotified[entity.ref]
+    lastNotified[entity.ref] = relayState
+    if told == nil then
+      -- The first state this load is a change only if it differs from the one stored before it.
+      local changed = stored ~= nil and toboolean(stored) ~= value
+      SendToProxy(relayBinding.bindingId, changed and relayState or "STATE_" .. relayState, {}, "NOTIFY")
+    elseif told ~= relayState then
+      SendToProxy(relayBinding.bindingId, relayState, {}, "NOTIFY")
+    end
   end
 end
 

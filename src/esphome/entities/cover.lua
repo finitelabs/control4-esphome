@@ -178,13 +178,20 @@ function CoverEntity:discovered(entity)
     end
   end
 
+  -- The relays only trigger the cover, so they always read open. Told once at bind, silently.
+  local triggerObc = function(idBinding, _strClass, bIsBound)
+    if bIsBound then
+      SendToProxy(idBinding, "STATE_OPENED", {}, "NOTIFY")
+    end
+    RefreshStatus()
+  end
   RFP[openCoverBindingId] = commandRfp
-  OBC[openCoverBindingId] = RefreshStatus
+  OBC[openCoverBindingId] = triggerObc
   RFP[closeCoverBindingId] = commandRfp
-  OBC[closeCoverBindingId] = RefreshStatus
+  OBC[closeCoverBindingId] = triggerObc
   if stopCoverBindingId ~= nil then
     RFP[stopCoverBindingId] = commandRfp
-    OBC[stopCoverBindingId] = RefreshStatus
+    OBC[stopCoverBindingId] = triggerObc
   end
 end
 
@@ -255,20 +262,6 @@ function CoverEntity:updated(entity, state)
       lastNotified["closed_" .. entity.ref] = coverClosedState
       SendToProxy(coverClosedBinding.bindingId, coverClosedState, {}, "NOTIFY")
     end
-  end
-
-  -- Always open the relays since its just used to trigger the cover
-  local openCoverBinding = bindings:getDynamicBinding(self.TYPE, "open_cover_" .. entity.ref)
-  if openCoverBinding ~= nil then
-    SendToProxy(openCoverBinding.bindingId, "OPENED", {}, "NOTIFY")
-  end
-  local closeCoverBinding = bindings:getDynamicBinding(self.TYPE, "close_cover_" .. entity.ref)
-  if closeCoverBinding ~= nil then
-    SendToProxy(closeCoverBinding.bindingId, "OPENED", {}, "NOTIFY")
-  end
-  local stopCoverBinding = bindings:getDynamicBinding(self.TYPE, "stop_cover_" .. entity.ref)
-  if stopCoverBinding ~= nil then
-    SendToProxy(stopCoverBinding.bindingId, "OPENED", {}, "NOTIFY")
   end
 end
 

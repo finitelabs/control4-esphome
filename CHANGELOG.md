@@ -44,6 +44,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   connection failed; it is now retried like after a dropped connection
 - Fixed an ESPHome switch turning off when a relay driver bound to it asked for
   its state
+- Fixed a relay driver bound to an ESPHome switch running its programming again
+  every time the device reconnected
+- Fixed a pulsed ESPHome switch staying on when another switch on the same
+  device was pulsed before it finished
+- Fixed a relay driver bound to an ESPHome cover's Open, Close or Stop relay
+  running its programming on every cover update
 - Fixed a light's color in Navigator and in its variables staying on the old
   color after a color preset was picked, one of the Color Agent's (such as
   Relax) or one of the light's own, or after the light turned on with Color On
