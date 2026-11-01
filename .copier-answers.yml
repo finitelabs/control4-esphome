@@ -1,5 +1,5 @@
 # Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
-_commit: v0.9.60
+_commit: v0.9.62
 _src_path: git@github.com:finitelabs/control4-driver-template.git
 cloud_diagnostics: true
 distributions: drivercentral oss

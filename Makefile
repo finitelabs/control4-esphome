@@ -232,6 +232,7 @@ package: $(VENV_STAMP) $(PACKAGER) ## Create .c4z driver packages
 			rm -rf "dist/$$build/source"; \
 			echo "$$build: encrypted; removed the plain-text dist/$$build/source"; \
 		fi; \
+		$(VENV_PY) tools/package.py check-encrypted "$$build" || exit 1; \
 	done
 
 .PHONY: zip

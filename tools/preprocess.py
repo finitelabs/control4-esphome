@@ -572,6 +572,19 @@ def substitute_build_secrets(build_dir: Path, secrets: dict[str, str]) -> bool:
     return substituted
 
 
+def finish_build(
+    build_dir: Path, conditions: set[str], secrets: dict[str, str]
+) -> None:
+    """
+    Substitute the build secrets, then encrypt the build when any was substituted
+    or it is a DriverCentral build, which always ships its Lua encrypted.
+    """
+    if secrets and substitute_build_secrets(build_dir, secrets):
+        encrypt_build(build_dir, "build secrets were substituted")
+    elif "DRIVERCENTRAL" in conditions:
+        encrypt_build(build_dir, "a DriverCentral build")
+
+
 def encrypt_build(build_dir: Path, why: str) -> None:
     """
     Encrypt every driver's Lua in the build (encrypt_drivers) and write
@@ -681,11 +694,7 @@ def main():
     # Copy and process src directory
     process_directory(build_dir, conditions, driver_names)
 
-    secrets = resolve_build_secrets(repo_root)
-    if secrets and substitute_build_secrets(build_dir, secrets):
-        encrypt_build(build_dir, "build secrets were substituted")
-    elif "DRIVERCENTRAL" in conditions:
-        encrypt_build(build_dir, "a DriverCentral build")
+    finish_build(build_dir, conditions, resolve_build_secrets(repo_root))
 
     print(f"Build completed successfully. Output in {build_dir}")
 

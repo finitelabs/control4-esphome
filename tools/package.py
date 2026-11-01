@@ -13,6 +13,12 @@ Subcommands:
       Create a zip of the given paths. Files are stored flat by basename;
       directories are added recursively, preserving their relative paths.
       (replaces: the `zip` CLI)
+
+  package.py check-encrypted <build>
+      Exit 1 unless every .c4z in dist/<build>/c4z holds its Lua encrypted:
+      driver.lua.encrypted and no driver.lua, with a driver.xml that asks for
+      encryption="2". Checks a DriverCentral build, or any build preprocess.py
+      encrypted (build/<build>/.encrypted); passes any other build unchecked.
 """
 
 import re
@@ -58,6 +64,48 @@ def make_zip(output_path: Path, inputs: list[str]) -> None:
                 raise FileNotFoundError(f"zip: no such file or directory: {item}")
 
 
+def asks_for_encryption(xml: bytes) -> bool:
+    """The packager's own test: a <config><script> with encryption="2"."""
+    try:
+        root = ElementTree.fromstring(xml)
+    except ElementTree.ParseError:
+        return False
+    return root.find('config/script[@encryption="2"]') is not None
+
+
+def must_be_encrypted(build: str) -> bool:
+    return (
+        build.startswith("drivercentral")
+        or (Path("build") / build / ".encrypted").exists()
+    )
+
+
+def check_encrypted(build: str) -> int:
+    if not must_be_encrypted(build):
+        return 0
+    packages = sorted((Path("dist") / build / "c4z").glob("*.c4z"))
+    if not packages:
+        print(f"Error: dist/{build}/c4z has no package to check", file=sys.stderr)
+        return 1
+    problems = []
+    for c4z in packages:
+        with zipfile.ZipFile(c4z) as zf:
+            names = set(zf.namelist())
+            xml = zf.read("driver.xml") if "driver.xml" in names else b""
+        if "driver.lua.encrypted" not in names:
+            problems.append(f"{c4z} has no driver.lua.encrypted")
+        if "driver.lua" in names:
+            problems.append(f"{c4z} holds driver.lua in plain text")
+        if not asks_for_encryption(xml):
+            problems.append(f"{c4z}'s driver.xml does not ask for encryption")
+    for problem in problems:
+        print(f"Error: {problem}", file=sys.stderr)
+    if problems:
+        return 1
+    print(f"{build}: {len(packages)} packages, each encrypted")
+    return 0
+
+
 def main() -> int:
     args = sys.argv[1:]
     cmd, rest = (args[0], args[1:]) if args else ("", [])
@@ -67,6 +115,8 @@ def main() -> int:
         xml_set(Path(rest[0]).resolve(), rest[1], rest[2])
     elif cmd == "zip" and len(rest) >= 2:
         make_zip(Path(rest[0]).resolve(), rest[1:])
+    elif cmd == "check-encrypted" and len(rest) == 1:
+        return check_encrypted(rest[0])
     else:
         print(__doc__, file=sys.stderr)
         return 1
