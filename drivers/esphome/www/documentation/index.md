@@ -180,9 +180,6 @@ for setting it up.
 
 ## Driver Installation
 
-Driver installation and setup are similar to most other ip-based drivers. Below
-is an outline of the basic steps for your convenience.
-
 <!-- #ifdef DRIVERCENTRAL -->
 
 1. Download the latest `control4-esphome.zip` from
