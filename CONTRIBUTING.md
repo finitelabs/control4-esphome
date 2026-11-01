@@ -213,6 +213,7 @@ make init          # Install all dependencies (safe to re-run)
 make check-deps    # Install if needed, then verify .venv matches requirements.txt
 make build         # Full build, from clean through zip (see Build Pipeline)
 make build-nodocs  # Build without generating docs
+make verify        # After a build, check what CI checks after one
 make test          # Run the Lua test suite (test/test_*.lua) and tools/test_*.py
 make support-code  # Print today's Support Code (see The Support Code)
 make fmt           # Format all code (Lua, Python, Markdown)
@@ -258,6 +259,11 @@ file at the repo root, under `documentation/`, and under
 author, and the generated `README.md` too. CI fails the build if it finishes
 with a dirty tree, so build on a clean checkout and commit whatever the
 formatter changes.
+
+After the build CI runs `make verify`, which runs the same locally: every
+distribution made a PDF (`verify-pdfs`), every `.c4z` is at `DRIVER_VERSION`
+when one is given (`verify-version`; CI gives the tag's date on a tag build),
+and the tree is clean (`verify-clean`).
 
 ### Distributions
 
@@ -602,6 +608,18 @@ end
 function EC.DiagnosticsSnapshot()
   diagnostics:dumpSnapshot()
 end
+```
+
+Each driver's `OnDriverLateInit` goes through `diagnostics:wrapLateInit`, right
+after the function, in an `#ifdef DRIVERCENTRAL` of its own unless one is next
+to it. It turns Cloud Monitoring on from the property before the late init runs,
+so an error anywhere in the late init is reported, and `make test` fails a
+driver without it:
+
+```lua
+--#ifdef DRIVERCENTRAL
+OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
+--#endif
 ```
 
 While enabled, the library owns `ON_HANDLER_ERROR`, `ON_TIMER_ERROR` and
