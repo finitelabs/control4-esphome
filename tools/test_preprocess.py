@@ -9,7 +9,12 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from preprocess import packaged_driver_names, process_file  # noqa: E402
+from preprocess import (  # noqa: E402
+    ENCRYPTED_MARKER,
+    finish_build,
+    packaged_driver_names,
+    process_file,
+)
 
 
 class EmbedDirectiveTest(unittest.TestCase):
@@ -123,6 +128,43 @@ class PackagedDriverNamesTest(unittest.TestCase):
         d = self._drivers({"hc": '<Driver type="c4z">\n</Driver>\n'})
         with self.assertRaises(ValueError):
             packaged_driver_names(d, {"OSS"})
+
+
+class FinishBuildTest(unittest.TestCase):
+    def _build(self, lua='print("hi")\n'):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = Path(tmp.name)
+        (d / "drivers" / "probe").mkdir(parents=True)
+        (d / "drivers" / "probe" / "driver.xml").write_text(
+            '<devicedata>\n  <config>\n    <script file="driver.lua" jit="1"/>\n  </config>\n</devicedata>\n',
+            encoding="utf-8",
+        )
+        (d / "drivers" / "probe" / "driver.lua").write_text(lua, encoding="utf-8")
+        return d
+
+    def _encrypted(self, d):
+        xml = (d / "drivers" / "probe" / "driver.xml").read_text(encoding="utf-8")
+        return 'encryption="2"' in xml, (d / ENCRYPTED_MARKER).exists()
+
+    def test_a_driverCentral_build_is_encrypted_with_no_secret(self):
+        d = self._build()
+        finish_build(d, {"DRIVERCENTRAL"}, {})
+        self.assertEqual(self._encrypted(d), (True, True))
+
+    def test_an_oss_build_with_no_secret_is_not(self):
+        d = self._build()
+        finish_build(d, {"OSS"}, {"UNUSED_SECRET": "value"})
+        self.assertEqual(self._encrypted(d), (False, False))
+
+    def test_any_build_that_takes_a_secret_is(self):
+        d = self._build('KEY = "__PROBE_SECRET__"\n')
+        finish_build(d, {"OSS"}, {"PROBE_SECRET": "value"})
+        self.assertEqual(self._encrypted(d), (True, True))
+        self.assertIn(
+            '"value"',
+            (d / "drivers" / "probe" / "driver.lua").read_text(encoding="utf-8"),
+        )
 
 
 if __name__ == "__main__":

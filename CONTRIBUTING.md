@@ -478,6 +478,11 @@ encrypted (`encryption="2"` on its `<script>`, set in the build copy of
 in the clear. Only `build/` keeps it, and that is gitignored and never uploaded.
 Keep placeholders out of documentation: a PDF is not encrypted.
 
+A DriverCentral build is packaged encrypted with or without a secret.
+`make package` then opens every package of an encrypted build and fails unless
+each holds `driver.lua.encrypted`, no `driver.lua`, and a `driver.xml` that asks
+for encryption.
+
 ### The Support Code
 
 A DriverCentral build calls `C4:AllowExecute(false)`, which closes Composer's
@@ -511,11 +516,17 @@ end of its Driver Settings:
 <!-- #endif -->
 ```
 
+Its `driver.lua` takes the library next to its other requires:
+
 ```lua
 --#ifdef DRIVERCENTRAL
 local supportCode = require("lib.support-code")
 --#endif
+```
 
+and the property's handler with its other property handlers:
+
+```lua
 --#ifdef DRIVERCENTRAL
 --- Not logged: the value is the code.
 function OPC.Support_Code(propertyValue)
@@ -531,25 +542,13 @@ passes `supportCode:onChange(function(open) ... end)`.
 
 ### Cloud Monitoring
 
-`lib/diagnostics.lua` reports a DriverCentral build's memory use and errors to
-InfluxDB. Each driver instance sends a report once an hour, the first 30 seconds
-to 5 minutes after it is enabled (spread by device ID, so the drivers of a
-project do not all report in the same second). A report is one `diagnostics`
-point (Lua memory, the counts of globals and tables, and the errors reported and
-dropped since the last report) and up to 20 `census` points (its largest tables
-by entries and by string bytes). Each error a handler, a timer or an unhandled
-rejection raises is an `error_log` point, at most 10 a minute. Every point is
-tagged with the controller's MAC address, the device ID, the driver's file name
-and version, the OS version, and the DriverCentral license and cloud status.
+`lib/diagnostics.lua` sends Finite Labs an hourly report of each driver
+instance's memory use and largest tables, and a report of each error it hits, to
+InfluxDB. Its header and LuaDoc say what a report holds and what is scrubbed
+from an error before it is sent.
 
-Before an error is sent, its message and traceback are scrubbed. Credentials (by
-`lib/redact.lua`'s rules), URLs, IP, email and MAC addresses, long token-like
-runs, and the text JSON.lua quotes when a decode fails are removed. The message
-is cut to 200 bytes and the traceback to 2,000. A census path keeps only the
-keys that read like code names, and any other key reads `[?]`.
-
-Four build secrets, which the library takes inside an `#ifdef DRIVERCENTRAL`, so
-an OSS build carries none and never reports:
+It takes four build secrets inside an `#ifdef DRIVERCENTRAL`, so an OSS build
+carries none and never reports:
 
 - `INFLUXDB_URL`: the server's origin, with no trailing slash
 - `INFLUXDB_TOKEN`: a token that can only write, and only to the two databases
@@ -558,13 +557,15 @@ an OSS build carries none and never reports:
 
 Declare them in `.env.default`, give them to CI as Actions secrets, and keep
 them in the Keychain for local builds. A build missing any of them never
-reports: enabling Cloud Monitoring only logs a warning. A tag build fails
-without them, as for any build secret.
+reports, and a tag build fails without them.
 
-Each driver of a DriverCentral build takes a property and an action:
+Each driver of a DriverCentral build takes a property, the library and two
+handlers, each inside the `#ifdef DRIVERCENTRAL` block the Support Code already
+has, right after the Support Code's part, rather than in a block of its own: the
+property after the Support Code property, the require after
+`lib.support-code`'s, and the handlers after `OPC.Support_Code`.
 
 ```xml
-<!-- #ifdef DRIVERCENTRAL -->
 <property>
   <name>Cloud Monitoring</name>
   <type>LIST</type>
@@ -575,8 +576,10 @@ Each driver of a DriverCentral build takes a property and an action:
   </items>
   <description>Sends memory and error reports to Finite Labs so we can fix driver problems.</description>
 </property>
-<!-- #endif -->
 ```
+
+The action goes in `<actions>`, in an `#ifdef DRIVERCENTRAL` of its own unless
+the actions already end in one:
 
 ```xml
 <!-- #ifdef DRIVERCENTRAL -->
@@ -588,11 +591,10 @@ Each driver of a DriverCentral build takes a property and an action:
 ```
 
 ```lua
---#ifdef DRIVERCENTRAL
 local diagnostics = require("lib.diagnostics")
---#endif
+```
 
---#ifdef DRIVERCENTRAL
+```lua
 function OPC.Cloud_Monitoring(propertyValue)
   diagnostics:setEnabled(propertyValue == "Enabled")
 end
@@ -600,16 +602,14 @@ end
 function EC.DiagnosticsSnapshot()
   diagnostics:dumpSnapshot()
 end
---#endif
 ```
 
-Diagnostics Snapshot prints a report in the Lua output, and sends it only while
-Cloud Monitoring is Enabled.
-
 While enabled, the library owns `ON_HANDLER_ERROR`, `ON_TIMER_ERROR` and
-`ON_UNHANDLED_REJECTION`, so a driver sets none of them. For a callback no
-dispatcher runs, `diagnostics:wrap(fn, source)` reports its errors; the wrapped
-function returns nothing when `fn` raises.
+`ON_UNHANDLED_REJECTION`, so a driver sets none of them. A callback no
+dispatcher runs, such as `OnZigbeePacketIn`, a TCP client's callbacks or a raw
+`C4:SetTimer` callback, goes through `diagnostics:wrap(fn, source)`. A `pcall`
+that catches an error itself reports it with
+`diagnostics:captureError(tostring(err), nil, source)`.
 
 A driver adds its own points to each report with `diagnostics:onReport`:
 
@@ -621,27 +621,10 @@ diagnostics:onReport(function()
 end)
 ```
 
-The callback runs each time a report goes out, and Diagnostics Snapshot prints
-its points. A name is letters, digits and underscores. Numbers are sent as
-floats, and a string value is cut to 256 bytes. A point that uses one of the
-library's measurement names or one of the tags every point carries is left out
-with a warning. Say in the driver's documentation what the points hold, and
-never send a name, an address or a credential.
+Say in the driver's documentation what its points hold, and never send a name,
+an address or a credential.
 
-Each driver's documentation says what is sent, under its Driver Settings and
-inside the DriverCentral `#ifdef`:
-
-```markdown
-##### Cloud Monitoring \[ Disabled | **_Enabled_** \]
-
-When Enabled, the driver sends Finite Labs a short report once an hour, and a
-report of each error it hits, at most 10 a minute. We use them to find and fix
-problems in the driver. Set it to Disabled to send nothing.
-
-A report holds the controller's MAC address and OS version, the driver's name,
-version, device ID and DriverCentral license status, how much memory the driver
-uses, and the sizes of its largest internal tables. An error report also holds
-the error message and where in the driver it happened. Before a message is sent,
-anything in it that looks like a password, token, key, network address or email
-address is removed.
-```
+Each driver's documentation gets a Cloud Monitoring entry right after the
+Support Code entry, inside its `#ifdef`. Copy it from a driver that has one,
+such as `drivers/tplink_light/www/documentation/index.md` in
+[control4-tplink](https://github.com/finitelabs/control4-tplink).
