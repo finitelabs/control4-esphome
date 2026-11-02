@@ -56,7 +56,7 @@ T.eq("persisted", events:getEvents().event_42.press.name, "Front Door Bell: pres
 T.section("The driver declares its events when it loads")
 ShimResetEvents()
 dofile(DRIVER)
-OnDriverLateInit()
+ShimLateInit()
 T.eq("declared before the device connects", declared(), {
   [10] = "Front Door Bell: press",
   [11] = "Front Door Bell: double_press",

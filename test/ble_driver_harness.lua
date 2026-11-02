@@ -196,7 +196,7 @@ function H.boot(properties, prepare)
   end
   gInitialized = false
   dofile(driverPath)
-  OnDriverLateInit()
+  ShimLateInit()
   H.sent = {}
 end
 
