@@ -6,16 +6,14 @@
 -- or:
 --   ./test/run_test.sh test_sensor_binding_params.lua
 --
--- The helpers' own behaviour is covered by test_sensor_params.lua. What is
--- checked here is the call sites. C4-THERM reads a bound temperature from
--- tParams["CELSIUS"] and never looks at VALUE or SCALE, and it reads
--- tParams["TIMESTAMP"] into a Dbg:Trace concatenation before testing it, so a
--- payload without one crashes the thermostat at its driver.lua:2982 before the
--- reading is ever considered.
+-- The helpers' own behavior is covered by test_sensor_params.lua. What is
+-- checked here is the call sites. A thermostat bound to a sensor reads the
+-- temperature from CELSIUS and never looks at VALUE or SCALE, and a payload
+-- without TIMESTAMP crashes it before the reading is ever considered.
 --
 -- src/esphome/entities/sensor.lua is driven for real. The drivers/*/driver.lua
 -- sends cannot be: a driver.lua cannot be loaded far enough to reach those
--- handlers, so they are read from the sources instead.
+-- handlers, so the test reads each driver.lua's text instead.
 --
 -- Regression test for DRV-121.
 
@@ -83,7 +81,7 @@ T.check("an update pushes a VALUE_CHANGED", reported ~= nil, "no send")
 T.eq("as VALUE_CHANGED", reported.command, "VALUE_CHANGED")
 T.eq("VALUE is the measured number", reported.params.VALUE, 21.5)
 T.eq("SCALE names the measured scale", reported.params.SCALE, "CELSIUS")
-T.eq("CELSIUS is what C4-THERM reads", reported.params.CELSIUS, 21.5)
+T.eq("CELSIUS is what a bound thermostat reads", reported.params.CELSIUS, 21.5)
 T.eq("FAHRENHEIT is converted alongside", reported.params.FAHRENHEIT, 70.7)
 
 --------------------------------------------------------------------------------
@@ -108,7 +106,7 @@ local fahrenheit = sends[1]
 
 T.eq("VALUE is left as measured", fahrenheit.params.VALUE, 70.7)
 T.eq("SCALE says so", fahrenheit.params.SCALE, "FAHRENHEIT")
-T.eq("CELSIUS is converted for C4-THERM", fahrenheit.params.CELSIUS, 21.5)
+T.eq("CELSIUS is converted for a bound thermostat", fahrenheit.params.CELSIUS, 21.5)
 
 --------------------------------------------------------------------------------
 T.section("a Kelvin entity is converted too")
@@ -183,8 +181,9 @@ T.eq("with a TIMESTAMP", type(onBind and onBind.params.TIMESTAMP), "number")
 T.section("TIMESTAMP is present and fresh on every payload")
 --------------------------------------------------------------------------------
 
--- C4-THERM crashes on a payload with no stamp and discards one stamped older
--- than 900 seconds, so both properties are asserted rather than presence alone.
+-- A bound thermostat crashes on a payload with no stamp and discards one
+-- stamped older than 900 seconds, so both properties are asserted rather than
+-- presence alone.
 local now = os.time()
 for _, case in ipairs({
   { what = "celsius", captured = reported },
@@ -195,17 +194,17 @@ for _, case in ipairs({
   local stamp = case.captured.params.TIMESTAMP
   T.check(case.what .. ": TIMESTAMP is a number", type(stamp) == "number", type(stamp))
   T.check(
-    case.what .. ": TIMESTAMP is epoch seconds inside C4-THERM's 900s gate",
+    case.what .. ": TIMESTAMP is epoch seconds inside a thermostat's 900s gate",
     type(stamp) == "number" and stamp > now - 900 and stamp <= now,
     stamp
   )
 end
 
 --------------------------------------------------------------------------------
-T.section("every VALUE_CHANGED send in the sources is built by the helper")
+T.section("every VALUE_CHANGED send in the drivers is built by the helper")
 --------------------------------------------------------------------------------
 
--- The four drivers cannot be loaded, so their sends are read from the source.
+-- The four drivers cannot be loaded, so their sends are read from their files.
 -- Matched over the whole file rather than line by line, so a send whose
 -- arguments are wrapped across lines is parsed like any other.
 
