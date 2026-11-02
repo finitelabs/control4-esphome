@@ -53,7 +53,7 @@ for _, case in ipairs({
       sent[#sent + 1] = { command = strCommand, params = tParams or {} }
     end
   end
-  OnDriverLateInit()
+  ShimLateInit()
   report(state)
   OBC[ESPHOME](ESPHOME, "ESPHOME", true)
   T.eq("bound, as at a controller start: the proxy is told nothing", sent, {})
