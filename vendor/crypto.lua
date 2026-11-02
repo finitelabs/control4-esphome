@@ -1264,9 +1264,11 @@ do
     local VEC_MOD_MUL_HEX = "c5789ec2c73be1123b996b5bf34a44eba5d1145d374fc548"
     local VEC_MOD_EXP_HEX = "e6663770f70809f8c052b35cc00534b8d5b2c013a9d4874c"
 
-    --- Minimum pure-Lua limb products per limb converted for mul, divmod, mod and
-    --- mod_mul to route to OpenSSL; see "INTERNAL: OPENSSL ACCELERATION".
+    --- Minimum pure-Lua limb products per limb converted for divmod, mod and mod_mul
+    --- to route to OpenSSL, and the higher one mul needs; see "INTERNAL: OPENSSL
+    --- ACCELERATION".
     local ROUTE_MIN_RATIO = 4
+    local MUL_ROUTE_MIN_RATIO = 12
 
     -- ============================================================================
     -- INTERNAL: CORE HELPERS
@@ -1832,36 +1834,17 @@ do
     -- accelerator invisible to callers -- results are identical with and without
     -- it, and selftest() asserts exactly that.
     --
-    -- Conversion runs in Lua and is linear in the limbs moved; the pure-Lua cost is
-    -- the schoolbook limb products. So mul, divmod, mod and mod_mul route only once
-    -- estimated work reaches ROUTE_MIN_RATIO limb products per limb converted,
-    -- which keeps linear-cost calls here at any width: a one-limb factor or
-    -- divisor, a quotient of a limb or two, operands already reduced. add and sub
-    -- never route, and mod_add/mod_sub reach the binding only through `mod` with an
-    -- unreduced operand. mod_exp routes at every size: even a small one does
-    -- quadratic work per exponent bit.
+    -- Conversion runs in Lua and is linear in the limbs moved, while the pure-Lua
+    -- cost is the schoolbook limb products, so an operation routes only once its
+    -- estimated work per limb converted reaches a ratio. Linear-cost calls (a
+    -- one-limb factor or divisor, a narrow quotient, reduced operands, add, sub)
+    -- stay here at any width. mod_exp routes at every size.
     --
-    -- Pure-Lua time over OpenSSL time including both conversions; lua-openssl
-    -- 0.8.5 over OpenSSL 3.5 on Apple Silicon (2026-10-17), best of several warm
-    -- runs, widths in 24-bit limbs (128 = 3072 bits):
-    --
-    --   call                              Lua 5.4   LuaJIT    LuaJIT -joff
-    --   mul 128x128                        16.3x    5.2-6.0x     11.8x
-    --   divmod 256/128                     14.1x    5.2-7.4x     15.7x
-    --   mod_mul 128,128,128                29.5x   12.7-13.4x    25.2x
-    --   mod_mul 22,128,128 (SRP's k*v)      8.8x      3.6x        6.8x
-    --   mul 22x22 (SRP's u*x)               2.7x    0.6-0.7x      2.1x
-    --   mul 9x128                           2.2x    0.5-0.6x      1.6x
-    --   mod 129/128 (quotient of 2 limbs)   0.9x    0.5-0.6x      0.8x
-    --   divmod 300/1                        0.3x    0.2x          0.3x
-    --   add, sub 128                        0.1x      0.0x        0.2x
-    --
-    -- At 4, every routed shape wins by 1.5x or more under Lua 5.4 and LuaJIT -joff.
-    -- With the JIT on, mul loses about 2x (2-3 us for SRP's u*x) when its narrower
-    -- factor is under about 24 limbs, or a square under 32. No floor is set: one
-    -- would give up the interpreter's 1.6-2.7x on those shapes, and whether
-    -- Control4's LuaJIT runs its JIT is not recorded. Divides and mod_mul win or
-    -- come within about 15% even there.
+    -- The ratios were measured on a Control4 controller (arm64, LuaJIT 2.1,
+    -- lua-openssl 0.8.5, 2026-10-18) with the JIT on, the case that favours pure
+    -- Lua most: divmod, mod and mod_mul win from 4, mul only from 12 (48x48 limbs
+    -- 0.94x, 64x64 1.30x, 128x128 2.39x). Without the JIT mul wins from about 3, so
+    -- there 12 gives up at most a few tenths of a millisecond per multiply.
 
     --- Binding whose behaviour has been checked, and the verdict per operation.
     --- @type table?
@@ -1884,9 +1867,10 @@ do
     --- @param work integer Estimated pure-Lua cost, in limb products
     --- @param limbs_in integer Limbs converted into the binding (the operands)
     --- @param limbs_out integer Most limbs converted back out (the results)
+    --- @param ratio integer Minimum limb products per limb converted
     --- @return boolean
-    local function worth_routing(work, limbs_in, limbs_out)
-      return work > 0 and work >= ROUTE_MIN_RATIO * (limbs_in + limbs_out)
+    local function worth_routing(work, limbs_in, limbs_out, ratio)
+      return work > 0 and work >= ratio * (limbs_in + limbs_out)
     end
 
     --- Resolve this build's modular-exponentiation entry point.
@@ -2258,7 +2242,7 @@ do
     --- @param b BigNum Second factor
     --- @return BigNum product
     function bignum.mul(a, b)
-      if worth_routing(#a * #b, #a + #b, #a + #b) then
+      if worth_routing(#a * #b, #a + #b, #a + #b, MUL_ROUTE_MIN_RATIO) then
         local product = run_openssl("mul", a, b)
         if product then
           return product
@@ -2274,7 +2258,7 @@ do
     --- @return BigNum remainder a - quotient * b
     function bignum.divmod(a, b)
       -- Out: a quotient of up to #a - #b + 1 limbs and a remainder of up to #b.
-      if worth_routing(div_work(#a, #b), #a + #b, #a + 1) then
+      if worth_routing(div_work(#a, #b), #a + #b, #a + 1, ROUTE_MIN_RATIO) then
         local quotient, remainder = run_openssl("divmod", a, b)
         if quotient and remainder then
           return quotient, remainder
@@ -2288,7 +2272,7 @@ do
     --- @param b BigNum Modulus (must be non-zero)
     --- @return BigNum remainder
     function bignum.mod(a, b)
-      if worth_routing(div_work(#a, #b), #a + #b, #b) then
+      if worth_routing(div_work(#a, #b), #a + #b, #b, ROUTE_MIN_RATIO) then
         local remainder = run_openssl("mod", a, b)
         if remainder then
           return remainder
@@ -2330,7 +2314,7 @@ do
     --- @return BigNum result (a * b) mod m
     function bignum.mod_mul(a, b, m)
       local product_limbs = (#a == 0 or #b == 0) and 0 or #a + #b
-      if worth_routing(#a * #b + div_work(product_limbs, #m), #a + #b + #m, #m) then
+      if worth_routing(#a * #b + div_work(product_limbs, #m), #a + #b + #m, #m, ROUTE_MIN_RATIO) then
         local result = run_openssl("mod_mul", a, b, m)
         if result then
           return result
@@ -2384,9 +2368,8 @@ do
     ---
     --- Each operation is checked separately, so the answers can differ. For mul,
     --- divmod, mod and mod_mul, true covers only calls wide enough to route. Losing
-    --- one costs up to about a second per 3072-bit call on Control4 (extrapolated
-    --- from pure-Lua mod_exp's 669 ms per exponent bit); losing mod_exp costs
-    --- minutes, which is why `srp.is_accelerated` asks about it alone.
+    --- one of those costs milliseconds per 3072-bit call; losing mod_exp costs
+    --- seconds, which is why `srp.is_accelerated` asks about it alone.
     ---
     --- The verdict is not static: it changes with `crypto.use_openssl()`.
     ---
@@ -3247,15 +3230,15 @@ do
             local B = from_hex(SRP_EXP_B_HEX)
             local wide = mul_raw(N, B)
             local seven, byte = from_number(7), from_number(255)
-            local a15, a16, b16 =
-              from_hex(string_rep("ab", 45)), from_hex(string_rep("ab", 48)), from_hex(string_rep("cd", 48))
+            local a47, a48, b48 =
+              from_hex(string_rep("ab", 141)), from_hex(string_rep("ab", 144)), from_hex(string_rep("cd", 144))
             --- @type table[]
             local shapes = {
               { false, bignum.mul, X, Y }, -- narrow operands
               { false, bignum.divmod, X, Y },
               { false, bignum.mod, X, M },
-              { false, bignum.mul, a15, b16 }, -- 240 limb products for 62 limbs converted: under 4
-              { "mul", bignum.mul, a16, b16 }, -- 256 for 64: exactly 4
+              { false, bignum.mul, a47, b48 }, -- 2256 limb products for 190 limbs converted: under 12
+              { "mul", bignum.mul, a48, b48 }, -- 2304 for 192: exactly 12
               { false, bignum.mul, seven, wide }, -- a one-limb factor, either side
               { false, bignum.mul, wide, seven },
               { false, bignum.mul, bignum.zero(), bignum.zero() },
@@ -3287,7 +3270,7 @@ do
                 error("shape " .. i .. " routed wrongly or changed its answer")
               end
             end
-            return #a15 == 15 and #a16 == 16
+            return #a47 == 47 and #a48 == 48
           end,
         },
         {
@@ -3377,14 +3360,16 @@ do
         {
           name = "signed hex from the binding is refused, not read as negative limbs",
           test = function()
+            -- X * 16^112 is 30 limbs, wide enough against N to route. N times it is
+            -- 944 hex digits, not a multiple of a limb's 6, so the "-" shares a chunk
+            -- with digits and from_hex alone would read it as a negative limb.
+            local wide_x = from_hex(VEC_X_HEX .. string_rep("0", 112))
             install(nil)
-            local pure = bignum.mul(N, X)
+            local pure = bignum.mul(N, wide_x)
             local binding, calls = make_binding({ signed_hex = true })
             install(binding)
-            local product = bignum.mul(N, X)
+            local product = bignum.mul(N, wide_x)
             install(nil)
-            -- N*X is 832 hex digits, not a multiple of a limb's 6, so the "-" shares
-            -- a chunk with digits and from_hex alone would read it as a negative limb.
             return calls("mul") == 2 and equals(product, pure)
           end,
         },
@@ -6944,8 +6929,8 @@ do
     )
 
     --- HAP and Apple Companion derivations, with the exact salt and info strings the
-    --- protocol uses. These are the derivations the Control4 Plex driver will
-    --- perform, so a regression in the salt/info handling shows up here as a wrong
+    --- protocol uses. These are the derivations a HAP or Companion pairing
+    --- performs, so a regression in the salt/info handling shows up here as a wrong
     --- key rather than as a pairing failure on hardware.
     local hap_vectors = {
       {
@@ -6989,8 +6974,8 @@ do
     --- Run comprehensive self-test with RFC 5869 and generated test vectors.
     ---
     --- Validates HKDF-Extract and HKDF-Expand for SHA-256 and SHA-512 against
-    --- known-answer tests, checks the HAP/Companion derivations the driver depends
-    --- on, and confirms the documented input-validation behaviour.
+    --- known-answer tests, checks the HAP/Companion pairing derivations, and confirms
+    --- the documented input-validation behaviour.
     ---
     --- @return boolean result True if all tests pass, false otherwise
     function hkdf.selftest()
@@ -10484,14 +10469,11 @@ do
 
     --- Whether an exchange will run at usable speed on this host.
     ---
-    --- SRP-6a's cost is dominated by modular exponentiation over the group modulus,
-    --- and for the 3072-bit HAP group the gap between backends is not a matter of
-    --- taste. Measured on a Control4 controller (2026-08-07): `bn.powmod` takes
-    --- 5.08 ms, while the pure-Lua path extrapolates to roughly 176 s for the
-    --- 256-bit client exponent -- a factor of about 34,000. Worse, Lua execution is
-    --- effectively serialised across drivers there, so an unaccelerated exchange
-    --- does not merely run slowly, it blocks the controller until the watchdog
-    --- resets the driver.
+    --- SRP-6a's cost is dominated by modular exponentiation. On a Control4
+    --- controller (2026-10-18) a client exchange takes about 2.5 s in pure Lua with
+    --- LuaJIT's JIT on, about 28 s without it, and about 0.04 s through `bn.powmod`.
+    --- Lua there is effectively serialised across drivers, so the pure path stalls
+    --- them all for that long.
     ---
     --- This is deliberately advisory. `crypto.bignum` stays portable and will
     --- compute the same answer either way, because the pure path is what makes the
@@ -13056,7 +13038,7 @@ local crypto = {
 local openssl_wrapper = crypto.openssl_wrapper
 
 --- Library version (injected at build time for releases).
-local VERSION = "v0.2.5"
+local VERSION = "v0.2.7"
 
 --- Enable or disable OpenSSL acceleration for the primitives that support it
 --- (hashing, AEAD and big-number arithmetic). Opt-in and safe: when the lua-openssl binding is

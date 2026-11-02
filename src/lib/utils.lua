@@ -1099,7 +1099,7 @@ end
 
 --- Build the VALUE_CHANGED params for a sensor binding.
 ---
---- C4-THERM reads a bound sensor from CELSIUS, requires TIMESTAMP, and drops
+--- A thermostat reads a bound sensor from CELSIUS, needs TIMESTAMP, and drops
 --- readings older than 15 minutes; VALUE/SCALE consumers read the rest. VALUE
 --- stays in the measured scale so existing consumers are unaffected.
 --- A non-finite value is dropped, as a nil one is.
