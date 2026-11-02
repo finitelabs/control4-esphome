@@ -82,6 +82,7 @@ local RESERVED_TAGS = {
 --- @field _server DiagnosticsServer
 --- @field _available boolean Whether this build carries a whole server.
 --- @field _enabled boolean
+--- @field _requested boolean|nil What the driver last asked setEnabled for.
 --- @field _firstReportDone boolean Whether the repeating report timer is running.
 --- @field _onReport? fun(): DiagnosticsPoint[]|nil The driver's own points for each report.
 --- @field _previousCensus table<string, {count: number, bytes: number}?>|nil Map of path -> {count, bytes} from last census.
@@ -119,6 +120,7 @@ function Diagnostics:new(server)
     and isSet(instance._server.metricsDb)
     and isSet(instance._server.logsDb)
   instance._enabled = false
+  instance._requested = nil
   instance._firstReportDone = false
   instance._previousCensus = nil
   instance._gcAvailable = false
@@ -136,14 +138,19 @@ function Diagnostics:new(server)
   return instance
 end
 
---- Enables or disables diagnostics.
+--- Enables or disables diagnostics. Asking again for what was last asked changes nothing.
 --- @param enabled boolean
 function Diagnostics:setEnabled(enabled)
-  if toboolean(enabled) and not self._available then
+  enabled = toboolean(enabled)
+  if enabled == self._requested then
+    return
+  end
+  self._requested = enabled
+  if enabled and not self._available then
     log:warn("[DIAG] Cloud Monitoring is not available in this build")
     return
   end
-  self._enabled = toboolean(enabled)
+  self._enabled = enabled
   if self._enabled then
     self:_detectGcAvailability()
     self:_cacheTags()
@@ -279,6 +286,17 @@ function Diagnostics:wrap(fn, source)
       return unpack(results, 1, results.n)
     end
   end
+end
+
+--- Wraps the driver's OnDriverLateInit, turning Cloud Monitoring on or off from its property first, so an error
+--- anywhere in the late init is reported, not only after its property loop reaches OPC.Cloud_Monitoring.
+--- @param fn function
+--- @return function
+function Diagnostics:wrapLateInit(fn)
+  return self:wrap(function(...)
+    self:setEnabled(Properties["Cloud Monitoring"] == "Enabled")
+    return fn(...)
+  end, "OnDriverLateInit")
 end
 
 -- Private methods ---------------------------------------------------------

@@ -108,7 +108,7 @@ fmt-md: $(VENV_STAMP)
 	done; \
 	[ -z "$$files" ] || $(VENV_PY) tools/docs.py fmt --wrap 80 $$files
 
-# ─── Check ──────────────────────────────────────────────────────────────────
+# ─── Check ────────────────────────────────────────────────────────────────────
 # Assert-only mirror of fmt (--check, no rewrite); this is what CI runs.
 
 .PHONY: check check-lua check-py check-md
@@ -242,6 +242,35 @@ zip: $(VENV_STAMP) ## Zip the c4z/ and docs/ subfolders per distribution
 			"$(CURDIR)/$(VENV_PY)" "$(CURDIR)/tools/package.py" zip \
 				"$(PROJECT_NAME).zip" c4z docs); \
 	done
+
+# ─── Verify ───────────────────────────────────────────────────────────────────
+# What CI checks once `make build` has run. The version is checked only when
+# DRIVER_VERSION is given, as CI gives the tag's date on a tag build
+# (tools/package.py tag-version): today's date can turn over between two runs.
+
+VERIFY_VERSION := $(if $(filter environment command,$(origin DRIVER_VERSION)),verify-version)
+
+.PHONY: verify verify-pdfs verify-version verify-clean
+verify: verify-pdfs $(VERIFY_VERSION) verify-clean ## Check what the build made, as CI does
+
+verify-pdfs: $(VENV_STAMP)
+	@for build in $(DISTRIBUTIONS); do \
+		$(VENV_PY) tools/package.py check-pdfs "$$build" || exit 1; \
+	done
+
+verify-version: $(VENV_STAMP)
+	@for build in $(DISTRIBUTIONS); do \
+		$(VENV_PY) tools/package.py check-version "$$build" "$(DRIVER_VERSION)" || exit 1; \
+	done
+
+verify-clean:
+	@git diff --exit-code || { echo "Error: the build changed tracked files" >&2; exit 1; }
+	@untracked=$$(git ls-files --others --exclude-standard); \
+	if [ -n "$$untracked" ]; then \
+		echo "Error: the build left untracked files:" >&2; \
+		echo "$$untracked" >&2; \
+		exit 1; \
+	fi
 
 # ─── Test ─────────────────────────────────────────────────────────────────────
 

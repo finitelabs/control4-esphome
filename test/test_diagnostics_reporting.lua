@@ -1,4 +1,5 @@
--- lib.diagnostics: when Cloud Monitoring reports, what it posts and where, and the driver's own points.
+-- lib.diagnostics: when Cloud Monitoring reports, what it posts and where, and the driver's own points; and that
+-- each driver's late init goes through wrapLateInit.
 --
 -- Run from the driver root:
 --   make test
@@ -253,5 +254,110 @@ sent = posted(function()
 end)
 T.contains("a snapshot prints them while disabled", output, "example_device,mac=")
 T.eq("and sends nothing", #sent, 0)
+
+T.section("Asking again for what was last asked changes nothing")
+local log = require("lib.logging")
+local logged = {}
+local info, warn = log.info, log.warn
+function log:info(text)
+  table.insert(logged, text)
+end
+function log:warn(text)
+  table.insert(logged, text)
+end
+local again = fresh(SERVER)
+local starts = 0
+local startFirstReport = again._startFirstReport
+function again:_startFirstReport()
+  starts = starts + 1
+  startFirstReport(self)
+end
+again:setEnabled(true)
+again:setEnabled(true)
+T.eq("enabled twice, the first report is scheduled once", starts, 1)
+T.eq("and logged once", logged, { "[DIAG] Cloud Monitoring enabled (interval=%dm, gc=%s)" })
+logged = {}
+again:setEnabled(false)
+again:setEnabled(false)
+T.eq("disabled twice, it is logged once", logged, { "[DIAG] Cloud Monitoring disabled" })
+logged = {}
+local unavailable = fresh({ url = "", token = "", metricsDb = "", logsDb = "" })
+unavailable:setEnabled(true)
+unavailable:setEnabled(true)
+T.eq("a build without the server says so once", logged, { "[DIAG] Cloud Monitoring is not available in this build" })
+log.info, log.warn = info, warn
+
+T.section("A late init through wrapLateInit reports from its first line")
+Properties["Cloud Monitoring"] = "Enabled"
+local late = fresh(SERVER)
+sent = posted(function()
+  T.capture(function()
+    late:wrapLateInit(function()
+      error("early boom")
+    end)()
+  end)
+end)
+T.eq("one post", #sent, 1)
+T.contains("from the late init", sent[1].body, ",source=OnDriverLateInit ")
+T.contains("with its message", sent[1].body, "early boom")
+local args = { n = -1 }
+late:wrapLateInit(function(...)
+  args = { n = select("#", ...), ... }
+  late:setEnabled(Properties["Cloud Monitoring"] == "Enabled")
+end)("type")
+T.eq("it passes Director's argument on", args, { n = 1, "type" })
+T.truthy("and the property loop's own call leaves it on", late:isEnabled())
+Properties["Cloud Monitoring"] = "Disabled"
+sent = posted(function()
+  T.capture(function()
+    late:wrapLateInit(error)("boom")
+  end)
+end)
+T.falsy("with the property Disabled it turns off", late:isEnabled())
+T.eq("and sends nothing", #sent, 0)
+Properties["Cloud Monitoring"] = nil
+
+T.section("Each driver that reports wraps its late init with wrapLateInit")
+local drivers = (debug.getinfo(1, "S").source:match("^@(.*[/\\])") or "./") .. "../drivers/"
+local pipe = assert(io.popen(string.format("ls %q 2>/dev/null", drivers)))
+for name in pipe:lines() do
+  local fh = io.open(drivers .. name .. "/driver.lua", "r")
+  local src = fh and fh:read("*a") or ""
+  if fh then
+    fh:close()
+  end
+  if src:find('require%("lib%.diagnostics"%)') then
+    -- Each open #ifdef/#ifndef: true inside DRIVERCENTRAL, false in its other branch, nil for another symbol.
+    local open, defined, wrapped = {}, false, false
+    for line in (src .. "\n"):gmatch("([^\n]*)\n") do
+      local directive, symbol = line:match("^%s*%-%-%s*#(%a+)%s*(%w*)%s*$")
+      if directive == "ifdef" or directive == "ifndef" then
+        local dc = nil
+        if symbol == "DRIVERCENTRAL" then
+          dc = directive == "ifdef"
+        end
+        table.insert(open, { dc = dc })
+      elseif directive == "else" and open[#open] and open[#open].dc ~= nil then
+        open[#open].dc = not open[#open].dc
+      elseif directive == "endif" then
+        table.remove(open)
+      elseif line:find("^function OnDriverLateInit%(") then
+        defined, wrapped = true, false
+      elseif defined and line:find("^OnDriverLateInit = .+:wrapLateInit%(OnDriverLateInit%)%s*$") then
+        local inDc = false
+        for _, level in ipairs(open) do
+          if level.dc == false then
+            inDc = false
+            break
+          end
+          inDc = inDc or level.dc == true
+        end
+        wrapped = inDc
+      end
+    end
+    T.truthy(name .. " wraps its late init, in DriverCentral builds only", wrapped)
+  end
+end
+pipe:close()
 
 T.finish()

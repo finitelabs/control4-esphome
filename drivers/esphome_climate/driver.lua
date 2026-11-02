@@ -846,6 +846,10 @@ function OnDriverLateInit()
   --#endif
 end
 
+--#ifdef DRIVERCENTRAL
+OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
+--#endif
+
 function OPC.Driver_Status(propertyValue)
   log:trace("OPC.Driver_Status('%s')", propertyValue)
   if not gInitialized then

@@ -729,6 +729,10 @@ function OnDriverLateInit()
   --#endif
 end
 
+--#ifdef DRIVERCENTRAL
+OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
+--#endif
+
 function OnDriverDestroyed()
   log:trace("OnDriverDestroyed()")
   if awayCheckTimer then
