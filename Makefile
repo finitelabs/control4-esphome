@@ -5,6 +5,8 @@ PROJECT_NAME  := control4-esphome
 DISTRIBUTIONS := drivercentral oss
 README_DRIVER := esphome
 README_BUILD  := oss
+# A new repo has no driver until its first lands, and builds and verifies nothing.
+DRIVERS       := $(wildcard drivers/*/driver.xml)
 
 # Paths
 VENV       := .venv
@@ -109,10 +111,11 @@ fmt-md: $(VENV_STAMP)
 	[ -z "$$files" ] || $(VENV_PY) tools/docs.py fmt --wrap 80 $$files
 
 # ─── Check ────────────────────────────────────────────────────────────────────
-# Assert-only mirror of fmt (--check, no rewrite); this is what CI runs.
+# Assert-only mirror of fmt (--check, no rewrite), and that the Build workflow
+# passes the build secrets .env.default declares; this is what CI runs.
 
-.PHONY: check check-lua check-py check-md
-check: check-lua check-py check-md ## Assert all code is formatted (no rewrite)
+.PHONY: check check-lua check-py check-md check-secrets
+check: check-lua check-py check-md check-secrets ## Assert all code is formatted and build secrets match (no rewrite)
 
 check-lua:
 	@dirs=""; for d in ./drivers ./src ./test ./tools ./vendor; do \
@@ -128,6 +131,9 @@ check-md: $(VENV_STAMP)
 		[ -e "$$g" ] && files="$$files $$g"; \
 	done; \
 	[ -z "$$files" ] || $(VENV_PY) tools/docs.py fmt --check --wrap 80 $$files
+
+check-secrets:
+	@./tools/preprocess.py --check-secrets
 
 # ─── Preprocess ───────────────────────────────────────────────────────────────
 
@@ -251,7 +257,12 @@ zip: $(VENV_STAMP) ## Zip the c4z/ and docs/ subfolders per distribution
 VERIFY_VERSION := $(if $(filter environment command,$(origin DRIVER_VERSION)),verify-version)
 
 .PHONY: verify verify-pdfs verify-version verify-clean
+ifeq ($(DRIVERS),)
+verify:
+	@echo "No drivers/*/driver.xml yet: nothing to verify."
+else
 verify: verify-pdfs $(VERIFY_VERSION) verify-clean ## Check what the build made, as CI does
+endif
 
 verify-pdfs: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
@@ -300,12 +311,26 @@ test: ## Run the Lua test suite (test/test_*.lua) and the tools' tests (tools/te
 support-code: ## Print today's Support Code, which opens a DriverCentral build's Lua window
 	@python3 tools/support_code.py
 
+# ─── Icons ────────────────────────────────────────────────────────────────────
+
+# Control4's icon artboard to export, from the icon_style answer: shaped or square.
+ICON_STYLE ?= shaped
+
+.PHONY: icons
+icons: ## Export the icons and doc images from resources/Driver Icons.sketch (needs Sketch)
+	python3 tools/icons.py --style $(ICON_STYLE)
+
 # ─── Build ────────────────────────────────────────────────────────────────────
 
 .PHONY: build build-nodocs
+ifeq ($(DRIVERS),)
+build build-nodocs:
+	@echo "No drivers/*/driver.xml yet: nothing to build."
+else
 build: check-deps clean-build fmt preprocess gen-squishy update-xml docs package zip ## Full build
 
 build-nodocs: check-deps clean-build fmt preprocess gen-squishy update-xml package ## Build without docs
+endif
 
 # ─── Clean ────────────────────────────────────────────────────────────────────
 

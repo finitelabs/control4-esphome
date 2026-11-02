@@ -527,19 +527,37 @@ def resolve_build_secrets(repo_root: Path) -> dict[str, str]:
     return secrets
 
 
-def write_dotenv_from_secrets(repo_root: Path) -> None:
+# A secret the Build workflow passes: `NAME: ${{ secrets.NAME }}`.
+WORKFLOW_SECRET = re.compile(r"\$\{\{\s*secrets\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+
+
+def check_build_secrets(repo_root: Path) -> int:
     """
-    Append to `.env` each name `.env.default` declares that SECRETS_JSON (a JSON
-    object, CI's `toJSON(secrets)`) gives a value. No other secret is written.
+    Exit 1 unless the Build workflow passes `make build` exactly the build secrets
+    `.env.default` declares: one it does not pass builds empty, and one it passes
+    without a declaration is a secret no build reads.
     """
-    declared = parse_env_file(repo_root / ".env.default")
-    if not declared:
-        return
-    secrets = json.loads(os.environ.get("SECRETS_JSON") or "{}")
-    lines = [f"{name}={secrets[name]}\n" for name in declared if secrets.get(name)]
-    with open(repo_root / ".env", "a", encoding="utf-8") as f:
-        f.writelines(lines)
-    print(f"Wrote {len(lines)} of {len(declared)} build secrets to .env")
+    declared = set(parse_env_file(repo_root / ".env.default"))
+    workflow = repo_root / ".github" / "workflows" / "build.yml"
+    passed = set(WORKFLOW_SECRET.findall(workflow.read_text(encoding="utf-8")))
+    problems = []
+    if declared - passed:
+        problems.append(
+            f".env.default declares {', '.join(sorted(declared - passed))}, which"
+            " build.yml does not pass: add it to extra_build_secrets and run"
+            " copier update (CONTRIBUTING.md, Build Secrets)"
+        )
+    if passed - declared:
+        problems.append(
+            f"build.yml passes {', '.join(sorted(passed - declared))}, which"
+            " .env.default does not declare"
+        )
+    for problem in problems:
+        print(f"Error: {problem}", file=sys.stderr)
+    if problems:
+        return 1
+    print(f"build.yml passes the {len(declared)} build secrets .env.default declares")
+    return 0
 
 
 ENCRYPTED_MARKER = ".encrypted"
@@ -621,6 +639,29 @@ def encrypt_drivers(drivers_dir: Path, why: str) -> None:
         print(f"Encrypting {xml_path.parent.name}: {why}")
 
 
+def add_shared_doc_images(build_dir: Path, shared_dir: Path) -> None:
+    """
+    Copy each image in shared_dir into every driver doc's images/ that links it
+    and has no copy of its own, so a driver's docs need not carry the template's
+    images. A top-level documentation/ doc is left out: its README takes images
+    from the source tree, not the build.
+
+    Args:
+        build_dir: Build directory, after its directives are processed
+        shared_dir: The template's shared documentation images
+    """
+    if not shared_dir.is_dir():
+        return
+    images = sorted(shared_dir.glob("*.png"))
+    for doc in build_dir.glob("drivers/*/www/documentation/*.md"):
+        text = doc.read_text(encoding="utf-8")
+        for image in images:
+            dest = doc.parent / "images" / image.name
+            if f"images/{image.name}" in text and not dest.exists():
+                dest.parent.mkdir(exist_ok=True)
+                shutil.copyfile(image, dest)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Build the project with conditional directives."
@@ -636,15 +677,14 @@ def main():
     )
     group.add_argument("--oss", action="store_true", help="Enable OSS build")
     group.add_argument(
-        "--write-dotenv",
+        "--check-secrets",
         action="store_true",
-        help="Write .env.default's names from SECRETS_JSON into .env, then exit",
+        help="Check build.yml passes the build secrets .env.default declares, then exit",
     )
     args = parser.parse_args()
 
-    if args.write_dotenv:
-        write_dotenv_from_secrets(Path(__file__).parent.parent)
-        return
+    if args.check_secrets:
+        sys.exit(check_build_secrets(Path(__file__).parent.parent))
 
     if args.drivercentral:
         distribution = "drivercentral"
@@ -693,6 +733,10 @@ def main():
 
     # Copy and process src directory
     process_directory(build_dir, conditions, driver_names)
+
+    add_shared_doc_images(
+        build_dir, repo_root / "resources" / "documentation" / "images"
+    )
 
     finish_build(build_dir, conditions, resolve_build_secrets(repo_root))
 

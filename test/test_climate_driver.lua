@@ -871,7 +871,7 @@ test("REGRESSION: a persisted schedule is restored without OnDriverLateInit thro
   ShimPersistLand()
   T.check("schedule was persisted", C4:PersistGetValue("Schedule") ~= nil)
 
-  local ok, err = pcall(OnDriverLateInit)
+  local ok, err = pcall(ShimLateInit)
   T.check("OnDriverLateInit does not throw with a persisted schedule" .. (ok and "" or ": " .. tostring(err)), ok)
 end)
 
@@ -1146,7 +1146,7 @@ test("Connection state is truthful at every stage of the lifecycle", function()
   ShimPersistLand()
   dofile(DRIVER)
   resetSent()
-  OnDriverLateInit()
+  ShimLateInit()
   T.eq("cold start declares the device absent", connectedNow(), "false")
 
   -- 2. The device shows up.
@@ -1169,7 +1169,7 @@ test("Connection state is truthful at every stage of the lifecycle", function()
   ShimPersistLand()
   dofile(DRIVER)
   resetSent()
-  OnDriverLateInit()
+  ShimLateInit()
   T.eq("a reload with the device down stays absent", connectedNow(), "false")
 end)
 
@@ -1225,7 +1225,7 @@ test("Schedule and presets both survive a reload during an outage", function()
   ShimPersistLand()
   dofile(DRIVER)
   resetSent()
-  OnDriverLateInit()
+  ShimLateInit()
 
   ShimPersistLand()
   T.check("the schedule is persisted", C4:PersistGetValue("Schedule") ~= nil)
@@ -1251,7 +1251,7 @@ test("A driver that has never seen a device still reports itself offline", funct
   ShimPersistLand()
   dofile(DRIVER)
   resetSent()
-  OnDriverLateInit()
+  ShimLateInit()
 
   T.check("no capabilities are invented", lastSent("DYNAMIC_CAPABILITIES_CHANGED") == nil)
   local conn = lastSent("CONNECTION")
@@ -1267,7 +1267,7 @@ test("Heat engages on a water heater that has never stored a mode", function()
   C4:PersistDeleteValue("LastWaterHeaterMode")
   package.loaded["lib.persist"] = nil
   dofile(DRIVER)
-  OnDriverLateInit()
+  ShimLateInit()
 
   disconnect()
   local heater = singleSetpointEntity()
@@ -1331,7 +1331,7 @@ test("After a reload the proxy's re-announcement applies a preset still pending"
 
   ShimPersistLand()
   dofile(DRIVER)
-  local ok, err = pcall(OnDriverLateInit)
+  local ok, err = pcall(ShimLateInit)
   T.check("OnDriverLateInit survives the restore" .. (ok and "" or ": " .. tostring(err)), ok)
 
   disconnect()
@@ -1364,7 +1364,7 @@ test("A reload does not re-apply the preset the proxy re-announces", function()
   package.loaded["lib.persist"] = nil
   ShimPersistLand()
   dofile(DRIVER)
-  OnDriverLateInit()
+  ShimLateInit()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   resetSent()
   RFP.SET_EVENT(PROXY, "SET_EVENT", { PRESET = "Comfort" })
@@ -1631,7 +1631,7 @@ test("A fresh install does not forward a bound sensor before the proxy enables i
   package.loaded["lib.persist"] = nil
   ShimPersistLand()
   dofile(DRIVER)
-  OnDriverLateInit()
+  ShimLateInit()
   Properties["Remote Temperature Service"] = "set_remote_temperature"
   local SENSOR = 5100
   registerSensorBindingHandlers(SENSOR)
@@ -1823,7 +1823,7 @@ test("Clearing the applied preset writes an empty marker rather than deleting th
   package.loaded["lib.persist"] = nil
   ShimPersistLand()
   dofile(DRIVER)
-  OnDriverLateInit()
+  ShimLateInit()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 20 })
   setPresets({ { name = "Comfort", fields = { single_setpoint_c = "22" } } })
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsXml({ { preset = "Comfort" } }) })
@@ -1924,7 +1924,7 @@ test("A reload republishes hold mode and active preset even when they read as em
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22 })
   ShimPersistLand()
   dofile(DRIVER)
-  OnDriverLateInit()
+  ShimLateInit()
 
   -- A matching report reconciles to "Off", the value a seed would already believe.
   resetSent()
@@ -1935,7 +1935,7 @@ test("A reload republishes hold mode and active preset even when they read as em
   -- Mirror case: a no-match report resolves to "none"; both sentinels need exercising.
   ShimPersistLand()
   dofile(DRIVER)
-  OnDriverLateInit()
+  ShimLateInit()
   resetSent()
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 30 })
   local preset = lastSent("PRESET_CHANGED")
@@ -1957,7 +1957,7 @@ test("The proxy's own hold wording survives a reload", function()
   -- A real reload: the in-memory value is still set, so only re-loading the chunk observes the restore.
   ShimPersistLand()
   dofile(DRIVER)
-  local ok, err = pcall(OnDriverLateInit)
+  local ok, err = pcall(ShimLateInit)
   T.check("OnDriverLateInit survives the restore" .. (ok and "" or ": " .. tostring(err)), ok)
 
   resetSent()
@@ -2102,7 +2102,7 @@ test("A reload does not rewrite a schedule and preset list that have not changed
 
   ShimPersistLand()
   dofile(DRIVER)
-  local ok = pcall(OnDriverLateInit)
+  local ok = pcall(ShimLateInit)
   T.check("OnDriverLateInit survives the restore", ok)
 
   -- Count writes only for the two keys under test, from here on.
@@ -2323,7 +2323,7 @@ test("A persisted hold wording outside the allow-list is ignored on restore", fu
   package.loaded["lib.persist"] = nil
   ShimPersistLand()
   dofile(DRIVER)
-  OnDriverLateInit()
+  ShimLateInit()
   resetSent()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsOn() })
   local offered = lastSent("ALLOWED_HOLD_MODES_CHANGED")
@@ -2333,7 +2333,7 @@ test("A persisted hold wording outside the allow-list is ignored on restore", fu
   package.loaded["lib.persist"] = nil
   ShimPersistLand()
   dofile(DRIVER)
-  OnDriverLateInit()
+  ShimLateInit()
   resetSent()
   RFP.SET_EVENTS(PROXY, "SET_EVENTS", { XML = eventsOn() })
   offered = lastSent("ALLOWED_HOLD_MODES_CHANGED")
@@ -2754,7 +2754,7 @@ local function reload()
   package.loaded["lib.persist"] = nil
   ShimPersistLand()
   dofile(DRIVER)
-  OnDriverLateInit()
+  ShimLateInit()
 end
 
 local function countSent(command)
@@ -2873,7 +2873,7 @@ test("Restoring a hold commands nothing", function()
   ShimPersistLand()
   dofile(DRIVER)
   resetSent()
-  OnDriverLateInit()
+  ShimLateInit()
   T.eq("the restore itself issues no device command", countSent("ENTITY_COMMAND"), 0)
 
   updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 18 })

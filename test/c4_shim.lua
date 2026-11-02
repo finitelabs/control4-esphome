@@ -1184,6 +1184,31 @@ function ShimRestartDirector()
   next_variable_id = 1001
 end
 
+--- Harness: Director's call of OnDriverLateInit. A late init wired through lib.diagnostics'
+--- wrapLateInit reports an error and carries on, as a controller needs; a test fails on it
+--- instead. Without lib.diagnostics loaded it just calls the late init.
+--- @param ... any Passed to OnDriverLateInit.
+function ShimLateInit(...)
+  local diagnostics = package.loaded["lib.diagnostics"]
+  if type(diagnostics) ~= "table" then
+    return OnDriverLateInit(...)
+  end
+  local own, previous = rawget(diagnostics, "captureError"), diagnostics.captureError
+  local caught
+  diagnostics.captureError = function(self, message, traceback, source)
+    caught = caught or string.format("%s: %s\n%s", tostring(source), tostring(message), tostring(traceback or ""))
+    return previous(self, message, traceback, source)
+  end
+  local ok, err = pcall(OnDriverLateInit, ...)
+  diagnostics.captureError = own
+  if not ok then
+    error(err, 0)
+  end
+  if caught then
+    error("the late init failed: " .. caught, 2)
+  end
+end
+
 -- Keyed by id as a string, with every field a string: `type` is a numeric code,
 -- `readonly` and `hidden` are "True"/"False", and `description` is always empty
 -- because AddVariable cannot set one. A device with no variables and a device

@@ -25,10 +25,17 @@ function C4:GetUniqueMAC()
 end
 
 local posts = {}
+--- What the next posts get back, oldest first; a post with none queued gets a 204.
+local answers = {}
 function http:post(url, body, headers, options)
   table.insert(posts, { url = url, body = body, headers = headers, options = options })
   local d = deferred.new()
-  d:resolve({ code = 204 })
+  local answer = table.remove(answers, 1) or { code = 204 }
+  if answer.code and answer.code >= 200 and answer.code < 300 then
+    d:resolve(answer)
+  else
+    d:reject(answer)
+  end
   return d
 end
 
@@ -101,7 +108,7 @@ local post = sent[1]
 T.eq("to the v2 write endpoint", post.url, "https://influx.example.test/api/v2/write?bucket=test_metrics&precision=s")
 T.eq("with the token as a bearer", post.headers.Authorization, "Bearer test-token-not-real")
 T.eq("as plain text", post.headers["Content-Type"], "text/plain; charset=utf-8")
-T.eq("with a short timeout", post.options.timeout, 2)
+T.eq("with a timeout a busy controller can meet", post.options.timeout, 10)
 T.truthy(
   "a diagnostics point",
   post.body:find("^diagnostics,mac=02:00:00:00:00:01,device_id=12345,driver=example.c4z,") ~= nil
@@ -170,6 +177,37 @@ sent = posted(function()
   diag:captureError("ignored", "", "test")
 end)
 T.eq("and no error is sent", #sent, 0)
+
+T.section("A post with no answer, or a server error, is sent once more")
+-- Enabled without its report timers, so ShimFireTimers fires only the resend.
+local resend = Diagnostics:new(SERVER)
+resend._enabled = true
+--- The posts while `body` is posted with these answers, and every timer then fired.
+local function retried(queue, body, before)
+  answers = queue
+  return posted(function()
+    resend:_post(body, "test_metrics")
+    if before then
+      before()
+    end
+    ShimFireTimers()
+    ShimFireTimers()
+  end)
+end
+sent = retried({ { error = "timed out" } }, "a v=1i 1")
+T.eq("no answer: sent again", #sent, 2)
+T.eq("the same body", sent[2].body, "a v=1i 1")
+T.eq("to the same database", sent[2].url, sent[1].url)
+T.eq("only once", #retried({ { error = "timed out" }, { error = "timed out" } }, "a v=2i 2"), 2)
+T.eq("a server error: sent again", #retried({ { code = 503 } }, "a v=3i 3"), 2)
+T.eq("too many requests: sent again", #retried({ { code = 429 } }, "a v=4i 4"), 2)
+T.eq("a refused token: not sent again", #retried({ { code = 401 } }, "a v=5i 5"), 1)
+T.eq("a refused line: not sent again", #retried({ { code = 400 } }, "a v=6i 6"), 1)
+local turnedOff = retried({ { error = "timed out" } }, "a v=7i 7", function()
+  resend._enabled = false
+end)
+T.eq("turned off before the resend: not sent again", #turnedOff, 1)
+answers = {}
 
 T.section("Diagnostics Snapshot sends only while enabled")
 local _, _, output

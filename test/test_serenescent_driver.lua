@@ -274,7 +274,7 @@ end
 local function boot()
   clearTimers()
   dofile(DRIVER)
-  OnDriverLateInit()
+  ShimLateInit()
   sent = {}
 end
 
@@ -1037,7 +1037,7 @@ test("a restart re-notifies the relay and toggles from the persisted state", fun
   clearTimers()
   dofile(DRIVER)
   sent = {}
-  OnDriverLateInit()
+  ShimLateInit()
   T.eq("persisted state is not replayed at boot", count("CLOSED", RELAY), 0)
   T.eq("the boot asks the proxy for a refresh", count("REFRESH_STATE", ESPHOME), 1)
   sent = {}
