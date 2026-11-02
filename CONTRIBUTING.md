@@ -166,7 +166,7 @@ run of `actions/stale` looks only at issues with that label: after `stale_days`
 it labels the issue `Stale` and comments, and `stale_close_days` later it closes
 it. A comment or any other update removes `Stale` and restarts the clock. Pull
 requests are never touched. An issue opened with a workflow's `GITHUB_TOKEN`
-starts no workflow, so it is never labelled.
+starts no workflow, so it is never labeled.
 
 The list is checked only when an issue is opened or reopened. Changing it leaves
 existing labels as they are, and issues opened before the workflow was turned on

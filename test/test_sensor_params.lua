@@ -151,8 +151,12 @@ do
 end
 
 do
-  -- The YoLink shape: the two temperature keys, no VALUE and no TIMESTAMP.
-  T.eq("a YoLink payload is ingestible", CelsiusFromParams({ CELSIUS = "21.5", FAHRENHEIT = "70.7" }, "CELSIUS"), 21.5)
+  -- The two temperature keys alone, with no VALUE and no TIMESTAMP, as some providers send.
+  T.eq(
+    "a payload of the two temperature keys alone is ingestible",
+    CelsiusFromParams({ CELSIUS = "21.5", FAHRENHEIT = "70.7" }, "CELSIUS"),
+    21.5
+  )
 end
 
 --------------------------------------------------------------------------------
