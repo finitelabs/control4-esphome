@@ -871,7 +871,7 @@ test("REGRESSION: a persisted schedule is restored without OnDriverLateInit thro
   ShimPersistLand()
   T.check("schedule was persisted", C4:PersistGetValue("Schedule") ~= nil)
 
-  local ok, err = pcall(OnDriverLateInit)
+  local ok, err = pcall(ShimLateInit)
   T.check("OnDriverLateInit does not throw with a persisted schedule" .. (ok and "" or ": " .. tostring(err)), ok)
 end)
 
@@ -1331,7 +1331,7 @@ test("After a reload the proxy's re-announcement applies a preset still pending"
 
   ShimPersistLand()
   dofile(DRIVER)
-  local ok, err = pcall(OnDriverLateInit)
+  local ok, err = pcall(ShimLateInit)
   T.check("OnDriverLateInit survives the restore" .. (ok and "" or ": " .. tostring(err)), ok)
 
   disconnect()
@@ -1957,7 +1957,7 @@ test("The proxy's own hold wording survives a reload", function()
   -- A real reload: the in-memory value is still set, so only re-loading the chunk observes the restore.
   ShimPersistLand()
   dofile(DRIVER)
-  local ok, err = pcall(OnDriverLateInit)
+  local ok, err = pcall(ShimLateInit)
   T.check("OnDriverLateInit survives the restore" .. (ok and "" or ": " .. tostring(err)), ok)
 
   resetSent()
@@ -2102,7 +2102,7 @@ test("A reload does not rewrite a schedule and preset list that have not changed
 
   ShimPersistLand()
   dofile(DRIVER)
-  local ok = pcall(OnDriverLateInit)
+  local ok = pcall(ShimLateInit)
   T.check("OnDriverLateInit survives the restore", ok)
 
   -- Count writes only for the two keys under test, from here on.
