@@ -43,7 +43,9 @@ local ERROR_RATE_LIMIT = 10
 local ERROR_RATE_WINDOW = 60
 local MESSAGE_MAX_BYTES = 200
 local TRACEBACK_MAX_BYTES = 2000
-local POST_TIMEOUT_SECONDS = 2
+--- A controller starting many instances at once can take seconds to send.
+local POST_TIMEOUT_SECONDS = 10
+local POST_RETRY_DELAY = 30 * ONE_SECOND
 --- Most points a driver's onReport callback adds to one report, and the longest string value it may send.
 local DRIVER_POINTS_MAX = 200
 local DRIVER_VALUE_MAX_BYTES = 256
@@ -1023,11 +1025,13 @@ function Diagnostics:_writeErrorLog(message, traceback, source, timestamp)
   self:_post(line, self._server.logsDb)
 end
 
---- Posts line protocol to a database. The only place a report leaves the controller.
+--- Posts line protocol to a database. The only place a report leaves the controller. A post that gets no answer,
+--- a server error or a 429 is sent once more, after POST_RETRY_DELAY.
 --- @private
 --- @param body string
 --- @param database string
-function Diagnostics:_post(body, database)
+--- @param isRetry? boolean
+function Diagnostics:_post(body, database, isRetry)
   local url = string.format("%s/api/v2/write?bucket=%s&precision=s", self._server.url, database)
 
   local success, err = pcall(function()
@@ -1039,7 +1043,19 @@ function Diagnostics:_post(body, database)
       :next(function(response)
         log:debug("[DIAG] InfluxDB write OK (%s)", response.code)
       end, function(response)
-        log:debug("[DIAG] InfluxDB write failed (%s)", type(response) == "table" and response.code or "no response")
+        local code = type(response) == "table" and tonumber(response.code) or nil
+        local worthRetrying = code == nil or code == 0 or code == 429 or code >= 500
+        if isRetry or not worthRetrying then
+          log:debug("[DIAG] InfluxDB write failed (%s)", code or "no response")
+          return
+        end
+        log:debug("[DIAG] InfluxDB write failed (%s); sending it once more", code or "no response")
+        -- Points carry their own timestamps, so a resend of one that did land overwrites it rather than adding one.
+        delay(POST_RETRY_DELAY):next(function()
+          if self._enabled then
+            self:_post(body, database, true)
+          end
+        end)
       end)
   end)
   if not success then

@@ -118,6 +118,13 @@ and the PDF all show them as GitHub does. The marker goes alone on its line, and
 the quote must not sit inside a list or another quote; otherwise it stays a
 plain quote that shows the marker.
 
+Images that every driver's docs share, the Finite Labs logo
+(`finite-labs-logo.png`) and `check-drivers.png` (the DriverCentral Cloud
+driver's Check Drivers action), ship with the template in
+`resources/documentation/images/`. A doc that links `./images/<name>` and has no
+copy of its own gets the template's at build time, so a driver's `images/` holds
+only its own.
+
 ## Updating Shared Code
 
 Copier is only needed for this occasional sync. It is **not** a build dependency
@@ -217,7 +224,7 @@ make verify        # After a build, check what CI checks after one
 make test          # Run the Lua test suite (test/test_*.lua) and tools/test_*.py
 make support-code  # Print today's Support Code (see The Support Code)
 make fmt           # Format all code (Lua, Python, Markdown)
-make check         # Assert formatting without rewriting; this is what CI runs
+make check         # Assert formatting and build secrets without rewriting, as CI does
 make clean         # Remove build artifacts and dist/ (including driverpackager)
 make clean-all     # Remove everything (build artifacts, dist, deps, venv)
 ```
@@ -245,6 +252,9 @@ on a clean tree until something has populated `build/`.
 The driver.xml step stamps today's date as the version unless `DRIVER_VERSION`
 is set. On a tag build CI sets it to the tag's date, so the tag must be
 `vYYYYMMDD` or `vYYYYMMDD-suffix` or the build fails.
+
+A repo with no driver yet (no `drivers/*/driver.xml`) builds and verifies
+nothing, and CI uploads nothing, so a new repo's first pull request goes green.
 
 Each distribution's outputs are grouped by type under `dist/<distribution>/`:
 `c4z/` (packaged drivers), `docs/` (generated PDFs) and `source/` (the squished
@@ -467,10 +477,15 @@ it out of shell history):
 security add-generic-password -s control4-driver-build -a NAME -w
 ```
 
-In CI, the Build workflow writes `.env` from the repository's GitHub Actions
-secrets (add each name under Settings > Secrets and variables > Actions) in a
-step of its own, copying only the names `.env.default` declares, so `make build`
-and the tools it runs never see any other secret. Each value is a single line.
+In CI, the Build workflow passes `make build` each build secret by name from the
+repository's GitHub Actions secrets (add each name under Settings > Secrets and
+variables > Actions), so `make build` and the tools it runs never see any other
+secret. The template passes its own: `SUPPORT_CODE_SECRET` with a DriverCentral
+build, and the four `INFLUXDB_*` with Cloud Monitoring. A driver's own go in the
+copier answer `extra_build_secrets`
+(`uvx copier update --trust --data extra_build_secrets="NAME OTHER"`), and
+`make check` fails when `.env.default` and the workflow disagree. Each value is
+a single line.
 
 A name with no value builds as an empty string with a warning, so a pull request
 from a fork, which gets no secrets, still builds. A tag build sets
@@ -621,6 +636,9 @@ driver without it:
 OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
 --#endif
 ```
+
+A test runs the late init with `ShimLateInit()`, not `OnDriverLateInit()`: the
+wrap only reports an error, and `ShimLateInit()` fails the test on it.
 
 While enabled, the library owns `ON_HANDLER_ERROR`, `ON_TIMER_ERROR` and
 `ON_UNHANDLED_REJECTION`, so a driver sets none of them. A callback no

@@ -80,23 +80,25 @@ jobs:
       - name: Test
         run: make test
 
-      - name: Write .env from the secrets .env.default names
-        run: python3 tools/preprocess.py --write-dotenv
-        env:
-          SECRETS_JSON: ${{ toJSON(secrets) }}
-
+      # Each build secret by name, so make build sees no other secret (CONTRIBUTING.md, Build Secrets).
       - name: Build
         run: make build
         env:
           REQUIRE_SECRETS: ${{ github.ref_type == 'tag' && '1' || '' }}
+          SUPPORT_CODE_SECRET: ${{ secrets.SUPPORT_CODE_SECRET }}
+          INFLUXDB_URL: ${{ secrets.INFLUXDB_URL }}
+          INFLUXDB_TOKEN: ${{ secrets.INFLUXDB_TOKEN }}
+          INFLUXDB_METRICS_DB: ${{ secrets.INFLUXDB_METRICS_DB }}
+          INFLUXDB_LOGS_DB: ${{ secrets.INFLUXDB_LOGS_DB }}
 
       - name: Verify the build
         run: make verify
 
 
       # Tag builds are released and uploaded to Driver Central, so 14 days; main builds are for a quick look, 3; PR builds are for side-loading, 1.
+      # A repo with no driver yet builds nothing to upload.
       - name: Upload drivercentral artifacts
-        if: always()
+        if: always() && hashFiles('drivers/*/driver.xml') != ''
         uses: actions/upload-artifact@v7
         with:
           name: drivercentral
@@ -106,8 +108,9 @@ jobs:
 
 
       # Tag builds are released and uploaded to Driver Central, so 14 days; main builds are for a quick look, 3; PR builds are for side-loading, 1.
+      # A repo with no driver yet builds nothing to upload.
       - name: Upload oss artifacts
-        if: always()
+        if: always() && hashFiles('drivers/*/driver.xml') != ''
         uses: actions/upload-artifact@v7
         with:
           name: oss
