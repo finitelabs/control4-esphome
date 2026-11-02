@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Tests for tools/preprocess.py's #embed directive, which splices a file into
-another at build time.
+"""Tests for tools/preprocess.py: its directives, the encryption a build ends
+with, and the check that the Build workflow passes the declared build secrets.
 """
 
+import contextlib
+import io
 import sys
 import tempfile
 import unittest
@@ -11,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from preprocess import (  # noqa: E402
     ENCRYPTED_MARKER,
+    check_build_secrets,
     finish_build,
     packaged_driver_names,
     process_file,
@@ -165,6 +168,64 @@ class FinishBuildTest(unittest.TestCase):
             '"value"',
             (d / "drivers" / "probe" / "driver.lua").read_text(encoding="utf-8"),
         )
+
+
+class CheckBuildSecretsTest(unittest.TestCase):
+    def _repo(self, declared, passed):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = Path(tmp.name)
+        (d / ".env.default").write_text(
+            "# CI probe\n" + "".join(f"{name}=\n" for name in declared),
+            encoding="utf-8",
+        )
+        workflow = d / ".github" / "workflows" / "build.yml"
+        workflow.parent.mkdir(parents=True)
+        env = "".join(
+            f"          {name}: ${{{{ secrets.{name} }}}}\n" for name in passed
+        )
+        workflow.write_text(
+            "      - name: Build\n        run: make build\n        env:\n" + env,
+            encoding="utf-8",
+        )
+        return d
+
+    def _check(self, d):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = check_build_secrets(d)
+        return code, err.getvalue()
+
+    def test_the_same_names_pass(self):
+        d = self._repo(
+            ["SUPPORT_CODE_SECRET", "API_KEY"], ["API_KEY", "SUPPORT_CODE_SECRET"]
+        )
+        self.assertEqual(self._check(d), (0, ""))
+
+    def test_no_secrets_at_all_pass(self):
+        self.assertEqual(self._check(self._repo([], [])), (0, ""))
+
+    def test_a_declared_secret_the_workflow_does_not_pass_fails(self):
+        code, err = self._check(
+            self._repo(["SUPPORT_CODE_SECRET", "API_KEY"], ["SUPPORT_CODE_SECRET"])
+        )
+        self.assertEqual(code, 1)
+        self.assertIn(".env.default declares API_KEY", err)
+        self.assertIn("extra_build_secrets", err)
+
+    def test_a_passed_secret_nothing_declares_fails(self):
+        code, err = self._check(
+            self._repo(["SUPPORT_CODE_SECRET"], ["SUPPORT_CODE_SECRET", "GITHUB_TOKEN"])
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("build.yml passes GITHUB_TOKEN", err)
+
+    def test_spaces_inside_the_expression_count(self):
+        d = self._repo(["API_KEY"], [])
+        (d / ".github" / "workflows" / "build.yml").write_text(
+            "        env:\n          API_KEY: ${{secrets.API_KEY}}\n", encoding="utf-8"
+        )
+        self.assertEqual(self._check(d)[0], 0)
 
 
 if __name__ == "__main__":

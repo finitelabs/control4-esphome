@@ -109,10 +109,11 @@ fmt-md: $(VENV_STAMP)
 	[ -z "$$files" ] || $(VENV_PY) tools/docs.py fmt --wrap 80 $$files
 
 # ─── Check ────────────────────────────────────────────────────────────────────
-# Assert-only mirror of fmt (--check, no rewrite); this is what CI runs.
+# Assert-only mirror of fmt (--check, no rewrite), and that the Build workflow
+# passes the build secrets .env.default declares; this is what CI runs.
 
-.PHONY: check check-lua check-py check-md
-check: check-lua check-py check-md ## Assert all code is formatted (no rewrite)
+.PHONY: check check-lua check-py check-md check-secrets
+check: check-lua check-py check-md check-secrets ## Assert all code is formatted and build secrets match (no rewrite)
 
 check-lua:
 	@dirs=""; for d in ./drivers ./src ./test ./tools ./vendor; do \
@@ -128,6 +129,9 @@ check-md: $(VENV_STAMP)
 		[ -e "$$g" ] && files="$$files $$g"; \
 	done; \
 	[ -z "$$files" ] || $(VENV_PY) tools/docs.py fmt --check --wrap 80 $$files
+
+check-secrets:
+	@./tools/preprocess.py --check-secrets
 
 # ─── Preprocess ───────────────────────────────────────────────────────────────
 
@@ -299,6 +303,15 @@ test: ## Run the Lua test suite (test/test_*.lua) and the tools' tests (tools/te
 .PHONY: support-code
 support-code: ## Print today's Support Code, which opens a DriverCentral build's Lua window
 	@python3 tools/support_code.py
+
+# ─── Icons ────────────────────────────────────────────────────────────────────
+
+# Control4's icon artboard to export, from the icon_style answer: shaped or square.
+ICON_STYLE ?= shaped
+
+.PHONY: icons
+icons: ## Export the icons and doc images from resources/Driver Icons.sketch (needs Sketch)
+	python3 tools/icons.py --style $(ICON_STYLE)
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 

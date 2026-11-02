@@ -80,15 +80,16 @@ jobs:
       - name: Test
         run: make test
 
-      - name: Write .env from the secrets .env.default names
-        run: python3 tools/preprocess.py --write-dotenv
-        env:
-          SECRETS_JSON: ${{ toJSON(secrets) }}
-
+      # Each build secret by name, so make build sees no other secret (CONTRIBUTING.md, Build Secrets).
       - name: Build
         run: make build
         env:
           REQUIRE_SECRETS: ${{ github.ref_type == 'tag' && '1' || '' }}
+          SUPPORT_CODE_SECRET: ${{ secrets.SUPPORT_CODE_SECRET }}
+          INFLUXDB_URL: ${{ secrets.INFLUXDB_URL }}
+          INFLUXDB_TOKEN: ${{ secrets.INFLUXDB_TOKEN }}
+          INFLUXDB_METRICS_DB: ${{ secrets.INFLUXDB_METRICS_DB }}
+          INFLUXDB_LOGS_DB: ${{ secrets.INFLUXDB_LOGS_DB }}
 
       - name: Verify the build
         run: make verify

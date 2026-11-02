@@ -1359,4 +1359,57 @@ T.eq("table.unpack is absent", table.unpack, nil)
 
 --------------------------------------------------------------------------------
 
+T.section("ShimLateInit")
+
+do
+  local Stub = {}
+  Stub.__index = Stub
+  local reported = {}
+  function Stub:captureError(message)
+    reported[#reported + 1] = message
+  end
+  function Stub:wrap(fn)
+    return function(...)
+      local ok, err = pcall(fn, ...)
+      if not ok then
+        self:captureError(err, "", "OnDriverLateInit")
+      end
+    end
+  end
+  local diagnostics = setmetatable({}, Stub)
+  local savedModule, savedLateInit = package.loaded["lib.diagnostics"], OnDriverLateInit
+  package.loaded["lib.diagnostics"] = diagnostics
+
+  local ran = nil
+  OnDriverLateInit = diagnostics:wrap(function(arg)
+    ran = arg
+  end)
+  ShimLateInit("argument")
+  T.eq("a late init that runs clean passes, with its arguments", ran, "argument")
+
+  OnDriverLateInit = diagnostics:wrap(function()
+    error("late init broke")
+  end)
+  T.raises("an error the wrap reports fails the call", function()
+    ShimLateInit()
+  end, "the late init failed: OnDriverLateInit: ")
+  T.eq("and still reaches the wrap's own report", #reported, 1)
+  T.eq("which keeps its captureError afterwards", rawget(diagnostics, "captureError"), nil)
+
+  OnDriverLateInit = function()
+    error("unwrapped")
+  end
+  T.raises("an error nothing wraps raises as it is", ShimLateInit, "unwrapped")
+  T.eq("and leaves captureError as it was", rawget(diagnostics, "captureError"), nil)
+
+  package.loaded["lib.diagnostics"] = nil
+  OnDriverLateInit = function()
+    ran = "plain"
+  end
+  ShimLateInit()
+  T.eq("without lib.diagnostics it just runs the late init", ran, "plain")
+
+  package.loaded["lib.diagnostics"], OnDriverLateInit = savedModule, savedLateInit
+end
+
 T.finish()
