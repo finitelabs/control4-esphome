@@ -193,8 +193,6 @@ for setting it up.
 
    > ⚠️ A **_single_** driver instance is required per ESPHome device.
 
-   ![Search Drivers](images/search-drivers.png)
-
 1. Select the newly added driver in the "System Design" tab. You will notice
    that the `Cloud Status` reflects the license state. If you have purchased a
    license it will show `License Activated`, otherwise `Trial Running` and
@@ -236,8 +234,6 @@ for setting it up.
 1. Use the "Search" tab to find the "ESPHome" driver and add it to your project.
 
    > ⚠️ A **_single_** driver instance is required per ESPHome device.
-
-   ![Search Drivers](images/search-drivers.png)
 
 1. Configure the [Device Settings](#device-settings) with the connection
    information.
