@@ -135,6 +135,15 @@ for _, state in ipairs(SENT) do
   T.check("the proxy accepts " .. state, isDeclared(declared, state), "not in <hvac_states>")
 end
 
+local modeMapText = src and src:match("\n(local CLIMATE_MODE_TO_C4_STATE = %b{})\n")
+local modeChunk = loadstring((modeMapText or "") .. "\nreturn CLIMATE_MODE_TO_C4_STATE", "=CLIMATE_MODE_TO_C4_STATE")
+local modeMap = modeChunk
+  and setfenv(modeChunk, setmetatable({ ESPHomeProtoSchema = ESPHomeProtoSchema }, { __index = _G }))()
+T.check("the mode map was cut out and compiles", type(modeMap) == "table" and next(modeMap) ~= nil, "no table")
+for _, state in ipairs(sentStates(modeMap)) do
+  T.check("the proxy accepts " .. state .. " from a mode", isDeclared(declared, state), "not in <hvac_states>")
+end
+
 -- A misspelling that adds a token rather than replacing one leaves every case
 -- above passing.
 for _, token in ipairs(declared or {}) do

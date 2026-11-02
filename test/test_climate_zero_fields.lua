@@ -94,6 +94,7 @@ end
 local PIECES = {
   { what = "CLIMATE_MODE_TO_C4", text = cutTable("CLIMATE_MODE_TO_C4") },
   { what = "CLIMATE_ACTION_TO_C4", text = cutTable("CLIMATE_ACTION_TO_C4") },
+  { what = "CLIMATE_MODE_TO_C4_STATE", text = cutTable("CLIMATE_MODE_TO_C4_STATE") },
   { what = "CLIMATE_FAN_MODE_TO_C4", text = cutTable("CLIMATE_FAN_MODE_TO_C4") },
   { what = "CLIMATE_SWING_MODE_TO_C4", text = cutTable("CLIMATE_SWING_MODE_TO_C4") },
   { what = "stateNumber", text = cutLocalFunction("stateNumber") },
@@ -302,7 +303,7 @@ local bare = {
 
 drive(handler, bare, { key = 1234, current_temperature = 21.0, target_temperature = 22.0 })
 T.eq("mode is still reported", (lastParams("HVAC_MODE_CHANGED") or {}).MODE, "Off")
-T.eq("no HVAC state is invented", lastParams("HVAC_STATE_CHANGED"), nil)
+T.eq("the HVAC state follows the mode", (lastParams("HVAC_STATE_CHANGED") or {}).STATE, "Off")
 T.eq("no fan mode is invented", lastParams("FAN_MODE_CHANGED"), nil)
 
 drive(handler, bare, { key = 1234, mode = Mode.CLIMATE_MODE_HEAT })
@@ -310,5 +311,43 @@ T.eq("the handler ran with no readings", (lastParams("HVAC_MODE_CHANGED") or {})
 T.eq("no temperature is invented", lastParams("TEMPERATURE_CHANGED"), nil)
 T.eq("no humidity is invented", lastParams("HUMIDITY_CHANGED"), nil)
 T.eq("no humidity setpoint is invented", lastParams("HUMIDIFY_SETPOINT_CHANGED"), nil)
+T.eq("Heat without an action reads as Heating", (lastParams("HVAC_STATE_CHANGED") or {}).STATE, "Heating")
+
+--------------------------------------------------------------------------------
+T.section("a unit without an action takes its HVAC state from the mode")
+--------------------------------------------------------------------------------
+
+local noAction = {
+  key = 1234,
+  supported_modes = {
+    Mode.CLIMATE_MODE_OFF,
+    Mode.CLIMATE_MODE_COOL,
+    Mode.CLIMATE_MODE_HEAT,
+    Mode.CLIMATE_MODE_HEAT_COOL,
+    Mode.CLIMATE_MODE_AUTO,
+    Mode.CLIMATE_MODE_DRY,
+    Mode.CLIMATE_MODE_FAN_ONLY,
+  },
+  supports_current_temperature = true,
+  supports_action = false,
+  supported_fan_modes = {},
+  supports_two_point_target_temperature = false,
+}
+
+local function stateFor(fields)
+  fields.key = 1234
+  drive(handler, noAction, fields)
+  return (lastParams("HVAC_STATE_CHANGED") or {}).STATE
+end
+
+T.eq("Cool reads as Cooling", stateFor({ mode = Mode.CLIMATE_MODE_COOL, current_temperature = 27.5 }), "Cooling")
+T.eq("Off reads as Off", stateFor({ current_temperature = 27.5 }), "Off")
+T.eq("Heat/Cool reads as Idle", stateFor({ mode = Mode.CLIMATE_MODE_HEAT_COOL }), "Idle")
+T.eq("Auto reads as Idle", stateFor({ mode = Mode.CLIMATE_MODE_AUTO }), "Idle")
+T.eq("Dry reads as Drying", stateFor({ mode = Mode.CLIMATE_MODE_DRY }), "Drying")
+T.eq("Fan Only reads as Fan Only", stateFor({ mode = Mode.CLIMATE_MODE_FAN_ONLY }), "Fan Only")
+
+drive(handler, ENTITY, { key = 1234, mode = Mode.CLIMATE_MODE_COOL, action = Action.CLIMATE_ACTION_IDLE })
+T.eq("a reported action wins over the mode", (lastParams("HVAC_STATE_CHANGED") or {}).STATE, "Idle")
 
 T.finish()

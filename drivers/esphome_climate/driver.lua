@@ -189,6 +189,17 @@ local CLIMATE_ACTION_TO_C4 = {
   [ESPHomeProtoSchema.Enum.ClimateAction.CLIMATE_ACTION_DEFROSTING] = "Heating",
 }
 
+--- ESPHome ClimateMode -> C4 HVAC state string, for a unit that does not report its action
+local CLIMATE_MODE_TO_C4_STATE = {
+  [ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_OFF] = "Off",
+  [ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_HEAT] = "Heating",
+  [ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_COOL] = "Cooling",
+  [ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_HEAT_COOL] = "Idle",
+  [ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_AUTO] = "Idle",
+  [ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_FAN_ONLY] = "Fan Only",
+  [ESPHomeProtoSchema.Enum.ClimateMode.CLIMATE_MODE_DRY] = "Drying",
+}
+
 --- ESPHome ClimateFanMode -> C4 fan mode string
 local CLIMATE_FAN_MODE_TO_C4 = {
   [ESPHomeProtoSchema.Enum.ClimateFanMode.CLIMATE_FAN_ON] = "On",
@@ -2217,14 +2228,18 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
 
   -- HVAC action/state
   local action = tointeger(stateNumber(state, "action", entity.supports_action))
+  local c4State = nil
   if action ~= nil then
-    local c4State = CLIMATE_ACTION_TO_C4[action]
-    if c4State ~= nil then
-      SendToProxy(PROXY_BINDING, "HVAC_STATE_CHANGED", { STATE = c4State }, "NOTIFY")
-    elseif warnedAction ~= action then
+    c4State = CLIMATE_ACTION_TO_C4[action]
+    if c4State == nil and warnedAction ~= action then
       warnedAction = action
       log:warn("Unmapped ESPHome climate action %s; HVAC state not updated", action)
     end
+  elseif mode ~= nil then
+    c4State = CLIMATE_MODE_TO_C4_STATE[mode]
+  end
+  if c4State ~= nil then
+    SendToProxy(PROXY_BINDING, "HVAC_STATE_CHANGED", { STATE = c4State }, "NOTIFY")
   end
 
   -- Setpoints: handle single vs dual setpoint
