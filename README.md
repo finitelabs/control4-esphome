@@ -152,8 +152,6 @@ See the individual sub-driver documentation for device-specific details.
 
    > ⚠️ A **_single_** driver instance is required per ESPHome device.
 
-   ![Search Drivers](images/search-drivers.png)
-
 1. Configure the [Device Settings](#device-settings) with the connection
    information.
 

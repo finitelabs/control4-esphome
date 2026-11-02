@@ -167,8 +167,6 @@ for setting it up.
 1. Use the "Search" tab to find "ESPHome Bluetooth Coordinator" and add it to
    your project.
 
-   ![Search Drivers](images/search-drivers.png)
-
 <!-- #else -->
 
 1. Download the latest `control4-esphome.zip` from
@@ -178,8 +176,6 @@ for setting it up.
 
 1. Use the "Search" tab to find "ESPHome Bluetooth Coordinator" and add it to
    your project.
-
-   ![Search Drivers](images/search-drivers.png)
 
 <!-- #endif -->
 
