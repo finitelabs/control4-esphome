@@ -117,8 +117,10 @@ local proxyLevel, proxyLevelTarget
 local proxyOnline
 -- Its Navigator Dynamic Capabilities (6661) as dev's proxies list them:
 -- driver.xml's until it is told others, and again after a controller start.
--- It lists supports_color_stop False for a light without CCT, and for one that
--- does not dim supports_brightness_stop True and its rates 0 (638).
+-- It rewrites 6661 only when some capabilities change, so a stop flag can lag
+-- what it was told: it lists supports_color_stop False for a light without
+-- CCT, and supports_brightness_stop True for one that does not dim, whose rates
+-- it lists 0 (638).
 local CAPABILITY_KEYS = {
   "dimmer",
   "supports_target",
@@ -9235,6 +9237,34 @@ do
   })
   T.eq("a proxy that lists other capabilities is told the light's once", capabilities(), 1)
   T.eq("and lists them", capabilitiesShown(), shown)
+  -- A stop flag or brightness rate can lag in 6661, which only some capabilities' changes rewrite (dev, 2026-11-03):
+  -- one that lags tells nothing, and a light that dims, listed as one that does not, is still told.
+  local dimmer = { ColorMode.COLOR_MODE_BRIGHTNESS }
+  for _, lag in ipairs({
+    { "supports_brightness_stop", "False" },
+    { "supports_color_stop", "True" },
+    { "brightness_rate_min", "1" },
+    { "brightness_rate_max", "65534" },
+  }) do
+    for _, dims in ipairs({ true, false }) do
+      light(dimmer)
+      proxyCapabilities[lag[1]] = lag[2]
+      if not dims then
+        proxyCapabilities.dimmer = "False"
+      end
+      restart(nil)
+      RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+        entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = dimmer }),
+        state = SerializeSafe({ state = true, brightness = 1.0 }),
+      })
+      local name = ("a dimmer whose proxy lists %s %s"):format(lag[1], lag[2])
+      if dims then
+        T.eq(name .. " is told no capabilities at an update", capabilities(), 0)
+      else
+        T.eq(name .. " and that it does not dim is told its capabilities once", capabilities(), 1)
+      end
+    end
+  end
   -- Before late init the proxy is not read, so a first report then tells them.
   light({ RGBCT })
   restart(nil)
