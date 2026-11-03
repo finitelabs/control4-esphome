@@ -1116,8 +1116,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Mode set to Previous or to one of the light's own presets; the light itself
   changed color
 - Fixed a light reporting its capability and color variables as changed each
-  time its driver started, once Control4's record of its capabilities had fallen
-  behind
+  time its driver started or its device reconnected, once Control4's record of
+  its capabilities had fallen behind
 - Fixed changing Automatic Updates or Update Channel on an ESPHome driver
   briefly holding up every other ESPHome driver, longer in a project with many,
   while the change was copied to them

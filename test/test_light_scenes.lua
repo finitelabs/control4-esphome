@@ -145,7 +145,11 @@ local CAPABILITY_KEYS = {
   "hide_proxy_conditionals_loops",
 }
 -- The proxy handles told capabilities in this order and holds them all, but
--- rewrites 6661 from them only as one marked true changes (dev, 2026-11-03).
+-- rewrites 6661 from them only as one marked true changes. Measured on dev
+-- (2026-11-03): which ones rewrite, supports_target before the brightness
+-- rates, the first four and has_extras and cold_start before the stop flags,
+-- and the color rates and color temperature range after them. The rest of the
+-- order is assumed.
 local HANDLED = {
   { "dimmer", true },
   { "supports_target", true },
@@ -9251,16 +9255,24 @@ do
       T.eq(name .. ": and lists the ones it did", capabilitiesShown(), shown)
     end
   end
-  light({ RGBCT })
-  local shown = capabilitiesShown()
-  showCapabilities({ color_correlated_temperature_max = 6000 }) -- as another light or build told it
-  restart(nil)
-  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
-    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { RGBCT } }),
-    state = SerializeSafe({ state = true, brightness = 1.0 }),
-  })
-  T.eq("a proxy that lists other capabilities is told the light's once", capabilities(), 1)
-  T.eq("and lists them", capabilitiesShown(), shown)
+  -- Each color temperature capability, as another light or build told it.
+  for _, other in ipairs({
+    { "supports_color_correlated_temperature", "False" },
+    { "color_correlated_temperature_min", "2700" },
+    { "color_correlated_temperature_max", "6000" },
+  }) do
+    light({ RGBCT })
+    local shown = capabilitiesShown()
+    showCapabilities({ [other[1]] = other[2] })
+    restart(nil)
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { RGBCT } }),
+      state = SerializeSafe({ state = true, brightness = 1.0 }),
+    })
+    local name = ("a proxy that lists %s %s"):format(other[1], other[2])
+    T.eq(name .. " is told the light's capabilities once", capabilities(), 1)
+    T.eq(name .. ": and lists them", capabilitiesShown(), shown)
+  end
   -- An on/off light that comes to dim: the proxy rewrites 6661 at dimmer,
   -- before it handles supports_brightness_stop.
   local dims = { ColorMode.COLOR_MODE_BRIGHTNESS }
