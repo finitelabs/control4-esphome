@@ -37,6 +37,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed an ESPHome climate device that does not report what it is doing never
+  setting the thermostat's HVAC state; the state now follows the mode (Cool
+  reads as Cooling, Heat/Cool and Auto as Idle). A water heater now reports an
+  HVAC state too: Heating while it is on, Off while it is off
 - Fixed a Bluetooth proxy that still held a device connected but no longer
   answered it going unreported: Bluetooth Proxy Status now asks for a power
   cycle, and the device shows "Bluetooth proxy needs a restart" instead of "GATT
