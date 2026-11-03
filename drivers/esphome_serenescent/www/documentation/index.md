@@ -361,6 +361,12 @@ Connects to the diffuser, reads its status, then disconnects.
 Resets the driver state to defaults. Clears the diffuser's last known state and
 the driver's variables. Settings such as the polling interval are kept.
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+It also turns Cloud Monitoring back on, as a fresh install has it.
+
+<!-- #endif -->
+
 **Parameters:**
 
 - **Are You Sure?** \[ **_No_** | Yes \] - Confirmation to reset the driver.

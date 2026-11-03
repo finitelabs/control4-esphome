@@ -434,6 +434,12 @@ Resets the driver state to defaults. Clears all persisted data, cached BLE
 handles, and dynamic bindings, and signs out of the Yale cloud. The offline key
 and other properties are preserved.
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+It also turns Cloud Monitoring back on, as a fresh install has it.
+
+<!-- #endif -->
+
 **Parameters:**
 
 - **Are You Sure?** \[ **_No_** | Yes \] - Confirmation to reset the driver.

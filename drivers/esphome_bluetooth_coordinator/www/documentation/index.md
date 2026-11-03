@@ -460,6 +460,12 @@ for details.
 Resets the coordinator to its initial state. Use this if you need to start fresh
 or are experiencing issues.
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+It also turns Cloud Monitoring back on, as a fresh install has it.
+
+<!-- #endif -->
+
 **Parameters:**
 
 - **Are You Sure?** \[ **_No_** | Yes \] - Confirmation to reset the driver.

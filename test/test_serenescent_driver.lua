@@ -1091,10 +1091,12 @@ test("Reset Driver releases a live connection and forgets the device", function(
   command("Request Status")
   openLink()
   notify(CAPTURED)
+  Properties["Cloud Monitoring"] = "Disabled"
   command("LUA_ACTION", { ACTION = "Reset_Driver", ["Are You Sure?"] = "Yes" })
   T.eq("the live connection is released", count("DISCONNECT"), 1)
   T.eq("status", Properties["Driver Status"], "Disconnected")
   T.eq("properties return to their defaults", Properties["Power"], "Unknown")
+  T.eq("Cloud Monitoring is back on, as at install", Properties["Cloud Monitoring"], "Enabled")
   T.eq("the Connected variable is gone", variable("Connected"), nil)
   -- A key that is not stored reads as the call's default, so false shows it is gone
   T.eq("persisted state is gone", persist:get("deviceState", false), false)

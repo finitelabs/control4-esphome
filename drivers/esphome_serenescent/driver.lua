@@ -978,6 +978,9 @@ function EC.Reset_Driver(params)
   for propName, defaultValue in pairs(GetPropertyResetValues({ "Driver Status", "Driver Version" })) do
     UpdateProperty(propName, defaultValue, true)
   end
+  --#ifdef DRIVERCENTRAL
+  UpdateProperty("Cloud Monitoring", "Enabled", true)
+  --#endif
   updateStatus("Disconnected", false)
   -- Delete the variables after the final status write so Reset Driver does not
   -- immediately recreate the Connected variable it just removed

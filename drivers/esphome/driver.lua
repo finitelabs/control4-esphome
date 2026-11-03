@@ -809,6 +809,9 @@ local RESET_PROPERTY_VALUES = {
   ["Manufacturer"] = "N/A",
   ["MAC Address"] = "N/A",
   ["Firmware Version"] = "N/A",
+  --#ifdef DRIVERCENTRAL
+  ["Cloud Monitoring"] = "Enabled",
+  --#endif
 }
 
 function EC.Reset_Driver(params)

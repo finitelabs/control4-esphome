@@ -593,6 +593,12 @@ Resets the driver to its initial state, removing all dynamically created
 connections and variables. This is useful if you change the connected ESPHome
 device or there are stale connections or variables.
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+It also turns Cloud Monitoring back on, as a fresh install has it.
+
+<!-- #endif -->
+
 **Parameters:**
 
 - **Are You Sure?** \[ **_No_** | Yes \] - Confirmation to reset the driver.
