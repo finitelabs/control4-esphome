@@ -288,7 +288,7 @@ T.eq("no cool setpoint is invented", lastParams("COOL_SETPOINT_CHANGED"), nil)
 T.eq("no heat setpoint is invented", lastParams("HEAT_SETPOINT_CHANGED"), nil)
 
 --------------------------------------------------------------------------------
-T.section("a device that does not advertise the field reports nothing for it")
+T.section("a device that does not advertise a field invents no reading for it")
 --------------------------------------------------------------------------------
 
 -- ESPHome writes action for every unit, tracking it or not. Each case also checks
