@@ -406,6 +406,9 @@ function EC.Reset_Driver(tParams)
   values:reset()
 
   updateStatusProperties()
+  --#ifdef DRIVERCENTRAL
+  UpdateProperty("Cloud Monitoring", "Enabled", true)
+  --#endif
 end
 
 --------------------------------------------------------------------------------

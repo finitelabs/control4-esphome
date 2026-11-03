@@ -2354,4 +2354,7 @@ function EC.Reset_Driver(params)
   C4:SetPropertyAttribs("Door Status", constants.HIDE_PROPERTY)
   UpdateProperty("Battery", "")
   UpdateProperty("Yale Cloud Status", "")
+  --#ifdef DRIVERCENTRAL
+  UpdateProperty("Cloud Monitoring", "Enabled", true)
+  --#endif
 end
