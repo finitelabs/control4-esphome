@@ -1,28 +1,816 @@
 do
   local _ENV = _ENV
-  package.preload["crypto.aes_gcm"] = function(...)
+  package.preload["crypto.aes_ccm"] = function(...)
     local arg = _G.arg
-    --- @module "crypto.aes_gcm"
-    --- AES-GCM Authenticated Encryption with Associated Data (AEAD) Implementation for portability.
-    --- @class crypto.aes_gcm
-    local aes_gcm = {}
+    --- @module "crypto.aes_ccm"
+    --- AES-CCM authenticated encryption: Counter with CBC-MAC, RFC 3610 and NIST
+    --- SP 800-38C.
+    ---
+    --- CCM authenticates with a CBC-MAC over a header block, the associated data
+    --- and the plaintext, then encrypts the plaintext and the tag in counter mode.
+    --- Both halves use only the forward AES block cipher, which comes from
+    --- `crypto.aes_core`.
+    ---
+    --- Parameters, all checked on every call:
+    ---
+    --- * key: 16, 24 or 32 bytes (AES-128/192/256)
+    --- * nonce: 7 to 13 bytes. The length field takes the rest of the 15 bytes, so a
+    ---   13-byte nonce caps the message at 65535 bytes and a 7-byte one leaves it
+    ---   effectively unbounded.
+    --- * tag_length: an even number from 4 to 16, default 16
+    ---
+    --- OpenSSL acceleration
+    --- --------------------
+    --- lua-openssl's own `aes-128-ccm` cannot be used on the binding Control4 ships
+    --- (0.8.5, measured 2026-11-03): it has no way to set the message length, and
+    --- without associated data it returns no tag. So the mode is built here over a
+    --- single-block AES call. With `crypto.use_openssl(true)` and a binding that
+    --- passes `Feature.ECB`, each block goes through `cipher:encrypt(..., false)`,
+    --- and the whole counter-mode keystream is one call. The CBC-MAC is a chain, so
+    --- it stays one call per block.
+    ---
+    --- @usage
+    --- local aes_ccm = require("crypto.aes_ccm")
+    --- local sealed = aes_ccm.encrypt(key, nonce, plaintext, aad) -- ciphertext .. 16-byte tag
+    --- local opened = aes_ccm.decrypt(key, nonce, sealed, aad) -- plaintext, or nil
+    ---
+    --- @class crypto.aes_ccm
+    local aes_ccm = {}
 
     local bit32 = require("bitn").bit32
 
+    local aes_core = require("crypto.aes_core")
     local openssl_wrapper = require("crypto.openssl_wrapper")
     local utils = require("crypto.utils")
     local bytes = utils.bytes
     local benchmark_op = utils.benchmark.benchmark_op
 
     -- Local references for performance
-    local bit32_raw_band = bit32.raw_band
-    local bit32_raw_bor = bit32.raw_bor
     local bit32_raw_bxor = bit32.raw_bxor
-    local bit32_raw_lshift = bit32.raw_lshift
-    local bit32_raw_rshift = bit32.raw_rshift
+    local ceil = math.ceil
+    local floor = math.floor
     local string_byte = string.byte
     local string_char = string.char
     local string_rep = string.rep
+    local string_sub = string.sub
+    local table_concat = table.concat
+
+    -- ============================================================================
+    -- INTERNAL HELPERS
+    -- ============================================================================
+
+    --- Check the parameters every call shares.
+    --- @param key string AES key
+    --- @param nonce string Nonce
+    --- @param tag_length integer? Tag length in bytes
+    --- @return integer L Bytes of the length field (15 - #nonce)
+    --- @return integer tag_length Tag length with the default applied
+    local function check_parameters(key, nonce, tag_length)
+      assert(
+        type(key) == "string" and (#key == 16 or #key == 24 or #key == 32),
+        "AES-CCM: key must be 16, 24, or 32 bytes"
+      )
+      assert(type(nonce) == "string" and #nonce >= 7 and #nonce <= 13, "AES-CCM: nonce must be 7 to 13 bytes")
+      tag_length = tag_length or 16
+      assert(
+        type(tag_length) == "number" and tag_length >= 4 and tag_length <= 16 and tag_length % 2 == 0,
+        "AES-CCM: tag length must be an even number of bytes from 4 to 16"
+      )
+      return 15 - #nonce, tag_length
+    end
+
+    --- Refuse a message too long for the length field.
+    --- @param length integer Message length in bytes
+    --- @param L integer Bytes of the length field
+    local function check_message_length(length, L)
+      -- From L = 7 the field holds more than any Lua string can.
+      if L < 7 and length >= 256 ^ L then
+        error("AES-CCM: a " .. (15 - L) .. "-byte nonce limits the message to " .. (floor(256 ^ L) - 1) .. " bytes", 3)
+      end
+    end
+
+    --- Big-endian encoding of a non-negative integer in a fixed width.
+    --- @param n integer Value
+    --- @param width integer Bytes
+    --- @return string encoded
+    local function be_bytes(n, width)
+      local out = {}
+      for i = width, 1, -1 do
+        out[i] = string_char(n % 256)
+        n = floor(n / 256)
+      end
+      return table_concat(out)
+    end
+
+    --- XOR `a` with the first #a bytes of `b`.
+    --- @param a string
+    --- @param b string At least as long as `a`
+    --- @return string result
+    local function xor_prefix(a, b)
+      local out = {}
+      for i = 1, #a do
+        out[i] = string_char(bit32_raw_bxor(string_byte(a, i), string_byte(b, i)))
+      end
+      return table_concat(out)
+    end
+
+    --- Zero-pad to a whole number of 16-byte blocks ("" stays "").
+    --- @param data string
+    --- @return string padded
+    local function pad_block(data)
+      local remainder = #data % 16
+      if remainder == 0 then
+        return data
+      end
+      return data .. string_rep("\0", 16 - remainder)
+    end
+
+    --- The associated-data length prefix of RFC 3610 section 2.2.
+    --- @param length integer Associated data length in bytes, > 0
+    --- @return string encoded
+    local function encode_aad_length(length)
+      if length < 0xFF00 then
+        return be_bytes(length, 2)
+      elseif length < 2 ^ 32 then
+        return "\255\254" .. be_bytes(length, 4)
+      end
+      return "\255\255" .. be_bytes(length, 8)
+    end
+
+    --- CBC-MAC over B_0, the encoded associated data and the message, truncated.
+    --- @param encrypt fun(blocks: string): string ECB encryptor for the key
+    --- @param nonce string Nonce
+    --- @param L integer Bytes of the length field
+    --- @param tag_length integer Tag length in bytes
+    --- @param aad string Associated data
+    --- @param message string Plaintext
+    --- @return string tag Unencrypted tag T
+    local function cbc_mac(encrypt, nonce, L, tag_length, aad, message)
+      -- Flags: Adata in bit 6, (M - 2) / 2 in bits 3-5, L - 1 in bits 0-2.
+      local flags = (#aad > 0 and 64 or 0) + 4 * (tag_length - 2) + (L - 1)
+      local x = encrypt(string_char(flags) .. nonce .. be_bytes(#message, L))
+      local function absorb(data)
+        for i = 1, #data, 16 do
+          x = encrypt(xor_prefix(x, string_sub(data, i, i + 15)))
+        end
+      end
+      if #aad > 0 then
+        absorb(pad_block(encode_aad_length(#aad) .. aad))
+      end
+      absorb(pad_block(message))
+      return string_sub(x, 1, tag_length)
+    end
+
+    --- Counter-mode keystream blocks S_0, S_1, ... in one batch.
+    ---
+    --- S_0 encrypts the tag and S_1 onward the message, so `blocks` is one more
+    --- than the message's block count.
+    --- @param encrypt fun(blocks: string): string ECB encryptor for the key
+    --- @param nonce string Nonce
+    --- @param L integer Bytes of the length field
+    --- @param blocks integer Counter blocks to produce, starting at 0
+    --- @return string keystream 16 * blocks bytes
+    local function keystream(encrypt, nonce, L, blocks)
+      local prefix = string_char(L - 1) .. nonce
+      local counters = {}
+      for i = 0, blocks - 1 do
+        counters[i + 1] = prefix .. be_bytes(i, L)
+      end
+      return encrypt(table_concat(counters))
+    end
+
+    -- ============================================================================
+    -- AEAD INTERFACE
+    -- ============================================================================
+
+    --- AES-CCM encryption.
+    ---
+    --- @param key string AES key (16, 24, or 32 bytes)
+    --- @param nonce string 7 to 13 bytes, unique per message under one key
+    --- @param plaintext string Data to encrypt
+    --- @param aad? string Associated data, authenticated but not encrypted (default "")
+    --- @param tag_length? integer Tag bytes, even, 4 to 16 (default 16)
+    --- @return string sealed Ciphertext concatenated with the tag
+    function aes_ccm.encrypt(key, nonce, plaintext, aad, tag_length)
+      local L
+      L, tag_length = check_parameters(key, nonce, tag_length)
+      assert(type(plaintext) == "string", "AES-CCM: plaintext must be a string")
+      aad = aad or ""
+      assert(type(aad) == "string", "AES-CCM: aad must be a string")
+      check_message_length(#plaintext, L)
+
+      local encrypt = aes_core.ecb_encryptor(key)
+      local tag = cbc_mac(encrypt, nonce, L, tag_length, aad, plaintext)
+      local stream = keystream(encrypt, nonce, L, ceil(#plaintext / 16) + 1)
+      return xor_prefix(plaintext, string_sub(stream, 17)) .. xor_prefix(tag, stream)
+    end
+
+    --- AES-CCM decryption.
+    ---
+    --- The tag is compared in constant time, and no plaintext is returned unless it
+    --- matches.
+    ---
+    --- @param key string AES key (16, 24, or 32 bytes)
+    --- @param nonce string The nonce used to encrypt
+    --- @param ciphertext_and_tag string Output of `encrypt`
+    --- @param aad? string Associated data (default "")
+    --- @param tag_length? integer Tag bytes, even, 4 to 16 (default 16)
+    --- @return string? plaintext Decrypted data, or nil if authentication fails
+    function aes_ccm.decrypt(key, nonce, ciphertext_and_tag, aad, tag_length)
+      local L
+      L, tag_length = check_parameters(key, nonce, tag_length)
+      assert(
+        type(ciphertext_and_tag) == "string" and #ciphertext_and_tag >= tag_length,
+        "AES-CCM: input must hold at least the " .. tag_length .. "-byte tag"
+      )
+      aad = aad or ""
+      assert(type(aad) == "string", "AES-CCM: aad must be a string")
+      local ciphertext_length = #ciphertext_and_tag - tag_length
+      check_message_length(ciphertext_length, L)
+
+      local ciphertext = string_sub(ciphertext_and_tag, 1, ciphertext_length)
+      local received_tag = string_sub(ciphertext_and_tag, ciphertext_length + 1)
+
+      local encrypt = aes_core.ecb_encryptor(key)
+      local stream = keystream(encrypt, nonce, L, ceil(ciphertext_length / 16) + 1)
+      local plaintext = xor_prefix(ciphertext, string_sub(stream, 17))
+      local expected_tag = xor_prefix(cbc_mac(encrypt, nonce, L, tag_length, aad, plaintext), stream)
+      if not bytes.constant_time_compare(expected_tag, received_tag) then
+        return nil
+      end
+      return plaintext
+    end
+
+    -- ============================================================================
+    -- TEST VECTORS AND VALIDATION
+    -- ============================================================================
+
+    --- FIPS-197 Appendix C: one block under each key size, as hex.
+    local FIPS197_PLAINTEXT = "00112233445566778899aabbccddeeff"
+    local FIPS197_VECTORS = {
+      {
+        name = "C.1 AES-128",
+        key = "000102030405060708090a0b0c0d0e0f",
+        ciphertext = "69c4e0d86a7b0430d8cdb78070b4c55a",
+      },
+      {
+        name = "C.2 AES-192",
+        key = "000102030405060708090a0b0c0d0e0f1011121314151617",
+        ciphertext = "dda97ca4864cdfe06eaf70a0ec0d7191",
+      },
+      {
+        name = "C.3 AES-256",
+        key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        ciphertext = "8ea2b7ca516745bfeafc49904b496089",
+      },
+    }
+
+    --- Known answers as hex. `sealed` is ciphertext .. tag.
+    ---
+    --- * RFC 3610 section 8, packet vectors #1-#24 (AES-128, 13-byte nonce), copied
+    ---   from the RFC text: the packet's leading cleartext octets are `aad`.
+    --- * NIST SP 800-38C Appendix C, examples 1-4. Example 4's associated data is
+    ---   65536 bytes, i mod 256, so it is built at run time and exercises the
+    ---   0xFFFE length prefix.
+    --- * Four cases the published sets do not reach (AES-192/256, a 7-byte nonce, no
+    ---   associated data, an empty plaintext), generated with pyca/cryptography's
+    ---   AESCCM, an OpenSSL-backed implementation that reproduces every vector above.
+    local test_vectors = {
+      {
+        name = "RFC 3610 packet vector #1",
+        key = "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        nonce = "00000003020100a0a1a2a3a4a5",
+        aad = "0001020304050607",
+        plaintext = "08090a0b0c0d0e0f101112131415161718191a1b1c1d1e",
+        sealed = "588c979a61c663d2f066d0c2c0f989806d5f6b61dac38417e8d12cfdf926e0",
+        tag_length = 8,
+      },
+      {
+        name = "RFC 3610 packet vector #2",
+        key = "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        nonce = "00000004030201a0a1a2a3a4a5",
+        aad = "0001020304050607",
+        plaintext = "08090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        sealed = "72c91a36e135f8cf291ca894085c87e3cc15c439c9e43a3ba091d56e10400916",
+        tag_length = 8,
+      },
+      {
+        name = "RFC 3610 packet vector #3",
+        key = "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        nonce = "00000005040302a0a1a2a3a4a5",
+        aad = "0001020304050607",
+        plaintext = "08090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+        sealed = "51b1e5f44a197d1da46b0f8e2d282ae871e838bb64da8596574adaa76fbd9fb0c5",
+        tag_length = 8,
+      },
+      {
+        name = "RFC 3610 packet vector #4",
+        key = "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        nonce = "00000006050403a0a1a2a3a4a5",
+        aad = "000102030405060708090a0b",
+        plaintext = "0c0d0e0f101112131415161718191a1b1c1d1e",
+        sealed = "a28c6865939a9a79faaa5c4c2a9d4a91cdac8c96c861b9c9e61ef1",
+        tag_length = 8,
+      },
+      {
+        name = "RFC 3610 packet vector #5",
+        key = "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        nonce = "00000007060504a0a1a2a3a4a5",
+        aad = "000102030405060708090a0b",
+        plaintext = "0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        sealed = "dcf1fb7b5d9e23fb9d4e131253658ad86ebdca3e51e83f077d9c2d93",
+        tag_length = 8,
+      },
+      {
+        name = "RFC 3610 packet vector #6",
+        key = "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        nonce = "00000008070605a0a1a2a3a4a5",
+        aad = "000102030405060708090a0b",
+        plaintext = "0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+        sealed = "6fc1b011f006568b5171a42d953d469b2570a4bd87405a0443ac91cb94",
+        tag_length = 8,
+      },
+      {
+        name = "RFC 3610 packet vector #7",
+        key = "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        nonce = "00000009080706a0a1a2a3a4a5",
+        aad = "0001020304050607",
+        plaintext = "08090a0b0c0d0e0f101112131415161718191a1b1c1d1e",
+        sealed = "0135d1b2c95f41d5d1d4fec185d166b8094e999dfed96c048c56602c97acbb7490",
+        tag_length = 10,
+      },
+      {
+        name = "RFC 3610 packet vector #8",
+        key = "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        nonce = "0000000a090807a0a1a2a3a4a5",
+        aad = "0001020304050607",
+        plaintext = "08090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        sealed = "7b75399ac0831dd2f0bbd75879a2fd8f6cae6b6cd9b7db24c17b4433f434963f34b4",
+        tag_length = 10,
+      },
+      {
+        name = "RFC 3610 packet vector #9",
+        key = "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        nonce = "0000000b0a0908a0a1a2a3a4a5",
+        aad = "0001020304050607",
+        plaintext = "08090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+        sealed = "82531a60cc24945a4b8279181ab5c84df21ce7f9b73f42e197ea9c07e56b5eb17e5f4e",
+        tag_length = 10,
+      },
+      {
+        name = "RFC 3610 packet vector #10",
+        key = "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        nonce = "0000000c0b0a09a0a1a2a3a4a5",
+        aad = "000102030405060708090a0b",
+        plaintext = "0c0d0e0f101112131415161718191a1b1c1d1e",
+        sealed = "07342594157785152b074098330abb141b947b566aa9406b4d999988dd",
+        tag_length = 10,
+      },
+      {
+        name = "RFC 3610 packet vector #11",
+        key = "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        nonce = "0000000d0c0b0aa0a1a2a3a4a5",
+        aad = "000102030405060708090a0b",
+        plaintext = "0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        sealed = "676bb20380b0e301e8ab79590a396da78b834934f53aa2e9107a8b6c022c",
+        tag_length = 10,
+      },
+      {
+        name = "RFC 3610 packet vector #12",
+        key = "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        nonce = "0000000e0d0c0ba0a1a2a3a4a5",
+        aad = "000102030405060708090a0b",
+        plaintext = "0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+        sealed = "c0ffa0d6f05bdb67f24d43a4338d2aa4bed7b20e43cd1aa31662e7ad65d6db",
+        tag_length = 10,
+      },
+      {
+        name = "RFC 3610 packet vector #13",
+        key = "d7828d13b2b0bdc325a76236df93cc6b",
+        nonce = "00412b4ea9cdbe3c9696766cfa",
+        aad = "0be1a88bace018b1",
+        plaintext = "08e8cf97d820ea258460e96ad9cf5289054d895ceac47c",
+        sealed = "4cb97f86a2a4689a877947ab8091ef5386a6ffbdd080f8e78cf7cb0cddd7b3",
+        tag_length = 8,
+      },
+      {
+        name = "RFC 3610 packet vector #14",
+        key = "d7828d13b2b0bdc325a76236df93cc6b",
+        nonce = "0033568ef7b2633c9696766cfa",
+        aad = "63018f76dc8a1bcb",
+        plaintext = "9020ea6f91bdd85afa0039ba4baff9bfb79c7028949cd0ec",
+        sealed = "4ccb1e7ca981befaa0726c55d378061298c85c92814abc33c52ee81d7d77c08a",
+        tag_length = 8,
+      },
+      {
+        name = "RFC 3610 packet vector #15",
+        key = "d7828d13b2b0bdc325a76236df93cc6b",
+        nonce = "00103fe41336713c9696766cfa",
+        aad = "aa6cfa36cae86b40",
+        plaintext = "b916e0eacc1c00d7dcec68ec0b3bbb1a02de8a2d1aa346132e",
+        sealed = "b1d23a2220ddc0ac900d9aa03c61fcf4a559a4417767089708a776796edb723506",
+        tag_length = 8,
+      },
+      {
+        name = "RFC 3610 packet vector #16",
+        key = "d7828d13b2b0bdc325a76236df93cc6b",
+        nonce = "00764c63b8058e3c9696766cfa",
+        aad = "d0d0735c531e1becf049c244",
+        plaintext = "12daac5630efa5396f770ce1a66b21f7b2101c",
+        sealed = "14d253c3967b70609b7cbb7c499160283245269a6f49975bcadeaf",
+        tag_length = 8,
+      },
+      {
+        name = "RFC 3610 packet vector #17",
+        key = "d7828d13b2b0bdc325a76236df93cc6b",
+        nonce = "00f8b678094e3b3c9696766cfa",
+        aad = "77b60f011c03e1525899bcae",
+        plaintext = "e88b6a46c78d63e52eb8c546efb5de6f75e9cc0d",
+        sealed = "5545ff1a085ee2efbf52b2e04bee1e2336c73e3f762c0c7744fe7e3c",
+        tag_length = 8,
+      },
+      {
+        name = "RFC 3610 packet vector #18",
+        key = "d7828d13b2b0bdc325a76236df93cc6b",
+        nonce = "00d560912d3f703c9696766cfa",
+        aad = "cd9044d2b71fdb8120ea60c0",
+        plaintext = "6435acbafb11a82e2f071d7ca4a5ebd93a803ba87f",
+        sealed = "009769ecabdf48625594c59251e6035722675e04c847099e5ae0704551",
+        tag_length = 8,
+      },
+      {
+        name = "RFC 3610 packet vector #19",
+        key = "d7828d13b2b0bdc325a76236df93cc6b",
+        nonce = "0042fff8f1951c3c9696766cfa",
+        aad = "d85bc7e69f944fb8",
+        plaintext = "8a19b950bcf71a018e5e6701c91787659809d67dbedd18",
+        sealed = "bc218daa947427b6db386a99ac1aef23ade0b52939cb6a637cf9bec2408897c6ba",
+        tag_length = 10,
+      },
+      {
+        name = "RFC 3610 packet vector #20",
+        key = "d7828d13b2b0bdc325a76236df93cc6b",
+        nonce = "00920f40e56cdc3c9696766cfa",
+        aad = "74a0ebc9069f5b37",
+        plaintext = "1761433c37c5a35fc1f39f406302eb907c6163be38c98437",
+        sealed = "5810e6fd25874022e80361a478e3e9cf484ab04f447efff6f0a477cc2fc9bf548944",
+        tag_length = 10,
+      },
+      {
+        name = "RFC 3610 packet vector #21",
+        key = "d7828d13b2b0bdc325a76236df93cc6b",
+        nonce = "0027ca0c7120bc3c9696766cfa",
+        aad = "44a3aa3aae6475ca",
+        plaintext = "a434a8e58500c6e41530538862d686ea9e81301b5ae4226bfa",
+        sealed = "f2beed7bc5098e83feb5b31608f8e29c38819a89c8e776f1544d4151a4ed3a8b87b9ce",
+        tag_length = 10,
+      },
+      {
+        name = "RFC 3610 packet vector #22",
+        key = "d7828d13b2b0bdc325a76236df93cc6b",
+        nonce = "005b8ccbcd9af83c9696766cfa",
+        aad = "ec46bb63b02520c33c49fd70",
+        plaintext = "b96b49e21d621741632875db7f6c9243d2d7c2",
+        sealed = "31d750a09da3ed7fddd49a2032aabf17ec8ebf7d22c8088c666be5c197",
+        tag_length = 10,
+      },
+      {
+        name = "RFC 3610 packet vector #23",
+        key = "d7828d13b2b0bdc325a76236df93cc6b",
+        nonce = "003ebe94044b9a3c9696766cfa",
+        aad = "47a65ac78b3d594227e85e71",
+        plaintext = "e2fcfbb880442c731bf95167c8ffd7895e337076",
+        sealed = "e882f1dbd38ce3eda7c23f04dd65071eb41342acdf7e00dccec7ae52987d",
+        tag_length = 10,
+      },
+      {
+        name = "RFC 3610 packet vector #24",
+        key = "d7828d13b2b0bdc325a76236df93cc6b",
+        nonce = "008d493b30ae8b3c9696766cfa",
+        aad = "6e37a6ef546d955d34ab6059",
+        plaintext = "abf21c0b02feb88f856df4a37381bce3cc128517d4",
+        sealed = "f32905b88a641b04b9c9ffb58cc390900f3da12ab16dce9e82efa16da62059",
+        tag_length = 10,
+      },
+      {
+        name = "NIST SP 800-38C example 1",
+        key = "404142434445464748494a4b4c4d4e4f",
+        nonce = "10111213141516",
+        aad = "0001020304050607",
+        plaintext = "20212223",
+        sealed = "7162015b4dac255d",
+        tag_length = 4,
+      },
+      {
+        name = "NIST SP 800-38C example 2",
+        key = "404142434445464748494a4b4c4d4e4f",
+        nonce = "1011121314151617",
+        aad = "000102030405060708090a0b0c0d0e0f",
+        plaintext = "202122232425262728292a2b2c2d2e2f",
+        sealed = "d2a1f0e051ea5f62081a7792073d593d1fc64fbfaccd",
+        tag_length = 6,
+      },
+      {
+        name = "NIST SP 800-38C example 3",
+        key = "404142434445464748494a4b4c4d4e4f",
+        nonce = "101112131415161718191a1b",
+        aad = "000102030405060708090a0b0c0d0e0f10111213",
+        plaintext = "202122232425262728292a2b2c2d2e2f3031323334353637",
+        sealed = "e3b201a9f5b71a7a9b1ceaeccd97e70b6176aad9a4428aa5484392fbc1b09951",
+        tag_length = 8,
+      },
+      {
+        name = "pyca: AES-256, 12-byte nonce, no AAD",
+        key = "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+        nonce = "a0a1a2a3a4a5a6a7a8a9aaab",
+        plaintext = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021222324252627",
+        sealed = "d4a4942560b0ea50e662268ff70c7318ca51040907d93100b3d2e2462939cbed7c92284e629dd8a13fdec3a088d1dc688df12f296a032710",
+        tag_length = 16,
+      },
+      {
+        name = "pyca: AES-192, 7-byte nonce (8-byte length field)",
+        key = "505152535455565758595a5b5c5d5e5f6061626364656667",
+        nonce = "b0b1b2b3b4b5b6",
+        aad = "000102030405060708090a0b0c0d0e0f10111213",
+        plaintext = "606162636465666768696a6b6c6d6e6f70",
+        sealed = "4e8a800833923c5de55517e3dad64f77e132e1cc3c070a8eac44a20874",
+        tag_length = 12,
+      },
+      {
+        name = "pyca: AES-128, empty plaintext",
+        key = "101112131415161718191a1b1c1d1e1f",
+        nonce = "c0c1c2c3c4c5c6c7c8c9cacb",
+        aad = "303132333435363738393a3b3c3d3e3f40",
+        plaintext = "",
+        sealed = "14f3195b79a70b0f2fa70b43fc1173af",
+        tag_length = 16,
+      },
+      {
+        name = "pyca: AES-128, 53 bytes, no AAD, default tag",
+        key = "101112131415161718191a1b1c1d1e1f",
+        nonce = "c0c1c2c3c4c5c6c7c8c9cacb",
+        plaintext = "00070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c",
+        sealed = "1d3052b68843e374dcdcd52230fdccf7e65fd913da984b70beb22b1e4cc1e02812c97f87e38e295b9dd88517e0660d09998fe3f38e1a0de623e395d65a5cb05d098ffdc12e",
+      },
+    }
+
+    --- Run the self-test: FIPS-197 blocks, the RFC 3610 and SP 800-38C vectors,
+    --- parameter checks, tamper detection, and the OpenSSL routing against a
+    --- stand-in binding.
+    --- @return boolean result True if all tests pass, false otherwise
+    function aes_ccm.selftest()
+      local passed = 0
+      local total = 0
+
+      --- Record one result; a function that raises counts as a failure.
+      --- @param name string
+      --- @param result boolean|fun(): boolean
+      local function check(name, result)
+        total = total + 1
+        if type(result) == "function" then
+          local ok, value = pcall(result)
+          result = ok and value == true
+        end
+        if result == true then
+          print("  ✅ PASS: " .. name)
+          passed = passed + 1
+        else
+          print("  ❌ FAIL: " .. name)
+        end
+      end
+
+      --- Whether `fn` raises.
+      --- @param fn function
+      --- @return boolean raised
+      local function raises(fn, ...)
+        return pcall(fn, ...) == false
+      end
+
+      print("Running AES block cipher known answers (FIPS-197 Appendix C)...")
+      local fips_plaintext = bytes.from_hex(FIPS197_PLAINTEXT)
+      for _, vector in ipairs(FIPS197_VECTORS) do
+        local key = bytes.from_hex(vector.key)
+        local expected = bytes.from_hex(vector.ciphertext)
+        check("FIPS-197 " .. vector.name .. " (pure-Lua block)", function()
+          local expanded, nr = aes_core.expand_key(key)
+          return aes_core.encrypt_block(fips_plaintext, expanded, nr) == expected
+        end)
+        check("FIPS-197 " .. vector.name .. " (ECB encryptor, two blocks)", function()
+          return aes_core.ecb_encryptor(key)(fips_plaintext .. fips_plaintext) == expected .. expected
+        end)
+      end
+
+      print("\nRunning AES-CCM test vectors...")
+      -- SP 800-38C example 4's 65536-byte associated data.
+      local long_aad = {}
+      for i = 0, 65535 do
+        long_aad[i + 1] = string_char(i % 256)
+      end
+      local vectors = {}
+      for i, vector in ipairs(test_vectors) do
+        vectors[i] = vector
+      end
+      vectors[#vectors + 1] = {
+        name = "NIST SP 800-38C example 4 (65536-byte AAD)",
+        key = "404142434445464748494a4b4c4d4e4f",
+        nonce = "101112131415161718191a1b1c",
+        aad_bytes = table_concat(long_aad),
+        plaintext = "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+        sealed = "69915dad1e84c6376a68c2967e4dab615ae0fd1faec44cc484828529463ccf72b4ac6bec93e8598e7f0dadbcea5b",
+        tag_length = 14,
+      }
+      for _, vector in ipairs(vectors) do
+        local key = bytes.from_hex(vector.key)
+        local nonce = bytes.from_hex(vector.nonce)
+        local aad = vector.aad_bytes or (vector.aad and bytes.from_hex(vector.aad))
+        local plaintext = bytes.from_hex(vector.plaintext)
+        local sealed = bytes.from_hex(vector.sealed)
+        check(vector.name .. " [encrypt]", function()
+          return aes_ccm.encrypt(key, nonce, plaintext, aad, vector.tag_length) == sealed
+        end)
+        check(vector.name .. " [decrypt]", function()
+          return aes_ccm.decrypt(key, nonce, sealed, aad, vector.tag_length) == plaintext
+        end)
+      end
+
+      print("\nRunning AES-CCM functional tests...")
+      local key = bytes.from_hex("101112131415161718191a1b1c1d1e1f")
+      local nonce = bytes.from_hex("c0c1c2c3c4c5c6c7c8c9cacb")
+      local aad = "associated data"
+      local plaintext = "a message that spans more than one AES block"
+      local sealed = aes_ccm.encrypt(key, nonce, plaintext, aad)
+
+      check("default tag length is 16", #sealed == #plaintext + 16)
+      check("nil and empty aad are the same", function()
+        return aes_ccm.encrypt(key, nonce, plaintext) == aes_ccm.encrypt(key, nonce, plaintext, "")
+      end)
+      check("tampered tag is rejected", function()
+        return aes_ccm.decrypt(key, nonce, string_sub(sealed, 1, -2) .. string_char(255 - string_byte(sealed, -1)), aad)
+          == nil
+      end)
+      check("tampered ciphertext is rejected", function()
+        return aes_ccm.decrypt(key, nonce, string_char(255 - string_byte(sealed, 1)) .. string_sub(sealed, 2), aad)
+          == nil
+      end)
+      check("wrong aad is rejected", aes_ccm.decrypt(key, nonce, sealed, "other data") == nil)
+      check("missing aad is rejected", aes_ccm.decrypt(key, nonce, sealed) == nil)
+      check("wrong nonce is rejected", function()
+        return aes_ccm.decrypt(key, bytes.from_hex("c0c1c2c3c4c5c6c7c8c9cacc"), sealed, aad) == nil
+      end)
+      check("wrong key is rejected", function()
+        return aes_ccm.decrypt(string_rep("\0", 16), nonce, sealed, aad) == nil
+      end)
+      check("wrong tag length is rejected", aes_ccm.decrypt(key, nonce, sealed, aad, 8) == nil)
+      check("every even tag length round-trips", function()
+        for tag_length = 4, 16, 2 do
+          local out = aes_ccm.encrypt(key, nonce, plaintext, aad, tag_length)
+          if #out ~= #plaintext + tag_length or aes_ccm.decrypt(key, nonce, out, aad, tag_length) ~= plaintext then
+            return false
+          end
+        end
+        return true
+      end)
+      check("bad key sizes raise", raises(aes_ccm.encrypt, string_rep("k", 15), nonce, plaintext))
+      check("nonces outside 7-13 bytes raise", function()
+        return raises(aes_ccm.encrypt, key, string_rep("n", 6), plaintext)
+          and raises(aes_ccm.encrypt, key, string_rep("n", 14), plaintext)
+          and raises(aes_ccm.decrypt, key, string_rep("n", 6), sealed)
+      end)
+      check("odd, short and long tag lengths raise", function()
+        return raises(aes_ccm.encrypt, key, nonce, plaintext, aad, 5)
+          and raises(aes_ccm.encrypt, key, nonce, plaintext, aad, 2)
+          and raises(aes_ccm.encrypt, key, nonce, plaintext, aad, 18)
+      end)
+      check("input shorter than the tag raises", raises(aes_ccm.decrypt, key, nonce, string_rep("x", 15), aad))
+      check("a message too long for a 13-byte nonce raises", function()
+        return raises(aes_ccm.encrypt, key, string_rep("n", 13), string_rep("x", 65536))
+          and pcall(aes_ccm.encrypt, key, string_rep("n", 12), string_rep("x", 65536))
+      end)
+
+      -- Stand-in for lua-openssl's cipher table, built on the pure-Lua core so it
+      -- passes Feature.ECB and computes real AES, and recording every call. It is
+      -- what lets a host without the binding run aes_core's OpenSSL branch.
+      print("\nRunning AES-CCM OpenSSL routing against a stand-in binding...")
+      local saved_use = openssl_wrapper.enabled()
+      local saved_loaded = package.loaded["openssl"]
+      local saved_preload = package.preload["openssl"]
+      local calls, widest, padded = 0, 0, false
+      package.loaded["openssl"] = {
+        version = function()
+          return "0.8.5"
+        end,
+        cipher = {
+          get = function(name)
+            local bits = tonumber(string.match(name, "^aes%-(%d+)%-ecb$"))
+            if bits == nil then
+              return nil
+            end
+            return {
+              encrypt = function(_, data, cipher_key, _, pad)
+                assert(#cipher_key == bits / 8, "stand-in: key size does not match the cipher name")
+                calls = calls + 1
+                widest = math.max(widest, #data)
+                padded = padded or pad ~= false
+                local expanded, nr = aes_core.expand_key(cipher_key)
+                local out = {}
+                for i = 1, #data, 16 do
+                  out[#out + 1] = aes_core.encrypt_block(string_sub(data, i, i + 15), expanded, nr)
+                end
+                return table_concat(out)
+              end,
+            }
+          end,
+        },
+      }
+      package.preload["openssl"] = nil
+      openssl_wrapper.use(true)
+
+      check("stand-in binding passes Feature.ECB", openssl_wrapper.get(openssl_wrapper.Feature.ECB) ~= nil)
+      local vector = test_vectors[1]
+      calls, widest = 0, 0
+      check("RFC 3610 packet vector #1 through the OpenSSL path", function()
+        return aes_ccm.encrypt(
+          bytes.from_hex(vector.key),
+          bytes.from_hex(vector.nonce),
+          bytes.from_hex(vector.plaintext),
+          bytes.from_hex(vector.aad),
+          vector.tag_length
+        ) == bytes.from_hex(vector.sealed)
+      end)
+      -- 23-byte message: B_0, one AAD block and two message blocks for the MAC,
+      -- then S_0, S_1 and S_2 together.
+      check("CTR keystream goes to OpenSSL as one call", calls == 5 and widest == 48)
+      check("OpenSSL is always asked for no padding", not padded)
+      check("AES-256 selects aes-256-ecb", function()
+        local key256 = string_rep("\1", 32)
+        local out = aes_ccm.encrypt(key256, nonce, plaintext, aad)
+        return aes_ccm.decrypt(key256, nonce, out, aad) == plaintext
+      end)
+
+      package.loaded["openssl"] = saved_loaded
+      package.preload["openssl"] = saved_preload
+      openssl_wrapper.use(saved_use)
+
+      print(string.format("\nAES-CCM result: %d/%d tests passed\n", passed, total))
+      return passed == total
+    end
+
+    --- Run performance benchmarks for AES-CCM.
+    function aes_ccm.benchmark()
+      local key128 = bytes.from_hex("c0c1c2c3c4c5c6c7c8c9cacbcccdcecf")
+      local key256 = string_rep("\7", 32)
+      local nonce = bytes.from_hex("c0c1c2c3c4c5c6c7c8c9cacb")
+      local aad = string_rep("h", 16)
+      local plaintext_64 = string_rep("a", 64)
+      local plaintext_1k = string_rep("a", 1024)
+      local sealed_1k = aes_ccm.encrypt(key128, nonce, plaintext_1k, aad)
+
+      local accelerated = openssl_wrapper.get(openssl_wrapper.Feature.ECB) ~= nil
+      print("AES-CCM (" .. (accelerated and "OpenSSL ECB" or "pure Lua") .. "):")
+      benchmark_op("aes128_encrypt_64_bytes", function()
+        aes_ccm.encrypt(key128, nonce, plaintext_64, aad)
+      end, 200)
+      benchmark_op("aes128_encrypt_1k", function()
+        aes_ccm.encrypt(key128, nonce, plaintext_1k, aad)
+      end, 50)
+      benchmark_op("aes128_decrypt_1k", function()
+        aes_ccm.decrypt(key128, nonce, sealed_1k, aad)
+      end, 50)
+      benchmark_op("aes256_encrypt_1k", function()
+        aes_ccm.encrypt(key256, nonce, plaintext_1k, aad)
+      end, 50)
+    end
+
+    return aes_ccm
+  end
+end
+
+do
+  local _ENV = _ENV
+  package.preload["crypto.aes_core"] = function(...)
+    local arg = _G.arg
+    --- @module "crypto.aes_core"
+    --- The AES block cipher (FIPS-197), shared by the AES modes in this library.
+    ---
+    --- Internal: `crypto.aes_gcm` and `crypto.aes_ccm` build on it, and the `crypto`
+    --- aggregator does not export it. It holds the pure-Lua key schedule and forward
+    --- block encryption (GCM and CCM never use the inverse cipher), plus
+    --- `ecb_encryptor`, which routes whole-block encryption through lua-openssl's
+    --- raw AES-ECB when acceleration is enabled and the binding passes
+    --- `Feature.ECB`.
+    --- @class crypto.aes_core
+    local aes_core = {}
+
+    local bit32 = require("bitn").bit32
+
+    local openssl_wrapper = require("crypto.openssl_wrapper")
+
+    -- Local references for performance
+    local bit32_raw_band = bit32.raw_band
+    local bit32_raw_bxor = bit32.raw_bxor
+    local bit32_raw_lshift = bit32.raw_lshift
+    local string_byte = string.byte
+    local string_char = string.char
     local string_sub = string.sub
     local table_concat = table.concat
 
@@ -307,7 +1095,6 @@ do
     }
 
     --- @alias AESWord [integer, integer, integer, integer]
-    --- @alias AESBlock [integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer]
     --- @alias AESState [AESWord, AESWord, AESWord, AESWord]
 
     --- Initialize a 4-element AES word with zeros
@@ -533,8 +1320,101 @@ do
     end
 
     -- ============================================================================
+    -- PUBLIC INTERFACE
+    -- ============================================================================
+
+    aes_core.expand_key = key_expansion
+    aes_core.encrypt_block = aes_encrypt_block
+
+    --- Build an AES-ECB encryptor for one key.
+    ---
+    --- The returned function encrypts a whole number of 16-byte blocks, each
+    --- independently. Returning a function means the key schedule, or the OpenSSL
+    --- cipher lookup, is paid once per key rather than once per call.
+    ---
+    --- With acceleration enabled and a binding that passes `Feature.ECB`, each call
+    --- is a single `cipher:encrypt(blocks, key, nil, false)` over every block
+    --- passed, with padding off, so a caller that batches its blocks (a CTR
+    --- keystream) crosses into C once. Otherwise each block runs through the
+    --- pure-Lua core.
+    ---
+    --- @param key string AES key (16, 24, or 32 bytes)
+    --- @return fun(blocks: string): string encrypt Encrypts a string whose length is a multiple of 16
+    function aes_core.ecb_encryptor(key)
+      assert(type(key) == "string" and (#key == 16 or #key == 24 or #key == 32), "AES key must be 16, 24, or 32 bytes")
+
+      local openssl = openssl_wrapper.get(openssl_wrapper.Feature.ECB)
+      if openssl then
+        local cipher = openssl.cipher.get("aes-" .. #key * 8 .. "-ecb")
+        return function(blocks)
+          assert(#blocks % 16 == 0, "AES-ECB input must be a whole number of 16-byte blocks")
+          if #blocks == 0 then
+            return ""
+          end
+          local out = cipher:encrypt(blocks, key, nil, false)
+          if type(out) ~= "string" or #out ~= #blocks then
+            error("AES-ECB: OpenSSL returned " .. (type(out) == "string" and (#out .. " bytes") or type(out)))
+          end
+          return out
+        end
+      end
+
+      local expanded_key, nr = key_expansion(key)
+      return function(blocks)
+        assert(#blocks % 16 == 0, "AES-ECB input must be a whole number of 16-byte blocks")
+        if #blocks == 16 then
+          return aes_encrypt_block(blocks, expanded_key, nr)
+        end
+        local out = {}
+        for i = 1, #blocks, 16 do
+          out[#out + 1] = aes_encrypt_block(string_sub(blocks, i, i + 15), expanded_key, nr)
+        end
+        return table_concat(out)
+      end
+    end
+
+    return aes_core
+  end
+end
+
+do
+  local _ENV = _ENV
+  package.preload["crypto.aes_gcm"] = function(...)
+    local arg = _G.arg
+    --- @module "crypto.aes_gcm"
+    --- AES-GCM Authenticated Encryption with Associated Data (AEAD) Implementation for portability.
+    --- @class crypto.aes_gcm
+    local aes_gcm = {}
+
+    local bit32 = require("bitn").bit32
+
+    local aes_core = require("crypto.aes_core")
+    local openssl_wrapper = require("crypto.openssl_wrapper")
+    local utils = require("crypto.utils")
+    local bytes = utils.bytes
+    local benchmark_op = utils.benchmark.benchmark_op
+
+    -- Local references for performance
+    local bit32_raw_band = bit32.raw_band
+    local bit32_raw_bor = bit32.raw_bor
+    local bit32_raw_bxor = bit32.raw_bxor
+    local bit32_raw_lshift = bit32.raw_lshift
+    local bit32_raw_rshift = bit32.raw_rshift
+    local string_byte = string.byte
+    local string_char = string.char
+    local string_rep = string.rep
+    local string_sub = string.sub
+    local table_concat = table.concat
+
+    -- The block cipher lives in crypto.aes_core, shared with AES-CCM.
+    local key_expansion = aes_core.expand_key
+    local aes_encrypt_block = aes_core.encrypt_block
+
+    -- ============================================================================
     -- GCM MODE IMPLEMENTATION
     -- ============================================================================
+
+    --- @alias AESBlock [integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer, integer]
 
     --- Initialize a 16-element GCM block with zeros
     --- @return AESBlock block Initialized block
@@ -7157,8 +8037,10 @@ do
     --- - BLAKE2s/BLAKE2b hash functions
     --- - ChaCha20-Poly1305 AEAD cipher
     --- - AES-GCM AEAD cipher
+    --- - AES-CCM's block cipher (raw AES-ECB)
     --- - ChaCha20 stream cipher
     --- - Big-number arithmetic (SRP)
+    --- - P-256 field arithmetic
     ---
     --- Note: X25519, X448 and Ed25519 always use the native implementations. The
     --- shipped lua-openssl builds cannot perform the raw scalar-multiplication or
@@ -7181,6 +8063,9 @@ do
       --- Arbitrary-precision integers (`openssl.bn`), used by `crypto.bignum`. The probe only runs
       --- a one-limb powmod; bignum checks each operation it routes on multi-limb values first.
       BN = "BN",
+      --- Raw AES-ECB block encryption with padding off (`cipher:encrypt(blocks, key, nil, false)`),
+      --- used by `crypto.aes_core` for AES-CCM. The probe checks FIPS-197 known answers.
+      ECB = "ECB",
       --- Raw Octet Key Pair support: creating and *signing* with Ed25519/X25519 keys.
       --- Importing such a key is not sufficient; the probe requires a working signature.
       OKP = "OKP",
@@ -7189,6 +8074,38 @@ do
       --- resolved through `get_ungated` rather than `get`.
       RANDOM = "RANDOM",
     }
+
+    --- FIPS-197 Appendix C known answers for the ECB probe: one plaintext block and,
+    --- per key size, the C.1 (AES-128), C.2 (AES-192) and C.3 (AES-256) key and
+    --- ciphertext, all as hex.
+    local ECB_PLAINTEXT_HEX = "00112233445566778899aabbccddeeff"
+    local ECB_KNOWN_ANSWERS = {
+      {
+        cipher = "aes-128-ecb",
+        key = "000102030405060708090a0b0c0d0e0f",
+        ciphertext = "69c4e0d86a7b0430d8cdb78070b4c55a",
+      },
+      {
+        cipher = "aes-192-ecb",
+        key = "000102030405060708090a0b0c0d0e0f1011121314151617",
+        ciphertext = "dda97ca4864cdfe06eaf70a0ec0d7191",
+      },
+      {
+        cipher = "aes-256-ecb",
+        key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        ciphertext = "8ea2b7ca516745bfeafc49904b496089",
+      },
+    }
+
+    --- Decode hex to bytes. The wrapper requires nothing from the library, so it
+    --- carries its own rather than pulling in `crypto.utils`.
+    --- @param hex string Hex digits
+    --- @return string bytes
+    local function from_hex(hex)
+      return (hex:gsub("..", function(cc)
+        return string.char(tonumber(cc, 16))
+      end))
+    end
 
     --- Feature requirement definitions
     ---
@@ -7235,6 +8152,31 @@ do
           end)
           -- 4^13 mod 497 == 445 == 0x1BD
           return ok and type(result) == "string" and result:gsub("^0+", ""):lower() == "1bd"
+        end,
+      },
+      [OpenSSLFeature.ECB] = {
+        min_version = "0.8.0",
+        probe = function(openssl)
+          local cipher_lib = openssl.cipher
+          if type(cipher_lib) ~= "table" or type(cipher_lib.get) ~= "function" then
+            return false
+          end
+          -- Measured on a Control4 controller (2026-11-03, lua-openssl 0.8.5):
+          -- cipher.get("aes-128-ecb"):encrypt(block, key, nil, false) returns the
+          -- raw block. Two blocks go in one call, so the answer also proves padding
+          -- is off and that a batch comes back block for block.
+          local plaintext = from_hex(ECB_PLAINTEXT_HEX)
+          for _, answer in ipairs(ECB_KNOWN_ANSWERS) do
+            local cipher = cipher_lib.get(answer.cipher)
+            if cipher == nil then
+              return false
+            end
+            local expected = from_hex(answer.ciphertext)
+            if cipher:encrypt(plaintext .. plaintext, from_hex(answer.key), nil, false) ~= expected .. expected then
+              return false
+            end
+          end
+          return true
         end,
       },
       [OpenSSLFeature.OKP] = {
@@ -7588,6 +8530,47 @@ do
         return bn
       end
 
+      --- A `cipher` table that answers the ECB probe's FIPS-197 inputs the way the
+      --- real binding does with padding off: block for block, nil for anything else.
+      --- @param fault string|nil "pad" appends a padding block, "wrong" corrupts the
+      ---   first block, "missing_256" has no aes-256-ecb
+      --- @return table cipher
+      local function ecb_cipher(fault)
+        local answers = {}
+        for _, answer in ipairs(ECB_KNOWN_ANSWERS) do
+          answers[answer.cipher] = answer
+        end
+        return {
+          get = function(name)
+            local answer = answers[name]
+            if answer == nil or (fault == "missing_256" and name == "aes-256-ecb") then
+              return nil
+            end
+            return {
+              encrypt = function(_, data, key, _, pad)
+                if key ~= from_hex(answer.key) then
+                  return nil
+                end
+                local out = {}
+                for i = 1, #data, 16 do
+                  if data:sub(i, i + 15) ~= from_hex(ECB_PLAINTEXT_HEX) then
+                    return nil
+                  end
+                  out[#out + 1] = from_hex(answer.ciphertext)
+                end
+                if pad ~= false or fault == "pad" then
+                  out[#out + 1] = string.rep("\16", 16)
+                end
+                if fault == "wrong" then
+                  out[1] = string.rep("\0", 16)
+                end
+                return table.concat(out)
+              end,
+            }
+          end,
+        }
+      end
+
       local tests = {
         {
           name = "version-only feature resolves true on a supporting version",
@@ -7880,6 +8863,43 @@ do
           end,
         },
         {
+          -- Measured on a Control4 controller 2026-11-03: the 0.8.5 binding returns
+          -- the raw AES block from cipher:encrypt(block, key, nil, false).
+          name = "ECB probe passes on FIPS-197 known answers with padding off (Control4 0.8.5)",
+          test = function()
+            install(stub_openssl("0.8.5", { cipher = ecb_cipher() }))
+            return openssl_wrapper.get(OpenSSLFeature.ECB) ~= nil
+          end,
+        },
+        {
+          name = "ECB probe fails when a padding block comes back",
+          test = function()
+            install(stub_openssl("0.9.2", { cipher = ecb_cipher("pad") }))
+            return openssl_wrapper.get(OpenSSLFeature.ECB) == nil
+          end,
+        },
+        {
+          name = "ECB probe fails on a wrong block",
+          test = function()
+            install(stub_openssl("0.9.2", { cipher = ecb_cipher("wrong") }))
+            return openssl_wrapper.get(OpenSSLFeature.ECB) == nil
+          end,
+        },
+        {
+          name = "ECB probe fails when one key size is missing",
+          test = function()
+            install(stub_openssl("0.9.2", { cipher = ecb_cipher("missing_256") }))
+            return openssl_wrapper.get(OpenSSLFeature.ECB) == nil
+          end,
+        },
+        {
+          name = "ECB probe fails without cipher.get",
+          test = function()
+            install(stub_openssl("0.9.2", { cipher = {} }))
+            return openssl_wrapper.get(OpenSSLFeature.ECB) == nil
+          end,
+        },
+        {
           name = "unknown features are rejected, not silently granted",
           test = function()
             install(stub_openssl("0.9.2"))
@@ -7921,6 +8941,1322 @@ do
     end
 
     return openssl_wrapper
+  end
+end
+
+do
+  local _ENV = _ENV
+  package.preload["crypto.p256"] = function(...)
+    local arg = _G.arg
+    --- @module "crypto.p256"
+    --- NIST P-256 (secp256r1) group arithmetic: SEC 1 point encoding, scalar
+    --- multiplication, point addition, and scalar helpers. It is what
+    --- `crypto.spake2plus` is built on; there is no ECDSA or ECDH API here.
+    ---
+    --- Points
+    --- ------
+    --- Points are opaque tables made by `decode_point`, `p256.G` or the group
+    --- operations, and every operation refuses a table it did not make. A point
+    --- holds its affine coordinates as 32-byte big-endian strings, so it belongs
+    --- to neither arithmetic backend below and stays valid when
+    --- `crypto.use_openssl()` is toggled. Decoding rejects the identity,
+    --- coordinates >= p, and anything off y^2 = x^3 - 3x + b. P-256's cofactor is
+    --- 1, so a point on the curve is in the prime-order group.
+    ---
+    --- Scalars
+    --- -------
+    --- A scalar is a 32-byte big-endian string. `mul` does not reduce it: callers
+    --- pass a value in [0, n-1], which `reduce` and `random_scalar` produce. A
+    --- larger value still yields (k mod n) * P.
+    ---
+    --- Arithmetic
+    --- ----------
+    --- Scalar multiplication is a fixed 4-bit window over Jacobian coordinates
+    --- (doubling dbl-2001-b for a = -3, addition add-1998-cmo-2), written once over
+    --- a small field interface with two implementations:
+    ---
+    --- * OpenSSL: with `crypto.use_openssl(true)`, a binding that passes
+    ---   `Feature.BN`, and a binding that reproduces the published 2G and 3G through
+    ---   this module's own doubling and addition, field elements are `openssl.bn`
+    ---   handles throughout (`addmod`, `submod`, `mulmod`, `sqrmod`, `invmod`, and
+    ---   `powmod` for square roots). They are converted only where a point enters
+    ---   or leaves an operation. A Jacobian double-and-add over these handles took
+    ---   53 ms per 256-bit scalar multiplication on a Control4 controller (OS 4.3,
+    ---   lua-openssl 0.8.5, 2026-11-03). Converting to and from `crypto.bignum` per
+    ---   field operation instead would be far slower.
+    --- * Pure Lua: `crypto.bignum`, inverting by Fermat's little theorem. It is the
+    ---   correctness reference and the portability fallback. One scalar
+    ---   multiplication takes about 30 ms under LuaJIT and 75 to 100 ms under PUC
+    ---   Lua 5.1 to 5.5 on a desktop (Apple M1 Max, 2026-11-02). It has not been
+    ---   timed on a controller.
+    ---
+    --- `is_accelerated` says which one runs. Like the rest of this library, none of
+    --- it is constant time.
+    ---
+    --- @usage
+    --- local p256 = require("crypto.p256")
+    --- local k = p256.random_scalar()
+    --- local public = p256.encode_point(p256.mul_base(k)) -- 65 bytes, 0x04 || x || y
+    --- local peer = assert(p256.decode_point(received)) -- nil plus a reason when invalid
+    --- local shared = p256.mul(k, peer)
+    ---
+    --- @class crypto.p256
+    --- @field n string Group order, 32 big-endian bytes
+    --- @field G crypto.p256.Point Base point
+    local p256 = {}
+
+    local bignum = require("crypto.bignum")
+    local openssl_wrapper = require("crypto.openssl_wrapper")
+    local random = require("crypto.random")
+    local utils = require("crypto.utils")
+    local bytes = utils.bytes
+    local benchmark_op = utils.benchmark.benchmark_op
+
+    -- Local references for performance
+    local floor = math.floor
+    local string_byte = string.byte
+    local string_char = string.char
+    local string_find = string.find
+    local string_rep = string.rep
+    local string_sub = string.sub
+
+    -- ============================================================================
+    -- CONSTANTS
+    -- ============================================================================
+
+    -- Curve parameters, SEC 2 section 2.4.2 / FIPS 186-5.
+    local P_HEX = "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff"
+    local N_HEX = "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"
+    local B_HEX = "5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b"
+    local GX_HEX = "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"
+    local GY_HEX = "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5"
+    --- p - 2, the inversion exponent.
+    local P_MINUS_2_HEX = "ffffffff00000001000000000000000000000000fffffffffffffffffffffffd"
+    --- (p + 1) / 4: p = 3 mod 4, so a square c has the root c^((p+1)/4).
+    local SQRT_EXP_HEX = "3fffffffc0000000400000000000000000000000400000000000000000000000"
+
+    -- Published multiples of G, used by the OpenSSL known-answer check and the
+    -- selftest (also reproduced with the openssl CLI).
+    local G2_X_HEX = "7cf27b188d034f7e8a52380304b51ac3c08969e277f21b35a60b48fc47669978"
+    local G2_Y_HEX = "07775510db8ed040293d9ac69f7430dbba7dade63ce982299e04b79d227873d1"
+    local G3_X_HEX = "5ecbe4d1a6330a44c8f7ef951d4bf165e6c6b721efada985fb41661bc6e7fd6c"
+    local G3_Y_HEX = "8734640c4998ff7e374b06ce1a64a2ecd82ab036384fb83d9a79b127a27d5032"
+
+    local P_BN = bignum.from_hex(P_HEX)
+    local N_BN = bignum.from_hex(N_HEX)
+
+    -- ============================================================================
+    -- POINTS
+    -- ============================================================================
+
+    --- A point on P-256 or the identity. Opaque: make one with `decode_point` or a
+    --- group operation, never by hand.
+    --- @class crypto.p256.Point
+    --- @field x string? Affine x, 32 big-endian bytes; nil for the identity
+    --- @field y string? Affine y, 32 big-endian bytes; nil for the identity
+    --- @field infinity boolean? True for the identity
+
+    --- Shared by every point this module makes, and how it recognises them.
+    local POINT_MT = {}
+
+    --- @param x string Affine x, 32 bytes, already validated
+    --- @param y string Affine y, 32 bytes, already validated
+    --- @return crypto.p256.Point point
+    local function new_point(x, y)
+      --- @type crypto.p256.Point
+      local point = setmetatable({ x = x, y = y }, POINT_MT)
+      return point
+    end
+
+    --- @return crypto.p256.Point identity
+    local function identity()
+      --- @type crypto.p256.Point
+      local point = setmetatable({ infinity = true }, POINT_MT)
+      return point
+    end
+
+    --- Raise unless `point` came from this module.
+    --- @param point any
+    local function check_point(point)
+      if type(point) ~= "table" or getmetatable(point) ~= POINT_MT then
+        error("p256: expected a point from decode_point or a p256 operation", 3)
+      end
+    end
+
+    --- Raise unless `scalar` is a 32-byte string.
+    --- @param scalar any
+    local function check_scalar(scalar)
+      if type(scalar) ~= "string" or #scalar ~= 32 then
+        error("p256: a scalar must be 32 big-endian bytes", 3)
+      end
+    end
+
+    --- Whether 32 big-endian bytes encode a value below p.
+    --- @param coordinate string
+    --- @return boolean
+    local function below_p(coordinate)
+      return bignum.compare(bignum.from_bytes(coordinate), P_BN) < 0
+    end
+
+    --- p - y for a 32-byte coordinate y in [1, p-1].
+    --- @param y string
+    --- @return string negated
+    local function negate_coordinate(y)
+      return bignum.to_bytes(bignum.sub(P_BN, bignum.from_bytes(y)), 32)
+    end
+
+    -- ============================================================================
+    -- FIELD BACKENDS
+    -- ============================================================================
+
+    --- Arithmetic modulo p over an opaque element type: `crypto.bignum` values for
+    --- the pure-Lua backend, `openssl.bn` handles for the OpenSSL one. Every
+    --- element passed in is already reduced, and every element returned is.
+    --- @class P256Field
+    --- @field name string Shown by benchmarks
+    --- @field from_bytes fun(s: string): any 32 big-endian bytes, below p
+    --- @field to_bytes fun(a: any): string 32 big-endian bytes
+    --- @field add fun(a: any, b: any): any
+    --- @field sub fun(a: any, b: any): any
+    --- @field mul fun(a: any, b: any): any
+    --- @field sqr fun(a: any): any
+    --- @field inv fun(a: any): any Inverse of a non-zero element
+    --- @field sqrt fun(a: any): any a^((p+1)/4): a square root when one exists
+    --- @field is_zero fun(a: any): boolean
+    --- @field equals fun(a: any, b: any): boolean
+    --- @field one any
+    --- @field three any
+    --- @field b any The curve coefficient b
+
+    --- @type P256Field
+    local pure_field
+    do
+      local P_MINUS_2 = bignum.from_hex(P_MINUS_2_HEX)
+      local SQRT_EXP = bignum.from_hex(SQRT_EXP_HEX)
+      local add, sub, compare = bignum.add, bignum.sub, bignum.compare
+      local mod_mul, mod_exp = bignum.mod_mul, bignum.mod_exp
+      pure_field = {
+        name = "pure Lua",
+        from_bytes = bignum.from_bytes,
+        to_bytes = function(a)
+          return bignum.to_bytes(a, 32)
+        end,
+        add = function(a, b)
+          local sum = add(a, b)
+          if compare(sum, P_BN) >= 0 then
+            return sub(sum, P_BN)
+          end
+          return sum
+        end,
+        sub = function(a, b)
+          if compare(a, b) >= 0 then
+            return sub(a, b)
+          end
+          return sub(add(a, P_BN), b)
+        end,
+        mul = function(a, b)
+          return mod_mul(a, b, P_BN)
+        end,
+        sqr = function(a)
+          return mod_mul(a, a, P_BN)
+        end,
+        inv = function(a)
+          return mod_exp(a, P_MINUS_2, P_BN)
+        end,
+        sqrt = function(a)
+          return mod_exp(a, SQRT_EXP, P_BN)
+        end,
+        is_zero = bignum.is_zero,
+        equals = bignum.equals,
+        one = bignum.one(),
+        three = bignum.from_number(3),
+        b = bignum.from_hex(B_HEX),
+      }
+    end
+
+    --- Build the field over a binding's `openssl.bn`. Nothing is checked here; the
+    --- caller runs `passes_known_answers` before trusting it.
+    --- @param bnlib table The openssl.bn table
+    --- @return P256Field field
+    local function bn_field(bnlib)
+      local text, tohex = bnlib.text, bnlib.tohex
+      local addmod, submod, mulmod, sqrmod, invmod =
+        bnlib.addmod, bnlib.submod, bnlib.mulmod, bnlib.sqrmod, bnlib.invmod
+      -- Spelled `powmod` on Control4's 0.8.5 and `mod_exp` on some other builds.
+      local powmod = type(bnlib.powmod) == "function" and bnlib.powmod or bnlib.mod_exp
+      local iszero, compare = bnlib.iszero, bnlib.compare
+      for _, fn in ipairs({ text, tohex, addmod, submod, mulmod, sqrmod, invmod, powmod, iszero, compare }) do
+        if type(fn) ~= "function" then
+          error("p256: openssl.bn lacks a function this module needs")
+        end
+      end
+
+      local P = text(bytes.from_hex(P_HEX))
+      local SQRT_EXP = text(bytes.from_hex(SQRT_EXP_HEX))
+      return {
+        name = "OpenSSL bn",
+        from_bytes = text,
+        to_bytes = function(h)
+          -- bn.tohex drops leading zeros and signs negatives with "-"; only bare
+          -- hex of at most 64 digits is a reduced element.
+          local hex = tohex(h)
+          if type(hex) ~= "string" or string_find(hex, "^%x+$") == nil or #hex > 64 then
+            error("p256: openssl bn.tohex did not return a reduced element")
+          end
+          return bytes.from_hex(string_rep("0", 64 - #hex) .. hex)
+        end,
+        add = function(a, b)
+          return addmod(a, b, P)
+        end,
+        sub = function(a, b)
+          return submod(a, b, P)
+        end,
+        mul = function(a, b)
+          return mulmod(a, b, P)
+        end,
+        sqr = function(a)
+          return sqrmod(a, P)
+        end,
+        inv = function(a)
+          return invmod(a, P)
+        end,
+        sqrt = function(a)
+          return powmod(a, SQRT_EXP, P)
+        end,
+        is_zero = function(a)
+          local zero = iszero(a)
+          return zero == true or zero == 1
+        end,
+        equals = function(a, b)
+          return compare(a, b) == 0
+        end,
+        one = text("\1"),
+        three = text("\3"),
+        b = text(bytes.from_hex(B_HEX)),
+      }
+    end
+
+    -- ============================================================================
+    -- JACOBIAN ARITHMETIC
+    -- ============================================================================
+
+    --- A point in Jacobian coordinates (X, Y, Z), with x = X/Z^2 and y = Y/Z^3, as
+    --- elements of one field. The identity is represented by nil.
+    --- @alias P256Jacobian { [1]: any, [2]: any, [3]: any }
+
+    --- Double a point (dbl-2001-b, a = -3).
+    --- @param F P256Field
+    --- @param P P256Jacobian?
+    --- @return P256Jacobian?
+    local function jacobian_double(F, P)
+      if P == nil or F.is_zero(P[2]) then
+        return nil
+      end
+      local X1, Y1, Z1 = P[1], P[2], P[3]
+      local add, sub, mul, sqr = F.add, F.sub, F.mul, F.sqr
+      local delta = sqr(Z1)
+      local gamma = sqr(Y1)
+      local beta = mul(X1, gamma)
+      local t = mul(sub(X1, delta), add(X1, delta))
+      local alpha = add(add(t, t), t)
+      local beta2 = add(beta, beta)
+      local beta4 = add(beta2, beta2)
+      local X3 = sub(sqr(alpha), add(beta4, beta4))
+      local Z3 = sub(sub(sqr(add(Y1, Z1)), gamma), delta)
+      local gamma_sq = sqr(gamma)
+      local gamma_sq2 = add(gamma_sq, gamma_sq)
+      local gamma_sq4 = add(gamma_sq2, gamma_sq2)
+      local Y3 = sub(mul(alpha, sub(beta4, X3)), add(gamma_sq4, gamma_sq4))
+      return { X3, Y3, Z3 }
+    end
+
+    --- Add two points (add-1998-cmo-2), handling the identity and P + P.
+    --- @param F P256Field
+    --- @param P P256Jacobian?
+    --- @param Q P256Jacobian?
+    --- @return P256Jacobian?
+    local function jacobian_add(F, P, Q)
+      if P == nil then
+        return Q
+      elseif Q == nil then
+        return P
+      end
+      local X1, Y1, Z1 = P[1], P[2], P[3]
+      local X2, Y2, Z2 = Q[1], Q[2], Q[3]
+      local add, sub, mul, sqr = F.add, F.sub, F.mul, F.sqr
+      local Z1Z1 = sqr(Z1)
+      local Z2Z2 = sqr(Z2)
+      local U1 = mul(X1, Z2Z2)
+      local U2 = mul(X2, Z1Z1)
+      local S1 = mul(mul(Y1, Z2), Z2Z2)
+      local S2 = mul(mul(Y2, Z1), Z1Z1)
+      local H = sub(U2, U1)
+      local r = sub(S2, S1)
+      if F.is_zero(H) then
+        if F.is_zero(r) then
+          return jacobian_double(F, P)
+        end
+        return nil
+      end
+      local HH = sqr(H)
+      local HHH = mul(H, HH)
+      local V = mul(U1, HH)
+      local X3 = sub(sub(sqr(r), HHH), add(V, V))
+      local Y3 = sub(mul(r, sub(V, X3)), mul(S1, HHH))
+      local Z3 = mul(mul(Z1, Z2), H)
+      return { X3, Y3, Z3 }
+    end
+
+    --- Lift an affine point into Jacobian coordinates (Z = 1).
+    --- @param F P256Field
+    --- @param point crypto.p256.Point
+    --- @return P256Jacobian?
+    local function to_jacobian(F, point)
+      if point.infinity then
+        return nil
+      end
+      return { F.from_bytes(point.x), F.from_bytes(point.y), F.one }
+    end
+
+    --- Normalise a Jacobian point back to an affine one; one field inversion.
+    --- @param F P256Field
+    --- @param P P256Jacobian?
+    --- @return crypto.p256.Point point
+    local function to_affine(F, P)
+      if P == nil or F.is_zero(P[3]) then
+        return identity()
+      end
+      local z_inv = F.inv(P[3])
+      local z_inv2 = F.sqr(z_inv)
+      local x = F.mul(P[1], z_inv2)
+      local y = F.mul(P[2], F.mul(z_inv2, z_inv))
+      return new_point(F.to_bytes(x), F.to_bytes(y))
+    end
+
+    --- k * P with a fixed 4-bit window, most significant nibble first.
+    --- @param F P256Field
+    --- @param scalar string 32 big-endian bytes
+    --- @param point crypto.p256.Point
+    --- @return P256Jacobian?
+    local function scalar_mul(F, scalar, point)
+      local base = to_jacobian(F, point)
+      if base == nil then
+        return nil
+      end
+      local window = { base, jacobian_double(F, base) }
+      for i = 3, 15 do
+        window[i] = jacobian_add(F, window[i - 1], base)
+      end
+
+      local acc = nil
+      for i = 1, 32 do
+        local byte = string_byte(scalar, i)
+        local high = floor(byte / 16)
+        local low = byte % 16
+        -- Doubling the identity is the identity, so skip it until the first digit.
+        if acc ~= nil then
+          acc = jacobian_double(F, jacobian_double(F, jacobian_double(F, jacobian_double(F, acc))))
+        end
+        if high ~= 0 then
+          acc = jacobian_add(F, acc, window[high])
+        end
+        if acc ~= nil then
+          acc = jacobian_double(F, jacobian_double(F, jacobian_double(F, jacobian_double(F, acc))))
+        end
+        if low ~= 0 then
+          acc = jacobian_add(F, acc, window[low])
+        end
+      end
+      return acc
+    end
+
+    --- x^3 - 3x + b, the right-hand side of the curve equation.
+    --- @param F P256Field
+    --- @param x any Field element
+    --- @return any rhs
+    local function curve_rhs(F, x)
+      return F.add(F.mul(F.sub(F.sqr(x), F.three), x), F.b)
+    end
+
+    -- ============================================================================
+    -- BACKEND SELECTION
+    -- ============================================================================
+
+    --- Whether a field reproduces the published 2G and 3G through this module's own
+    --- doubling, addition and normalisation, and recovers Gy as a square root.
+    --- Exercises every field operation the scalar multiplication uses.
+    --- @param F P256Field
+    --- @return boolean passed
+    local function passes_known_answers(F)
+      local ok, passed = pcall(function()
+        local G = to_jacobian(F, new_point(bytes.from_hex(GX_HEX), bytes.from_hex(GY_HEX)))
+        local two = to_affine(F, jacobian_double(F, G))
+        local three = to_affine(F, jacobian_add(F, jacobian_double(F, G), G))
+        local root = F.to_bytes(F.sqrt(curve_rhs(F, F.from_bytes(bytes.from_hex(GX_HEX)))))
+        local gy = bytes.from_hex(GY_HEX)
+        return two.x == bytes.from_hex(G2_X_HEX)
+          and two.y == bytes.from_hex(G2_Y_HEX)
+          and three.x == bytes.from_hex(G3_X_HEX)
+          and three.y == bytes.from_hex(G3_Y_HEX)
+          and (root == gy or root == negate_coordinate(gy))
+      end)
+      return ok and passed == true
+    end
+
+    --- The binding the OpenSSL field was last checked against, and the verdict.
+    --- @type table?
+    local _checked_binding = nil
+    --- @type P256Field|false
+    local _bn_field = false
+
+    --- The OpenSSL field if acceleration is on and the binding is trusted, else nil.
+    --- @return P256Field?
+    local function trusted_bn_field()
+      local openssl = openssl_wrapper.get(openssl_wrapper.Feature.BN)
+      if openssl == nil then
+        return nil
+      end
+      if _checked_binding ~= openssl then
+        _checked_binding = openssl
+        local ok, field = pcall(bn_field, openssl.bn)
+        _bn_field = ok and passes_known_answers(field) and field or false
+      end
+      return _bn_field or nil
+    end
+
+    --- The field every operation runs on right now.
+    --- @return P256Field
+    local function field()
+      return trusted_bn_field() or pure_field
+    end
+
+    -- ============================================================================
+    -- PUBLIC INTERFACE
+    -- ============================================================================
+
+    --- The group order n, 32 big-endian bytes.
+    p256.n = bytes.from_hex(N_HEX)
+
+    --- The base point G.
+    p256.G = new_point(bytes.from_hex(GX_HEX), bytes.from_hex(GY_HEX))
+
+    --- Decode a SEC 1 point and check it.
+    ---
+    --- Accepts uncompressed (65 bytes, 0x04 || x || y) and compressed (33 bytes,
+    --- 0x02 or 0x03 || x) encodings. Rejects the identity, coordinates >= p and
+    --- points off the curve, returning nil and a reason rather than raising, since
+    --- the input is normally a peer's.
+    ---
+    --- @param encoded string SEC 1 encoding
+    --- @return crypto.p256.Point? point The point, or nil when invalid
+    --- @return string? err Why it is invalid
+    function p256.decode_point(encoded)
+      if type(encoded) ~= "string" then
+        return nil, "p256: a point must be a byte string"
+      end
+      local prefix = string_byte(encoded, 1)
+      if #encoded == 1 and prefix == 0 then
+        return nil, "p256: the identity is not accepted as a point"
+      end
+      local x, y
+      if #encoded == 65 and prefix == 4 then
+        x, y = string_sub(encoded, 2, 33), string_sub(encoded, 34, 65)
+      elseif #encoded == 33 and (prefix == 2 or prefix == 3) then
+        x = string_sub(encoded, 2, 33)
+      else
+        return nil, "p256: expected a 65-byte uncompressed (0x04) or 33-byte compressed (0x02, 0x03) SEC 1 point"
+      end
+      if not below_p(x) or (y ~= nil and not below_p(y)) then
+        return nil, "p256: a coordinate is not below the field prime"
+      end
+
+      local F = field()
+      local rhs = curve_rhs(F, F.from_bytes(x))
+      if y ~= nil then
+        if not F.equals(F.sqr(F.from_bytes(y)), rhs) then
+          return nil, "p256: the point is not on the curve"
+        end
+        return new_point(x, y)
+      end
+
+      local root = F.sqrt(rhs)
+      if not F.equals(F.sqr(root), rhs) then
+        return nil, "p256: x is not the coordinate of a point on the curve"
+      end
+      y = F.to_bytes(root)
+      -- The root is never zero: P-256 has no point of order 2.
+      if (string_byte(y, 32) % 2 == 1) ~= (prefix == 3) then
+        y = negate_coordinate(y)
+      end
+      return new_point(x, y)
+    end
+
+    --- Encode a point in SEC 1 form. Raises on the identity, which has no
+    --- encoding a peer would accept.
+    --- @param point crypto.p256.Point
+    --- @param compressed? boolean True for 33 bytes, otherwise 65
+    --- @return string encoded
+    function p256.encode_point(point, compressed)
+      check_point(point)
+      if point.infinity then
+        error("p256: the identity has no SEC 1 encoding here", 2)
+      end
+      local x, y = point.x, point.y
+      --- @cast x string
+      --- @cast y string
+      if compressed then
+        return (string_byte(y, 32) % 2 == 1 and "\3" or "\2") .. x
+      end
+      return "\4" .. x .. y
+    end
+
+    --- Scalar multiplication, k * P.
+    --- @param scalar string 32 big-endian bytes, in [0, n-1]
+    --- @param point crypto.p256.Point
+    --- @return crypto.p256.Point product
+    function p256.mul(scalar, point)
+      check_scalar(scalar)
+      check_point(point)
+      local F = field()
+      return to_affine(F, scalar_mul(F, scalar, point))
+    end
+
+    --- Scalar multiplication of the base point, k * G.
+    --- @param scalar string 32 big-endian bytes, in [0, n-1]
+    --- @return crypto.p256.Point product
+    function p256.mul_base(scalar)
+      check_scalar(scalar)
+      local F = field()
+      return to_affine(F, scalar_mul(F, scalar, p256.G))
+    end
+
+    --- Point addition, P + Q.
+    --- @param p crypto.p256.Point
+    --- @param q crypto.p256.Point
+    --- @return crypto.p256.Point sum
+    function p256.add(p, q)
+      check_point(p)
+      check_point(q)
+      if p.infinity then
+        return q
+      elseif q.infinity then
+        return p
+      end
+      local F = field()
+      return to_affine(F, jacobian_add(F, to_jacobian(F, p), to_jacobian(F, q)))
+    end
+
+    --- Point subtraction, P - Q.
+    --- @param p crypto.p256.Point
+    --- @param q crypto.p256.Point
+    --- @return crypto.p256.Point difference
+    function p256.sub(p, q)
+      check_point(p)
+      check_point(q)
+      if q.infinity then
+        return p
+      end
+      local qy = q.y
+      --- @cast qy string
+      return p256.add(p, new_point(q.x, negate_coordinate(qy)))
+    end
+
+    --- Whether a point is the identity.
+    --- @param point crypto.p256.Point
+    --- @return boolean
+    function p256.is_identity(point)
+      check_point(point)
+      return point.infinity == true
+    end
+
+    --- Whether two points are equal.
+    --- @param p crypto.p256.Point
+    --- @param q crypto.p256.Point
+    --- @return boolean
+    function p256.equals(p, q)
+      check_point(p)
+      check_point(q)
+      if p.infinity or q.infinity then
+        return p.infinity == true and q.infinity == true
+      end
+      return p.x == q.x and p.y == q.y
+    end
+
+    --- Reduce a big-endian integer of any length modulo n.
+    ---
+    --- RFC 9383 derives w0 and w1 by reducing PBKDF output halves at least 64 bits
+    --- longer than n, which keeps the bias below 2^-64; this is that reduction.
+    --- @param value string Big-endian bytes, any length ("" is zero)
+    --- @return string scalar 32 big-endian bytes, in [0, n-1]
+    function p256.reduce(value)
+      assert(type(value) == "string", "p256: reduce takes a byte string")
+      return bignum.to_bytes(bignum.mod(bignum.from_bytes(value), N_BN), 32)
+    end
+
+    --- A uniformly random scalar in [1, n-1] from `crypto.random`.
+    ---
+    --- Draws 32 bytes and redraws when the value is 0 or >= n, which happens with
+    --- probability about 2^-32, so the result is exactly uniform.
+    --- @return string scalar 32 big-endian bytes
+    function p256.random_scalar()
+      while true do
+        local candidate = random.bytes(32)
+        local value = bignum.from_bytes(candidate)
+        if not bignum.is_zero(value) and bignum.compare(value, N_BN) < 0 then
+          return candidate
+        end
+      end
+    end
+
+    --- Whether scalar multiplication runs on OpenSSL.
+    ---
+    --- True only when acceleration is enabled, the binding passes `Feature.BN`, and
+    --- it reproduces the published 2G and 3G through this module's own doubling and
+    --- addition -- the same conditions the operations apply. When false, the
+    --- second value says why, in the same terms as `crypto.bignum.is_accelerated`:
+    --- a driver that never called `crypto.use_openssl(true)` and a host that cannot
+    --- accelerate both read false, and need opposite fixes.
+    ---
+    --- @return boolean accelerated
+    --- @return string|nil reason Why not, when not
+    function p256.is_accelerated()
+      local openssl = openssl_wrapper.get(openssl_wrapper.Feature.BN)
+      if openssl == nil then
+        return false,
+          openssl_wrapper.unavailable_reason(openssl_wrapper.Feature.BN)
+            or "OpenSSL P-256 field arithmetic is unavailable"
+      end
+      if trusted_bn_field() == nil then
+        return false,
+          "the lua-openssl binding failed p256's 2G/3G known-answer check, so its field arithmetic is not trusted"
+      end
+      return true
+    end
+
+    -- ============================================================================
+    -- TEST VECTORS AND VALIDATION
+    -- ============================================================================
+
+    -- Multiples of G as uncompressed points, hex. 2G and 3G are the published
+    -- values above. The RFC 6979 A.2.5 key pair is published there too. The rest
+    -- were derived with the openssl CLI (OpenSSL 4.1.0): a DER EC key built with
+    -- `openssl asn1parse -genconf` from the chosen private scalar, whose public
+    -- point `openssl ec -text` then computes and prints.
+    local RFC6979_D = "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721"
+    local RFC6979_U = "0460fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6"
+      .. "7903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299"
+    local MULTIPLES = {
+      { name = "2G (published)", k = string_rep("0", 63) .. "2", point = "04" .. G2_X_HEX .. G2_Y_HEX },
+      { name = "3G (published)", k = string_rep("0", 63) .. "3", point = "04" .. G3_X_HEX .. G3_Y_HEX },
+      { name = "RFC 6979 A.2.5 key pair", k = RFC6979_D, point = RFC6979_U },
+      {
+        name = "(n-1)G = -G (openssl CLI)",
+        k = "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632550",
+        point = "04" .. GX_HEX .. "b01cbd1c01e58065711814b583f061e9d431cca994cea1313449bf97c840ae0a",
+      },
+      {
+        name = "(2^128 - 1)G, leading zero bytes (openssl CLI)",
+        k = "00000000000000000000000000000000ffffffffffffffffffffffffffffffff",
+        point = "04faa31e824f8143caeb2b0e68deee70bd45dc5b9a78fa0741ee22a6a7b9d0b22f"
+          .. "e6078b5a598df8b65ba3d288e70db604a25d90279d586d11282d704f8bd18f2d",
+      },
+      {
+        name = "(2^255)G, zero nibbles throughout (openssl CLI)",
+        k = "8000000000000000000000000000000000000000000000000000000000000000",
+        point = "0477b20a912e6b23135066e911891524bc4efe3560e3e92350b52dec8f375f2b54"
+          .. "a3dc291825cea3f7f7b10bfcdd038a72df623da1e850e0f1caa801fcd6cc67ff",
+      },
+    }
+    -- s * U for the RFC 6979 public key U, derived with the openssl CLI as
+    -- (s * d mod n) * G, and U + G and U - G as (d + 1) * G and (d - 1) * G.
+    local S_SCALAR = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+    local S_TIMES_U = "04785884d61b6393c6e92bb48fba4d351493bb11d45cf70aafc59b29ba21c3c653"
+      .. "b49783b112d1838f82748c84a4df87063a663e0934259216b3a4931faacc6eb5"
+    local U_PLUS_G = "0415797ae57c574afdcfcd1fe48482512bf8134a0338f14e0374a542585477fd70"
+      .. "296a96b3f5cf14e63952aa745f9249d3d5d5d8db94651a93070f53513dc15271"
+    local U_MINUS_G = "04477dfe26ed0d54e7164a1116f73ca42741c17029ec37b39e6167365d142c4ac9"
+      .. "9a827ce950d360890f8e3571d105e27c18a0f725ba43c2b4485e67e8532214fd"
+    -- Compressed encodings printed by `openssl ec -conv_form compressed`.
+    local COMPRESSED = {
+      { name = "G", compressed = "03" .. GX_HEX, point = "04" .. GX_HEX .. GY_HEX },
+      { name = "3G (even y)", compressed = "02" .. G3_X_HEX, point = "04" .. G3_X_HEX .. G3_Y_HEX },
+      {
+        name = "RFC 6979 U",
+        compressed = "0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6",
+        point = RFC6979_U,
+      },
+    }
+
+    --- A stand-in `openssl.bn` over `crypto.bignum`, shaped like lua-openssl's:
+    --- `text` takes big-endian bytes, `tohex` gives uppercase hex without leading
+    --- zero bytes, handles are opaque. Its arithmetic avoids `bignum.mod_exp`, which
+    --- would route back into the stand-in while bignum is still checking it.
+    --- @param fault string|nil "sqrmod" answers squares off by one
+    --- @return table binding
+    local function stand_in_binding(fault)
+      local function wrap(value)
+        return { value = value }
+      end
+      local function reduce(value, m)
+        return bignum.mod(value, m.value)
+      end
+      local function pow(base, exponent, m)
+        local result = { 1 }
+        local b = reduce(base.value, m)
+        for i = bignum.bit_length(exponent.value) - 1, 0, -1 do
+          result = reduce(bignum.mul(result, result), m)
+          local limb = exponent.value[floor(i / 24) + 1]
+          if floor(limb / 2 ^ (i % 24)) % 2 == 1 then
+            result = reduce(bignum.mul(result, b), m)
+          end
+        end
+        return wrap(result)
+      end
+      local bn = {
+        text = function(raw)
+          return wrap(bignum.from_bytes(raw))
+        end,
+        tohex = function(h)
+          local hex = bignum.to_hex(h.value)
+          if #hex % 2 == 1 and hex ~= "0" then
+            hex = "0" .. hex
+          end
+          return hex:upper()
+        end,
+        addmod = function(a, b, m)
+          return wrap(reduce(bignum.add(a.value, b.value), m))
+        end,
+        submod = function(a, b, m)
+          return wrap(bignum.mod_sub(a.value, b.value, m.value))
+        end,
+        mulmod = function(a, b, m)
+          return wrap(reduce(bignum.mul(a.value, b.value), m))
+        end,
+        sqrmod = function(a, m)
+          local square = reduce(bignum.mul(a.value, a.value), m)
+          if fault == "sqrmod" then
+            square = bignum.add(square, { 1 })
+          end
+          return wrap(square)
+        end,
+        invmod = function(a, m)
+          return pow(a, wrap(bignum.sub(m.value, { 2 })), m)
+        end,
+        powmod = pow,
+        iszero = function(a)
+          return bignum.is_zero(a.value)
+        end,
+        compare = function(a, b)
+          return bignum.compare(a.value, b.value)
+        end,
+      }
+      return {
+        version = function()
+          return "0.8.5"
+        end,
+        bn = bn,
+      }
+    end
+
+    --- Run the P-256 self-test.
+    ---
+    --- Every multiplication vector runs on whichever field is active and, when
+    --- OpenSSL is, on the pure-Lua one as well, so an accelerated host checks both.
+    --- A stand-in binding then drives the OpenSSL field on hosts without one.
+    --- @return boolean result True if all tests pass, false otherwise
+    function p256.selftest()
+      local passed = 0
+      local total = 0
+
+      --- Record one result; a function that raises counts as a failure.
+      --- @param name string
+      --- @param result boolean|fun(): boolean
+      local function check(name, result)
+        total = total + 1
+        if type(result) == "function" then
+          local ok, value = pcall(result)
+          result = ok and value == true
+          if not ok then
+            print("    error: " .. tostring(value))
+          end
+        end
+        if result == true then
+          print("  ✅ PASS: " .. name)
+          passed = passed + 1
+        else
+          print("  ❌ FAIL: " .. name)
+        end
+      end
+
+      local function point(hex)
+        return assert(p256.decode_point(bytes.from_hex(hex)))
+      end
+      local function hex_of(p)
+        return bytes.to_hex(p256.encode_point(p))
+      end
+
+      local active = field()
+      local fields = { active }
+      if active ~= pure_field then
+        fields[2] = pure_field
+      end
+
+      print("Running P-256 test vectors (" .. active.name .. ")...")
+      check("G encodes to the SEC 2 base point", hex_of(p256.G) == "04" .. GX_HEX .. GY_HEX)
+      check("n is the SEC 2 group order", bytes.to_hex(p256.n) == N_HEX)
+      for _, F in ipairs(fields) do
+        local suffix = " [" .. F.name .. "]"
+        for _, vector in ipairs(MULTIPLES) do
+          check(vector.name .. suffix, function()
+            return bytes.to_hex(p256.encode_point(to_affine(F, scalar_mul(F, bytes.from_hex(vector.k), p256.G))))
+              == vector.point
+          end)
+        end
+        check("s * U, an arbitrary point (openssl CLI)" .. suffix, function()
+          local product = to_affine(F, scalar_mul(F, bytes.from_hex(S_SCALAR), point(RFC6979_U)))
+          return hex_of(product) == S_TIMES_U
+        end)
+        check("known answers pass" .. suffix, passes_known_answers(F))
+      end
+
+      check("mul_base agrees with mul(k, G)", function()
+        local k = bytes.from_hex(RFC6979_D)
+        return p256.equals(p256.mul_base(k), p256.mul(k, p256.G)) and hex_of(p256.mul_base(k)) == RFC6979_U
+      end)
+      check("U + G = (d + 1)G (openssl CLI)", hex_of(p256.add(point(RFC6979_U), p256.G)) == U_PLUS_G)
+      check("U - G = (d - 1)G (openssl CLI)", hex_of(p256.sub(point(RFC6979_U), p256.G)) == U_MINUS_G)
+      check("G + G doubles to 2G", hex_of(p256.add(p256.G, p256.G)) == "04" .. G2_X_HEX .. G2_Y_HEX)
+      check(
+        "2G + G = 3G",
+        hex_of(p256.add(point("04" .. G2_X_HEX .. G2_Y_HEX), p256.G)) == "04" .. G3_X_HEX .. G3_Y_HEX
+      )
+
+      print("\nRunning P-256 identity tests...")
+      local zero = string_rep("\0", 32)
+      check("0 * G is the identity", p256.is_identity(p256.mul_base(zero)))
+      check("n * G is the identity", p256.is_identity(p256.mul_base(p256.n)))
+      check("k * identity is the identity", function()
+        return p256.is_identity(p256.mul(bytes.from_hex(RFC6979_D), p256.sub(p256.G, p256.G)))
+      end)
+      check("G - G is the identity", p256.is_identity(p256.sub(p256.G, p256.G)))
+      check("G + (-G) is the identity", function()
+        local minus_g = p256.mul_base(bytes.from_hex(MULTIPLES[4].k))
+        return p256.is_identity(p256.add(p256.G, minus_g))
+      end)
+      check("identity + G = G and G + identity = G", function()
+        local id = p256.sub(p256.G, p256.G)
+        return p256.equals(p256.add(id, p256.G), p256.G) and p256.equals(p256.add(p256.G, id), p256.G)
+      end)
+      check("equals: identity only equals the identity", function()
+        local id = p256.mul_base(zero)
+        return p256.equals(id, p256.sub(p256.G, p256.G)) and not p256.equals(id, p256.G) and not p256.equals(p256.G, id)
+      end)
+      check("encoding the identity raises", pcall(p256.encode_point, p256.mul_base(zero)) == false)
+
+      print("\nRunning P-256 encoding tests...")
+      for _, vector in ipairs(COMPRESSED) do
+        check("compressed " .. vector.name .. " decodes", function()
+          return hex_of(point(vector.compressed)) == vector.point
+        end)
+        check("compressed " .. vector.name .. " encodes", function()
+          return bytes.to_hex(p256.encode_point(point(vector.point), true)) == vector.compressed
+        end)
+      end
+      --- @param hex string
+      --- @return boolean rejected
+      local function rejected(hex)
+        local decoded, err = p256.decode_point(bytes.from_hex(hex))
+        return decoded == nil and type(err) == "string"
+      end
+      local g_y_plus_one = bignum.to_bytes(bignum.add(bignum.from_hex(GY_HEX), { 1 }), 32)
+      check("rejects the identity encoding", rejected("00"))
+      check("rejects an empty string", rejected(""))
+      check("rejects a bad prefix", rejected("05" .. GX_HEX .. GY_HEX))
+      check("rejects a compressed prefix on 65 bytes", rejected("02" .. GX_HEX .. GY_HEX))
+      check("rejects an uncompressed prefix on 33 bytes", rejected("04" .. GX_HEX))
+      check("rejects a truncated point", rejected("04" .. GX_HEX .. string_sub(GY_HEX, 1, 62)))
+      check("rejects x = p", rejected("04" .. P_HEX .. GY_HEX))
+      check("rejects y = p", rejected("04" .. GX_HEX .. P_HEX))
+      check("rejects compressed x = p", rejected("02" .. P_HEX))
+      check("rejects a point off the curve", rejected("04" .. GX_HEX .. bytes.to_hex(g_y_plus_one)))
+      -- 1 - 3 + b is not a square mod p (checked with CPython's pow).
+      check("rejects a compressed x with no point", rejected("02" .. string_rep("0", 63) .. "1"))
+      check("rejects a non-string", function()
+        --- @diagnostic disable-next-line: param-type-mismatch -- the wrong type is the test
+        return p256.decode_point(42) == nil
+      end)
+
+      print("\nRunning P-256 scalar tests...")
+      check("reduce(n) is zero", p256.reduce(p256.n) == zero)
+      check('reduce("") is zero', p256.reduce("") == zero)
+      check(
+        "reduce leaves a 32-byte value below n alone",
+        p256.reduce(bytes.from_hex(RFC6979_D)) == bytes.from_hex(RFC6979_D)
+      )
+      check("reduce(n + 1) is one", function()
+        return p256.reduce(bignum.to_bytes(bignum.add(N_BN, { 1 }))) == string_rep("\0", 31) .. "\1"
+      end)
+      -- 40-byte inputs, the RFC 9383 w0/w1 shape; expected values from CPython.
+      check("reduce of 40 bytes 01..28", function()
+        local input = {}
+        for i = 1, 40 do
+          input[i] = string_char(i)
+        end
+        return bytes.to_hex(p256.reduce(table.concat(input)))
+          == "0e101214070605041155b315cb1c6f28abec21cff529b6e3d3e045e760833d5c"
+      end)
+      check("reduce of 40 bytes of 0xff", function()
+        return bytes.to_hex(p256.reduce(string_rep("\255", 40)))
+          == "fffffffe00000001431905529c0166cd22159165b6faae70f756a571fc632550"
+      end)
+      check("random_scalar is in [1, n-1] and fresh", function()
+        local a, b = p256.random_scalar(), p256.random_scalar()
+        local value = bignum.from_bytes(a)
+        return #a == 32 and a ~= b and not bignum.is_zero(value) and bignum.compare(value, N_BN) < 0
+      end)
+      check("a 31-byte scalar raises", pcall(p256.mul_base, string_rep("\1", 31)) == false)
+      check("a hand-made point raises", function()
+        --- @diagnostic disable-next-line: param-type-mismatch -- the wrong type is the test
+        return pcall(p256.mul, bytes.from_hex(RFC6979_D), { x = string_rep("\1", 32), y = string_rep("\1", 32) })
+          == false
+      end)
+      check("is_accelerated returns a boolean and, when false, a reason", function()
+        local accelerated, reason = p256.is_accelerated()
+        return type(accelerated) == "boolean" and (accelerated or type(reason) == "string")
+      end)
+
+      print("\nRunning P-256 OpenSSL field against a stand-in binding...")
+      local saved_use = openssl_wrapper.enabled()
+      local saved_loaded = package.loaded["openssl"]
+      local saved_preload = package.preload["openssl"]
+      --- @param binding table|nil
+      local function install(binding)
+        package.loaded["openssl"] = binding
+        package.preload["openssl"] = nil
+        openssl_wrapper.use(true)
+      end
+
+      install(stand_in_binding())
+      check("stand-in binding is trusted", p256.is_accelerated() == true)
+      check("stand-in: field is the OpenSSL one", field().name == "OpenSSL bn")
+      check("stand-in: RFC 6979 key pair", function()
+        return hex_of(p256.mul_base(bytes.from_hex(RFC6979_D))) == RFC6979_U
+      end)
+      check("stand-in: s * U", hex_of(p256.mul(bytes.from_hex(S_SCALAR), point(RFC6979_U))) == S_TIMES_U)
+      check("stand-in: compressed decode", function()
+        return hex_of(point(COMPRESSED[3].compressed)) == RFC6979_U
+          and hex_of(point(COMPRESSED[2].compressed)) == "04" .. G3_X_HEX .. G3_Y_HEX
+      end)
+      check("stand-in: off-curve point rejected", rejected("04" .. GX_HEX .. bytes.to_hex(g_y_plus_one)))
+
+      install(stand_in_binding("sqrmod"))
+      check("a binding with a wrong sqrmod is declined", function()
+        local accelerated, reason = p256.is_accelerated()
+        return accelerated == false and type(reason) == "string" and string_find(reason, "known-answer", 1, true) ~= nil
+      end)
+      check("declined binding: results still correct", hex_of(p256.mul_base(bytes.from_hex(RFC6979_D))) == RFC6979_U)
+
+      package.loaded["openssl"] = saved_loaded
+      package.preload["openssl"] = saved_preload
+      openssl_wrapper.use(saved_use)
+      _checked_binding = nil
+      _bn_field = false
+
+      print(string.format("\nP-256 result: %d/%d tests passed\n", passed, total))
+      return passed == total
+    end
+
+    --- Run performance benchmarks for P-256.
+    function p256.benchmark()
+      local k = bytes.from_hex(RFC6979_D)
+      local u = assert(p256.decode_point(bytes.from_hex(RFC6979_U)))
+      local compressed = bytes.from_hex(COMPRESSED[3].compressed)
+      local uncompressed = bytes.from_hex(RFC6979_U)
+
+      print("P-256 (" .. field().name .. "):")
+      benchmark_op("mul_base", function()
+        p256.mul_base(k)
+      end, 5)
+      benchmark_op("mul (arbitrary point)", function()
+        p256.mul(k, u)
+      end, 5)
+      benchmark_op("add", function()
+        p256.add(u, p256.G)
+      end, 50)
+      benchmark_op("decode_point (compressed)", function()
+        p256.decode_point(compressed)
+      end, 20)
+      benchmark_op("decode_point (uncompressed)", function()
+        p256.decode_point(uncompressed)
+      end, 50)
+    end
+
+    return p256
+  end
+end
+
+do
+  local _ENV = _ENV
+  package.preload["crypto.pbkdf2"] = function(...)
+    local arg = _G.arg
+    --- @module "crypto.pbkdf2"
+    --- PBKDF2, RFC 8018 section 5.2, over HMAC-SHA256 or HMAC-SHA512.
+    ---
+    --- A thin layer over the HMAC functions in `crypto.sha256` / `crypto.sha512`,
+    --- which already run through OpenSSL when acceleration is enabled, so PBKDF2
+    --- inherits that acceleration without a route of its own, as HKDF does.
+    ---
+    --- The cost is one HMAC per iteration per output block (32 bytes for SHA-256,
+    --- 64 for SHA-512). In pure Lua an HMAC-SHA256 takes about 0.01 ms under LuaJIT
+    --- and 0.6 to 4 ms under PUC Lua 5.1 to 5.5 on a desktop, so a high iteration
+    --- count is only practical with the JIT or with acceleration on.
+    ---
+    --- @usage
+    --- local pbkdf2 = require("crypto.pbkdf2")
+    --- local key = pbkdf2.derive("sha256", password, salt, 10000, 32)
+    ---
+    --- @class crypto.pbkdf2
+    local pbkdf2 = {}
+
+    local bit32 = require("bitn").bit32
+
+    local openssl_wrapper = require("crypto.openssl_wrapper")
+    local sha256 = require("crypto.sha256")
+    local sha512 = require("crypto.sha512")
+    local utils = require("crypto.utils")
+    local bytes = utils.bytes
+    local benchmark_op = utils.benchmark.benchmark_op
+
+    -- Local references for performance
+    local bit32_raw_bxor = bit32.raw_bxor
+    local ceil = math.ceil
+    local string_byte = string.byte
+    local string_char = string.char
+    local string_sub = string.sub
+    local table_concat = table.concat
+
+    --- A PRF PBKDF2 can use: HMAC over one hash, and that hash's output length.
+    --- @class Pbkdf2Hash
+    --- @field hmac fun(key: string, data: string): string HMAC over this hash
+    --- @field length integer hLen in bytes
+
+    --- @type table<string, Pbkdf2Hash>
+    local HASHES = {
+      sha256 = { hmac = sha256.hmac_sha256, length = 32 },
+      sha512 = { hmac = sha512.hmac_sha512, length = 64 },
+    }
+
+    --- Derive a key with PBKDF2-HMAC.
+    ---
+    --- @param hash_name string "sha256" or "sha512"
+    --- @param password string Password P, any bytes
+    --- @param salt string Salt S, any bytes
+    --- @param iterations integer Iteration count c, at least 1
+    --- @param length integer Derived key length dkLen in bytes, at least 1
+    --- @return string key `length` bytes
+    function pbkdf2.derive(hash_name, password, salt, iterations, length)
+      local params = HASHES[hash_name]
+      if params == nil then
+        error("PBKDF2: unsupported hash " .. tostring(hash_name) .. ' (expected "sha256" or "sha512")', 2)
+      end
+      assert(type(password) == "string", "PBKDF2: password must be a string")
+      assert(type(salt) == "string", "PBKDF2: salt must be a string")
+      assert(
+        type(iterations) == "number" and iterations >= 1 and iterations % 1 == 0,
+        "PBKDF2: iterations must be a positive integer"
+      )
+      assert(type(length) == "number" and length >= 1 and length % 1 == 0, "PBKDF2: length must be a positive integer")
+
+      local hmac = params.hmac
+      local hash_length = params.length
+      local block_count = ceil(length / hash_length)
+      -- RFC 8018 5.2 step 1: the block index is a 32-bit counter.
+      assert(block_count <= 4294967295, "PBKDF2: derived key too long")
+
+      local blocks = {}
+      for i = 1, block_count do
+        -- T_i = U_1 xor U_2 xor ... xor U_c, with U_1 = PRF(P, S || INT(i)).
+        local u = hmac(password, salt .. bytes.u32_to_be_bytes(i))
+        local t = { string_byte(u, 1, hash_length) }
+        for _ = 2, iterations do
+          u = hmac(password, u)
+          for j = 1, hash_length do
+            t[j] = bit32_raw_bxor(t[j], string_byte(u, j))
+          end
+        end
+        local chars = {}
+        for j = 1, hash_length do
+          chars[j] = string_char(t[j])
+        end
+        blocks[i] = table_concat(chars)
+      end
+      return string_sub(table_concat(blocks), 1, length)
+    end
+
+    -- ============================================================================
+    -- TEST VECTORS AND VALIDATION
+    -- ============================================================================
+
+    --- Known answers. `slow` marks a vector that runs only when this host is fast
+    --- enough to finish it inside `SLOW_BUDGET_SECONDS`.
+    ---
+    --- * RFC 7914 section 11: both PBKDF2-HMAC-SHA256 vectors.
+    --- * PBKDF2-HMAC-SHA512 for "password"/"salt" at 1 and 2 iterations, the set
+    ---   CPython's Lib/test/test_hashlib.py carries (pbkdf2_results["sha512"]).
+    --- * Embedded NUL bytes and a key that ends mid-block, generated with CPython's
+    ---   hashlib.pbkdf2_hmac, which reproduces every published vector above.
+    local test_vectors = {
+      {
+        name = "RFC 7914 section 11, SHA-256, c = 1",
+        hash = "sha256",
+        password = "passwd",
+        salt = "salt",
+        iterations = 1,
+        key = "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc"
+          .. "49ca9cccf179b645991664b39d77ef317c71b845b1e30bd509112041d3a19783",
+      },
+      {
+        name = "RFC 7914 section 11, SHA-256, c = 80000",
+        hash = "sha256",
+        password = "Password",
+        salt = "NaCl",
+        iterations = 80000,
+        key = "4ddcd8f60b98be21830cee5ef22701f9641a4418d04c0414aeff08876b34ab56"
+          .. "a1d425a1225833549adb841b51c9b3176a272bdebba1d078478f62b397f33c8d",
+        slow = true,
+      },
+      {
+        name = "SHA-512, c = 1 (CPython test_hashlib)",
+        hash = "sha512",
+        password = "password",
+        salt = "salt",
+        iterations = 1,
+        key = "867f70cf1ade02cff3752599a3a53dc4af34c7a669815ae5d513554e1c8cf252"
+          .. "c02d470a285a0501bad999bfe943c08f050235d7d68b1da55e63f73b60a57fce",
+      },
+      {
+        name = "SHA-512, c = 2 (CPython test_hashlib)",
+        hash = "sha512",
+        password = "password",
+        salt = "salt",
+        iterations = 2,
+        key = "e1d9c16aa681708a45f5c7c4e215ceb66e011a2e9f0040713f18aefdb866d53c"
+          .. "f76cab2868a39b9f7840edce4fef5a82be67335c77a6068e04112754f27ccf4e",
+      },
+      {
+        name = "SHA-256, NUL bytes, c = 2, 40 bytes (hashlib)",
+        hash = "sha256",
+        password = "pass\0word",
+        salt = "sa\0lt",
+        iterations = 2,
+        key = "aa4399833b716be66298125c3e643697f19ac0a893c1a93ef0665590c0cde81678ed9f5030c7cffd",
+      },
+      {
+        name = "SHA-512, NUL bytes, c = 2, 100 bytes (hashlib)",
+        hash = "sha512",
+        password = "pass\0word",
+        salt = "sa\0lt",
+        iterations = 2,
+        key = "b10b04b1ec0406c23faa6bc0309a13f6d520ebc223bf096e42f6eaa6b6598f5d"
+          .. "c6643beb1f5db291e44287bbe755e281a26a93c6c04dc59017b9da06be3742bf"
+          .. "cb0aba9241ebda23ef879883a70a782b915e42e5023c0e9919b9688203bf7e9274b97048",
+      },
+    }
+
+    --- How long a `slow` vector may be projected to take before it is skipped. The
+    --- 80000-iteration vector takes about 1.5 s under LuaJIT or with OpenSSL, and
+    --- one to several minutes under PUC Lua.
+    local SLOW_BUDGET_SECONDS = 10
+
+    --- Iterations timed to project a slow vector's cost.
+    local PROBE_ITERATIONS = 50
+
+    --- Run the PBKDF2 self-test.
+    --- @return boolean result True if all tests pass, false otherwise
+    function pbkdf2.selftest()
+      local passed = 0
+      local total = 0
+
+      --- Record one result; a function that raises counts as a failure.
+      --- @param name string
+      --- @param result boolean|fun(): boolean
+      local function check(name, result)
+        total = total + 1
+        if type(result) == "function" then
+          local ok, value = pcall(result)
+          result = ok and value == true
+        end
+        if result == true then
+          print("  ✅ PASS: " .. name)
+          passed = passed + 1
+        else
+          print("  ❌ FAIL: " .. name)
+        end
+      end
+
+      print(
+        "Running PBKDF2 test vectors (HMAC via " .. (openssl_wrapper.get() ~= nil and "OpenSSL" or "pure Lua") .. ")..."
+      )
+      for _, vector in ipairs(test_vectors) do
+        local expected = bytes.from_hex(vector.key)
+        local run = true
+        if vector.slow then
+          local started = os.clock()
+          pbkdf2.derive(vector.hash, vector.password, vector.salt, PROBE_ITERATIONS, #expected)
+          local projected = (os.clock() - started) * vector.iterations / PROBE_ITERATIONS
+          if projected > SLOW_BUDGET_SECONDS then
+            run = false
+            print(string.format("  SKIP: %s (about %.0f s on this host)", vector.name, projected))
+          end
+        end
+        if run then
+          check(vector.name, function()
+            return pbkdf2.derive(vector.hash, vector.password, vector.salt, vector.iterations, #expected) == expected
+          end)
+        end
+      end
+
+      print("\nRunning PBKDF2 functional tests...")
+      check("a shorter key is a prefix of a longer one", function()
+        local long = pbkdf2.derive("sha256", "pw", "salt", 3, 80)
+        return #long == 80 and pbkdf2.derive("sha256", "pw", "salt", 3, 20) == string_sub(long, 1, 20)
+      end)
+      check("a one-byte key works", function()
+        return #pbkdf2.derive("sha512", "pw", "salt", 1, 1) == 1
+      end)
+      check("unsupported hash raises", function()
+        return pcall(pbkdf2.derive, "sha1", "pw", "salt", 1, 20) == false
+      end)
+      check("zero or fractional iterations raise", function()
+        return pcall(pbkdf2.derive, "sha256", "pw", "salt", 0, 32) == false
+          and pcall(pbkdf2.derive, "sha256", "pw", "salt", 1.5, 32) == false
+      end)
+      check("zero length raises", function()
+        return pcall(pbkdf2.derive, "sha256", "pw", "salt", 1, 0) == false
+      end)
+      check("non-string password or salt raises", function()
+        --- @diagnostic disable-next-line: param-type-mismatch -- the wrong type is the test
+        return pcall(pbkdf2.derive, "sha256", nil, "salt", 1, 32) == false
+          --- @diagnostic disable-next-line: param-type-mismatch -- the wrong type is the test
+          and pcall(pbkdf2.derive, "sha256", "pw", 7, 1, 32) == false
+      end)
+
+      print(string.format("\nPBKDF2 result: %d/%d tests passed\n", passed, total))
+      return passed == total
+    end
+
+    --- Run performance benchmarks for PBKDF2.
+    function pbkdf2.benchmark()
+      print("PBKDF2 (HMAC via " .. (openssl_wrapper.get() ~= nil and "OpenSSL" or "pure Lua") .. "):")
+      benchmark_op("sha256, 1000 iterations, 32 bytes", function()
+        pbkdf2.derive("sha256", "password", "salt", 1000, 32)
+      end, 5)
+      benchmark_op("sha512, 100 iterations, 64 bytes", function()
+        pbkdf2.derive("sha512", "password", "salt", 100, 64)
+      end, 3)
+    end
+
+    return pbkdf2
   end
 end
 
@@ -10070,6 +12406,662 @@ do
     end
 
     return sha512
+  end
+end
+
+do
+  local _ENV = _ENV
+  package.preload["crypto.spake2plus"] = function(...)
+    local arg = _G.arg
+    --- @module "crypto.spake2plus"
+    --- SPAKE2+, RFC 9383, for the ciphersuite P256-SHA256-HKDF-SHA256-HMAC-SHA256
+    --- with the RFC's M and N. No other suite is offered.
+    ---
+    --- Both roles are here. The prover knows the password, so both w0 and w1; it
+    --- is the side a client runs. The verifier holds w0 and the registration record
+    --- L = w1*G; it is here for tests and for stand-in devices.
+    ---
+    --- RFC 9383 leaves the password-to-(w0, w1) step to the application, and so
+    --- does this module: run the application's PBKDF (`crypto.pbkdf2`, for example)
+    --- and reduce each half of its output with `crypto.p256.reduce`. w0, w1, x and
+    --- y are 32-byte big-endian scalars in [0, n-1]; `crypto.p256.random_scalar`
+    --- makes x and y.
+    ---
+    --- Points go out as 65-byte uncompressed SEC 1. Peer points may arrive
+    --- compressed or uncompressed, are validated, and are always written into the
+    --- transcript uncompressed. An invalid peer point, or a Z or V that comes out as
+    --- the identity, makes the `*_finish` functions return nil and a reason.
+    ---
+    --- Pacing
+    --- ------
+    --- Each call is up to three P-256 scalar multiplications: about 53 ms each
+    --- through OpenSSL on a Control4 controller, more in pure Lua (see
+    --- `crypto.p256`). Lua runs one driver at a time there, so `opts.step`, if
+    --- given, is called between consecutive multiplications and nothing else. A
+    --- caller that runs the exchange inside a coroutine can pass a function that
+    --- yields and resume it from a timer, one multiplication per tick. Check
+    --- `is_accelerated()` before starting.
+    ---
+    --- @usage
+    --- local p256 = require("crypto.p256")
+    --- local spake2plus = require("crypto.spake2plus")
+    ---
+    --- local x = p256.random_scalar()
+    --- send(spake2plus.prover_share(w0, x)) -- X, 65 bytes
+    --- local result = assert(spake2plus.prover_finish(w0, w1, x, X, Y, context, "client", "server"))
+    --- -- Check the verifier's confirmV against result.verifier_confirm in constant
+    --- -- time before sending result.prover_confirm or using result.shared_key.
+    ---
+    --- @class crypto.spake2plus
+    local spake2plus = {}
+
+    local hkdf = require("crypto.hkdf")
+    local p256 = require("crypto.p256")
+    local random = require("crypto.random")
+    local sha256 = require("crypto.sha256")
+    local utils = require("crypto.utils")
+    local bytes = utils.bytes
+    local benchmark_op = utils.benchmark.benchmark_op
+
+    -- Local references for performance
+    local floor = math.floor
+    local string_char = string.char
+    local string_sub = string.sub
+    local table_concat = table.concat
+
+    -- ============================================================================
+    -- CONSTANTS AND TYPES
+    -- ============================================================================
+
+    -- RFC 9383 section 4, P-256: M and N, uncompressed as they appear in the
+    -- Appendix C transcript. The section 4 compressed forms are checked against
+    -- these by the selftest.
+    local M_HEX = "04886e2f97ace46e55ba9dd7242579f2993b64e16ef3dcab95afd497333d8fa12f"
+      .. "5ff355163e43ce224e0b0e65ff02ac8e5c7be09419c785e0ca547d55a12e2d20"
+    local N_HEX = "04d8bbd6c639c62937b04d997f38c3770719c629d7014d49a24b4f98baa1292b49"
+      .. "07d60aa6bfade45008a636337f5168c64d9bd36034808cd564490b1e656edbe7"
+    local M_COMPRESSED_HEX = "02886e2f97ace46e55ba9dd7242579f2993b64e16ef3dcab95afd497333d8fa12f"
+    local N_COMPRESSED_HEX = "03d8bbd6c639c62937b04d997f38c3770719c629d7014d49a24b4f98baa1292b49"
+
+    local M_BYTES = bytes.from_hex(M_HEX)
+    local N_BYTES = bytes.from_hex(N_HEX)
+
+    --- Options shared by the share and finish functions.
+    --- @class crypto.spake2plus.Options
+    --- @field step? fun() Called between consecutive scalar multiplications
+
+    --- What both roles derive. The confirmations are named by who sends them.
+    --- @class crypto.spake2plus.Result
+    --- @field shared_key string K_shared, 32 bytes
+    --- @field prover_confirm string confirmP = HMAC-SHA256(K_confirmP, Y): the prover sends it, the verifier checks it
+    --- @field verifier_confirm string confirmV = HMAC-SHA256(K_confirmV, X): the verifier sends it, the prover checks it
+    --- @field transcript string TT, for debugging. It ends with w0, so it is as secret as the password: never log it
+
+    --- Intermediate values, for the selftest.
+    --- @class Spake2plusDetail
+    --- @field Z string Uncompressed
+    --- @field V string Uncompressed
+    --- @field K_main string
+    --- @field K_confirmP string
+    --- @field K_confirmV string
+
+    --- M and N as points, decoded on first use.
+    --- @type crypto.p256.Point?, crypto.p256.Point?
+    local m_point, n_point
+
+    --- @return crypto.p256.Point M
+    --- @return crypto.p256.Point N
+    local function constants()
+      if m_point == nil or n_point == nil then
+        m_point = assert(p256.decode_point(M_BYTES))
+        n_point = assert(p256.decode_point(N_BYTES))
+      end
+      return m_point, n_point
+    end
+
+    -- ============================================================================
+    -- INTERNAL HELPERS
+    -- ============================================================================
+
+    --- Raise unless `value` is a 32-byte scalar.
+    --- @param name string
+    --- @param value any
+    local function check_scalar(name, value)
+      if type(value) ~= "string" or #value ~= 32 then
+        error("SPAKE2+: " .. name .. " must be a 32-byte big-endian scalar", 3)
+      end
+    end
+
+    --- The step callback from `opts`, or a no-op.
+    --- @param opts crypto.spake2plus.Options?
+    --- @return fun() step
+    local function stepper(opts)
+      if opts == nil then
+        return function() end
+      end
+      if type(opts) ~= "table" then
+        error("SPAKE2+: opts must be a table", 3)
+      end
+      local step = opts.step
+      if step == nil then
+        return function() end
+      end
+      if type(step) ~= "function" then
+        error("SPAKE2+: opts.step must be a function", 3)
+      end
+      return step
+    end
+
+    --- An optional transcript string, "" when absent.
+    --- @param name string
+    --- @param value any
+    --- @return string
+    local function optional_string(name, value)
+      if value == nil then
+        return ""
+      end
+      if type(value) ~= "string" then
+        error("SPAKE2+: " .. name .. " must be a string", 3)
+      end
+      return value
+    end
+
+    --- Append len(value) || value, the length as an 8-byte little-endian integer.
+    --- @param parts string[]
+    --- @param value string
+    local function append_prefixed(parts, value)
+      local n = #value
+      local length = {}
+      for i = 1, 8 do
+        length[i] = string_char(n % 256)
+        n = floor(n / 256)
+      end
+      parts[#parts + 1] = table_concat(length)
+      parts[#parts + 1] = value
+    end
+
+    --- Decode a point for the exchange, naming it in the error.
+    --- @param name string
+    --- @param encoded any
+    --- @return crypto.p256.Point? point
+    --- @return string? err
+    local function decode(name, encoded)
+      local point, err = p256.decode_point(encoded)
+      if point == nil then
+        return nil, "SPAKE2+: invalid " .. name .. ": " .. tostring(err)
+      end
+      return point
+    end
+
+    --- Build TT from the shared values and run the key schedule (RFC 9383 3.3, 3.4).
+    --- @param context string
+    --- @param id_prover string
+    --- @param id_verifier string
+    --- @param X crypto.p256.Point
+    --- @param Y crypto.p256.Point
+    --- @param Z crypto.p256.Point
+    --- @param V crypto.p256.Point
+    --- @param w0 string
+    --- @return crypto.spake2plus.Result? result
+    --- @return Spake2plusDetail|string detail Intermediate values, or why it failed
+    local function key_schedule(context, id_prover, id_verifier, X, Y, Z, V, w0)
+      if p256.is_identity(Z) or p256.is_identity(V) then
+        return nil, "SPAKE2+: Z or V is the identity; the peer's share is invalid"
+      end
+      local X_bytes = p256.encode_point(X)
+      local Y_bytes = p256.encode_point(Y)
+      local Z_bytes = p256.encode_point(Z)
+      local V_bytes = p256.encode_point(V)
+
+      local parts = {}
+      for _, value in ipairs({
+        context,
+        id_prover,
+        id_verifier,
+        M_BYTES,
+        N_BYTES,
+        X_bytes,
+        Y_bytes,
+        Z_bytes,
+        V_bytes,
+        w0,
+      }) do
+        append_prefixed(parts, value)
+      end
+      local transcript = table_concat(parts)
+
+      local K_main = sha256.sha256(transcript)
+      local confirmation_keys = hkdf.derive("sha256", nil, K_main, "ConfirmationKeys", 64)
+      local K_confirmP = string_sub(confirmation_keys, 1, 32)
+      local K_confirmV = string_sub(confirmation_keys, 33, 64)
+
+      return {
+        shared_key = hkdf.derive("sha256", nil, K_main, "SharedKey", 32),
+        prover_confirm = sha256.hmac_sha256(K_confirmP, Y_bytes),
+        verifier_confirm = sha256.hmac_sha256(K_confirmV, X_bytes),
+        transcript = transcript,
+      }, {
+        Z = Z_bytes,
+        V = V_bytes,
+        K_main = K_main,
+        K_confirmP = K_confirmP,
+        K_confirmV = K_confirmV,
+      }
+    end
+
+    --- The prover's side of the finish, with intermediates.
+    --- @return crypto.spake2plus.Result? result
+    --- @return Spake2plusDetail|string detail
+    local function prover_compute(w0, w1, x, X, Y, context, id_prover, id_verifier, opts)
+      check_scalar("w0", w0)
+      check_scalar("w1", w1)
+      check_scalar("x", x)
+      context = optional_string("context", context)
+      id_prover = optional_string("id_prover", id_prover)
+      id_verifier = optional_string("id_verifier", id_verifier)
+      local step = stepper(opts)
+
+      local X_point, x_err = decode("X", X)
+      if X_point == nil then
+        return nil, tostring(x_err)
+      end
+      local Y_point, y_err = decode("Y", Y)
+      if Y_point == nil then
+        return nil, tostring(y_err)
+      end
+
+      local _, N = constants()
+      local U = p256.sub(Y_point, p256.mul(w0, N))
+      step()
+      local Z = p256.mul(x, U)
+      step()
+      local V = p256.mul(w1, U)
+      return key_schedule(context, id_prover, id_verifier, X_point, Y_point, Z, V, w0)
+    end
+
+    --- The verifier's side of the finish, with intermediates.
+    --- @return crypto.spake2plus.Result? result
+    --- @return Spake2plusDetail|string detail
+    local function verifier_compute(w0, L, y, X, Y, context, id_prover, id_verifier, opts)
+      check_scalar("w0", w0)
+      check_scalar("y", y)
+      context = optional_string("context", context)
+      id_prover = optional_string("id_prover", id_prover)
+      id_verifier = optional_string("id_verifier", id_verifier)
+      local step = stepper(opts)
+
+      local L_point, l_err = decode("L", L)
+      if L_point == nil then
+        return nil, tostring(l_err)
+      end
+      local X_point, x_err = decode("X", X)
+      if X_point == nil then
+        return nil, tostring(x_err)
+      end
+      local Y_point, y_err = decode("Y", Y)
+      if Y_point == nil then
+        return nil, tostring(y_err)
+      end
+
+      local M = constants()
+      local T = p256.sub(X_point, p256.mul(w0, M))
+      step()
+      local Z = p256.mul(y, T)
+      step()
+      local V = p256.mul(y, L_point)
+      return key_schedule(context, id_prover, id_verifier, X_point, Y_point, Z, V, w0)
+    end
+
+    -- ============================================================================
+    -- PUBLIC INTERFACE
+    -- ============================================================================
+
+    --- The prover's share, X = x*G + w0*M.
+    --- @param w0 string 32-byte scalar
+    --- @param x string 32-byte scalar, fresh and secret
+    --- @param opts? crypto.spake2plus.Options
+    --- @return string X 65 bytes, uncompressed
+    function spake2plus.prover_share(w0, x, opts)
+      check_scalar("w0", w0)
+      check_scalar("x", x)
+      local step = stepper(opts)
+      local M = constants()
+      local xG = p256.mul_base(x)
+      step()
+      return p256.encode_point(p256.add(xG, p256.mul(w0, M)))
+    end
+
+    --- The prover's finish: validate Y, derive Z = x*(Y - w0*N) and
+    --- V = w1*(Y - w0*N), and run the key schedule.
+    ---
+    --- @param w0 string 32-byte scalar
+    --- @param w1 string 32-byte scalar
+    --- @param x string The scalar `prover_share` used
+    --- @param X string The share `prover_share` returned
+    --- @param Y string The verifier's share, compressed or uncompressed
+    --- @param context? string Application context ("" when nil)
+    --- @param id_prover? string Prover identity ("" when nil)
+    --- @param id_verifier? string Verifier identity ("" when nil)
+    --- @param opts? crypto.spake2plus.Options
+    --- @return crypto.spake2plus.Result? result
+    --- @return string? err Why the exchange failed: an invalid point, or Z or V the identity
+    function spake2plus.prover_finish(w0, w1, x, X, Y, context, id_prover, id_verifier, opts)
+      local result, detail = prover_compute(w0, w1, x, X, Y, context, id_prover, id_verifier, opts)
+      if result == nil then
+        return nil, tostring(detail)
+      end
+      return result
+    end
+
+    --- The verifier's registration record, L = w1*G.
+    --- @param w1 string 32-byte scalar
+    --- @return string L 65 bytes, uncompressed
+    function spake2plus.registration(w1)
+      check_scalar("w1", w1)
+      return p256.encode_point(p256.mul_base(w1))
+    end
+
+    --- The verifier's share, Y = y*G + w0*N.
+    --- @param w0 string 32-byte scalar
+    --- @param y string 32-byte scalar, fresh and secret
+    --- @param opts? crypto.spake2plus.Options
+    --- @return string Y 65 bytes, uncompressed
+    function spake2plus.verifier_share(w0, y, opts)
+      check_scalar("w0", w0)
+      check_scalar("y", y)
+      local step = stepper(opts)
+      local _, N = constants()
+      local yG = p256.mul_base(y)
+      step()
+      return p256.encode_point(p256.add(yG, p256.mul(w0, N)))
+    end
+
+    --- The verifier's finish: validate X, derive Z = y*(X - w0*M) and V = y*L, and
+    --- run the key schedule. The result has the same shape as `prover_finish`'s.
+    ---
+    --- @param w0 string 32-byte scalar
+    --- @param L string Registration record from `registration`
+    --- @param y string The scalar `verifier_share` used
+    --- @param X string The prover's share, compressed or uncompressed
+    --- @param Y string The share `verifier_share` returned
+    --- @param context? string Application context ("" when nil)
+    --- @param id_prover? string Prover identity ("" when nil)
+    --- @param id_verifier? string Verifier identity ("" when nil)
+    --- @param opts? crypto.spake2plus.Options
+    --- @return crypto.spake2plus.Result? result
+    --- @return string? err Why the exchange failed: an invalid point, or Z or V the identity
+    function spake2plus.verifier_finish(w0, L, y, X, Y, context, id_prover, id_verifier, opts)
+      local result, detail = verifier_compute(w0, L, y, X, Y, context, id_prover, id_verifier, opts)
+      if result == nil then
+        return nil, tostring(detail)
+      end
+      return result
+    end
+
+    --- Whether the scalar multiplications run on OpenSSL; see `crypto.p256.is_accelerated`.
+    --- @return boolean accelerated
+    --- @return string|nil reason Why not, when not
+    function spake2plus.is_accelerated()
+      return p256.is_accelerated()
+    end
+
+    -- ============================================================================
+    -- TEST VECTORS AND VALIDATION
+    -- ============================================================================
+
+    --- RFC 9383 Appendix C, the SPAKE2+-P256-SHA256-HKDF-SHA256-HMAC-SHA256 vectors,
+    --- copied from https://www.rfc-editor.org/rfc/rfc9383.txt. The bracketed Context
+    --- wraps in the RFC text; the transcript's own length prefix (0x38, 56 bytes)
+    --- shows it ends at "Vectors".
+    local RFC = {
+      context = "SPAKE2+-P256-SHA256-HKDF-SHA256-HMAC-SHA256 Test Vectors",
+      id_prover = "client",
+      id_verifier = "server",
+      w0 = "bb8e1bbcf3c48f62c08db243652ae55d3e5586053fca77102994f23ad95491b3",
+      w1 = "7e945f34d78785b8a3ef44d0df5a1a97d6b3b460409a345ca7830387a74b1dba",
+      L = "04eb7c9db3d9a9eb1f8adab81b5794c1f13ae3e225efbe91ea487425854c7fc00f"
+        .. "00bfedcbd09b2400142d40a14f2064ef31dfaa903b91d1faea7093d835966efd",
+      x = "d1232c8e8693d02368976c174e2088851b8365d0d79a9eee709c6a05a2fad539",
+      X = "04ef3bd051bf78a2234ec0df197f7828060fe9856503579bb1733009042c15c0c1"
+        .. "de127727f418b5966afadfdd95a6e4591d171056b333dab97a79c7193e341727",
+      y = "717a72348a182085109c8d3917d6c43d59b224dc6a7fc4f0483232fa6516d8b3",
+      Y = "04c0f65da0d11927bdf5d560c69e1d7d939a05b0e88291887d679fcadea75810fb"
+        .. "5cc1ca7494db39e82ff2f50665255d76173e09986ab46742c798a9a68437b048",
+      Z = "04bbfce7dd7f277819c8da21544afb7964705569bdf12fb92aa388059408d50091"
+        .. "a0c5f1d3127f56813b5337f9e4e67e2ca633117a4fbd559946ab474356c41839",
+      V = "0458bf27c6bca011c9ce1930e8984a797a3419797b936629a5a937cf2f11c8b951"
+        .. "4b82b993da8a46e664f23db7c01edc87faa530db01c2ee405230b18997f16b68",
+      TT = table_concat({
+        "38000000000000005350414b45322b2d503235362d5348413235362d484b4446",
+        "2d5348413235362d484d41432d534841323536205465737420566563746f7273",
+        "0600000000000000636c69656e74060000000000000073657276657241000000",
+        "0000000004886e2f97ace46e55ba9dd7242579f2993b64e16ef3dcab95afd497",
+        "333d8fa12f5ff355163e43ce224e0b0e65ff02ac8e5c7be09419c785e0ca547d",
+        "55a12e2d20410000000000000004d8bbd6c639c62937b04d997f38c3770719c6",
+        "29d7014d49a24b4f98baa1292b4907d60aa6bfade45008a636337f5168c64d9b",
+        "d36034808cd564490b1e656edbe7410000000000000004ef3bd051bf78a2234e",
+        "c0df197f7828060fe9856503579bb1733009042c15c0c1de127727f418b5966a",
+        "fadfdd95a6e4591d171056b333dab97a79c7193e341727410000000000000004",
+        "c0f65da0d11927bdf5d560c69e1d7d939a05b0e88291887d679fcadea75810fb",
+        "5cc1ca7494db39e82ff2f50665255d76173e09986ab46742c798a9a68437b048",
+        "410000000000000004bbfce7dd7f277819c8da21544afb7964705569bdf12fb9",
+        "2aa388059408d50091a0c5f1d3127f56813b5337f9e4e67e2ca633117a4fbd55",
+        "9946ab474356c4183941000000000000000458bf27c6bca011c9ce1930e8984a",
+        "797a3419797b936629a5a937cf2f11c8b9514b82b993da8a46e664f23db7c01e",
+        "dc87faa530db01c2ee405230b18997f16b682000000000000000bb8e1bbcf3c4",
+        "8f62c08db243652ae55d3e5586053fca77102994f23ad95491b3",
+      }),
+      K_main = "4c59e1ccf2cfb961aa31bd9434478a1089b56cd11542f53d3576fb6c2a438a29",
+      K_confirmP = "871ae3f7b78445e34438fb284504240239031c39d80ac23eb5ab9be5ad6db58a",
+      K_confirmV = "ccd53c7c1fa37b64a462b40db8be101cedcf838950162902054e644b400f1680",
+      confirmP = "926cc713504b9b4d76c9162ded04b5493e89109f6d89462cd33adc46fda27527",
+      confirmV = "9747bcc4f8fe9f63defee53ac9b07876d907d55047e6ff2def2e7529089d3e68",
+      K_shared = "0c5f8ccd1413423a54f6c1fb26ff01534a87f893779c6e68666d772bfd91f3e7",
+    }
+
+    --- Run the SPAKE2+ self-test: RFC 9383 Appendix C in both roles, every
+    --- intermediate named, then a random exchange and the failure cases.
+    --- @return boolean result True if all tests pass, false otherwise
+    function spake2plus.selftest()
+      local passed = 0
+      local total = 0
+
+      --- Record one result; a function that raises counts as a failure.
+      --- @param name string
+      --- @param result boolean|fun(): boolean
+      local function check(name, result)
+        total = total + 1
+        if type(result) == "function" then
+          local ok, value = pcall(result)
+          result = ok and value == true
+          if not ok then
+            print("    error: " .. tostring(value))
+          end
+        end
+        if result == true then
+          print("  ✅ PASS: " .. name)
+          passed = passed + 1
+        else
+          print("  ❌ FAIL: " .. name)
+        end
+      end
+
+      --- Compare raw bytes with expected hex, printing both when they differ.
+      --- @param name string
+      --- @param got string|nil
+      --- @param expected_hex string
+      local function check_hex(name, got, expected_hex)
+        local got_hex = type(got) == "string" and bytes.to_hex(got) or tostring(got)
+        check(name, got_hex == expected_hex)
+        if got_hex ~= expected_hex then
+          print("    expected: " .. expected_hex)
+          print("    got:      " .. got_hex)
+        end
+      end
+
+      local h = bytes.from_hex
+      local w0, w1, x, y = h(RFC.w0), h(RFC.w1), h(RFC.x), h(RFC.y)
+
+      print(
+        "Running SPAKE2+ test vectors (RFC 9383 Appendix C, P-256, "
+          .. (p256.is_accelerated() and "OpenSSL" or "pure Lua")
+          .. ")..."
+      )
+      check("M and N match RFC 9383 section 4's compressed forms", function()
+        local M, N = constants()
+        return p256.equals(assert(p256.decode_point(h(M_COMPRESSED_HEX))), M)
+          and p256.equals(assert(p256.decode_point(h(N_COMPRESSED_HEX))), N)
+      end)
+
+      local steps = 0
+      local opts = {
+        step = function()
+          steps = steps + 1
+        end,
+      }
+      check_hex("[prover] X = x*G + w0*M", spake2plus.prover_share(w0, x, opts), RFC.X)
+      check("[prover] prover_share steps once", steps == 1)
+
+      steps = 0
+      local prover, prover_detail = prover_compute(w0, w1, x, h(RFC.X), h(RFC.Y), RFC.context, "client", "server", opts)
+      check("[prover] finish succeeds", prover ~= nil)
+      check("[prover] finish steps twice", steps == 2)
+      if prover ~= nil and type(prover_detail) == "table" then
+        check_hex("[prover] Z", prover_detail.Z, RFC.Z)
+        check_hex("[prover] V", prover_detail.V, RFC.V)
+        check_hex("[prover] TT", prover.transcript, RFC.TT)
+        check_hex("[prover] K_main", prover_detail.K_main, RFC.K_main)
+        check_hex("[prover] K_confirmP", prover_detail.K_confirmP, RFC.K_confirmP)
+        check_hex("[prover] K_confirmV", prover_detail.K_confirmV, RFC.K_confirmV)
+        check_hex("[prover] confirmP = HMAC(K_confirmP, Y)", prover.prover_confirm, RFC.confirmP)
+        check_hex("[prover] confirmV = HMAC(K_confirmV, X)", prover.verifier_confirm, RFC.confirmV)
+        check_hex("[prover] K_shared", prover.shared_key, RFC.K_shared)
+      end
+
+      check_hex("[verifier] L = w1*G", spake2plus.registration(w1), RFC.L)
+      steps = 0
+      check_hex("[verifier] Y = y*G + w0*N", spake2plus.verifier_share(w0, y, opts), RFC.Y)
+      check("[verifier] verifier_share steps once", steps == 1)
+
+      steps = 0
+      local verifier, verifier_detail =
+        verifier_compute(w0, h(RFC.L), y, h(RFC.X), h(RFC.Y), RFC.context, "client", "server", opts)
+      check("[verifier] finish succeeds", verifier ~= nil)
+      check("[verifier] finish steps twice", steps == 2)
+      if verifier ~= nil and type(verifier_detail) == "table" then
+        check_hex("[verifier] Z", verifier_detail.Z, RFC.Z)
+        check_hex("[verifier] V", verifier_detail.V, RFC.V)
+        check_hex("[verifier] TT", verifier.transcript, RFC.TT)
+        check_hex("[verifier] K_main", verifier_detail.K_main, RFC.K_main)
+        check_hex("[verifier] K_confirmP", verifier_detail.K_confirmP, RFC.K_confirmP)
+        check_hex("[verifier] K_confirmV", verifier_detail.K_confirmV, RFC.K_confirmV)
+        check_hex("[verifier] confirmP", verifier.prover_confirm, RFC.confirmP)
+        check_hex("[verifier] confirmV", verifier.verifier_confirm, RFC.confirmV)
+        check_hex("[verifier] K_shared", verifier.shared_key, RFC.K_shared)
+      end
+
+      print("\nRunning SPAKE2+ exchange tests...")
+      local rw0 = p256.reduce(random.bytes(40))
+      local rw1 = p256.reduce(random.bytes(40))
+      local rx, ry = p256.random_scalar(), p256.random_scalar()
+      local rX = spake2plus.prover_share(rw0, rx)
+      local rY = spake2plus.verifier_share(rw0, ry)
+      local rL = spake2plus.registration(rw1)
+      -- The prover takes Y compressed, which must change nothing.
+      local rY_compressed = p256.encode_point(assert(p256.decode_point(rY)), true)
+      local p_result, p_err = spake2plus.prover_finish(rw0, rw1, rx, rX, rY_compressed, "ctx", "alice", "bob")
+      local v_result, v_err = spake2plus.verifier_finish(rw0, rL, ry, rX, rY, "ctx", "alice", "bob")
+      check("random exchange: both sides finish", p_result ~= nil and v_result ~= nil)
+      if p_result ~= nil and v_result ~= nil then
+        check("random exchange: shared keys agree", p_result.shared_key == v_result.shared_key)
+        check(
+          "random exchange: confirmations agree",
+          p_result.prover_confirm == v_result.prover_confirm and p_result.verifier_confirm == v_result.verifier_confirm
+        )
+        check(
+          "random exchange: transcripts agree although the prover got Y compressed",
+          p_result.transcript == v_result.transcript
+        )
+      else
+        print("    prover: " .. tostring(p_err) .. "; verifier: " .. tostring(v_err))
+      end
+
+      check("a wrong password gives different keys", function()
+        local wrong = p256.reduce(string.rep("\1", 40))
+        local result = spake2plus.prover_finish(wrong, rw1, rx, rX, rY, "ctx", "alice", "bob")
+        return result ~= nil
+          and v_result ~= nil
+          and result.shared_key ~= v_result.shared_key
+          and result.prover_confirm ~= v_result.prover_confirm
+      end)
+      check("a different context gives different keys", function()
+        local result = spake2plus.prover_finish(rw0, rw1, rx, rX, rY, "other", "alice", "bob")
+        return result ~= nil and v_result ~= nil and result.shared_key ~= v_result.shared_key
+      end)
+      check("an off-curve Y is rejected with a reason", function()
+        local bad = string_sub(rY, 1, 64) .. string_char((rY:byte(65) + 1) % 256)
+        local result, err = spake2plus.prover_finish(rw0, rw1, rx, rX, bad, "ctx", "alice", "bob")
+        return result == nil and type(err) == "string" and err:find("invalid Y", 1, true) ~= nil
+      end)
+      check("an off-curve X is rejected by the verifier", function()
+        local bad = string_sub(rX, 1, 64) .. string_char((rX:byte(65) + 1) % 256)
+        local result, err = spake2plus.verifier_finish(rw0, rL, ry, bad, rY, "ctx", "alice", "bob")
+        return result == nil and type(err) == "string" and err:find("invalid X", 1, true) ~= nil
+      end)
+      check("the identity encoding is rejected", function()
+        return spake2plus.prover_finish(rw0, rw1, rx, rX, "\0", "ctx", "alice", "bob") == nil
+      end)
+      check("Y = w0*N, which makes Z and V the identity, is rejected", function()
+        local _, N = constants()
+        local degenerate = p256.encode_point(p256.mul(rw0, N))
+        local result, err = spake2plus.prover_finish(rw0, rw1, rx, rX, degenerate, "ctx", "alice", "bob")
+        return result == nil and type(err) == "string" and err:find("identity", 1, true) ~= nil
+      end)
+      check("nil context and identities are empty strings", function()
+        local a = spake2plus.prover_finish(w0, w1, x, h(RFC.X), h(RFC.Y))
+        local b = spake2plus.prover_finish(w0, w1, x, h(RFC.X), h(RFC.Y), "", "", "")
+        return a ~= nil and b ~= nil and a.transcript == b.transcript and a.shared_key == b.shared_key
+      end)
+      check("a short scalar raises", function()
+        return pcall(spake2plus.prover_share, string.rep("\1", 31), rx) == false
+          and pcall(spake2plus.registration, "") == false
+      end)
+      check("a non-function step raises", function()
+        --- @diagnostic disable-next-line: assign-type-mismatch -- the wrong type is the test
+        return pcall(spake2plus.prover_share, rw0, rx, { step = 1 }) == false
+      end)
+      check("is_accelerated agrees with p256, reason included", function()
+        local a, a_reason = spake2plus.is_accelerated()
+        local b, b_reason = p256.is_accelerated()
+        return a == b and a_reason == b_reason
+      end)
+
+      print(string.format("\nSPAKE2+ result: %d/%d tests passed\n", passed, total))
+      return passed == total
+    end
+
+    --- Run performance benchmarks for SPAKE2+, both roles.
+    function spake2plus.benchmark()
+      local h = bytes.from_hex
+      local w0, w1, x, y = h(RFC.w0), h(RFC.w1), h(RFC.x), h(RFC.y)
+      local X, Y, L = h(RFC.X), h(RFC.Y), h(RFC.L)
+
+      print("SPAKE2+ P-256 (" .. (p256.is_accelerated() and "OpenSSL" or "pure Lua") .. "):")
+      benchmark_op("prover_share (2 multiplications)", function()
+        spake2plus.prover_share(w0, x)
+      end, 3)
+      benchmark_op("prover_finish (3 multiplications)", function()
+        spake2plus.prover_finish(w0, w1, x, X, Y, RFC.context, RFC.id_prover, RFC.id_verifier)
+      end, 3)
+      benchmark_op("verifier_share (2 multiplications)", function()
+        spake2plus.verifier_share(w0, y)
+      end, 3)
+      benchmark_op("verifier_finish (3 multiplications)", function()
+        spake2plus.verifier_finish(w0, L, y, X, Y, RFC.context, RFC.id_prover, RFC.id_verifier)
+      end, 3)
+    end
+
+    return spake2plus
   end
 end
 
@@ -12953,15 +15945,16 @@ end
 --- @module "crypto"
 --- Portable cryptographic primitives for Lua with optional OpenSSL acceleration.
 --- Pure-Lua implementations of hashing (SHA-256/512, BLAKE2), AEAD ciphers
---- (ChaCha20-Poly1305, AES-GCM), the Poly1305 MAC, HKDF key derivation,
---- Curve25519/448 Diffie-Hellman, Ed25519 signatures, and SRP-6a. Runs on Lua
---- 5.1, 5.2, 5.3, 5.4, and LuaJIT with zero C dependencies.
+--- (ChaCha20-Poly1305, AES-GCM, AES-CCM), the Poly1305 MAC, HKDF and PBKDF2 key
+--- derivation, Curve25519/448 Diffie-Hellman, Ed25519 signatures, SRP-6a, NIST
+--- P-256 group arithmetic and SPAKE2+. Runs on Lua 5.1, 5.2, 5.3, 5.4, and LuaJIT
+--- with zero C dependencies.
 ---
 --- Key generation draws from `crypto.random`, which uses the host CSPRNG and
 --- raises when there is not one. It never falls back to `math.random`.
 ---
 --- When the host provides the lua-openssl binding (e.g. Control4 DriverWorks OS
---- >= 3.4.1), hashing, AEAD and big-number arithmetic transparently prefer it
+--- >= 3.4.1), hashing, AEAD, big-number and P-256 arithmetic transparently prefer it
 --- for speed and fall back to the pure-Lua implementations otherwise. The
 --- elliptic-curve Diffie-Hellman functions (x25519/x448) and Ed25519 signing
 --- always use the portable implementations regardless of the OpenSSL flag --
@@ -12995,6 +15988,8 @@ local crypto = {
   chacha20_poly1305 = require("crypto.chacha20_poly1305"),
   --- @type crypto.aes_gcm
   aes_gcm = require("crypto.aes_gcm"),
+  --- @type crypto.aes_ccm
+  aes_ccm = require("crypto.aes_ccm"),
 
   -- Stream ciphers
   --- @type crypto.chacha20
@@ -13007,6 +16002,8 @@ local crypto = {
   -- Key derivation
   --- @type crypto.hkdf
   hkdf = require("crypto.hkdf"),
+  --- @type crypto.pbkdf2
+  pbkdf2 = require("crypto.pbkdf2"),
 
   -- Cryptographically secure randomness (raises rather than returning weak bytes)
   --- @type crypto.random
@@ -13019,6 +16016,14 @@ local crypto = {
   -- Password-authenticated key exchange (client side)
   --- @type crypto.srp
   srp = require("crypto.srp"),
+
+  -- NIST P-256 group arithmetic (OpenSSL-preferred)
+  --- @type crypto.p256
+  p256 = require("crypto.p256"),
+
+  -- Password-authenticated key exchange over P-256 (both roles)
+  --- @type crypto.spake2plus
+  spake2plus = require("crypto.spake2plus"),
 
   -- Diffie-Hellman (always pure Lua)
   --- @type crypto.x25519
@@ -13038,10 +16043,10 @@ local crypto = {
 local openssl_wrapper = crypto.openssl_wrapper
 
 --- Library version (injected at build time for releases).
-local VERSION = "v0.2.7"
+local VERSION = "v0.3.0"
 
 --- Enable or disable OpenSSL acceleration for the primitives that support it
---- (hashing, AEAD and big-number arithmetic). Opt-in and safe: when the lua-openssl binding is
+--- (hashing, AEAD, big-number and P-256 arithmetic). Opt-in and safe: when the lua-openssl binding is
 --- unavailable, or a given primitive is not accelerated, the pure-Lua
 --- implementation is used automatically. Curve25519/448 always use pure Lua.
 --- @param use boolean
@@ -13066,10 +16071,14 @@ function crypto.selftest()
     "chacha20_poly1305",
     "poly1305",
     "aes_gcm",
+    "aes_ccm",
     "hkdf",
+    "pbkdf2",
     "random",
     "bignum",
     "srp",
+    "p256",
+    "spake2plus",
     "x25519",
     "x448",
     "ed25519",

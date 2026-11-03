@@ -65,7 +65,7 @@ T.eq("negative infinity comes back", DeserializeSafe(SerializeSafe(-math.huge)),
 
 local nested = DeserializeSafe(SerializeSafe({ temperature = NAN, setpoint = 21.5, ceiling = math.huge }))
 T.check("a NaN nested in a table survives", nested.temperature ~= nested.temperature, nested.temperature)
-T.eq("its finite neighbour is untouched", nested.setpoint, 21.5)
+T.eq("its finite neighbor is untouched", nested.setpoint, 21.5)
 T.eq("an infinity nested in a table survives", nested.ceiling, math.huge)
 
 -- A NaN and an absent key are the two cases the sentinel exists to separate.

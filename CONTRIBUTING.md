@@ -640,6 +640,17 @@ OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
 A test runs the late init with `ShimLateInit()`, not `OnDriverLateInit()`: the
 wrap only reports an error, and `ShimLateInit()` fails the test on it.
 
+A driver's Reset Driver sets Cloud Monitoring back to Enabled, as a fresh
+install has it, with its other reset values and in an `#ifdef DRIVERCENTRAL` of
+its own unless one is next to it. The `true` runs `OPC.Cloud_Monitoring`, so
+reporting turns back on:
+
+```lua
+--#ifdef DRIVERCENTRAL
+UpdateProperty("Cloud Monitoring", "Enabled", true)
+--#endif
+```
+
 While enabled, the library owns `ON_HANDLER_ERROR`, `ON_TIMER_ERROR` and
 `ON_UNHANDLED_REJECTION`, so a driver sets none of them. A callback no
 dispatcher runs, such as `OnZigbeePacketIn`, a TCP client's callbacks or a raw
