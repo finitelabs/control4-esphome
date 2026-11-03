@@ -336,6 +336,12 @@ relevant to the connected device will be shown.
 
 Resets the driver state to defaults.
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+It also turns Cloud Monitoring back on, as a fresh install has it.
+
+<!-- #endif -->
+
 **Parameters:**
 
 - **Are You Sure?** \[ **_No_** | Yes \] - Confirmation to reset the driver.
