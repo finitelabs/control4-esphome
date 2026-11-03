@@ -556,12 +556,9 @@ local function updateDynamicCapabilities(entity)
   -- without CCT, and for a light that does not dim supports_brightness_stop
   -- True and brightness_rate_max 0. Before late init the proxy is not read.
   local ok, xml = pcall(function()
-    return gInitialized and C4:GetDeviceVariable(C4:GetProxyDevices(), 6661)
+    return gInitialized and ParseXml(C4:GetDeviceVariable(C4:GetProxyDevices(), 6661))
   end)
-  local shown, same = {}, nil
-  for key, value in string.gmatch(ok and tostring(xml or "") or "", "<([%w_]+)>([^<]*)</%1>") do
-    shown[key] = value
-  end
+  local shown, same = ok and Select(xml, "DynamicCapabilities") or {}, nil
   local proxyOwn = {
     supports_color_stop = true,
     supports_brightness_stop = not supportsDimming,
@@ -3673,7 +3670,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   local fading = rampingColor or (rampingBrightness and brightnessRamp and brightnessRamp.mergedColor)
   local taken = not (ownLevel and ownColor)
   if taken then
-    -- Its transition time is unknown, so stop modelling the fade.
+    -- Its transition time is unknown, so stop modeling the fade.
     lightFade = nil
   end
 
