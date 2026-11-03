@@ -14,7 +14,7 @@ local F = {}
 --- every global the reload touched back.
 ---
 --- The two branches of the shim define C4:SetTimer separately and CI has no
---- luasocket while a developer machine may, so behaviour that must hold on both
+--- luasocket while a developer machine may, so behavior that must hold on both
 --- has to be driven on both. When luasocket is faked present, body receives a
 --- clock whose advance() moves time forward and fires whatever came due.
 ---

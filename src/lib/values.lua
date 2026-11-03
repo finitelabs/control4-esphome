@@ -58,12 +58,57 @@ local function sameValue(a, b)
   return a == b or (a ~= a and b ~= b)
 end
 
+--- The text a variable holds for a value. C4 BOOL variables expect "0"/"1", not "true"/"false".
+--- @param value string|integer|number|boolean|nil
+--- @return string text
+local function variableText(value)
+  if value == nil then
+    return ""
+  elseif type(value) == "boolean" then
+    return value and "1" or "0"
+  end
+  return tostring(value)
+end
+
+--- Property labels keyed by each value's variable text, the form storage keeps, since JSON keys are strings.
+--- @param labels table<any, any>
+--- @return table<string, string> byText
+local function labelsByText(labels)
+  local byText = {}
+  for value, label in pairs(labels) do
+    byText[variableText(value)] = tostring(label)
+  end
+  return byText
+end
+
+--- Whether two label tables give every value the same text.
+--- @param a table<string, string>?
+--- @param b table<string, string>?
+--- @return boolean same
+local function sameLabels(a, b)
+  if a == nil or b == nil then
+    return a == b
+  end
+  for text, label in pairs(a) do
+    if b[text] ~= label then
+      return false
+    end
+  end
+  for text in pairs(b) do
+    if a[text] == nil then
+      return false
+    end
+  end
+  return true
+end
+
 --- @class Value
 --- @field index integer Index used for ordering values during restore.
 --- @field id integer? The Director id of the value's variable, kept once it has had one.
 --- @field varType VariableType? Optional variable type if registered as a variable
 --- @field value string|integer|number|boolean|nil The stored value
 --- @field suffix string? Optional suffix for property display (e.g., " °C", " %")
+--- @field labels table<string, string>? Optional property text per variable text (e.g., { ["1"] = "On", ["0"] = "Off" })
 --- @field writable boolean? Whether the variable accepts writes from programming. Persisted so restore can recreate the C4 variable with the correct readOnly flag.
 --- @field deleted boolean? If true, the value has no variable now; its record keeps its id, if it has one
 
@@ -159,10 +204,13 @@ end
 --- @param value string|integer|number|boolean|nil The value to set, can be `nil`.
 --- @param varType VariableType? The type of the variable, if `nil` it will not be registered as a variable.
 --- @param callbackOrWritable (fun(newValue: string|integer|number): void)|boolean|nil Callback to register, `true` for writable-with-placeholder, `false` to clear, or `nil` for no change.
---- @param propertySuffix string? Optional suffix to append to the property value (e.g., "°C" for temperature units).
---- @return boolean changed True if the value changed, false otherwise.
-function Values:update(name, value, varType, callbackOrWritable, propertySuffix)
-  log:trace("Values:update(%s, %s, %s, %s, %s)", name, value, varType, callbackOrWritable, propertySuffix)
+--- @param propertyFormat string|table<any, string>|nil How the property shows the value: a string is a suffix (e.g., " °C"); a table gives the property's text per value instead (e.g., { [true] = "On", [false] = "Off" }), and a value it does not list shows as the variable reads.
+--- @return boolean changed True if the value itself changed: a new name, one deleted before, or a different value.
+--- @return boolean recordChanged True if anything stored for it changed: the value, or also its type, writability, suffix or labels.
+function Values:update(name, value, varType, callbackOrWritable, propertyFormat)
+  log:trace("Values:update(%s, %s, %s, %s, %s)", name, value, varType, callbackOrWritable, propertyFormat)
+  local suffix = type(propertyFormat) == "string" and propertyFormat or nil
+  local labels = type(propertyFormat) == "table" and labelsByText(propertyFormat) or nil
 
   if type(callbackOrWritable) == "function" then
     self:setCallback(name, callbackOrWritable)
@@ -191,11 +239,10 @@ function Values:update(name, value, varType, callbackOrWritable, propertySuffix)
   -- items have a chance to re-register their callbacks).
   local writable = self._callbacks[name] ~= nil or (existing and existing.writable) or false
 
-  -- Check if the entry has changed
-  local changed = not existing
-    or existing.deleted
-    or not sameValue(existing.value, value)
-    or existing.suffix ~= propertySuffix
+  local valueChanged = not existing or existing.deleted or not sameValue(existing.value, value)
+  local changed = valueChanged
+    or existing.suffix ~= suffix
+    or not sameLabels(existing.labels, labels)
     or existing.varType ~= varType
     or existing.writable ~= writable
   if changed then
@@ -204,21 +251,14 @@ function Values:update(name, value, varType, callbackOrWritable, propertySuffix)
       id = Select(values, name, "id"),
       varType = varType,
       value = value,
-      suffix = propertySuffix,
+      suffix = suffix,
+      labels = labels,
       writable = writable,
     }
   end
   local record = values[name]
 
-  -- C4 BOOL variables expect "0"/"1", not "true"/"false".
-  local strValue
-  if value == nil then
-    strValue = ""
-  elseif type(value) == "boolean" then
-    strValue = value and "1" or "0"
-  else
-    strValue = tostring(value)
-  end
+  local strValue = variableText(value)
 
   local idChanged = false
   if varType ~= nil then
@@ -249,17 +289,18 @@ function Values:update(name, value, varType, callbackOrWritable, propertySuffix)
     -- Ensure the property is visible
     C4:SetPropertyAttribs(name, constants.SHOW_PROPERTY)
 
-    -- Format property value with optional suffix
     local propValue = strValue
-    if propertySuffix and strValue ~= "" then
-      propValue = strValue .. propertySuffix
+    if labels and labels[strValue] ~= nil then
+      propValue = labels[strValue]
+    elseif suffix and strValue ~= "" then
+      propValue = strValue .. suffix
     end
     if Properties[name] ~= propValue then
       UpdateProperty(name, propValue, true)
     end
   end
 
-  return changed
+  return valueChanged, changed
 end
 
 --- Deletes a value. A value that has had a variable is marked as deleted, and its
@@ -378,7 +419,7 @@ function Values:restoreValues()
         C4:AddVariable(entry.name, "", entry.data.varType or "STRING", true, true)
       else
         log:debug("Restoring %s value %s at index %d", entry.data.varType, entry.name, entry.data.index)
-        self:update(entry.name, entry.data.value, entry.data.varType, nil, entry.data.suffix)
+        self:update(entry.name, entry.data.value, entry.data.varType, nil, entry.data.labels or entry.data.suffix)
       end
     end)
     if not ok then

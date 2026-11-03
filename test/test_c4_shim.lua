@@ -92,7 +92,7 @@ T.check("coerces a non-string name", Variables["98765"] == "x")
 -- lib/values.lua reads "0"/"1" back from a BOOL because it wrote "0"/"1", not
 -- because Director coerces.
 C4:AddVariable("Raw", "true", "BOOL", true, false)
-T.check("does not normalise a BOOL value", Variables["Raw"] == "true")
+T.check("does not normalize a BOOL value", Variables["Raw"] == "true")
 
 T.raises("raises on a boolean value", function()
   C4:AddVariable("Bad", true, "BOOL", true, false)
@@ -190,7 +190,7 @@ C4:SetVariable("Locked", "1")
 T.check("writes through to a readOnly variable", Variables["Locked"] == "1")
 
 C4:SetVariable("Locked", "false")
-T.check("does not normalise a BOOL value", Variables["Locked"] == "false")
+T.check("does not normalize a BOOL value", Variables["Locked"] == "false")
 
 T.raises("raises on a boolean value", function()
   C4:SetVariable("Temp", true)
@@ -453,7 +453,7 @@ for _, hasSocket in ipairs({ false, true }) do
       end)()
     )
 
-    -- The defect itself: with a table handle nothing is cancelled and the
+    -- The defect itself: with a table handle nothing is canceled and the
     -- TimerFunctions entry leaks.
     Timer, TimerFunctions = {}, {}
     local fired = 0
@@ -471,7 +471,7 @@ for _, hasSocket in ipairs({ false, true }) do
 
     if hasSocket then
       clock.advance(10)
-      T.check(label .. ": a cancelled callback does not fire", fired == 0, fired)
+      T.check(label .. ": a canceled callback does not fire", fired == 0, fired)
 
       -- Or the assertion above would pass for the wrong reason
       Timer, TimerFunctions = {}, {}
@@ -480,7 +480,7 @@ for _, hasSocket in ipairs({ false, true }) do
         ran = ran + 1
       end)
       clock.advance(10)
-      T.check(label .. ": an uncancelled callback fires", ran == 1, ran)
+      T.check(label .. ": an uncanceled callback fires", ran == 1, ran)
     end
   end)
 
@@ -601,7 +601,7 @@ do
 
   T.eq("RGB(255,0,0) -> H 0 S 100 V 100", { C4:ColorRGBtoHSV(255, 0, 0) }, { 0, 100, 100 })
   T.eq("RGB(0,0,255) -> H 240", { C4:ColorRGBtoHSV(0, 0, 255) }, { 240, 100, 100 })
-  -- Greys have no hue and no saturation, but keep their value.
+  -- Grays have no hue and no saturation, but keep their value.
   T.eq("white is S 0 V 100", { C4:ColorRGBtoHSV(255, 255, 255) }, { 0, 0, 100 })
   T.eq("black is all zero", { C4:ColorRGBtoHSV(0, 0, 0) }, { 0, 0, 0 })
 
@@ -769,17 +769,17 @@ do
       "hello"
     )
 
-    -- A nil iv is modelled as zero; with CBC it reaches only the first block.
+    -- A nil iv is modeled as zero; with CBC it reaches only the first block.
     local zero = C4:Encrypt("AES-256-CBC", key256, string.rep("\0", 16), "abc")
     T.eq("a nil iv is the zero iv", C4:Encrypt("AES-256-CBC", key256, nil, "abc"), zero)
 
     -- Arguments the controller would reject are refused, not quietly guessed.
-    T.check("an unmodelled cipher is refused", C4:Encrypt("AES-256-GCM", key256, nistIv, "x") == nil)
+    T.check("an unmodeled cipher is refused", C4:Encrypt("AES-256-GCM", key256, nistIv, "x") == nil)
     T.contains("and says which are", select(2, C4:Encrypt("DES-CBC", key, iv, "x")), "AES-256-CBC")
     T.check("a key the wrong size for its cipher is refused", C4:Encrypt("AES-256-CBC", key, iv, "x") == nil)
     T.check("an iv that is not 16 bytes is refused", C4:Encrypt("AES-128-CBC", key, "short", "x") == nil)
     T.check(
-      "an unmodelled encoding is refused",
+      "an unmodeled encoding is refused",
       C4:Encrypt("AES-128-CBC", key, iv, "x", { return_encoding = "HEX" }) == nil
     )
 

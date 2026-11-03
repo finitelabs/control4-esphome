@@ -154,7 +154,7 @@ T.section("Reconnecting BEFORE the close timer fires still allocates (documented
 --------------------------------------------------------------------------------
 do
   resetBindings()
-  -- Not a regression: this is the pre-fix behaviour, preserved. A consumer that
+  -- Not a regression: this is the pre-fix behavior, preserved. A consumer that
   -- opens the replacement without waiting for delete() to complete cannot reuse
   -- the slot, because the old socket still owns it. Pinned here so the ordering
   -- inside Close() cannot be changed without a test noticing.

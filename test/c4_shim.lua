@@ -438,7 +438,7 @@ function C4:GetBoundProviderDevice(deviceId, bindingId)
   return 0
 end
 
---- @param section string A driver.xml section. Only "connections" is modelled.
+--- @param section string A driver.xml section. Only "connections" is modeled.
 --- @return string|nil xml The section as XML.
 function C4:GetDriverConfigInfo(section)
   -- Empty, not nil, so UpdateProperty validates nothing rather than printing an XMLCapture
@@ -1018,7 +1018,7 @@ end
 -- Variables
 -- Mirrors the controller rather than accommodating callers: values are always
 -- strings, updates are synchronous, and nothing is coerced or auto-created.
--- test/test_c4_shim.lua pins each behaviour, measured on a dev controller.
+-- test/test_c4_shim.lua pins each behavior, measured on a dev controller.
 ---------------------------------------------------------------------------
 
 -- Accepted on hardware. The controller's error message names only four types.
@@ -1310,7 +1310,7 @@ function ShimResetDevices()
   shim_devices = {}
 end
 
---- Take a device out of every lookup, modelling a transient resolution failure.
+--- Take a device out of every lookup, modeling a transient resolution failure.
 function ShimSetDeviceHidden(deviceId, hidden)
   local device = shim_devices[tonumber(deviceId)]
   if device then
@@ -2072,7 +2072,7 @@ local function decode_arg(value, encoding)
   elseif e == "BASE64" then
     return base64_decode_impl(value)
   end
-  return nil, "C4 shim: encoding " .. tostring(encoding) .. " is not modelled (only NONE or BASE64)"
+  return nil, "C4 shim: encoding " .. tostring(encoding) .. " is not modeled (only NONE or BASE64)"
 end
 
 --- Run C4:Encrypt / C4:Decrypt. AES-128/192/256-CBC; options carry
@@ -2089,7 +2089,7 @@ local function aes(encrypt, cipher, key, iv, data, options)
   options = type(options) == "table" and options or {}
   local bits = tonumber(string.upper(cipher or ""):match("^AES%-(%d+)%-CBC$"))
   if bits ~= 128 and bits ~= 192 and bits ~= 256 then
-    return nil, "C4 shim: only AES-128-CBC, AES-192-CBC and AES-256-CBC are modelled"
+    return nil, "C4 shim: only AES-128-CBC, AES-192-CBC and AES-256-CBC are modeled"
   end
   local err
   key, err = decode_arg(key, options.key_encoding)
@@ -2122,7 +2122,7 @@ local function aes(encrypt, cipher, key, iv, data, options)
   if returnEncoding == "BASE64" then
     return base64_encode_impl(result)
   elseif returnEncoding ~= "NONE" then
-    return nil, "C4 shim: return_encoding " .. tostring(options.return_encoding) .. " is not modelled"
+    return nil, "C4 shim: return_encoding " .. tostring(options.return_encoding) .. " is not modeled"
   end
   return result
 end
