@@ -147,7 +147,7 @@ local CAPABILITY_KEYS = {
   "hide_proxy_conditionals_loops",
 }
 local proxyCapabilities = {}
---- Tell the modelled proxy capabilities, or put it on driver.xml's with none.
+--- Tell the modeled proxy capabilities, or put it on driver.xml's with none.
 local function showCapabilities(caps)
   if caps == nil then
     local f = assert(io.open(HERE .. "/../drivers/esphome_light/driver.xml", "rb"))
