@@ -1,25 +1,14 @@
 # DriverCentral images
 
-Marketing images for the driver's DriverCentral listing. Each image is an HTML page rendered to PNG, and the rendered PNGs sit next to their sources.
+Marketing images for the ESPHome listing (DriverCentral product 819). Each image is an HTML page rendered to PNG, and the rendered PNGs sit next to their sources.
 
 | Path | Size | Used for |
 | --- | --- | --- |
 | `banners/spotlight-4096x848` | 4096x848 | DriverCentral homepage spotlight banner (emailed to DriverCentral, not uploaded) |
 | `banners/launch-post-2400x1200` | 2400x1200 | Launch posts (c4forums, Reddit, Discord) |
 | `banners/facts-strip-2400x200` | 2400x200 | The first image in the listing's description: four facts in a row |
-| `photos/1-...` onward | 2000x2000 | Listing photos, uploaded in number order |
 
-`assets/` holds what the pages share: the Finite Labs logo, and the brand's mark as `brand-mark.png`, taken from the brand's official kit.
-
-## Making the set
-
-1. Put the brand's mark in `assets/brand-mark.png`, from its official kit, and note the kit's URL and usage terms in this README. Never trace or redraw it.
-2. In each page under `banners/`, replace "Driver Name", the chips and the line under them with what the driver does, from its docs and CHANGELOG. No tag lines. The facts strip holds facts that stay true between releases (the Control4 OS it needs, the trial, local or cloud, what it controls), never an install count.
-3. In `photos/frame.html`, replace "Driver Name" beside the mark.
-4. Add the listing photos: a screenshot per photo in `photos/sources/` and a line per photo in `photos/photos.txt`.
-5. Render, and check every image by eye.
-
-Every page takes its accent, `--accent`, from the repo's `primary_color`. The banners and the photo frame glow in `--glow`, which is the accent unless the page sets a lighter tint for a dark brand color. The facts strip shrinks its type until four longer facts fit.
+`assets/` holds what the pages share: the Finite Labs logo, and ESPHome's logomark as `brand-mark.png`, the one in the Open Home Foundation's ESPHome brand assets (https://brands.openhomefoundation.org/esphome/; `esphome/logo/screen/logomark/ESPH-logomark-color.svg` in https://github.com/OpenHomeFoundation/brand-assets at 163c9422), exported from this repo's `resources/Driver Icons.sketch`. Those assets say the logo is not for commercial use without the Foundation's written permission (partner@openhomefoundation.org). We haven't obtained that permission; the mark is used only to name the devices the driver works with.
 
 ## Rendering
 
@@ -28,6 +17,8 @@ resources/drivercentral/render.sh
 ```
 
 This needs Google Chrome and a network connection (the pages load Inter from Google Fonts). It renders every page at 2x and overwrites the PNGs. Pass a directory to render somewhere else instead.
+
+Every page takes its accent, `--accent`, from the repo's `primary_color`. The banners and the photo frame glow in `--glow`, which is the accent unless the page sets a lighter tint for a dark brand color. The facts strip shrinks its type until four longer facts fit.
 
 ## Listing photos
 
