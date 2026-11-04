@@ -19,12 +19,8 @@ ______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
-<!-- #ifndef DRIVERCENTRAL -->
-
 > DISCLAIMER: This software is neither affiliated with nor endorsed by either
 > Control4, ESPHome, or Govee.
-
-<!-- #endif -->
 
 Integrate Govee BLE devices into Control4 through an ESPHome Bluetooth Proxy.
 This driver receives data from Govee temperature/humidity sensors and meat

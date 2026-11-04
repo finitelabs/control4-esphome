@@ -19,12 +19,8 @@ ______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
-<!-- #ifndef DRIVERCENTRAL -->
-
 > DISCLAIMER: This software is neither affiliated with nor endorsed by either
 > Control4 or ESPHome.
-
-<!-- #endif -->
 
 Integrate [ESPHome-based devices](https://devices.esphome.io) into Control4.
 ESPHome is an open-source system that transforms common microcontrollers, like

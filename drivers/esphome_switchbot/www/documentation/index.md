@@ -19,12 +19,8 @@ ______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
-<!-- #ifndef DRIVERCENTRAL -->
-
 > DISCLAIMER: This software is neither affiliated with nor endorsed by either
 > Control4, ESPHome, or SwitchBot.
-
-<!-- #endif -->
 
 Control all SwitchBot devices from Control4 through an ESPHome Bluetooth Proxy.
 This unified driver supports Bot, Plug Mini, Relay Switches, Meters, Motion

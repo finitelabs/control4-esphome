@@ -19,12 +19,8 @@ ______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
-<!-- #ifndef DRIVERCENTRAL -->
-
 > DISCLAIMER: This software is neither affiliated with nor endorsed by either
 > Control4, ESPHome, or Homedics.
-
-<!-- #endif -->
 
 This driver integrates a Homedics SereneScent BLE diffuser with Control4 through
 an ESPHome Bluetooth proxy. It controls power, mist intensity and the light
