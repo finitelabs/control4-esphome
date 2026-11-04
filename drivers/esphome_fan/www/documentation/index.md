@@ -19,12 +19,8 @@ ______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
-<!-- #ifndef DRIVERCENTRAL -->
-
 > DISCLAIMER: This software is neither affiliated with nor endorsed by either
 > Control4 or ESPHome.
-
-<!-- #endif -->
 
 This driver provides specialized support for ESPHome devices with fan entities,
 allowing them to be controlled through the Control4 fan proxy with

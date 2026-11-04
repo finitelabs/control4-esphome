@@ -19,12 +19,8 @@ ______________________________________________________________________
 
 # <span style="color:#17BCF2">Overview</span>
 
-<!-- #ifndef DRIVERCENTRAL -->
-
 > DISCLAIMER: This software is neither affiliated with nor endorsed by either
 > Control4, ESPHome, or Yale.
-
-<!-- #endif -->
 
 This driver provides native Control4 lock proxy integration for Yale and August
 smart locks via BLE through an ESPHome Bluetooth proxy. It enables lock/unlock
