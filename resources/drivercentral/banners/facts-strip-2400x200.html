@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --accent: #17BCF2; }
+  html, body { margin: 0; padding: 0; }
+  body { width: 1200px; height: 100px; overflow: hidden; background: #fff; font-family: Inter, -apple-system, "Segoe UI", sans-serif;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 2px; box-sizing: border-box; }
+  .fact { flex: 0 0 auto; height: 84px; box-sizing: border-box; border: 1.5px solid #d9dce1; border-radius: 16px; display: flex; align-items: center; gap: 16px; padding: 0 22px; }
+  .fact svg { width: 46px; height: 46px; flex: none; fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  .label { color: #6b7280; font-size: 16px; font-weight: 500; line-height: 1.1; }
+  .value { color: #111; font-size: 29px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.15; white-space: nowrap; }
+</style></head>
+<body>
+<div class="fact">
+  <svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="19"/><path d="M15 24.5l6 6 12-13"/></svg>
+  <div><div class="label">Works with</div><div class="value">Control4 OS 3.3+</div></div>
+</div>
+<div class="fact">
+  <svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="19"/><path d="M24 13v11l7 5"/></svg>
+  <div><div class="label">Try it free for</div><div class="value">30 days</div></div>
+</div>
+<div class="fact">
+  <svg viewBox="0 0 48 48"><rect x="17" y="5" width="14" height="11" rx="2.5"/><rect x="5" y="32" width="14" height="11" rx="2.5"/><rect x="29" y="32" width="14" height="11" rx="2.5"/><path d="M24 16v8M12 32v-8h24v8"/></svg>
+  <div><div class="label">Connects over</div><div class="value">Local network</div></div>
+</div>
+<div class="fact">
+  <svg viewBox="0 0 48 48"><rect x="6" y="6" width="15" height="15" rx="3.5"/><rect x="27" y="6" width="15" height="15" rx="3.5"/><rect x="6" y="27" width="15" height="15" rx="3.5"/><rect x="27" y="27" width="15" height="15" rx="3.5"/></svg>
+  <div><div class="label">Supports</div><div class="value">What it controls</div></div>
+</div>
+<script>
+  // Longer facts shrink the type until the four fit the strip.
+  const values = document.querySelectorAll('.value');
+  document.fonts.ready.then(() => {
+    for (let size = 29; document.body.scrollWidth > 1200 && size > 18; size--) values.forEach(v => v.style.fontSize = size + 'px');
+  });
+</script>
+</body></html>

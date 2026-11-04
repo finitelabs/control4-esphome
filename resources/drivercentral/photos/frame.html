@@ -1,0 +1,74 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --accent: #17BCF2; --glow: var(--accent); }
+  html, body { margin: 0; padding: 0; }
+  body { width: 1000px; height: 1000px; overflow: hidden; position: relative; font-family: Inter, -apple-system, "Segoe UI", sans-serif;
+    background:
+      radial-gradient(900px 560px at 92% -8%, color-mix(in srgb, var(--glow) 34%, transparent), transparent 62%),
+      radial-gradient(700px 500px at -10% 110%, color-mix(in srgb, var(--glow) 12%, transparent), transparent 60%),
+      linear-gradient(160deg, #12161a 0%, #0c0e12 100%); }
+  .grid { position: absolute; inset: 0; background-image: radial-gradient(rgba(255,255,255,0.055) 1px, transparent 1px); background-size: 22px 22px; mask-image: linear-gradient(180deg, rgba(0,0,0,0.9), rgba(0,0,0,0) 46%); }
+  .top { position: absolute; left: 60px; right: 60px; top: 50px; display: flex; align-items: center; justify-content: space-between; }
+  .fl { height: 22px; filter: invert(1); opacity: 0.92; }
+  .mark { display: flex; align-items: center; gap: 12px; color: #fff; font-weight: 600; font-size: 19px; letter-spacing: 0.01em; }
+  .mark img { height: 30px; display: block; }
+  .mark span { color: #c9ced8; font-weight: 500; }
+  h1 { position: absolute; left: 60px; right: 60px; top: 112px; margin: 0; color: #fff; font-size: 52px; line-height: 1.08; font-weight: 750; letter-spacing: -0.025em; text-wrap: balance; }
+  p.sub { position: absolute; left: 60px; right: 60px; top: 0; margin: 0; color: #aeb4c0; font-size: 22px; line-height: 1.35; font-weight: 450; }
+  .card { position: absolute; left: 60px; width: 880px; height: 1000px; border-radius: 18px; overflow: hidden; background: #f3f4f6;
+    box-shadow: 0 40px 90px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.08); }
+  .card img { width: 100%; display: block; }
+</style></head>
+<body>
+<div class="grid"></div>
+<div class="top">
+  <img class="fl" src="../assets/finite-labs-logo.png" alt="">
+  <div class="mark"><img src="../assets/brand-mark.png" alt="" onerror="this.remove()">Driver Name <span>for Control4</span></div>
+</div>
+<h1 id="t"></h1>
+<p class="sub" id="s"></p>
+<div class="card" id="c"><img id="i" alt=""></div>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.getElementById('t').textContent = q.get('t') || '';
+  document.getElementById('s').textContent = q.get('s') || '';
+  const img = document.getElementById('i');
+  img.src = 'sources/' + q.get('img');
+  // DriverCentral's viewer hides about the bottom 15% of a square photo until the popup scrolls.
+  const SAFE = 830;
+  function layout() {
+    const h1 = document.getElementById('t').getBoundingClientRect();
+    const sub = document.getElementById('s');
+    sub.style.top = (h1.bottom + 16) + 'px';
+    const sb = sub.getBoundingClientRect();
+    const card = document.getElementById('c');
+    const top = sb.bottom + 40, room = SAFE - top;
+    card.style.top = top + 'px';
+    if (q.get('fit')) {
+      card.style.height = 'auto';
+      const nat = img.naturalHeight / img.naturalWidth * 880;
+      if (nat > room) { const w = Math.round(room / nat * 880); card.style.width = w + 'px'; card.style.left = (60 + (880 - w) / 2) + 'px'; }
+    } else {
+      const end = +q.get('end'), tail = +(q.get('tail') || 0), crop = +(q.get('crop') || 0);
+      const k = Math.min(1, room / (end + tail)), w = 880 * k;
+      card.style.width = w + 'px';
+      card.style.left = (60 + (880 - w) / 2) + 'px';
+      card.style.height = (end + tail) * k + 'px';
+      img.style.marginTop = (-crop * k) + 'px';
+      if (tail) {
+        const bg = q.get('bg') || '#f3f4f6', fade = document.createElement('div');
+        const solid = q.get('more') ? '45%' : '100%';
+        fade.style.cssText = 'position:absolute;left:0;right:0;bottom:0;height:' + tail * k + 'px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:20px;box-sizing:border-box;background:linear-gradient(180deg,' + bg + '00 0%,' + bg + ' ' + solid + ');font:600 17px Inter,sans-serif;color:#6b7280;letter-spacing:0.01em';
+        fade.textContent = q.get('more') || '';
+        card.appendChild(fade);
+      }
+      card.dataset.scale = k.toFixed(3);
+    }
+    document.body.dataset.ready = '1';
+  }
+  document.fonts.ready.then(() => img.decode().then(layout, layout));
+</script>
+</body></html>
