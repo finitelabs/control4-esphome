@@ -1,8 +1,3 @@
---#ifdef DRIVERCENTRAL
-DC_PID = 819
-DC_X = nil
-DC_FILENAME = "esphome_light.c4z"
---#endif
 require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
@@ -316,8 +311,7 @@ end
 
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
-  require("cloud-client-byte")
-  C4:AllowExecute(false)
+  require("lib.drivercentral"):startClient()
   --#else
   C4:AllowExecute(true)
   --#endif

@@ -55,11 +55,12 @@ local function awayCheck()
   TimerFunctions[Timer.AwayCheck](Timer.AwayCheck, 0)
 end
 
---- Run `n` of the coordinator's 10 s license checks with the cloud client's DC_X at `x`.
+--- Run `n` of the license gate's 10 s reads with the cloud client's DC_X at `x`.
 local function licenseChecks(n, x)
   DC_X = x
+  local gate = require("lib.drivercentral")
   for _ = 1, n do
-    TimerFunctions[Timer.LicenseCheck](Timer.LicenseCheck, 0)
+    gate:_check()
   end
 end
 
@@ -116,8 +117,9 @@ end)
 
 H.test("a lapsed license holds the tag home, and Away runs again once the license is active", function()
   tagInKitchen()
-  -- A lapse as the ESPHome drivers act on it: six checks in a row at 0, a minute.
-  licenseChecks(6, 0)
+  -- A lapse as the ESPHome drivers act on it: 30 reads in a row at 0, five minutes.
+  licenseChecks(30, 0)
+  T.eq("Driver Status says why", Properties["Driver Status"], "No active license")
   for _ = 1, 20 do
     clock = clock + 30
     awayCheck()
@@ -127,6 +129,7 @@ H.test("a lapsed license holds the tag home, and Away runs again once the licens
   T.eq("it is still in the Kitchen", H.variable("Presence Test Tag [AABBCCDDEE01] Room"), "Kitchen")
 
   licenseChecks(1, 1)
+  T.eq("relicensed, Driver Status is back", Properties["Driver Status"], "Running")
   clock = clock + 30
   awayCheck()
   clock = clock + AWAY_TIMEOUT
@@ -145,7 +148,7 @@ end)
 
 H.test("a tag heard again after the lapse stays home", function()
   tagInKitchen()
-  licenseChecks(6, 0)
+  licenseChecks(30, 0)
   clock = clock + 600
   awayCheck()
   licenseChecks(1, 1)
@@ -159,9 +162,9 @@ H.test("a tag heard again after the lapse stays home", function()
   DC_X = nil
 end)
 
-H.test("a 0 that does not last a minute, as at a boot before the Cloud driver answers, holds nothing", function()
+H.test("a 0 that does not last five minutes, as at a boot or a Cloud driver update, holds nothing", function()
   tagInKitchen()
-  licenseChecks(5, 0)
+  licenseChecks(29, 0)
   clock = clock + AWAY_TIMEOUT + 30
   awayCheck()
   T.eq("a tag no proxy hears for the Away Timeout is still Away", events(), {

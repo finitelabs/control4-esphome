@@ -2,12 +2,6 @@
 --- Aggregates multiple ESPHome Bluetooth proxies for RSSI-based routing,
 --- failover, and presence tracking.
 
---#ifdef DRIVERCENTRAL
-DC_PID = 819
-DC_X = nil
-DC_FILENAME = "esphome_bluetooth_coordinator.c4z"
---#endif
-
 require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
@@ -19,6 +13,7 @@ local mainDriverCatchup = require("esphome.main_driver_catchup")
 local log = require("lib.logging")
 --#ifdef DRIVERCENTRAL
 local updateSettings = require("lib.update-settings")
+local drivercentral = require("lib.drivercentral")
 local supportCode = require("lib.support-code")
 local diagnostics = require("lib.diagnostics")
 --#endif
@@ -74,8 +69,6 @@ local selectedDevices = {} -- MAC -> DeviceInfo for selected devices
 --- @type C4LuaTimer|nil
 local awayCheckTimer = nil
 --#ifdef DRIVERCENTRAL
-local UNLICENSED_CHECKS = 6 -- a minute, as long as the cloud client waits on the Cloud driver
-local unlicensedChecks = 0
 local lapsed = false -- whether the last away check saw the license lapsed
 --#endif
 
@@ -640,21 +633,13 @@ local function setupPresenceTracker()
   -- Create generic presence events
   presenceTracker:createGenericEvents()
 
-  --#ifdef DRIVERCENTRAL
-  -- DC_X is also 0 from late init until the Cloud driver first answers, which a controller boot can delay, so only
-  -- a 0 that lasts is a lapse, counted as the ESPHome drivers count it before they drop their devices.
-  SetTimer("LicenseCheck", 10 * ONE_SECOND, function()
-    unlicensedChecks = DC_X == 0 and unlicensedChecks + 1 or 0
-  end, true)
-  --#endif
-
   -- Start away check timer
   awayCheckTimer = SetTimer("AwayCheck", 30 * 1000, function()
     --#ifdef DRIVERCENTRAL
     -- A lapse disconnects every ESPHome device, so a device not heard meanwhile may still be home. The check
     -- after it holds too, so the proxies get a whole Away Timeout to report again.
     local wasLapsed = lapsed
-    lapsed = unlicensedChecks >= UNLICENSED_CHECKS
+    lapsed = not drivercentral:licensed()
     if lapsed or wasLapsed then
       presenceTracker:holdPresence()
       return
@@ -670,8 +655,7 @@ end
 
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
-  require("cloud-client-byte")
-  C4:AllowExecute(false)
+  drivercentral:startClient()
   --#else
   C4:AllowExecute(true)
   --#endif
@@ -726,6 +710,13 @@ function OnDriverLateInit()
 
   initialized = true
   log:info("Bluetooth Coordinator initialized")
+
+  --#ifdef DRIVERCENTRAL
+  -- The ESPHome device drivers drop their devices at the same lapse, so the coordinator holds presence meanwhile.
+  drivercentral:startGate(function(licensed)
+    updateStatus(licensed and "Running" or drivercentral.UNLICENSED_STATUS, licensed)
+  end)
+  --#endif
 
   --#ifndef DRIVERCENTRAL
   mainDriverCatchup.schedule()

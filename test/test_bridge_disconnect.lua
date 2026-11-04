@@ -39,6 +39,7 @@ end
 local bindings = require("lib.bindings")
 local ESPHomeClient = require("esphome.client")
 local refreshStatus -- the bridge's own RefreshStatus, which loadBridge stubs
+local gate -- the bridge's license gate, which beats() reads
 
 --- Load the bridge fresh and take control of its transport and bindings.
 --- @return table sent Records of every SendToProxy the bridge makes.
@@ -85,7 +86,13 @@ local function loadBridge(connected)
     return nil
   end
 
+  package.loaded["lib.drivercentral"] = nil -- a fresh gate for each bridge
   dofile(DRIVER)
+  -- The late init this test skips starts the gate. Its own timer is cancelled: beats() reads it before each
+  -- heartbeat, as one 10 s tick, so the order two timers fire in decides nothing.
+  gate = require("lib.drivercentral")
+  gate:startGate(function() end)
+  gate._timer:Cancel()
   -- lib/utils redefines SendToProxy at load, so capture AFTER dofile.
   SendToProxy = function(binding, command, params)
     sent[#sent + 1] = { binding = binding, command = command, params = params or {} }
@@ -124,17 +131,18 @@ end
 local SUSPENDED = { "suspended", "suspended", "suspended", "suspended", "suspended" }
 local LOST = { "lost", "lost", "lost", "lost", "lost" }
 
---- Run `n` heartbeats with the cloud client's DC_X at `x`.
+--- Run `n` 10 s ticks with the cloud client's DC_X at `x`: the gate's read, then the heartbeat.
 local function beats(n, x)
   DC_X = x
   for _ = 1, n do
+    gate:_check()
     ShimFireTimers()
   end
 end
 
---- A lapse as the bridge acts on it: DC_X at 0 for six heartbeats in a row, a minute.
+--- A lapse as the bridge acts on it: DC_X at 0 for 30 ticks in a row, five minutes.
 local function lapse()
-  beats(6, 0)
+  beats(30, 0)
 end
 
 T.section("A connection property change while connected notifies the children")
@@ -194,8 +202,7 @@ do
   ShimFireTimers()
   T.eq("and only once", told(sent), SUSPENDED)
 
-  DC_X = 1
-  ShimFireTimers()
+  beats(1, 1)
   T.check("relicensed, the bridge connects again", state.connected)
   T.eq("and tells the children nothing more", told(sent), SUSPENDED)
   local from = #sent + 1
@@ -205,7 +212,7 @@ do
 
   -- Lost in the heartbeat the lapse is acted on: the license did not end that connection.
   from = #sent + 1
-  beats(5, 0)
+  beats(29, 0)
   state.connected = false
   beats(1, 0)
   T.eq("a device lost just before a lapse is acted on tells them it is lost", told(sent, from), LOST)
@@ -220,8 +227,7 @@ do
   lapse()
   local from = #sent + 1
   state.reachable = false -- it lost power while the license was lapsed
-  DC_X = 1
-  ShimFireTimers()
+  beats(1, 1)
   T.eq("a reconnect that fails tells every child the device is lost", told(sent, from), LOST)
   ShimFireTimers()
   T.eq("and only once", told(sent, from), LOST)
@@ -232,38 +238,38 @@ do
   DC_X = nil
 end
 
-T.section("A license 0 that does not last a minute, as at a boot before the Cloud driver answers, keeps the device")
+T.section("A license 0 that does not last five minutes, as at a boot or a Cloud driver update, keeps the device")
 do
   local sent, state = loadBridge(false)
   Properties["IP Address"] = "192.168.1.119"
   Connect()
   status = nil
-  beats(5, 0)
-  T.check("five heartbeats at 0 keep the bridge connected", state.connected)
+  beats(29, 0)
+  T.check("29 ticks at 0 keep the bridge connected", state.connected)
   T.eq("and tell the children nothing", told(sent), {})
   T.check("nor read No active license", status ~= "No active license", status)
   beats(1, 1)
-  beats(5, 0)
-  T.check("a license between them starts the minute again", state.connected)
+  beats(29, 0)
+  T.check("a license between them starts the count again", state.connected)
   beats(1, 0)
-  T.check("the sixth 0 in a row drops the connection", not state.connected)
+  T.check("the 30th 0 in a row drops the connection", not state.connected)
   T.eq("telling every child the device is suspended", told(sent), SUSPENDED)
   T.eq("and reads No active license", status, "No active license")
   DC_X = nil
 end
 
-T.section("Only the heartbeat's tick is a license check, so the minute is a minute")
+T.section("Only the gate's 10 s read counts, so five minutes are five minutes")
 do
   local _, state = loadBridge(false)
   Properties["IP Address"] = "192.168.1.119"
   DC_X = 0 -- a boot, before the Cloud driver answers
   Connect()
-  beats(5, 0)
-  T.check("a start at 0 and five ticks keep the bridge connected", state.connected)
+  beats(29, 0)
+  T.check("a start at 0 and 29 ticks keep the bridge connected", state.connected)
   Connect() -- a connection property changed
   T.check("and so does an edit to a connection property", state.connected)
   beats(1, 0)
-  T.check("the sixth tick at 0 drops the connection", not state.connected)
+  T.check("the 30th tick at 0 drops the connection", not state.connected)
   DC_X = nil
 end
 

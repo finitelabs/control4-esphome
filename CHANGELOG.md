@@ -71,9 +71,20 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   briefly holding up every other ESPHome driver, longer in a project with many,
   while the change was copied to them
   <!-- #endif -->
+  <!-- #ifdef DRIVERCENTRAL -->
+- Fixed the Bluetooth Coordinator's Driver Status reading Running while the
+  license had lapsed; it now reads No active license
+  <!-- #endif -->
 
 ### Changed
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+- Changed how long the ESPHome driver waits without an active license before it
+  drops its devices, from one minute to five, so a DriverCentral Cloud driver
+  update or a slow controller start no longer drops a licensed system. A license
+  bought later reconnects the devices within 10 seconds
+  <!-- #endif -->
 - Changed how long a color set on a light with Dim-To-Warm lasts: one set while
   the light is on now stays when the light is dimmed or brightened, until the
   light turns off, instead of until the next brightness command. The next time
