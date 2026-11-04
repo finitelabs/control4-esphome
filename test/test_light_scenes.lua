@@ -117,8 +117,6 @@ local proxyLevel, proxyLevelTarget
 local proxyOnline
 -- Its Navigator Dynamic Capabilities (6661) as dev's proxies list them:
 -- driver.xml's until it is told others, and again after a controller start.
--- It lists supports_color_stop False for a light without CCT, and for one that
--- does not dim supports_brightness_stop True and its rates 0 (638).
 local CAPABILITY_KEYS = {
   "dimmer",
   "supports_target",
@@ -146,7 +144,41 @@ local CAPABILITY_KEYS = {
   "hide_proxy_events",
   "hide_proxy_conditionals_loops",
 }
-local proxyCapabilities = {}
+-- The proxy handles told capabilities in this order and holds them all, but
+-- rewrites 6661 from them only as one marked true changes. Measured on dev
+-- (2026-11-03): which ones rewrite, supports_target before the brightness
+-- rates, the first four and has_extras and cold_start before the stop flags,
+-- and the color rates and color temperature range after them. The rest of the
+-- order is assumed.
+local HANDLED = {
+  { "dimmer", true },
+  { "supports_target", true },
+  { "supports_color", true },
+  { "supports_color_correlated_temperature", true },
+  { "brightness_rate_min" },
+  { "brightness_rate_max" },
+  { "has_extras", true },
+  { "cold_start", true },
+  { "supports_brightness_stop" },
+  { "supports_color_stop" },
+  { "color_rate_behavior", true },
+  { "color_rate_min", true },
+  { "color_rate_max", true },
+  { "color_correlated_temperature_min", true },
+  { "color_correlated_temperature_max", true },
+}
+local proxyHeld, proxyCapabilities = {}, {}
+-- For a light that does not dim it lists the rates 0 (638).
+local function rewriteCapabilities()
+  for key, value in pairs(proxyHeld) do
+    proxyCapabilities[key] = value
+  end
+  if proxyHeld.dimmer == "False" then
+    for _, rate in ipairs({ "brightness_rate", "click_rate", "hold_rate" }) do
+      proxyCapabilities[rate .. "_min"], proxyCapabilities[rate .. "_max"] = "0", "0"
+    end
+  end
+end
 --- Tell the modeled proxy capabilities, or put it on driver.xml's with none.
 local function showCapabilities(caps)
   if caps == nil then
@@ -154,21 +186,19 @@ local function showCapabilities(caps)
     local static = f:read("*a"):match("<capabilities>(.-)</capabilities>")
     f:close()
     for _, key in ipairs(CAPABILITY_KEYS) do
-      proxyCapabilities[key] = static:match("<" .. key .. ">([^<]*)</" .. key .. ">") or "False"
+      proxyHeld[key] = static:match("<" .. key .. ">([^<]*)</" .. key .. ">") or "False"
     end
+    rewriteCapabilities()
   end
-  for key, value in pairs(caps or {}) do
-    if proxyCapabilities[key] ~= nil then
-      proxyCapabilities[key] = type(value) == "boolean" and (value and "True" or "False") or tostring(value)
-    end
-  end
-  if proxyCapabilities.supports_color_correlated_temperature ~= "True" then
-    proxyCapabilities.supports_color_stop = "False"
-  end
-  if proxyCapabilities.dimmer == "False" then
-    proxyCapabilities.supports_brightness_stop = "True"
-    for _, rate in ipairs({ "brightness_rate", "click_rate", "hold_rate" }) do
-      proxyCapabilities[rate .. "_min"], proxyCapabilities[rate .. "_max"] = "0", "0"
+  for _, handled in ipairs(caps and HANDLED or {}) do
+    local key, rewrites, value = handled[1], handled[2], caps[handled[1]]
+    if value ~= nil then
+      value = type(value) == "boolean" and (value and "True" or "False") or tostring(value)
+      local changed = proxyHeld[key] ~= value
+      proxyHeld[key] = value
+      if rewrites and changed then
+        rewriteCapabilities()
+      end
     end
   end
 end
@@ -9225,16 +9255,61 @@ do
       T.eq(name .. ": and lists the ones it did", capabilitiesShown(), shown)
     end
   end
-  light({ RGBCT })
-  local shown = capabilitiesShown()
-  proxyCapabilities.color_correlated_temperature_max = "6000" -- as another light or build told it
-  restart(nil)
-  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
-    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { RGBCT } }),
-    state = SerializeSafe({ state = true, brightness = 1.0 }),
-  })
-  T.eq("a proxy that lists other capabilities is told the light's once", capabilities(), 1)
-  T.eq("and lists them", capabilitiesShown(), shown)
+  -- Each color temperature capability, as another light or build told it.
+  for _, other in ipairs({
+    { "supports_color_correlated_temperature", "False" },
+    { "color_correlated_temperature_min", "2700" },
+    { "color_correlated_temperature_max", "6000" },
+  }) do
+    light({ RGBCT })
+    local shown = capabilitiesShown()
+    showCapabilities({ [other[1]] = other[2] })
+    restart(nil)
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { RGBCT } }),
+      state = SerializeSafe({ state = true, brightness = 1.0 }),
+    })
+    local name = ("a proxy that lists %s %s"):format(other[1], other[2])
+    T.eq(name .. " is told the light's capabilities once", capabilities(), 1)
+    T.eq(name .. ": and lists them", capabilitiesShown(), shown)
+  end
+  -- An on/off light that comes to dim: the proxy rewrites 6661 at dimmer,
+  -- before it handles supports_brightness_stop.
+  local dims = { ColorMode.COLOR_MODE_BRIGHTNESS }
+  local function dimmerStarts()
+    restart(nil)
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = dims }),
+      state = SerializeSafe({ state = true, brightness = 1.0 }),
+    })
+  end
+  light({ ColorMode.COLOR_MODE_ON_OFF })
+  restart(dims)
+  T.eq(
+    "a light that came to dim: the proxy lists it dims, without a brightness stop",
+    { proxyCapabilities.dimmer, proxyCapabilities.supports_brightness_stop },
+    { "True", "False" }
+  )
+  for i = 1, 2 do
+    dimmerStarts()
+    T.eq(("and at start %d it is told none"):format(i), capabilities(), 0)
+  end
+  showCapabilities({ dimmer = false }) -- as another light or build told it
+  dimmerStarts()
+  T.eq("a proxy that lists it does not dim is told once", capabilities(), 1)
+  T.eq("and lists it dims", proxyCapabilities.dimmer, "True")
+  -- Any stop flag or brightness rate 6661 lists, as a tell can leave it, tells none.
+  for _, lag in ipairs({
+    { "supports_brightness_stop", "False" },
+    { "supports_color_stop", "True" },
+    { "brightness_rate_min", "1" },
+    { "brightness_rate_max", "65534" },
+  }) do
+    light(dims)
+    proxyCapabilities[lag[1]] = lag[2]
+    dimmerStarts()
+    T.eq(("a dimmer whose proxy lists %s %s is told none"):format(lag[1], lag[2]), capabilities(), 0)
+  end
   -- Before late init the proxy is not read, so a first report then tells them.
   light({ RGBCT })
   restart(nil)
