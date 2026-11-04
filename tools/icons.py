@@ -3,7 +3,8 @@
 
 Everything lands in dist/icons/, laid out like a driver folder (www/icons/ and
 www/documentation/images/) plus cards/ for DriverCentral and the website. Then each
-file a driver already has under drivers/*/www/ is refreshed. Needs Sketch.
+file a driver already has under drivers/*/www/ is refreshed, and so is the repo-root
+documentation/ a root-docs README is built from. Needs Sketch.
 """
 
 from __future__ import annotations
@@ -63,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--style", choices=sorted(ICON_ARTBOARDS), default="shaped")
     parser.add_argument("--out", type=Path, default=Path("dist/icons"))
     parser.add_argument("--drivers", type=Path, default=Path("drivers"))
+    parser.add_argument("--root", type=Path, default=Path("."))
     args = parser.parse_args(argv)
 
     sketchtool = os.environ.get("SKETCHTOOL", SKETCHTOOL)
@@ -109,7 +111,11 @@ def main(argv: list[str] | None = None) -> int:
             if dest.is_file():
                 shutil.copyfile(src, dest)
                 refreshed.append(dest)
-    print(f"exported to {args.out}/, refreshed {len(refreshed)} files under drivers/")
+        root = args.root / src.relative_to(args.out / "www")
+        if root.is_file():
+            shutil.copyfile(src, root)
+            refreshed.append(root)
+    print(f"exported to {args.out}/, refreshed {len(refreshed)} files")
     return 0
 
 

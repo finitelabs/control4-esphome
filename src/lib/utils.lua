@@ -1,5 +1,11 @@
 --- Utility module for managing devices, their bindings, properties, data, and general device-related operations in a Control4-driven environment.
 
+-- On a controller with no room left for compiled code, LuaJIT's compiler retries and fails in every hot
+-- loop, hundreds of times slower than its interpreter.
+if jit then
+  jit.off()
+end
+
 local deferred = require("deferred")
 
 local log = require("lib.logging")
@@ -114,26 +120,40 @@ function GetDriverVersion(filename)
   return Select(ParseXml(FileRead("driver.xml")) or {}, "devicedata", "version") or nil
 end
 
---- Logs and invokes a C4 method, trimming trailing nil arguments.
+--- What a send's trace shows in place of parameters that hold a secret.
+local REDACTED = "***REDACTED***"
+
+--- Logs and invokes a C4 method, trimming trailing nil arguments. The argument at place `secret` is traced as
+--- REDACTED.
 --- @param methodName string The C4 method name
+--- @param secret integer|nil The place of an argument that holds a secret
 --- @param ... any Arguments to pass
 --- @return any
-local function C4Call(methodName, ...)
+local function C4CallHiding(methodName, secret, ...)
   local numArgs = select("#", ...)
   local args = { ... }
 
-  -- Single pass: build format string and find last non-nil
+  -- Single pass: build format string, the arguments as traced, and find last non-nil
   local lastNonNil = 0
-  local fmtParts = {}
+  local fmtParts, shown = {}, {}
   for i = 1, numArgs do
     if args[i] ~= nil then
       lastNonNil = i
     end
     fmtParts[i] = "%s"
+    shown[i] = (i == secret and args[i] ~= nil) and REDACTED or args[i]
   end
 
-  log:trace("C4:" .. methodName .. "(" .. table.concat(fmtParts, ", ") .. ")", unpack(args, 1, numArgs))
+  log:trace("C4:" .. methodName .. "(" .. table.concat(fmtParts, ", ") .. ")", unpack(shown, 1, numArgs))
   return C4[methodName](C4, unpack(args, 1, lastNonNil))
+end
+
+--- Logs and invokes a C4 method, trimming trailing nil arguments.
+--- @param methodName string The C4 method name
+--- @param ... any Arguments to pass
+--- @return any
+local function C4Call(methodName, ...)
+  return C4CallHiding(methodName, nil, ...)
 end
 
 --- Sends a Control4 CommandMessage to a specified Control4 device driver.
@@ -154,6 +174,28 @@ end
 --- @param allowEmptyValues? boolean Allows empty values in message parameters (optional).
 function SendToProxy(idBinding, strCommand, tParams, strMessage, allowEmptyValues)
   return C4Call("SendToProxy", idBinding, strCommand, tParams, strMessage, allowEmptyValues)
+end
+
+--- SendToDevice for a command whose parameters hold a secret, such as a user code or a password: its trace
+--- names the device and the command, never the parameters, and C4 does not log its content unless asked to.
+--- @param deviceId DeviceId The ID of the driver to send the command to.
+--- @param strCommand string The command to send.
+--- @param tParams table A table containing parameters for the command.
+--- @param allowEmptyValues? boolean Allows empty strings as parameter values (optional). Defaults to false.
+--- @param logCommand? boolean If true, lets C4 log the command's content (optional). Defaults to false.
+function SendSecretToDevice(deviceId, strCommand, tParams, allowEmptyValues, logCommand)
+  return C4CallHiding("SendToDevice", 3, deviceId, strCommand, tParams, allowEmptyValues, logCommand == true)
+end
+
+--- SendToProxy for a message whose parameters hold a secret, such as a user code: its trace names the binding
+--- and the command, never the parameters.
+--- @param idBinding number The proxy binding to send the message to.
+--- @param strCommand string The command to send.
+--- @param tParams table|string The message's parameters.
+--- @param strMessage? string Overrides message type ("COMMAND" or "NOTIFY") (optional). Defaults to "COMMAND".
+--- @param allowEmptyValues? boolean Allows empty values in message parameters (optional).
+function SendSecretToProxy(idBinding, strCommand, tParams, strMessage, allowEmptyValues)
+  return C4CallHiding("SendToProxy", 3, idBinding, strCommand, tParams, strMessage, allowEmptyValues)
 end
 
 --- Sends an HTTP request to a network binding.

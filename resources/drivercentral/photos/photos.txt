@@ -1,0 +1,2 @@
+# <output name>|<query>: one listing photo per line, in upload order. README.md lists the fields.
+# 1-overview|img=overview.png&fit=1&t=Title%20of%20the%20photo&s=One%20sentence%20on%20what%20it%20shows.

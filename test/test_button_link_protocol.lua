@@ -223,10 +223,11 @@ for _, source in ipairs(sources) do
     end
     scanned = scanned + 1
     local src = stripComments(body)
-    -- The SendToProxy wrapper forwards the name as a string, which is not a call.
-    -- Only that site is skipped, so the same form anywhere else stays unparsed.
+    -- The SendToProxy wrappers forward the name as a string, which is not a call.
+    -- Only those sites are skipped, so the same form anywhere else stays unparsed.
     if name == "src/lib/utils.lua" then
       src = (src:gsub('C4Call%("SendToProxy"', "C4Call("))
+      src = (src:gsub('C4CallHiding%("SendToProxy"', "C4CallHiding("))
     end
     for _ in src:gmatch("SendToProxy") do
       unreadable = unreadable + 1
