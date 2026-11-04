@@ -8,7 +8,7 @@ Marketing images for the ESPHome listing (DriverCentral product 819). Each image
 | `banners/launch-post-2400x1200` | 2400x1200 | Launch posts (c4forums, Reddit, Discord) |
 | `banners/facts-strip-2400x200` | 2400x200 | The first image in the listing's description: four facts in a row |
 
-`assets/` holds what the pages share: the Finite Labs logo, and ESPHome's logomark as `brand-mark.png`, the one in the Open Home Foundation's ESPHome brand assets (https://brands.openhomefoundation.org/esphome/; `esphome/logo/screen/logomark/ESPH-logomark-color.svg` in https://github.com/OpenHomeFoundation/brand-assets at 163c9422), exported from this repo's `resources/Driver Icons.sketch`. Those assets say the logo is not for commercial use without the Foundation's written permission (partner@openhomefoundation.org).
+`assets/` holds what the pages share: the Finite Labs logo, and ESPHome's logomark as `brand-mark.png`, the one in the Open Home Foundation's ESPHome brand assets (https://brands.openhomefoundation.org/esphome/; `esphome/logo/screen/logomark/ESPH-logomark-color.svg` in https://github.com/OpenHomeFoundation/brand-assets at 163c9422), exported from this repo's `resources/Driver Icons.sketch`. Those assets say the logo is not for commercial use without the Foundation's written permission (partner@openhomefoundation.org). We haven't obtained that permission; the mark is used only to name the devices the driver works with.
 
 ## Rendering
 
