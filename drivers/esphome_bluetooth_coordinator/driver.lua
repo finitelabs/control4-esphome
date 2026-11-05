@@ -712,7 +712,6 @@ function OnDriverLateInit()
   log:info("Bluetooth Coordinator initialized")
 
   --#ifdef DRIVERCENTRAL
-  -- The ESPHome device drivers drop their devices at the same lapse, so the coordinator holds presence meanwhile.
   drivercentral:startGate(function(licensed)
     updateStatus(licensed and "Running" or drivercentral.UNLICENSED_STATUS, licensed)
   end)
