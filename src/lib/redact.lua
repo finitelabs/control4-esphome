@@ -37,6 +37,7 @@ local SENSITIVE_LAST_WORDS = {
   "token",
   "cookie",
   "sig",
+  "stok", -- TP-Link's session token, sent in the URL path as "/stok=<token>/".
 }
 
 --- Nouns that turn a generic fragment anywhere in the key into a credential.
@@ -114,6 +115,28 @@ local function looksLikeSecret(value)
   return type(value) == "string" and value:match("^[%w_-]+%.[%w_-]+%.[%w_-]+$") ~= nil and #value > 60
 end
 
+--- Mask the credential in each key=value pair: form-encoded bodies, query
+--- strings, and URL path segments such as "/stok=<token>/ds".
+--- @param text string
+--- @return string
+local function redactPairs(text)
+  local parts, pos = {}, 1
+  while true do
+    local at, keyEnd, key = text:find("([%w_%-%.]+)=", pos)
+    if not at then
+      break
+    end
+    -- A path segment's value ends at the next "/", "?" or "#"; a query value keeps its "/" since base64 uses it.
+    local inPath = text:sub(at - 1, at - 1) == "/"
+    local value = text:match(inPath and "^[^/?#&%s]*" or "^[^&%s]*", keyEnd + 1)
+    local shown = (value ~= "" and isSensitiveKey(key)) and REDACTED or value
+    parts[#parts + 1] = text:sub(pos, at - 1) .. key .. "=" .. shown
+    pos = keyEnd + 1 + #value
+  end
+  parts[#parts + 1] = text:sub(pos)
+  return table.concat(parts)
+end
+
 --- Mask credentials inside an already-encoded body, query string, or URL.
 --- @param text string
 --- @return string
@@ -124,13 +147,7 @@ local function redactSerialized(text)
       return key .. separator .. '"' .. REDACTED .. '"'
     end
   end)
-  -- Form-encoded and query-string pairs: password=hunter2
-  text = text:gsub("([%w_%-%.]+)=([^&%s]+)", function(key, value)
-    if isSensitiveKey(key) then
-      return key .. "=" .. REDACTED
-    end
-  end)
-  return text
+  return redactPairs(text)
 end
 
 --- Maximum table nesting redacted before the value is masked outright.

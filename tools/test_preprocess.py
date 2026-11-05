@@ -109,8 +109,8 @@ class PackagedDriverNamesTest(unittest.TestCase):
 
     def test_names_come_from_the_project_resolved_for_the_build(self):
         dev = (
-            "<!-- #ifdef DRIVERCENTRAL_DEV -->\n"
-            '<Driver type="c4z" name="hc_dev">\n'
+            "<!-- #ifdef OSS -->\n"
+            '<Driver type="c4z" name="hc_oss">\n'
             "<!-- #else -->\n"
             '<Driver type="c4z" name="hc">\n'
             "<!-- #endif -->\n"
@@ -123,10 +123,8 @@ class PackagedDriverNamesTest(unittest.TestCase):
             ["hc", "hc_light"],
         )
         self.assertEqual(
-            packaged_driver_names(
-                self._drivers(projects), {"DRIVERCENTRAL", "DRIVERCENTRAL_DEV"}
-            ),
-            ["hc_dev", "hc_light"],
+            packaged_driver_names(self._drivers(projects), {"OSS"}),
+            ["hc_light", "hc_oss"],
         )
 
     def test_a_project_without_a_name_is_a_hard_error(self):

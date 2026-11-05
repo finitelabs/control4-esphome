@@ -85,10 +85,7 @@ def asks_for_encryption(xml: bytes) -> bool:
 
 
 def must_be_encrypted(build: str) -> bool:
-    return (
-        build.startswith("drivercentral")
-        or (Path("build") / build / ".encrypted").exists()
-    )
+    return build == "drivercentral" or (Path("build") / build / ".encrypted").exists()
 
 
 def check_encrypted(build: str) -> int:

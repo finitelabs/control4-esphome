@@ -26,7 +26,7 @@ def process_file(
 
     Args:
         file_path: Path to the file to process
-        conditions: Set of conditions to check against, e.g., {"DRIVERCENTRAL"} or {"DRIVERCENTRAL", "DRIVERCENTRAL_DEV"}
+        conditions: Set of conditions to check against, e.g., {"DRIVERCENTRAL"} or {"OSS"}
         passthrough_unknown: If True, directives referencing conditions not in
             the conditions set are passed through unchanged (directive lines and
             content preserved). Used during variant expansion so that
@@ -670,11 +670,6 @@ def main():
     group.add_argument(
         "--drivercentral", action="store_true", help="Enable DRIVERCENTRAL build"
     )
-    group.add_argument(
-        "--drivercentral-dev",
-        action="store_true",
-        help="Enable DRIVERCENTRAL + DRIVERCENTRAL_DEV build",
-    )
     group.add_argument("--oss", action="store_true", help="Enable OSS build")
     group.add_argument(
         "--check-secrets",
@@ -689,9 +684,6 @@ def main():
     if args.drivercentral:
         distribution = "drivercentral"
         conditions = {"DRIVERCENTRAL"}
-    elif args.drivercentral_dev:
-        distribution = "drivercentral-dev"
-        conditions = {"DRIVERCENTRAL", "DRIVERCENTRAL_DEV"}
     elif args.oss:
         distribution = "oss"
         conditions = {"OSS"}
