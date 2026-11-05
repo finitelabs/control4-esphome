@@ -7,7 +7,7 @@
   html, body { margin: 0; padding: 0; }
   body { width: 1200px; height: 600px; overflow: hidden; position: relative; font-family: Inter, -apple-system, "Segoe UI", sans-serif;
     background:
-      radial-gradient(400px 360px at 934px 300px, color-mix(in srgb, var(--glow) 42%, transparent), transparent 70%),
+      radial-gradient(400px 360px at 960px 300px, color-mix(in srgb, var(--glow) 42%, transparent), transparent 70%),
       radial-gradient(700px 420px at 1290px -40px, color-mix(in srgb, var(--glow) 24%, transparent), transparent 70%),
       linear-gradient(100deg, #0c0e12 0%, #12161a 45%, #0e1618 100%); }
   .dots { position: absolute; inset: 0; background-image: radial-gradient(rgba(255,255,255,0.06) 1.2px, transparent 1.2px); background-size: 22px 22px;
@@ -21,12 +21,11 @@
   .chip.line { color: #fff; border: 1.5px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.04); font-weight: 500; }
   .sub { margin: 32px 0 0 2px; color: #c3c8d2; font-size: 24px; line-height: 1.4; font-weight: 400; letter-spacing: -0.005em; }
   .sub em { font-style: normal; color: #fff; font-weight: 600; }
-  .mark { position: absolute; left: 793px; top: 167px; width: 273px; height: 267px; object-fit: contain; filter: drop-shadow(0 14px 32px rgba(0,0,0,0.45)); }
   .note { position: absolute; left: 74px; right: 74px; bottom: 20px; color: #7d8494; font-size: 13px; line-height: 1.35; }
 </style></head>
 <body>
 <div class="dots"></div>
-<img class="mark" src="../assets/brand-mark.png" alt="" onerror="this.remove()">
+<svg class="scene" data-style="circuit" data-logo="../assets/brand-mark.png" data-hub="circle" data-icons="bulb,fan,lock,thermo,switch,motion" xmlns="http://www.w3.org/2000/svg"></svg>
 <div class="col">
   <img class="fl" src="../assets/finite-labs-logo.png" alt="">
   <h1>ESPHome<br>in Control4.</h1>
@@ -38,4 +37,5 @@
   <div class="sub">Lights, locks, climate, fans and sensors,<br>with <em>encrypted connections</em> and <em>live updates</em>.</div>
 </div>
 <div class="note">ESPHome and Control4 are trademarks of their owners, which are not affiliated with, and do not endorse, this product.</div>
+<script src="../assets/scene.js"></script>
 </body></html>
