@@ -1,8 +1,3 @@
---#ifdef DRIVERCENTRAL
-DC_PID = 819
-DC_X = nil
-DC_FILENAME = "esphome_lock.c4z"
---#endif
 require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
@@ -17,6 +12,7 @@ local ESPHomeProtoSchema = require("esphome.proto_schema")
 local log = require("lib.logging")
 --#ifdef DRIVERCENTRAL
 local updateSettings = require("lib.update-settings")
+local drivercentral = require("lib.drivercentral")
 local supportCode = require("lib.support-code")
 local diagnostics = require("lib.diagnostics")
 --#endif
@@ -45,8 +41,7 @@ local STATE -- leaving this explicitly nil so we can distinguish driver init fro
 
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
-  require("cloud-client-byte")
-  C4:AllowExecute(false)
+  drivercentral:startClient()
   --#else
   C4:AllowExecute(true)
   --#endif

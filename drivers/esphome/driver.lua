@@ -1,8 +1,4 @@
---#ifdef DRIVERCENTRAL
-DC_PID = 819
-DC_X = nil
-DC_FILENAME = "esphome.c4z"
---#else
+--#ifndef DRIVERCENTRAL
 DRIVER_GITHUB_REPO = "finitelabs/control4-esphome"
 --#endif
 
@@ -19,6 +15,7 @@ local githubUpdater = require("lib.github-updater")
 --#endif
 local updateSettings = require("lib.update-settings")
 --#ifdef DRIVERCENTRAL
+local drivercentral = require("lib.drivercentral")
 local supportCode = require("lib.support-code")
 local diagnostics = require("lib.diagnostics")
 --#endif
@@ -100,8 +97,7 @@ end
 
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
-  require("cloud-client-byte")
-  C4:AllowExecute(false)
+  drivercentral:startClient()
   --#else
   C4:AllowExecute(true)
   --#endif
@@ -149,6 +145,12 @@ function OnDriverLateInit()
   end
   gInitialized = true
   Connect()
+  --#ifdef DRIVERCENTRAL
+  -- The heartbeat drops the connection while the gate holds the driver stopped, and reconnects at its next tick.
+  drivercentral:startGate(function(licensed)
+    log:info(licensed and "License active; reconnecting" or "No active license; disconnecting")
+  end)
+  --#endif
 end
 
 --#ifdef DRIVERCENTRAL
@@ -464,11 +466,6 @@ local FATAL_ERROR_BACKOFF = 120
 --- sub-drivers would never be told the device went away.
 local wasConnected = false
 
---#ifdef DRIVERCENTRAL
-local UNLICENSED_CHECKS = 6 -- a minute, as long as the cloud client waits on the Cloud driver
-local unlicensedChecks = 0
---#endif
-
 function Connect()
   log:trace("Connect()")
   if not gInitialized then
@@ -517,8 +514,8 @@ function Connect()
 
   local heartbeat = function()
     --#ifdef DRIVERCENTRAL
-    if unlicensedChecks >= UNLICENSED_CHECKS then
-      updateStatus("No active license", false)
+    if not drivercentral:licensed() then
+      updateStatus(drivercentral.UNLICENSED_STATUS, false)
       -- A connection already lost was the device going away, not the lapse.
       suspended = suspended or esphome:isConnected()
       disconnectAndNotify()
@@ -598,14 +595,7 @@ function Connect()
     end
   end
   -- Perform the initial refresh then schedule it on a repeating timer
-  SetTimer("heartbeat", 10 * ONE_SECOND, function()
-    --#ifdef DRIVERCENTRAL
-    -- DC_X is also 0 from late init until the Cloud driver first answers, which a controller boot can delay, so
-    -- only a 0 that lasts drops the connection. Only a tick counts, not the Connect() a property change runs.
-    unlicensedChecks = DC_X == 0 and unlicensedChecks + 1 or 0
-    --#endif
-    heartbeat()
-  end, true)
+  SetTimer("heartbeat", 10 * ONE_SECOND, heartbeat, true)
   heartbeat()
 end
 
