@@ -5,14 +5,14 @@
 <style>
   :root { --accent: #17BCF2; }
   html, body { margin: 0; padding: 0; }
-  body { width: 1200px; height: 100px; overflow: hidden; background: #fff; font-family: Inter, -apple-system, "Segoe UI", sans-serif;
-    display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 2px; box-sizing: border-box; }
-  .fact { flex: 0 0 auto; height: 84px; box-sizing: border-box; border: 1.5px solid #d9dce1; border-radius: 16px; display: flex; align-items: center; gap: 16px; padding: 0 22px; }
-  .fact svg { width: 46px; height: 46px; flex: none; fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
-  .label { color: #6b7280; font-size: 16px; font-weight: 500; line-height: 1.1; }
-  .value { color: #111; font-size: 29px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.15; white-space: nowrap; }
+  body { width: 1200px; height: 68px; overflow: hidden; background: transparent; font-family: Inter, -apple-system, "Segoe UI", sans-serif; display: flex; align-items: center; }
+  .strip { width: 900px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 2px; box-sizing: border-box; }
+  .fact { flex: 0 0 auto; height: 63px; box-sizing: border-box; background: #fff; border: 1.5px solid #d9dce1; border-radius: 12px; display: flex; align-items: center; gap: 12px; padding: 0 16px; }
+  .fact svg { width: 34px; height: 34px; flex: none; fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  .label { color: #6b7280; font-size: 12px; font-weight: 500; line-height: 1.1; }
+  .value { color: #111; font-size: 22px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.15; white-space: nowrap; }
 </style></head>
-<body>
+<body><div class="strip">
 <div class="fact">
   <svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="19"/><path d="M15 24.5l6 6 12-13"/></svg>
   <div><div class="label">Works with</div><div class="value">Control4 OS 3.3+</div></div>
@@ -29,11 +29,12 @@
   <svg viewBox="0 0 48 48"><rect x="6" y="6" width="15" height="15" rx="3.5"/><rect x="27" y="6" width="15" height="15" rx="3.5"/><rect x="6" y="27" width="15" height="15" rx="3.5"/><rect x="27" y="27" width="15" height="15" rx="3.5"/></svg>
   <div><div class="label">Supports</div><div class="value">ESPHome devices</div></div>
 </div>
+</div>
 <script>
   // Longer facts shrink the type until the four fit the strip.
   const values = document.querySelectorAll('.value');
   document.fonts.ready.then(() => {
-    for (let size = 29; document.body.scrollWidth > 1200 && size > 18; size--) values.forEach(v => v.style.fontSize = size + 'px');
+    for (let size = 22; document.querySelector('.strip').scrollWidth > 900 && size > 16; size--) values.forEach(v => v.style.fontSize = size + 'px');
   });
 </script>
 </body></html>
