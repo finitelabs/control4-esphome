@@ -71,9 +71,9 @@ class CheckEncryptedTest(InTempDir):
 
     def test_a_driver_xml_that_does_not_ask_for_encryption_fails(self):
         self._package(
-            "drivercentral-dev", {"driver.xml": PLAIN_XML, "driver.lua.encrypted": "x"}
+            "drivercentral", {"driver.xml": PLAIN_XML, "driver.lua.encrypted": "x"}
         )
-        code, err = self._check("drivercentral-dev")
+        code, err = self._check("drivercentral")
         self.assertEqual(code, 1)
         self.assertIn("does not ask for encryption", err)
 

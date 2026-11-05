@@ -42,6 +42,8 @@ then pull the change in with `copier update`.
 - `diagnostics.lua`: Cloud Monitoring, a DriverCentral build's reports of its
   memory use and errors (see [Cloud Monitoring](#cloud-monitoring))
 - `driver-filenames.lua`: every `.c4z` the repo builds, written in by the build
+- `drivercentral.lua`: the DriverCentral product, its cloud client and the
+  license gate (see [The License Gate](#the-license-gate))
 - `events.lua`: event firing and management
 - `http.lua`: HTTP client wrapper
 - `logging.lua`: structured logging with configurable levels
@@ -55,7 +57,7 @@ then pull the change in with `copier update`.
 - `utils.lua`: general utilities (XML, device queries, table helpers, type
   coercion)
 - `values.lua`: value parsing, coercion, and formatting
-- `github-updater.lua`: GitHub Releases self-updater (non-DriverCentral builds)
+- `github-updater.lua`: GitHub Releases self-updater (OSS builds)
 
 **Vendor libraries (`vendor/`):**
 
@@ -277,21 +279,21 @@ and the tree is clean (`verify-clean`).
 
 ### Distributions
 
-Builds are configured for these distributions: `drivercentral oss`
+Every repo builds two distributions, each its own set of `.c4z` files with code
+paths selected by `#ifdef` directives: `drivercentral`, which defines
+`DRIVERCENTRAL`, and `oss`, which defines `OSS`.
 
-Each one produces its own set of .c4z driver files, with code paths selected by
-`#ifdef` directives (for example `#ifdef DRIVERCENTRAL` vs `#ifdef OSS`). The
-preprocessor recognizes three distributions: `drivercentral` and
-`drivercentral-dev` (which both define `DRIVERCENTRAL`, the latter also
-`DRIVERCENTRAL_DEV`) and `oss` (which defines `OSS`). Any other token in the
-answers file fails the build.
+The DriverCentral build reports to DriverCentral as the product named by the
+`dc_pid` answer in `.copier-answers.yml`. It is 0 until the product exists in
+DriverCentral's vendor panel. Setting it and running `copier update` is all a
+repo needs before its first DriverCentral upload.
 
-Every DriverCentral build (`drivercentral` and `drivercentral-dev`) is packaged
-encrypted, `encryption="2"` on each driver's `<script>`, and `make package`
-deletes its plain-text `dist/<build>/source`: a sold driver's Lua, its license
-check included, never ships or uploads readable. Only `driver.lua` is encrypted,
-so any other file a driver loads from its `.c4z` stays readable. An `oss` build
-is encrypted only when it substitutes a build secret.
+Every DriverCentral build is packaged encrypted, `encryption="2"` on each
+driver's `<script>`, and `make package` deletes its plain-text
+`dist/<build>/source`: a sold driver's Lua, its license check included, never
+ships or uploads readable. Only `driver.lua` is encrypted, so any other file a
+driver loads from its `.c4z` stays readable. An `oss` build is encrypted only
+when it substitutes a build secret.
 
 ## Writing Tests
 
@@ -408,8 +410,7 @@ directives with no comment prefix.
 
 ```lua
 --#ifdef DRIVERCENTRAL
-DC_PID = 1234
-DC_FILENAME = "driver.c4z"
+local supportCode = require("lib.support-code")
 --#else
 DRIVER_GITHUB_REPO = "finitelabs/control4-esphome"
 --#endif
@@ -503,6 +504,57 @@ A DriverCentral build is packaged encrypted with or without a secret.
 `make package` then opens every package of an encrypted build and fails unless
 each holds `driver.lua.encrypted`, no `driver.lua`, and a `driver.xml` that asks
 for encryption.
+
+### The License Gate
+
+`lib/drivercentral.lua` is a DriverCentral build's link to DriverCentral: the
+product it sells as, the cloud client that licenses it, and the gate that stops
+the driver while it has no license. The client keeps the license in `DC_X`: 1
+when licensed (a showroom license too), minus the hours left in a trial, and 0
+without one. It is 0 from the driver's late init until the DriverCentral Cloud
+driver first answers, and it turns 0 when the Cloud driver stops answering for a
+minute.
+
+The gate reads `DC_X` every 10 s and stops the driver after five minutes of 0,
+longer than a Cloud driver update or a slow boot, and starts it again as soon as
+a license is back. With `dc_pid` 0 the client never starts and the gate stops
+the driver at its load, so a build made before its product exists does not run.
+
+Each driver of a DriverCentral build starts the client first in `OnDriverInit`
+and the gate at the end of `OnDriverLateInit`:
+
+```lua
+--#ifdef DRIVERCENTRAL
+local drivercentral = require("lib.drivercentral")
+--#endif
+
+function OnDriverInit()
+  --#ifdef DRIVERCENTRAL
+  drivercentral:startClient()
+  --#else
+  C4:AllowExecute(true)
+  --#endif
+end
+
+function OnDriverLateInit()
+  --#ifdef DRIVERCENTRAL
+  drivercentral:startGate(function(licensed)
+    -- Stop or start the connection, and show why in Driver Status.
+  end)
+  --#endif
+end
+```
+
+A driver that talks to a device or a cloud checks `drivercentral:licensed()` at
+the one place every command passes on its way out, and shows
+`drivercentral.UNLICENSED_STATUS` in Driver Status while it is stopped. An OSS
+build has no gate, so those calls sit inside `#ifdef DRIVERCENTRAL` too. A
+companion that reaches its device only through another driver needs no gate of
+its own. Never gate `ExecuteCommand` ahead of the client: the license arrives
+through it.
+
+`test/dc_cloud.lua` is a fake Cloud driver that answers the real client, for
+testing a driver's gate; `test/test_drivercentral.lua` shows how.
 
 ### The Support Code
 

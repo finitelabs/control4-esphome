@@ -215,4 +215,64 @@ do
   T.excludes("password beside a number masked", withNumber, "hunter2")
 end
 
+--------------------------------------------------------------------------------
+T.section("A session token in a URL path segment is masked")
+--------------------------------------------------------------------------------
+do
+  T.check("stok IS sensitive", isSensitiveKey("stok"))
+  -- Last-word matching: each holds the letters, "last_ok" once its "_" is stripped.
+  T.check("stoke is not sensitive", not isSensitiveKey("stoke"))
+  T.check("last_ok is not sensitive", not isSensitiveKey("last_ok"))
+  T.check("isTokenized is not sensitive", not isSensitiveKey("isTokenized"))
+
+  local out = redact("http://192.0.2.1:443/stok=PATH_TOKEN_LEAK/ds")
+  T.check("path token masked, the path after it kept", out == "http://192.0.2.1:443/stok=" .. REDACTED .. "/ds", out)
+
+  out = redact("http://192.0.2.1/stok=PATH_TOKEN_LEAK/ds?access_token=QUERY_TOKEN_LEAK&seq=7")
+  T.check(
+    "pairs after a path token still masked",
+    out == "http://192.0.2.1/stok=" .. REDACTED .. "/ds?access_token=" .. REDACTED .. "&seq=7",
+    out
+  )
+
+  out = redact("http://192.0.2.1/v=1/stok=PATH_TOKEN_LEAK/ds")
+  T.check("a readable path pair does not hide the next", out == "http://192.0.2.1/v=1/stok=" .. REDACTED .. "/ds", out)
+
+  out = redact("http://192.0.2.1/app?stok=QUERY_STOK_LEAK&seq=7")
+  T.check("stok query parameter masked", out == "http://192.0.2.1/app?stok=" .. REDACTED .. "&seq=7", out)
+
+  out = redact("http://192.0.2.1/stoke=visible/ds?last_ok=1")
+  T.check("keys that only contain the letters stay readable", out == "http://192.0.2.1/stoke=visible/ds?last_ok=1", out)
+
+  out = redact('{"error_code":0,"result":{"stok":"BODY_STOK_LEAK","start_seq":7}}')
+  T.check("a stok in a JSON answer masked", not out:find("BODY_STOK_LEAK", 1, true), out)
+
+  -- One loop, not a call per segment: a long run of path pairs must neither overflow nor leak.
+  out = redact("x" .. string.rep("/a=1", 5000) .. "/stok=LONG_PATH_LEAK/ds")
+  T.check("a long run of path pairs still masks the token", not out:find("LONG_PATH_LEAK", 1, true))
+  T.check("a long run of path pairs keeps its readable pairs", out:sub(1, 9) == "x/a=1/a=1")
+end
+
+--------------------------------------------------------------------------------
+T.section("Query and form values keep their exact shape")
+--------------------------------------------------------------------------------
+do
+  local out = redact("username=alice&password=hunter2&remember=1")
+  T.check("form pairs", out == "username=alice&password=" .. REDACTED .. "&remember=1", out)
+
+  out = redact("https://example.com/api?user=alice&access_token=tok_live_1")
+  T.check("query pairs", out == "https://example.com/api?user=alice&access_token=" .. REDACTED, out)
+
+  -- A query value's "/" is part of it: base64 carries them.
+  out = redact("https://example.com/api?signature=ab/SIG_TAIL_LEAK+cd=&x=1")
+  T.check(
+    "query value masked through its slash",
+    out == "https://example.com/api?signature=" .. REDACTED .. "&x=1",
+    out
+  )
+
+  out = redact("password=ab/PASS_TAIL_LEAK&next=/home")
+  T.check("form value masked through its slash", out == "password=" .. REDACTED .. "&next=/home", out)
+end
+
 T.finish()
