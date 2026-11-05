@@ -28,6 +28,7 @@
     branch: '<circle cx="-12" cy="0" r="4"/><circle cx="12" cy="-12" r="4"/><circle cx="12" cy="12" r="4"/><path d="M-8 0 H0 L8 -10"/><path d="M0 0 L8 10"/>',
     link: '<path d="M-3 7 L-8 12 A7 7 0 0 1 -18 2 L-12 -4 A7 7 0 0 1 -2 -4"/><path d="M3 -7 L8 -12 A7 7 0 0 1 18 -2 L12 4 A7 7 0 0 1 2 4"/><path d="M-6 6 L6 -6"/>',
     water: '<path d="M-20 -4 C-14 -10 -8 2 -2 -4 S10 2 16 -4"/><path d="M-20 8 C-14 2 -8 14 -2 8 S10 14 16 8"/>',
+    floorheat: '<path d="M-17 13 H17"/><path d="M-8 7 C-12 1 -4 -3 -8 -11"/><path d="M0 7 C-4 1 4 -3 0 -11"/><path d="M8 7 C4 1 12 -3 8 -11"/>',
     flame: '<path d="M0 -18 C10 -8 13 0 10 8 A11 11 0 0 1 -10 8 C-12 0 -6 -4 -4 -10 C-2 -4 2 -2 3 -6 C4 -10 2 -14 0 -18 Z"/>',
     calendar: '<rect x="-16" y="-13" width="32" height="28" rx="4"/><path d="M-16 -4 H16"/><path d="M-8 -18 V-10"/><path d="M8 -18 V-10"/>',
     chip: '<rect x="-14" y="-14" width="28" height="28" rx="4"/><path d="M-6 -20 V-14 M0 -20 V-14 M6 -20 V-14 M-6 14 V20 M0 14 V20 M6 14 V20 M-20 -6 H-14 M-20 6 H-14 M14 -6 H20 M14 6 H20"/>',
@@ -101,23 +102,21 @@
       s += hub(c, HX, 196);
       return s + [[1500, 70], [1890, 96], [1910, 330]].map(([x, y], i) => (c.items[i] ? pill(x, y, 24 + 10.4 * c.items[i][1].length, 34, c.items[i][1], true) : "")).join("");
     },
-    // A thermostat dial around the hub, with heat rising from the floor.
+    // A round thermostat dial around the hub: a 270-degree ring with its setpoint, and floor heat in the gap below.
     dial(c) {
-      const rx = 205, ry = 150, a0 = 140, a1 = 400, set = 330;
-      const pt = (a, k = 1) => [HX + rx * k * Math.cos(a * Math.PI / 180), HY + ry * k * Math.sin(a * Math.PI / 180)];
+      const r = 170, a0 = 135, a1 = 405, set = 330;
+      const pt = (a, k = 1) => [HX + r * k * Math.cos(a * Math.PI / 180), HY + r * k * Math.sin(a * Math.PI / 180)];
       const [x0, y0] = pt(a0), [x1, y1] = pt(a1), [xs, ys] = pt(set);
-      let s = `<path d="M${r0(x0)} ${r0(y0)} A${rx} ${ry} 0 1 1 ${r0(x1)} ${r0(y1)}" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="10" stroke-linecap="round"/>`;
-      s += `<path d="M${r0(x0)} ${r0(y0)} A${rx} ${ry} 0 1 1 ${r0(xs)} ${r0(ys)}" fill="none" stroke="${c.tint}" stroke-width="10" stroke-linecap="round"/>`;
-      for (let a = a0; a <= a1; a += 13) {
-        const [p, q] = pt(a, 1.13), [u, v] = pt(a, 1.2);
+      let s = `<path d="M${r0(x0)} ${r0(y0)} A${r} ${r} 0 1 1 ${r0(x1)} ${r0(y1)}" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="10" stroke-linecap="round"/>`;
+      s += `<path d="M${r0(x0)} ${r0(y0)} A${r} ${r} 0 1 1 ${r0(xs)} ${r0(ys)}" fill="none" stroke="${c.tint}" stroke-width="10" stroke-linecap="round"/>`;
+      for (let a = a0; a <= a1 + 0.1; a += 13.5) {
+        const [p, q] = pt(a, 1.08), [u, v] = pt(a, 1.15);
         s += `<path d="M${r0(p)} ${r0(q)} L${r0(u)} ${r0(v)}" stroke="rgba(255,255,255,0.35)" stroke-width="2" stroke-linecap="round"/>`;
       }
       s += `<circle cx="${r0(xs)}" cy="${r0(ys)}" r="13" fill="#fff" stroke="${c.tint}" stroke-width="5"/>`;
-      for (let k = 0; k < 3; k++) {
-        const x = HX - 40 + k * 40;
-        s += `<path d="M${x} 404 C${x - 12} 388 ${x + 12} 376 ${x} 360 S${x - 12} 332 ${x} 318" fill="none" stroke="${c.tint}" stroke-opacity="0.75" stroke-width="3" stroke-linecap="round"/>`;
-      }
-      return s + hub(c) + node(1452, 330, c.icons[0], 32) + node(1948, 330, c.icons[1], 32);
+      // A pill hub is drawn at 82% so the ring keeps clear of a wide logo; a circle hub already does.
+      const k = c.hub.startsWith("pill") ? 0.82 : 1;
+      return s + `<g transform="translate(${HX} ${HY}) scale(${k}) translate(${-HX} ${-HY})">${hub(c)}</g>` + node(HX, HY + 152, "floorheat", 30) + node(1440, 336, c.icons[0], 32) + node(1960, 336, c.icons[1], 32);
     },
     // Messages fanning out from the hub to labeled topics.
     topics(c) {
