@@ -4,7 +4,8 @@
 Everything lands in dist/icons/, laid out like a driver folder (www/icons/ and
 www/documentation/images/) plus cards/ for DriverCentral and the website. Then each
 file a driver already has under drivers/*/www/ is refreshed, and so is the repo-root
-documentation/ a root-docs README is built from. Needs Sketch.
+documentation/ a root-docs README is built from. The DriverCentral card is also copied
+to resources/drivercentral/. Needs Sketch.
 """
 
 from __future__ import annotations
@@ -115,6 +116,11 @@ def main(argv: list[str] | None = None) -> int:
         if root.is_file():
             shutil.copyfile(src, root)
             refreshed.append(root)
+    card = args.out / FRAMES["Driver Central Driver Card"]
+    committed = args.root / "resources/drivercentral/product-card-300x300.png"
+    if card.is_file() and committed.parent.is_dir():
+        shutil.copyfile(card, committed)
+        refreshed.append(committed)
     print(f"exported to {args.out}/, refreshed {len(refreshed)} files")
     return 0
 

@@ -14,7 +14,7 @@ shot() {
 	command rm -f "$out/$2"
 	# A page opened from disk loads the assets beside it only with file access allowed.
 	# Chrome can exit non-zero after writing the file, so the file decides.
-	"$chrome" --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=2 --window-size="$1" --allow-file-access-from-files \
+	"$chrome" --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=2 --default-background-color=00000000 --window-size="$1" --allow-file-access-from-files \
 		--virtual-time-budget=8000 --user-data-dir="$profile" --screenshot="$out/$2" "file://$here/$3" >/dev/null 2>&1 || true
 	[ -s "$out/$2" ] || { echo "render.sh: $2 was not written" >&2; exit 1; }
 	echo "$2"
@@ -22,7 +22,7 @@ shot() {
 
 shot 2048,424 banners/spotlight-4096x848.png banners/spotlight-4096x848.html
 shot 1200,600 banners/launch-post-2400x1200.png banners/launch-post-2400x1200.html
-shot 1200,100 banners/facts-strip-2400x200.png banners/facts-strip-2400x200.html
+shot 1200,68 banners/facts-strip-2400x136.png banners/facts-strip-2400x136.html
 while IFS='|' read -r name query || [ -n "$name" ]; do
 	case "$name" in '' | '#'*) continue ;; esac
 	shot 1000,1000 "photos/$name.png" "photos/frame.html?$query"
