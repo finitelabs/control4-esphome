@@ -65,6 +65,7 @@ entities, allowing them to be controlled through the Control4 light proxy.
 - Smooth ramps via ESPHome's transition feature, with click and hold ramp rates
   configurable per driver
 - "Default On" preset and "Previous Level" on-mode handling
+- **Max On Level** and **Min On Level**
 - Hold-to-dim button control on virtual buttons and the On/Off/Toggle button
   link bindings
 - Advanced Lighting Scenes participation: dim and color steps, ramp/stop, and
