@@ -1380,6 +1380,12 @@ function C4:GetDeviceVariables(deviceId)
   return variables
 end
 
+--- A device's variable by id, as listed by C4:GetDeviceVariables. Nil when it has none by that id.
+function C4:GetVariable(deviceId, variableId)
+  local variable = (C4:GetDeviceVariables(deviceId) or {})[tostring(variableId)]
+  return variable and variable.value or nil
+end
+
 -- The C4:Persist* SDK methods, backed by an in-memory store. The bare
 -- PersistGetValue/SetValue/DeleteValue globals belong to global/lib.lua, whose
 -- wrappers delegate here when C4.PersistSetValue exists; stubbing the globals

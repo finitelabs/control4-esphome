@@ -1101,6 +1101,16 @@ T.eq("&#0; is dropped", zero.Value, "")
 T.eq("a malformed reference stays literal", C4:ParseXml("<v>&#;</v>").Value, "&#;")
 
 --------------------------------------------------------------------------------
+T.section("C4:GetVariable")
+--------------------------------------------------------------------------------
+
+ShimSetDevices({ [4242] = { variables = { ["7"] = { name = "LEVEL", value = "9" } } } })
+T.eq("reads a device's variable by id", C4:GetVariable(4242, 7), "9")
+T.eq("and has nothing for an id it lacks", C4:GetVariable(4242, 8), nil)
+T.eq("or a device it lacks", C4:GetVariable(4243, 7), nil)
+ShimResetDevices()
+
+--------------------------------------------------------------------------------
 T.section("C4:Base64Decode")
 --------------------------------------------------------------------------------
 
@@ -1410,6 +1420,47 @@ do
   T.eq("without lib.diagnostics it just runs the late init", ran, "plain")
 
   package.loaded["lib.diagnostics"], OnDriverLateInit = savedModule, savedLateInit
+end
+
+T.section("F.dofileBuild")
+do
+  local path = os.tmpname()
+  local file = assert(io.open(path, "w"))
+  file:write(table.concat({
+    "local arms = {}",
+    "--#ifdef DRIVERCENTRAL",
+    'arms[#arms + 1] = "dc"',
+    "--#else",
+    'arms[#arms + 1] = "not dc"',
+    "--#endif",
+    "--#ifndef DRIVERCENTRAL",
+    "--#ifdef OSS",
+    'arms[#arms + 1] = "oss"',
+    "--#endif",
+    "--#endif",
+    "--#ifdef OSS",
+    "--#ifdef DRIVERCENTRAL",
+    'arms[#arms + 1] = "both"',
+    "--#else",
+    'arms[#arms + 1] = "oss only"',
+    "--#endif",
+    'arms[#arms + 1] = "after"',
+    "--#endif",
+    "return arms, debug.getinfo(1, 'l').currentline",
+  }, "\n"))
+  file:close()
+  local dc, line = F.dofileBuild(path, "drivercentral")
+  T.eq("a DriverCentral build runs its arm", dc, { "dc" })
+  T.eq(
+    "an OSS build runs its arms, nested ones too",
+    F.dofileBuild(path, "oss"),
+    { "not dc", "oss", "oss only", "after" }
+  )
+  T.eq("line numbers stay the source's", line, 20)
+  T.raises("an unknown build is refused", function()
+    F.dofileBuild(path, "neither")
+  end, "neither")
+  os.remove(path)
 end
 
 T.finish()
