@@ -818,6 +818,7 @@ function EC.Reset_Driver(params)
   values:reset()
 
   -- Clear in-memory notify memos so recreated bindings receive the next state
+  BinarySensorEntity.clearNotifiedState()
   CoverEntity.clearNotifiedState()
   SensorEntity.clearNotifiedState()
   SwitchEntity.clearNotifiedState()

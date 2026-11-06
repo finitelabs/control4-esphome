@@ -2,12 +2,20 @@ local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local values = require("lib.values")
 local ESPHomeClient = require("esphome.client")
+local StateTell = require("esphome.state_tell")
+
+local told = StateTell:new("BinarySensorStates")
 
 --- @class BinarySensorEntity:Entity
 local BinarySensorEntity = {
   TYPE = ESPHomeClient.EntityType.BINARY_SENSOR,
 }
 BinarySensorEntity.__index = BinarySensorEntity
+
+--- Forget the states told (driver reset).
+function BinarySensorEntity.clearNotifiedState()
+  told:reset()
+end
 
 --- Create a new instance of the binary sensor entity.
 --- @param client ESPHomeClient The ESPHome client instance.
@@ -23,7 +31,7 @@ end
 --- @return void
 function BinarySensorEntity:discovered(entity)
   log:trace("BinarySensorEntity:discovered(%s)", entity)
-  assert(
+  local binding = assert(
     bindings:getOrAddDynamicBinding(
       self.TYPE,
       "binary_sensor_" .. entity.ref,
@@ -33,6 +41,12 @@ function BinarySensorEntity:discovered(entity)
       "CONTACT_SENSOR"
     )
   )
+  OBC[binding.bindingId] = function(_idBinding, _strClass, bIsBound)
+    local state = told:state(entity.ref)
+    if bIsBound and state ~= nil then
+      SendToProxy(binding.bindingId, "STATE_" .. state, {}, "NOTIFY")
+    end
+  end
 end
 
 --- Handle updates to the binary sensor entity state.
@@ -46,7 +60,7 @@ function BinarySensorEntity:updated(entity, state)
 
   local binding = bindings:getDynamicBinding(self.TYPE, "binary_sensor_" .. entity.ref)
   if binding ~= nil then
-    SendToProxy(binding.bindingId, value and "CLOSED" or "OPENED", {}, "NOTIFY")
+    told:tell(entity.ref, binding.bindingId, value and "CLOSED" or "OPENED")
   end
 end
 

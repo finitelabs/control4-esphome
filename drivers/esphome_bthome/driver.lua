@@ -22,6 +22,7 @@ local bindings = require("lib.bindings")
 local constants = require("constants")
 local BTHome = require("bthome")
 local UUID = require("esphome.ble.uuid")
+local StateTell = require("esphome.state_tell")
 
 --- Update the Driver Status property and the Connected variable so
 --- Programming can react to connect/disconnect.
@@ -551,18 +552,21 @@ local function getOrCreateContactBinding(reading)
   return binding
 end
 
+local contactTold = StateTell:new("ContactStates")
+
 --- Send contact sensor state to bound consumers.
 --- @param reading BTHomeReading The BTHome reading with value field
 --- @param contactConfig ContactBindingConfig Contact binding configuration
-local function sendContactState(reading, contactConfig)
+--- @param key string The reading's variable name
+local function sendContactState(reading, contactConfig, key)
   local binding = getOrCreateContactBinding(reading)
   if not binding then
     return
   end
 
   local event = toboolean(reading.value) and contactConfig.openEvent or contactConfig.closedEvent
-  log:debug("Sending %s to contact binding %s", event, binding.bindingId)
-  SendToProxy(binding.bindingId, event, {}, "NOTIFY")
+  log:debug("Telling %s to contact binding %s", event, binding.bindingId)
+  contactTold:tell(key, binding.bindingId, event)
 end
 
 --- Get or create a button link binding for a specific event type.
@@ -630,8 +634,8 @@ end
 --------------------------------------------------------------------------------
 
 --- Last value notified per variable this session. In-memory on purpose: a
---- driver restart clears it, so bound consumers are re-notified even when the
---- value matches the persisted variable.
+--- driver restart clears it, so bound sensors are re-notified even when the
+--- value matches the persisted variable. Contacts go through contactTold.
 --- @type table<string, any>
 local lastNotified = {}
 
@@ -737,7 +741,7 @@ local function processBTHomeReading(reading, summaryParts)
   -- Send to contact binding if applicable
   local contactConfig = CONTACT_BINDINGS[reading.name]
   if contactConfig then
-    sendContactState(reading, contactConfig)
+    sendContactState(reading, contactConfig, varName)
   end
 end
 
@@ -1088,6 +1092,7 @@ function EC.Reset_Driver(params)
   cachedMacBytes = nil
   -- Clear the in-memory notify memo so recreated bindings receive the next reading
   lastNotified = {}
+  contactTold:reset()
 
   -- Reset properties to defaults (excludes user-entered credentials)
   local resetValues = GetPropertyResetValues({ "Bind Key" })
