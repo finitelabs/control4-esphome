@@ -1,0 +1,334 @@
+# Real-hardware fixture for Button LEDs (#207) on an LVGL panel: the Waveshare
+# ESP32-S3-Touch-LCD-4B (4" 480x480 ST7701 RGB panel, GT911 touch, ESP32-S3
+# N16R8). Two touch buttons, each an `event` entity with a `light` that
+# recolors it:
+#
+#   Button 1  main device, RGB LED (shows the load's on/off button colors)
+#   Button 2  alone with its LED on the "Panel Button 2" sub-device, so the
+#             driver pairs them without setup in Composer
+#
+# Usage: put a secrets.yaml next to this file (never commit it) with
+# wifi_ssid, wifi_password, ap_password, ota_password, web_server_username
+# and web_server_password, then flash the first time over USB:
+#   esphome run test/waveshare_touch_lcd_4b.yaml --device /dev/cu.usbmodemXXXX
+# If no port shows up, hold BOOT while plugging in USB-C.
+#
+# Pins and init values from Waveshare's BSP (waveshare/esp32_s3_touch_lcd_4b 2.0.0).
+# EXIO5 resets the GT911 as well as the panel.
+
+esphome:
+  name: waveshare-touch-lcd-4b
+  friendly_name: Waveshare Touch LCD 4B
+  min_version: 2025.7.0
+  name_add_mac_suffix: true
+  devices:
+    - id: panel_button_2
+      name: "Panel Button 2"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: DEBUG
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    password: !secret ap_password
+
+captive_portal:
+
+api:
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+web_server:
+  local: true
+  auth:
+    username: !secret web_server_username
+    password: !secret web_server_password
+
+i2c:
+  sda: GPIO47
+  scl: GPIO48
+  frequency: 400kHz
+
+pca9554:
+  - id: exio
+    address: 0x20
+
+# The ST7701 takes its init commands over 3-wire SPI on expander pins.
+spi:
+  - id: lcd_spi
+    interface: software
+    clk_pin:
+      pca9554: exio
+      number: 2
+      allow_other_uses: true
+    mosi_pin:
+      pca9554: exio
+      number: 1
+      allow_other_uses: true
+
+display:
+  - platform: mipi_rgb
+    id: panel
+    model: ST7701S
+    spi_id: lcd_spi
+    cs_pin:
+      pca9554: exio
+      number: 0
+      allow_other_uses: true
+    reset_pin:
+      pca9554: exio
+      number: 5
+    dimensions:
+      width: 480
+      height: 480
+    pixel_mode: 18bit
+    invert_colors: true
+    color_order: RGB
+    pclk_frequency: 16MHz
+    pclk_inverted: false
+    hsync_pulse_width: 10
+    hsync_back_porch: 10
+    hsync_front_porch: 20
+    vsync_pulse_width: 10
+    vsync_back_porch: 10
+    vsync_front_porch: 10
+    de_pin: GPIO17
+    pclk_pin: GPIO9
+    hsync_pin:
+      number: GPIO46
+      ignore_strapping_warning: true
+    vsync_pin:
+      number: GPIO3
+      ignore_strapping_warning: true
+    data_pins:
+      red: [GPIO10, GPIO11, GPIO12, GPIO13, GPIO14]
+      green: [GPIO21, GPIO8, GPIO18, GPIO45, GPIO38, GPIO39]
+      blue: [GPIO40, GPIO41, GPIO42, GPIO2, GPIO1]
+    # Appended to the ST7701S defaults: the panel's own values from the BSP.
+    init_sequence:
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x10]
+      - [0xC0, 0x3B, 0x00]
+      - [0xC1, 0x0D, 0x02]
+      - [0xC2, 0x21, 0x08]
+      - [0xCD, 0x08]
+      - [0xB0, 0x00, 0x11, 0x18, 0x0E, 0x11, 0x06, 0x07, 0x08, 0x07, 0x22, 0x04, 0x12, 0x0F, 0xAA, 0x31, 0x18]
+      - [0xB1, 0x00, 0x11, 0x19, 0x0E, 0x12, 0x07, 0x08, 0x08, 0x08, 0x22, 0x04, 0x11, 0x11, 0xA9, 0x32, 0x18]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x11]
+      - [0xB0, 0x60]
+      - [0xB1, 0x30]
+      - [0xB2, 0x87]
+      - [0xB3, 0x80]
+      - [0xB5, 0x49]
+      - [0xB7, 0x85]
+      - [0xB8, 0x21]
+      - [0xC1, 0x78]
+      - [0xC2, 0x78]
+      - [0xE0, 0x00, 0x1B, 0x02]
+      - [0xE1, 0x08, 0xA0, 0x00, 0x00, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x44, 0x44]
+      - [0xE2, 0x11, 0x11, 0x44, 0x44, 0xED, 0xA0, 0x00, 0x00, 0xEC, 0xA0, 0x00, 0x00]
+      - [0xE3, 0x00, 0x00, 0x11, 0x11]
+      - [0xE4, 0x44, 0x44]
+      - [0xE5, 0x0A, 0xE9, 0xD8, 0xA0, 0x0C, 0xEB, 0xD8, 0xA0, 0x0E, 0xED, 0xD8, 0xA0, 0x10, 0xEF, 0xD8, 0xA0]
+      - [0xE6, 0x00, 0x00, 0x11, 0x11]
+      - [0xE7, 0x44, 0x44]
+      - [0xE8, 0x09, 0xE8, 0xD8, 0xA0, 0x0B, 0xEA, 0xD8, 0xA0, 0x0D, 0xEC, 0xD8, 0xA0, 0x0F, 0xEE, 0xD8, 0xA0]
+      - [0xEB, 0x02, 0x00, 0xE4, 0xE4, 0x88, 0x00, 0x40]
+      - [0xEC, 0x3C, 0x00]
+      - [0xED, 0xAB, 0x89, 0x76, 0x54, 0x02, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x20, 0x45, 0x67, 0x98, 0xBA]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x00]
+
+touchscreen:
+  - platform: gt911
+    id: touch
+    display: panel
+
+output:
+  # Software SPI sets up its expander lines before the expander itself starts,
+  # so after a cold start the panel never gets its init (esphome/esphome#11748)
+  # and the backlight lights a black screen. These outputs start after the
+  # expander and before the display, parking CS high and SDA/SCL low.
+  - platform: gpio
+    id: lcd_cs_idle
+    pin:
+      pca9554: exio
+      number: 0
+      allow_other_uses: true
+    inverted: true
+  - platform: gpio
+    id: lcd_sda_idle
+    pin:
+      pca9554: exio
+      number: 1
+      allow_other_uses: true
+  - platform: gpio
+    id: lcd_scl_idle
+    pin:
+      pca9554: exio
+      number: 2
+      allow_other_uses: true
+
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO4
+    inverted: true
+    frequency: 5000Hz
+
+  - platform: template
+    id: button_1_led_red
+    type: float
+    write_action:
+      - globals.set: { id: button_1_red, value: !lambda "return state;" }
+      - script.execute: paint_button_1
+  - platform: template
+    id: button_1_led_green
+    type: float
+    write_action:
+      - globals.set: { id: button_1_green, value: !lambda "return state;" }
+      - script.execute: paint_button_1
+  - platform: template
+    id: button_1_led_blue
+    type: float
+    write_action:
+      - globals.set: { id: button_1_blue, value: !lambda "return state;" }
+      - script.execute: paint_button_1
+
+  - platform: template
+    id: button_2_led_out
+    type: binary
+    write_action:
+      - lvgl.widget.update:
+          id: lv_button_2
+          bg_color: !lambda "return lv_color_hex(state ? 0xE0A82E : 0x20252B);"
+
+globals:
+  - id: button_1_red
+    type: float
+    initial_value: "0"
+  - id: button_1_green
+    type: float
+    initial_value: "0"
+  - id: button_1_blue
+    type: float
+    initial_value: "0"
+
+script:
+  - id: paint_button_1
+    then:
+      - lvgl.widget.update:
+          id: lv_button_1
+          bg_color: !lambda |-
+            return lv_color_make(id(button_1_red) * 255, id(button_1_green) * 255,
+                                 id(button_1_blue) * 255);
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: "Backlight"
+    output: backlight_pwm
+    internal: true
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0s
+
+  - platform: rgb
+    id: button_1_led
+    name: "Button 1 LED"
+    red: button_1_led_red
+    green: button_1_led_green
+    blue: button_1_led_blue
+    # The driver sends the load's exact button colors; show them unaltered.
+    gamma_correct: 1.0
+    default_transition_length: 0s
+
+  - platform: binary
+    id: button_2_led
+    name: "LED"
+    device_id: panel_button_2
+    output: button_2_led_out
+
+event:
+  - platform: template
+    id: button_1_event
+    name: "Button 1"
+    device_class: button
+    event_types: [press, long_press]
+
+  - platform: template
+    id: button_2_event
+    name: "Button"
+    device_id: panel_button_2
+    device_class: button
+    event_types: [press, long_press]
+
+lvgl:
+  displays: [panel]
+  touchscreens: [touch]
+  style_definitions:
+    - id: panel_button
+      width: 400
+      height: 190
+      radius: 24
+      bg_color: 0x20252B
+      border_width: 0
+      text_color: 0xFFFFFF
+      text_font: montserrat_28
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      layout:
+        type: flex
+        flex_flow: column
+        flex_align_main: space_evenly
+        flex_align_cross: center
+        flex_align_track: center
+      widgets:
+        # LVGL sends CLICKED after a long press too; SHORT_CLICKED only
+        # without one, so a long press doesn't also fire press.
+        - button:
+            id: lv_button_1
+            styles: panel_button
+            on_short_click:
+              - event.trigger: { id: button_1_event, event_type: press }
+            on_long_press:
+              - event.trigger: { id: button_1_event, event_type: long_press }
+            widgets:
+              - label:
+                  align: center
+                  text: "Button 1"
+        - button:
+            id: lv_button_2
+            styles: panel_button
+            on_short_click:
+              - event.trigger: { id: button_2_event, event_type: press }
+            on_long_press:
+              - event.trigger: { id: button_2_event, event_type: long_press }
+            widgets:
+              - label:
+                  align: center
+                  text: "Button 2"
+
+button:
+  - platform: restart
+    name: Restart
+  - platform: safe_mode
+    name: Safe Mode Boot
