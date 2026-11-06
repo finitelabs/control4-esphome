@@ -1152,6 +1152,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   or a bind, and when a lock or unlock was dropped for waiting too long. A fan
   no longer tells Control4 it turned on or off after a driver start or a
   reconnect when it had not
+- Fixed a lock in Persistent mode showing its old status for a moment during a
+  lock or unlock, and missing a jam, when its periodic status check came while
+  the bolt was still moving
 
 ### Changed
 
