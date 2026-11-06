@@ -329,7 +329,7 @@ H.test("a tag removed and added again while home starts away", function()
   T.eq("its kept state is away", persist:get("PresenceStates").device_020000000001, "OPENED")
 end)
 
-H.test("Reset Driver removes every room, one with no proxy left included, and forgets every presence state told", function()
+H.test("Reset Driver removes every room and forgets every presence state told", function()
   H.boot(nil, function()
     persist:set("PresenceDevices", { [MAC] = { mac = MAC, name = "Test Tag" } })
     persist:delete("PresenceStates")
