@@ -108,6 +108,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   unknown, with its Open and Closed contacts both closed, and ignoring Open,
   Close and Stop; its state and commands now use the position ESPHome reports
   and takes
+- Fixed an ESPHome switch, climate device or water heater that had not reported
+  a state yet reading as off, or with its default settings, on ESPHome 2026.9 or
+  later; it now waits for the device's first state, as sensors do
 
 ### Changed
 
