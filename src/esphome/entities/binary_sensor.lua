@@ -2,12 +2,21 @@ local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local values = require("lib.values")
 local ESPHomeClient = require("esphome.client")
+local StateTell = require("esphome.state_tell")
+
+--- ESPHome re-sends every state at each reconnect, so only a change fires programming.
+local told = StateTell:new("BinarySensorStates")
 
 --- @class BinarySensorEntity:Entity
 local BinarySensorEntity = {
   TYPE = ESPHomeClient.EntityType.BINARY_SENSOR,
 }
 BinarySensorEntity.__index = BinarySensorEntity
+
+--- Forget the states told (driver reset).
+function BinarySensorEntity.clearNotifiedState()
+  told:reset()
+end
 
 --- Create a new instance of the binary sensor entity.
 --- @param client ESPHomeClient The ESPHome client instance.
@@ -46,7 +55,7 @@ function BinarySensorEntity:updated(entity, state)
 
   local binding = bindings:getDynamicBinding(self.TYPE, "binary_sensor_" .. entity.ref)
   if binding ~= nil then
-    SendToProxy(binding.bindingId, value and "CLOSED" or "OPENED", {}, "NOTIFY")
+    told:tell(entity.ref, binding.bindingId, value and "CLOSED" or "OPENED")
   end
 end
 

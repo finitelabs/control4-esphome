@@ -6,6 +6,7 @@ local events = require("lib.events")
 local values = require("lib.values")
 local bindings = require("lib.bindings")
 local proxyRegistry = require("esphome.ble.coordinator.proxy_registry")
+local StateTell = require("esphome.state_tell")
 
 --- @class PresenceDeviceConfig
 --- @field mac string MAC address
@@ -92,6 +93,8 @@ function PresenceTracker:new()
   instance._roomBindings = {}
   instance._deviceBindings = {}
   instance._roomNames = {}
+  -- Presence starts unknown at each load, so the state told before decides what is a change.
+  instance._told = StateTell:new("PresenceStates")
 
   return instance
 end
@@ -139,6 +142,8 @@ function PresenceTracker:trackDevice(mac, config)
     pendingTransition = nil,
     isHome = false,
   }
+  -- A device first tracked starts away; one tracked again after a restart keeps what was told.
+  self._told:assume("device_" .. mac:gsub(":", ""), "OPENED")
 
   local uniqueName = makeUniqueName(config.name, mac)
 
@@ -190,6 +195,7 @@ function PresenceTracker:untrackDevice(mac)
     bindings:deleteBinding(BINDINGS_NAMESPACE, "device_" .. macKey)
     self._deviceBindings[mac] = nil
   end
+  self._told:forget("device_" .. macKey)
 
   -- Remove events
   events:deleteEvent(NAMESPACE, "device_" .. macKey .. "_home")
@@ -323,6 +329,8 @@ function PresenceTracker:_ensureRoomSetup(roomId, roomName)
 
   -- Initialize occupancy tracking
   self._roomOccupancy[roomId] = {}
+  -- A room first set up starts empty; one set up again after a restart keeps what was told.
+  self._told:assume("room_" .. tostring(roomId), "OPENED")
 
   -- Store room name for cleanup
   self._roomNames[roomId] = roomName
@@ -366,6 +374,7 @@ function PresenceTracker:_cleanupRoom(roomId)
 
   -- Remove occupancy tracking
   self._roomOccupancy[roomId] = nil
+  self._told:forget("room_" .. tostring(roomId))
 
   -- Remove room name tracking
   self._roomNames[roomId] = nil
@@ -831,10 +840,7 @@ function PresenceTracker:_onDeviceAway(mac, name, previousRoom, previousRoomId)
   end
 
   -- Update device binding (contact sensor: OPENED = not present)
-  local bindingId = self._deviceBindings[mac]
-  if bindingId then
-    SendToProxy(bindingId, "OPENED", {}, "NOTIFY")
-  end
+  self._told:tell("device_" .. macKey, self._deviceBindings[mac], "OPENED")
 end
 
 --- Handle device coming home
@@ -846,12 +852,9 @@ function PresenceTracker:_onDeviceHome(mac, name)
   log:info("Device %s (%s) has arrived home", name, mac)
 
   local macKey = mac:gsub(":", "")
-  events:fire(NAMESPACE, "device_" .. macKey .. "_home")
-
   -- Update device binding (contact sensor: CLOSED = present)
-  local bindingId = self._deviceBindings[mac]
-  if bindingId then
-    SendToProxy(bindingId, "CLOSED", {}, "NOTIFY")
+  if self._told:tell("device_" .. macKey, self._deviceBindings[mac], "CLOSED") then
+    events:fire(NAMESPACE, "device_" .. macKey .. "_home")
   end
 end
 
@@ -864,8 +867,6 @@ function PresenceTracker:_updateRoomOccupancy(roomId, mac, present)
   if not self._roomOccupancy[roomId] then
     self._roomOccupancy[roomId] = {}
   end
-
-  local wasPreviouslyOccupied = next(self._roomOccupancy[roomId]) ~= nil
 
   if present then
     self._roomOccupancy[roomId][mac] = true
@@ -903,21 +904,10 @@ function PresenceTracker:_updateRoomOccupancy(roomId, mac, present)
     values:update(uniqueRoomName .. " Occupants", table.concat(occupantNames, ", "), "STRING")
   end
 
-  -- Update room binding
-  local bindingId = self._roomBindings[roomId]
-  if bindingId then
-    if isNowOccupied then
-      SendToProxy(bindingId, "CLOSED", {}, "NOTIFY") -- Occupied
-    else
-      SendToProxy(bindingId, "OPENED", {}, "NOTIFY") -- Empty
-    end
-  end
-
-  -- Fire room events on transition
-  if not wasPreviouslyOccupied and isNowOccupied then
-    events:fire(NAMESPACE, "room_" .. tostring(roomId) .. "_occupied")
-  elseif wasPreviouslyOccupied and not isNowOccupied then
-    events:fire(NAMESPACE, "room_" .. tostring(roomId) .. "_empty")
+  -- Update room binding (contact sensor: CLOSED = occupied), and fire the room event on a change
+  local key = "room_" .. tostring(roomId)
+  if self._told:tell(key, self._roomBindings[roomId], isNowOccupied and "CLOSED" or "OPENED") then
+    events:fire(NAMESPACE, key .. (isNowOccupied and "_occupied" or "_empty"))
   end
 end
 

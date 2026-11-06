@@ -23,6 +23,7 @@ local persist = require("lib.persist")
 local values = require("lib.values")
 local UUID = require("esphome.ble.uuid")
 local protocol = require("esphome.ble.serenescent_protocol")
+local StateTell = require("esphome.state_tell")
 
 --- Update the Driver Status property and the Connected variable so
 --- Programming can react to connect/disconnect.
@@ -136,10 +137,8 @@ local initialStatusTriggered = false
 --- @type integer
 local lastAdvProcessedAt = 0
 
---- Last power state sent to the relay this session. In-memory on purpose: a
---- driver restart clears it, so the bound consumer is re-notified.
---- @type boolean|nil
-local lastNotifiedPower = nil
+--- The power state told to the relay, so only a change fires programming after a restart.
+local told = StateTell:new("RelayStates")
 
 --------------------------------------------------------------------------------
 -- Device State
@@ -155,13 +154,11 @@ local function loadState()
   }
 end
 
---- Notify the relay consumer of the power state, once per change this session.
+--- Tell the relay consumer the power state.
 local function notifyRelay()
-  if state.power == nil or lastNotifiedPower == state.power then
-    return
+  if state.power ~= nil then
+    told:tell("power", RELAY_BINDING, state.power and "CLOSED" or "OPENED")
   end
-  lastNotifiedPower = state.power
-  SendToProxy(RELAY_BINDING, state.power and "CLOSED" or "OPENED", {}, "NOTIFY")
 end
 
 --- Mirror the last reported status into properties, variables and the relay.
@@ -886,7 +883,7 @@ OBC[ESPHOME_BINDING] = function(idBinding, strClass, bIsBound, otherDeviceId)
   resetConnectionState()
   CancelTimer("PollCycle")
   initialStatusTriggered = false
-  lastNotifiedPower = nil
+  told:clear()
 
   if bIsBound then
     updateStatus("Waiting for data", false)
@@ -968,7 +965,7 @@ function EC.Reset_Driver(params)
   persist:delete("deviceState")
   state = {}
   initialStatusTriggered = false
-  lastNotifiedPower = nil
+  told:reset()
 
   for propName, defaultValue in pairs(GetPropertyResetValues({ "Driver Status", "Driver Version" })) do
     UpdateProperty(propName, defaultValue, true)

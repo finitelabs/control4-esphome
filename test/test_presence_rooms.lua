@@ -232,4 +232,27 @@ H.test("deselecting it while it is in a room empties the room", function()
   T.eq("the Living Room's binding opens", sentTo("OPENED", "room_12"), 1)
 end)
 
+H.test("a device home in the Kitchen before a restart, seen there again, fires nothing", function()
+  H.boot(nil, function()
+    persist:set("PresenceDevices", { [MAC] = { mac = MAC, name = "Test Tag" } })
+    persist:set("PresenceStates", { device_020000000001 = "CLOSED", room_11 = "CLOSED" })
+    -- A restart starts a fresh Lua VM, so the tracker remembers nothing of this one.
+    package.loaded["esphome.ble.coordinator.presence_tracker"] = nil
+  end)
+  for proxy, room in pairs({ [KITCHEN] = { "11", "Kitchen" }, [LIVING_ROOM] = { "12", "Living Room" } }) do
+    OnBindingChanged(PROXIES, "ESPHOME_BLUETOOTH", true, proxy, 1)
+    H.rfp(PROXIES, "PROXY_CONNECTED", { proxyId = tostring(proxy), roomId = room[1], roomName = room[2] })
+  end
+  fired = {}
+  H.clearSent()
+
+  stay(7, -50, -80)
+  T.eq("it is in the Kitchen", H.variable("Presence " .. TAG .. " Room"), "Kitchen")
+  T.eq("no Home or Occupied event fires", fired, { TAG .. " Entered Room", "Any Device Entered Room" })
+  T.eq("its Present binding is told silently", sentTo("STATE_CLOSED", "device_020000000001"), 1)
+  T.eq("not as a change", sentTo("CLOSED", "device_020000000001"), 0)
+  T.eq("the Kitchen's binding is told silently", sentTo("STATE_CLOSED", "room_11"), 1)
+  T.eq("not as a change", sentTo("CLOSED", "room_11"), 0)
+end)
+
 T.finish()

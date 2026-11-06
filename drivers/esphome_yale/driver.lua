@@ -24,6 +24,7 @@ local persist = require("lib.persist")
 local constants = require("constants")
 local UUID = require("esphome.ble.uuid")
 local yale_protocol = require("esphome.ble.yale_protocol")
+local StateTell = require("esphome.state_tell")
 local http = require("lib.http")
 
 --- Update the Driver Status property and the Connected variable so
@@ -654,15 +655,11 @@ local function updateLockStatus(status)
   SendToProxy(PROXY_BINDING, "LOCK_STATUS_CHANGED", { LOCK_STATUS = status }, "NOTIFY")
 end
 
---- Last door status notified this session. In-memory on purpose: a driver
---- restart clears it, so the bound consumer is re-notified even when the
---- status matches the persisted variable.
---- @type string|nil
-local lastNotifiedDoorStatus = nil
+--- The door status told, so only a change fires programming after a restart.
+local doorTold = StateTell:new("DoorStates")
 
---- Register a bind-time seeder on the door contact binding that sends the
---- last known door status to a newly bound consumer. The send bypasses the
---- notify memo, matching the sensor value seed. No-op if the binding is gone.
+--- Register a bind-time seeder on the door contact binding that tells a newly
+--- bound consumer the last known door status, silently. No-op if the binding is gone.
 local function registerDoorContactSeeder()
   local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "door")
   if not binding then
@@ -675,7 +672,7 @@ local function registerDoorContactSeeder()
     end
     local doorStatus = Select(values:getValue("Door Status"), "value")
     if not IsEmpty(doorStatus) then
-      SendToProxy(binding.bindingId, doorStatus, {}, "NOTIFY")
+      SendToProxy(binding.bindingId, "STATE_" .. doorStatus, {}, "NOTIFY")
     end
   end
 end
@@ -698,32 +695,26 @@ local function setDoorSenseConfigured(configured)
   else
     log:info("DoorSense not configured - removing contact sensor binding")
     bindings:deleteBinding(BINDINGS_NAMESPACE, "door")
-    -- The binding is gone; drop the memo so a later DoorSense redetection
-    -- re-notifies the recreated binding instead of deduping against it.
-    lastNotifiedDoorStatus = nil
+    -- The binding is gone, so a recreated one starts with nothing told.
+    doorTold:reset()
     UpdateProperty("Door Status", "")
     C4:SetPropertyAttribs("Door Status", constants.HIDE_PROPERTY)
   end
 end
 
---- Update the door status and notify dynamic contact sensor binding.
---- Deduplicates within the session: only sends a proxy notification when the
---- status changes or on the first reading after a driver start.
+--- Update the door status and tell the dynamic contact sensor binding.
 --- @param doorStatus string "CLOSED" or "OPENED"
 local function updateDoorStatus(doorStatus)
   setDoorSenseConfigured(true)
 
-  values:update("Door Status", doorStatus)
-  if lastNotifiedDoorStatus == doorStatus then
-    return
+  if Select(values:getValue("Door Status"), "value") ~= doorStatus then
+    log:info("Door status: %s", doorStatus)
   end
-  lastNotifiedDoorStatus = doorStatus
-
-  log:info("Door status: %s", doorStatus)
+  values:update("Door Status", doorStatus)
 
   local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "door")
   if binding then
-    SendToProxy(binding.bindingId, doorStatus, {}, "NOTIFY")
+    doorTold:tell("door", binding.bindingId, doorStatus)
   end
 end
 
@@ -2328,9 +2319,7 @@ function EC.Reset_Driver(params)
   initialStatusTriggered = false
   expectedDisconnect = false
   doorSenseConfigured = nil
-  -- Clear the in-memory notify memo so a recreated contact binding receives
-  -- the next door status
-  lastNotifiedDoorStatus = nil
+  doorTold:reset()
 
   -- Restore connection mode from property
   connectionMode = Properties["Connection Mode"] or CONNECTION_MODE.POLL

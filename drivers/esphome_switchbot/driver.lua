@@ -23,6 +23,7 @@ local persist = require("lib.persist")
 local constants = require("constants")
 local UUID = require("esphome.ble.uuid")
 local SwitchBot = require("esphome.ble.parsers.switchbot")
+local StateTell = require("esphome.state_tell")
 local http = require("lib.http")
 
 --- Update the Driver Status property and the Connected variable so
@@ -586,23 +587,17 @@ local function isBotSwitchMode()
   return Select(values:getValue("Mode"), "value") == "Switch"
 end
 
---- Last Bot state notified this session. In-memory on purpose: a driver
---- restart clears it, so the bound consumer is re-notified.
---- @type boolean|nil
-local lastNotifiedBotState = nil
+--- Relay and contact states told, so only a change fires programming after a restart.
+local told = StateTell:new("RelayContactStates")
 
 --- Set the Bot state and notify bound consumers
 --- @param isOn boolean Whether the Bot is on
 local function setBotState(isOn)
   log:trace("setBotState(%s)", isOn)
   values:update("State", isOn and "On" or "Off", "STRING")
-  -- Deduped in memory so a driver restart re-notifies the bound consumer.
-  if lastNotifiedBotState ~= isOn then
-    local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "botRelay")
-    if binding then
-      lastNotifiedBotState = isOn
-      SendToProxy(binding.bindingId, isOn and "CLOSED" or "OPENED", {}, "NOTIFY")
-    end
+  local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "botRelay")
+  if binding then
+    told:tell("botRelay", binding.bindingId, isOn and "CLOSED" or "OPENED")
   end
 
   -- Press mode safety: auto-revert to OFF after a timeout in case the normal
@@ -637,24 +632,14 @@ local function getChannel1State()
   return Select(values:getValue("Channel 1 State"), "value") == "On"
 end
 
---- Last channel states notified this session, keyed by binding key. In-memory
---- on purpose: a driver restart clears them, so bound consumers are
---- re-notified even when the state matches the persisted variable.
---- @type table<string, boolean>
-local lastNotifiedChannelState = {}
-
 --- Set the Channel 1 state and notify bound consumers
 --- @param isOn boolean Whether Channel 1 is on
 local function setChannel1State(isOn)
   log:trace("setChannel1State(%s)", isOn)
   values:update("Channel 1 State", isOn and "On" or "Off", "STRING")
-  -- Deduped in memory so a driver restart re-notifies the bound consumer.
-  if lastNotifiedChannelState.channel1 ~= isOn then
-    local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "channel1")
-    if binding then
-      lastNotifiedChannelState.channel1 = isOn
-      SendToProxy(binding.bindingId, isOn and "CLOSED" or "OPENED", {}, "NOTIFY")
-    end
+  local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "channel1")
+  if binding then
+    told:tell("channel1", binding.bindingId, isOn and "CLOSED" or "OPENED")
   end
 end
 
@@ -673,13 +658,9 @@ local function setChannel2State(isOn)
     return
   end
   values:update("Channel 2 State", isOn and "On" or "Off", "STRING")
-  -- Deduped in memory so a driver restart re-notifies the bound consumer.
-  if lastNotifiedChannelState.channel2 ~= isOn then
-    local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "channel2")
-    if binding then
-      lastNotifiedChannelState.channel2 = isOn
-      SendToProxy(binding.bindingId, isOn and "CLOSED" or "OPENED", {}, "NOTIFY")
-    end
+  local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "channel2")
+  if binding then
+    told:tell("channel2", binding.bindingId, isOn and "CLOSED" or "OPENED")
   end
 end
 
@@ -967,13 +948,7 @@ local function getOrCreateContactBinding(contactType)
   return binding
 end
 
---- Last contact states notified this session, keyed by contact type.
---- In-memory on purpose: a driver restart clears them, so bound consumers are
---- re-notified even when the state matches the last persisted reading.
---- @type table<string, boolean>
-local lastNotifiedContactState = {}
-
---- Send contact sensor state (only on state change this session)
+--- Send contact sensor state, as a change only when it changed
 --- @param contactType ContactType
 --- @param isActive boolean
 local function sendContactState(contactType, isActive)
@@ -988,24 +963,14 @@ local function sendContactState(contactType, isActive)
     return
   end
 
-  -- Deduped in memory so a driver restart re-notifies bound consumers.
-  if lastNotifiedContactState[contactType] == isActive then
-    return
-  end
-  lastNotifiedContactState[contactType] = isActive
-
   local event = isActive and config.closedEvent or config.openEvent
-  log:debug("Sending %s to contact binding %s (state changed)", event, binding.bindingId)
-  SendToProxy(binding.bindingId, event, {}, "NOTIFY")
+  log:debug("Telling %s to contact binding %s", event, binding.bindingId)
+  told:tell(contactType, binding.bindingId, event)
 end
 
---- Clear the in-memory notify memos so the next reading re-notifies bound
---- consumers. Called wherever persisted state is cleared to force a resync
---- (ESPHome rebind, driver reset).
+--- Forget what was told this load, so the next reading is told again (ESPHome rebind).
 local function clearNotifiedState()
-  lastNotifiedBotState = nil
-  lastNotifiedChannelState = {}
-  lastNotifiedContactState = {}
+  told:clear()
 end
 
 --- Get or create a button binding
@@ -2893,7 +2858,7 @@ function EC.Reset_Driver(params)
 
   -- Reset sensor state tracking
   persist:set("previousState", {})
-  clearNotifiedState()
+  told:reset()
 
   -- Reset device identification
   deviceType = nil

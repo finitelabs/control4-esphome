@@ -3,12 +3,10 @@ local bindings = require("lib.bindings")
 local values = require("lib.values")
 local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
+local StateTell = require("esphome.state_tell")
 
---- Last contact state notified per binding this session. In-memory on
---- purpose: a driver restart clears it, so bound consumers are re-notified
---- even when the state matches the persisted variable.
---- @type table<string, string>
-local lastNotified = {}
+--- ESPHome re-sends every state at each reconnect, so only a change fires programming.
+local told = StateTell:new("CoverContactStates")
 
 --- @class CoverEntity:Entity
 local CoverEntity = {
@@ -16,15 +14,13 @@ local CoverEntity = {
 }
 CoverEntity.__index = CoverEntity
 
---- Clear the in-memory notify memo so the next state dump re-notifies bound
---- consumers (driver reset).
+--- Forget the contact states told (driver reset).
 function CoverEntity.clearNotifiedState()
-  lastNotified = {}
+  told:reset()
 end
 
---- Register a bind-time seeder that sends the last known contact state to a
---- newly bound consumer. The send bypasses the notify memo, matching the
---- sensor value seed.
+--- Register a bind-time seeder that tells a newly bound consumer the last known
+--- contact state, silently.
 --- @param bindingId number The contact binding ID.
 --- @param valueName string The values key holding the contact state.
 local function registerContactSeeder(bindingId, valueName)
@@ -35,7 +31,7 @@ local function registerContactSeeder(bindingId, valueName)
     end
     local state = Select(values:getValue(valueName), "value")
     if not IsEmpty(state) then
-      SendToProxy(bindingId, state, {}, "NOTIFY")
+      SendToProxy(bindingId, "STATE_" .. state, {}, "NOTIFY")
     end
   end
 end
@@ -244,24 +240,17 @@ function CoverEntity:updated(entity, state)
 
   values:update(entity.name .. " State", stateString, "STRING")
 
-  -- Update the cover state contacts (only notify when state changes)
   local coverOpenBinding = bindings:getDynamicBinding(self.TYPE, "cover_open_" .. entity.ref)
   if coverOpenBinding ~= nil then
     local coverOpenState = coverOpen and "CLOSED" or "OPENED"
     values:update(entity.name .. " Open", coverOpenState)
-    if lastNotified["open_" .. entity.ref] ~= coverOpenState then
-      lastNotified["open_" .. entity.ref] = coverOpenState
-      SendToProxy(coverOpenBinding.bindingId, coverOpenState, {}, "NOTIFY")
-    end
+    told:tell("open_" .. entity.ref, coverOpenBinding.bindingId, coverOpenState)
   end
   local coverClosedBinding = bindings:getDynamicBinding(self.TYPE, "cover_closed_" .. entity.ref)
   if coverClosedBinding ~= nil then
     local coverClosedState = coverClosed and "CLOSED" or "OPENED"
     values:update(entity.name .. " Closed", coverClosedState)
-    if lastNotified["closed_" .. entity.ref] ~= coverClosedState then
-      lastNotified["closed_" .. entity.ref] = coverClosedState
-      SendToProxy(coverClosedBinding.bindingId, coverClosedState, {}, "NOTIFY")
-    end
+    told:tell("closed_" .. entity.ref, coverClosedBinding.bindingId, coverClosedState)
   end
 end
 

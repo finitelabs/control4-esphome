@@ -281,6 +281,7 @@ end
 --- A fresh install: nothing persisted from an earlier run.
 local function install()
   persist:delete("deviceState")
+  persist:delete("RelayStates")
   values:reset()
   boot()
 end
@@ -985,12 +986,13 @@ test("a second tap after the coalescing window acts again; DO_RELEASE never does
   T.check("on, then off", T.deepEqual(got, { F.POWER_ON, F.POWER_OFF, F.STATUS_HOME }), T.show(got))
 end)
 
-test("the relay drives power and reports it once per change", function()
+test("the relay drives power and fires programming only for a change", function()
   install()
   readStatus(statusFrame({ power = 0 }))
-  T.eq("the first reading after a start notifies the relay", count("OPENED", RELAY), 1)
+  T.eq("the first reading after an install tells the relay silently", count("STATE_OPENED", RELAY), 1)
+  T.eq("and fires nothing", count("OPENED", RELAY), 0)
   readStatus(statusFrame({ power = 0 }))
-  T.eq("an unchanged reading does not", count("OPENED", RELAY), 1)
+  T.eq("an unchanged reading tells nothing", count("STATE_OPENED", RELAY) + count("OPENED", RELAY), 1)
   readStatus()
   T.eq("a change does", count("CLOSED", RELAY), 1)
 
@@ -1029,16 +1031,16 @@ test("a newly bound relay consumer is seeded with the last known state", functio
   T.eq("STATE_CLOSED once the diffuser is known to be on", count("STATE_CLOSED", RELAY), 1)
 end)
 
-test("a restart re-notifies the relay and toggles from the persisted state", function()
+test("a restart tells the relay an unchanged reading silently and toggles from the persisted state", function()
   install()
   readStatus()
-  T.eq("CLOSED in the first session", count("CLOSED", RELAY), 1)
+  T.eq("STATE_CLOSED in the first session", count("STATE_CLOSED", RELAY), 1)
 
   clearTimers()
   dofile(DRIVER)
   sent = {}
   ShimLateInit()
-  T.eq("persisted state is not replayed at boot", count("CLOSED", RELAY), 0)
+  T.eq("persisted state is not replayed at boot", count("STATE_CLOSED", RELAY) + count("CLOSED", RELAY), 0)
   T.eq("the boot asks the proxy for a refresh", count("REFRESH_STATE", ESPHOME), 1)
   sent = {}
   command("Toggle Power")
@@ -1046,7 +1048,20 @@ test("a restart re-notifies the relay and toggles from the persisted state", fun
   T.check("toggle uses the persisted power state", T.deepEqual(writes(), { F.POWER_OFF }), T.show(writes()))
   notify(ack(0x11))
   notify(CAPTURED)
-  T.eq("the first reading after the restart notifies again", count("CLOSED", RELAY), 1)
+  T.eq("the first reading after the restart is told silently", count("STATE_CLOSED", RELAY), 1)
+  T.eq("and fires nothing", count("CLOSED", RELAY), 0)
+end)
+
+test("a reading that differs from the one told before a restart fires programming", function()
+  install()
+  readStatus()
+  clearTimers()
+  dofile(DRIVER)
+  ShimLateInit()
+  sent = {}
+  readStatus(statusFrame({ power = 0 }))
+  T.eq("the diffuser was turned off while the driver was down: OPENED", count("OPENED", RELAY), 1)
+  T.eq("not the silent form", count("STATE_OPENED", RELAY), 0)
 end)
 
 test("unbinding and rebinding the ESPHome connection starts over", function()
