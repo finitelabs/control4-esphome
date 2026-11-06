@@ -8,18 +8,13 @@
 #             driver pairs them without setup in Composer
 #
 # Usage: put a secrets.yaml next to this file (never commit it) with
-# wifi_ssid, wifi_password, ota_password, web_server_username and
-# web_server_password, then flash the first time over USB:
+# wifi_ssid, wifi_password, ap_password, ota_password, web_server_username
+# and web_server_password, then flash the first time over USB:
 #   esphome run test/waveshare_touch_lcd_4b.yaml --device /dev/cu.usbmodemXXXX
 # If no port shows up, hold BOOT while plugging in USB-C.
 #
-# Wiring (Waveshare BSP waveshare/esp32_s3_touch_lcd_4b 2.0.0):
-#   I2C SDA GPIO47, SCL GPIO48: TCA9554 expander (0x20), GT911 touch
-#   TCA9554 EXIO0 LCD SPI CS, EXIO1 LCD SPI SDA, EXIO2 LCD SPI SCL,
-#           EXIO3 speaker amp, EXIO5 LCD + touch reset
-#   Backlight GPIO4, PWM active low
-#   RGB565: DE 17, PCLK 9, HSYNC 46, VSYNC 3,
-#           B0-4 40 41 42 2 1, G0-5 21 8 18 45 38 39, R0-4 10 11 12 13 14
+# Pins and init values from Waveshare's BSP (waveshare/esp32_s3_touch_lcd_4b 2.0.0).
+# EXIO5 resets the GT911 as well as the panel.
 
 esphome:
   name: waveshare-touch-lcd-4b
@@ -53,13 +48,12 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   ap:
+    password: !secret ap_password
 
 captive_portal:
 
 api:
   reboot_timeout: 0s
-#  encryption:
-#    key: !secret api_encryption_key
 
 ota:
   - platform: esphome
