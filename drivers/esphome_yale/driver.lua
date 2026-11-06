@@ -194,6 +194,14 @@ local gattWriteQueue = {}
 --- @type string|nil "locked", "unlocked", etc.
 local currentLockStatus = nil
 
+--- The LOCK_STATUS last told the proxy, or the one it showed at late init
+--- @type string|nil
+local toldStatus = nil
+
+-- The proxy's LockStatus variable, and the statuses it shows.
+local PROXY_STATUS_VARIABLE = 1000
+local SHOWN = { locked = true, unlocked = true, fault = true }
+
 --- Whether DoorSense is detected as configured on the lock
 --- @type boolean|nil nil = unknown, true = configured, false = not configured
 local doorSenseConfigured = nil
@@ -646,13 +654,36 @@ end
 -- Lock Status Updates
 --------------------------------------------------------------------------------
 
---- Update the lock status and notify the proxy
+--- Update the lock status and tell the proxy: a status it does not show yet
+--- initializes it, which writes no history; after that, only a change is told
 --- @param status string C4 lock status ("locked", "unlocked", "fault")
 local function updateLockStatus(status)
-  log:info("Lock status: %s", status)
   currentLockStatus = status
   UpdateProperty("Lock Status", status)
-  SendToProxy(PROXY_BINDING, "LOCK_STATUS_CHANGED", { LOCK_STATUS = status }, "NOTIFY")
+  if toldStatus == nil then
+    if SHOWN[status] then
+      toldStatus = status
+      SendToProxy(PROXY_BINDING, "LOCK_STATUS_INITIALIZE", { LOCK_STATUS = status }, "NOTIFY")
+    end
+  elseif status ~= toldStatus then
+    log:info("Lock status: %s", status)
+    toldStatus = status
+    SendToProxy(PROXY_BINDING, "LOCK_STATUS_CHANGED", { LOCK_STATUS = status }, "NOTIFY")
+  end
+end
+
+--- At late init, take what the proxy shows as told. A proxy that shows no status
+--- is initialized with the status kept.
+local function initLockStatus()
+  local ok, shown = pcall(function()
+    return C4:GetDeviceVariable(C4:GetProxyDevices(), PROXY_STATUS_VARIABLE)
+  end)
+  if ok and SHOWN[shown] then
+    toldStatus = shown
+  elseif SHOWN[currentLockStatus] then
+    toldStatus = currentLockStatus
+    SendToProxy(PROXY_BINDING, "LOCK_STATUS_INITIALIZE", { LOCK_STATUS = currentLockStatus }, "NOTIFY")
+  end
 end
 
 local doorTold = StateTell:new("DoorStates")
@@ -958,8 +989,8 @@ function executePendingCommand()
 
   if (cmd == "lock" or cmd == "unlock") and os.time() - commandRequestedAt > COMMAND_MAX_AGE_S then
     log:warn("Dropping %s requested %ds ago", cmd, os.time() - commandRequestedAt)
+    -- The lock never saw it, so its status stands.
     updateStatus(cmd == "lock" and "Error: Lock expired" or "Error: Unlock expired", true)
-    updateLockStatus("fault")
     cmd = "status"
   end
 
@@ -1651,9 +1682,7 @@ function OnDriverLateInit()
     currentLockStatus = savedStatus
   end
 
-  -- Set initial lock status so the proxy doesn't show "?"
-  local initialStatus = currentLockStatus or "unknown"
-  SendToProxy(PROXY_BINDING, "LOCK_STATUS_CHANGED", { LOCK_STATUS = initialStatus }, "NOTIFY")
+  initLockStatus()
 
   -- Restore DoorSense state from persisted bindings
   local doorBinding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "door")
@@ -1935,9 +1964,6 @@ function RFP.BLE_ADVERTISEMENT(idBinding, strCommand, tParams, args)
   if driverStatus == "Disconnected" then
     updateStatus("Listening", false)
     SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
-    if currentLockStatus then
-      SendToProxy(PROXY_BINDING, "LOCK_STATUS_CHANGED", { LOCK_STATUS = currentLockStatus }, "NOTIFY")
-    end
   end
 
   -- Mode-specific connection logic

@@ -1147,6 +1147,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   them
 - Fixed the Bluetooth Coordinator starting on a controller below its minimum OS;
   it now shows that it is disabled, as the other drivers do
+- Fixed locks adding a history line and running their programming for a status
+  that had not changed: at each status check, after a driver start, a reconnect
+  or a bind, and when a lock or unlock was dropped for waiting too long. A fan
+  no longer tells Control4 it turned on or off after a driver start or a
+  reconnect when it had not
 
 ### Changed
 

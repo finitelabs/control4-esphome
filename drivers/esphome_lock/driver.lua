@@ -36,8 +36,15 @@ end
 local PROXY_BINDING = 5001
 local ESPHOME_BINDING = 5002
 
+-- The proxy's LockStatus variable, and the statuses it shows.
+local PROXY_STATUS_VARIABLE = 1000
+local SHOWN = { locked = true, unlocked = true, fault = true }
+
 local ENTITY
 local STATE -- leaving this explicitly nil so we can distinguish driver init from "unknown"
+local toldStatus -- the LOCK_STATUS last sent, which an outage leaves standing
+local shownRead -- whether the proxy's status was read since the load: what it shows is told it already
+local shownStatus -- the status the proxy showed at that read, which the first known status takes as told
 
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
@@ -275,6 +282,39 @@ local function convertLockStateToStatus(lockState)
   return "unknown"
 end
 
+--- Read what the proxy shows, once a load.
+local function readShown()
+  shownRead = true
+  local ok, status = pcall(function()
+    return C4:GetDeviceVariable(C4:GetProxyDevices(), PROXY_STATUS_VARIABLE)
+  end)
+  if ok and SHOWN[status] then
+    shownStatus = status
+  end
+end
+
+--- Tell the proxy a status. One it does not show initializes it, which fires no lock event or history; after
+--- that, only a change is told.
+--- @param status string
+local function tellStatus(status)
+  if not shownRead then
+    readShown()
+  end
+  if toldStatus == nil and status ~= "unknown" then
+    toldStatus, shownStatus = shownStatus, nil
+    if toldStatus == nil then
+      toldStatus = status
+      SendToProxy(PROXY_BINDING, "LOCK_STATUS_INITIALIZE", { LOCK_STATUS = status }, "NOTIFY")
+      return
+    end
+  end
+  if toldStatus ~= nil and status ~= toldStatus then
+    log:debug("Status changed from %s -> %s", toldStatus, status)
+    toldStatus = status
+    SendToProxy(PROXY_BINDING, "LOCK_STATUS_CHANGED", { LOCK_STATUS = status }, "NOTIFY")
+  end
+end
+
 function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   log:trace("RFP.UPDATE_DISCONNECT(%s, %s)", idBinding, strCommand)
   if idBinding ~= ESPHOME_BINDING then
@@ -303,19 +343,12 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   log:trace("Entity: %s", entity)
   log:trace("State: %s", state)
 
-  -- Pull the state from the state table, or default to false if not set.
-  local oldStatus = nil
-  if STATE ~= nil then
-    oldStatus = convertLockStateToStatus(Select(STATE, "state"))
-  end
-  local newStatus = convertLockStateToStatus(Select(state, "state"))
-
-  if oldStatus ~= newStatus then
+  -- The first report since a load, bind or disconnect brings the lock online.
+  if STATE == nil then
     updateStatus("Connected", true)
     SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
-    log:debug("State changed from %s -> %s", oldStatus, newStatus)
-    SendToProxy(PROXY_BINDING, "LOCK_STATUS_CHANGED", { LOCK_STATUS = newStatus }, "NOTIFY")
   end
+  tellStatus(convertLockStateToStatus(Select(state, "state")))
 
   ENTITY = entity
   STATE = state
@@ -327,6 +360,11 @@ OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   STATE = nil
   -- Otherwise the proxy stays online with nothing to report to it.
   if not isBound then
+    -- The lock bound next may be another: its status initializes the proxy, which still shows this one's.
+    toldStatus = nil
+    if gInitialized then
+      shownRead, shownStatus = true, nil
+    end
     updateStatus("Disconnected", false)
     SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   end

@@ -11,7 +11,8 @@
 --- failure, and a queued lock or unlock retried as a status read.
 ---
 --- A lock or unlock tapped more than 60s before it would be written, retries
---- included, is dropped and reported as a fault rather than run late.
+--- included, is dropped rather than run late. The lock never saw it, so the proxy
+--- is told no status for it; Driver Status says why.
 ---
 --- Run from the driver root:
 ---   make test
@@ -716,8 +717,8 @@ for _, mode in ipairs({
       now = 1061
       session()
       T.eq("a status read goes out instead", lastCommand(), yale_protocol.Opcode.GET_STATUS)
-      T.eq("the proxy is told the command failed", lastLockStatus(), "fault")
-      T.eq("as is Lock Status", Properties["Lock Status"], "fault")
+      T.eq("the proxy is told no status for it", lastLockStatus(), nil)
+      T.eq("nor is Lock Status", Properties["Lock Status"] ~= "fault", true)
       T.eq("and Driver Status says why", Properties["Driver Status"], "Error: Unlock expired")
     end)
   end)
@@ -736,7 +737,7 @@ H.test("Persistent: a lock retried after the connect timeout is dropped when the
     H.clearSent()
     session()
     T.eq("a status read goes out instead", lastCommand(), yale_protocol.Opcode.GET_STATUS)
-    T.eq("the proxy is told the command failed", lastLockStatus(), "fault")
+    T.eq("the proxy is told no status for it", lastLockStatus(), nil)
     T.eq("and Driver Status says why", Properties["Driver Status"], "Error: Lock expired")
   end)
 end)

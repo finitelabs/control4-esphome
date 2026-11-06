@@ -47,6 +47,9 @@ local ESPHOME_BINDING = 5002
 ---@diagnostic disable-next-line: undefined-global
 local DISCRETE_LEVELS = __FAN_SPEED_COUNT__
 
+-- The fan proxy's CURRENT_SPEED variable, 0 while it shows the fan off.
+local PROXY_SPEED_VARIABLE = 1001
+
 local ENTITY
 local STATE
 local PRESET_SPEED
@@ -407,6 +410,19 @@ function RFP.GET_CURRENT_STATE(idBinding, strCommand)
   notifyPresetSpeed()
 end
 
+--- Whether the proxy shows the fan on, or nil if that cannot be read.
+--- @return boolean|nil
+local function shownOn()
+  local ok, speed = pcall(function()
+    return C4:GetDeviceVariable(C4:GetProxyDevices(), PROXY_SPEED_VARIABLE)
+  end)
+  speed = ok and tointeger(speed) or nil
+  if speed == nil then
+    return nil
+  end
+  return speed > 0
+end
+
 function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   log:trace("RFP.UPDATE_DISCONNECT(%s, %s)", idBinding, strCommand)
   if idBinding ~= ESPHOME_BINDING then
@@ -435,9 +451,12 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   log:trace("Entity: %s", entity)
   log:trace("State: %s", state)
 
-  local oldIsOn = nil
+  local oldIsOn
   if STATE ~= nil then
     oldIsOn = toboolean(Select(STATE, "state"))
+  else
+    -- After a load, bind or reconnect, what the proxy shows was told already.
+    oldIsOn = shownOn()
   end
   local newIsOn = toboolean(Select(state, "state"))
 
