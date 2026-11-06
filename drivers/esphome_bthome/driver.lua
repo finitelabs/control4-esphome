@@ -908,6 +908,7 @@ function OPC.Log_Level(propertyValue)
   end
 end
 
+OPC.suppressDebug["Bind Key"] = true
 function OPC.Bind_Key(propertyValue)
   log:trace("OPC.Bind_Key('%s')", propertyValue and string.rep("*", #propertyValue) or "nil")
   if not propertyValue or propertyValue == "" then

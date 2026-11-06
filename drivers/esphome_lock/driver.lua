@@ -161,14 +161,15 @@ function OPC.Log_Level(propertyValue)
   end
 end
 
+OPC.suppressDebug["Lock Code"] = true
 function OPC.Lock_Code(propertyValue)
-  log:trace("OPC.Lock_Code('%s')", propertyValue)
+  log:trace("OPC.Lock_Code('%s')", not IsEmpty(propertyValue) and "****" or "")
 end
 
 local function unlock()
   log:trace("unlock()")
   local code = not IsEmpty(Properties["Lock Code"]) and Properties["Lock Code"] or nil
-  SendToProxy(ESPHOME_BINDING, "ENTITY_COMMAND", {
+  SendSecretToProxy(ESPHOME_BINDING, "ENTITY_COMMAND", {
     body = SerializeSafe({
       command = ESPHomeProtoSchema.Enum.LockCommand.LOCK_UNLOCK,
       has_code = code ~= nil,
@@ -180,7 +181,7 @@ end
 local function lock()
   log:trace("lock()")
   local code = not IsEmpty(Properties["Lock Code"]) and Properties["Lock Code"] or nil
-  SendToProxy(ESPHOME_BINDING, "ENTITY_COMMAND", {
+  SendSecretToProxy(ESPHOME_BINDING, "ENTITY_COMMAND", {
     body = SerializeSafe({
       command = ESPHomeProtoSchema.Enum.LockCommand.LOCK_LOCK,
       has_code = code ~= nil,
@@ -193,7 +194,7 @@ end
 local function open()
   log:trace("open()")
   local code = not IsEmpty(Properties["Lock Code"]) and Properties["Lock Code"] or nil
-  SendToProxy(ESPHOME_BINDING, "ENTITY_COMMAND", {
+  SendSecretToProxy(ESPHOME_BINDING, "ENTITY_COMMAND", {
     body = SerializeSafe({
       command = ESPHomeProtoSchema.Enum.LockCommand.LOCK_OPEN,
       has_code = code ~= nil,

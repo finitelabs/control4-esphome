@@ -1186,7 +1186,7 @@ end
 --- @param keyHex string 32-character hex string
 --- @return boolean valid
 local function validateEncryptionKey(keyHex)
-  log:trace("validateEncryptionKey(%s)", keyHex)
+  log:trace("validateEncryptionKey(%s)", not IsEmpty(keyHex) and "****" or "")
   if not keyHex or keyHex == "" then
     return false
   end
@@ -2159,8 +2159,9 @@ function OPC.Key_ID(propertyValue)
   end
 end
 
+OPC.suppressDebug["Encryption Key"] = true
 function OPC.Encryption_Key(propertyValue)
-  log:trace("OPC.Encryption_Key('%s')", propertyValue)
+  log:trace("OPC.Encryption_Key('%s')", not IsEmpty(propertyValue) and "****" or "")
   if IsEmpty(propertyValue) then
     -- Cleared - just update status
     encryptionIV = nil
@@ -2350,6 +2351,7 @@ function OPC.SwitchBot_Username(propertyValue)
   maybeAutoFetchKeys(gInitialized)
 end
 
+OPC.suppressDebug["SwitchBot Password"] = true
 function OPC.SwitchBot_Password(propertyValue)
   log:trace("OPC.SwitchBot_Password('%s')", propertyValue and "***" or "nil")
   maybeAutoFetchKeys(gInitialized)

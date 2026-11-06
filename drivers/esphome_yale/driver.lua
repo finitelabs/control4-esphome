@@ -1785,6 +1785,7 @@ function OPC.Polling_Interval(propertyValue)
   end
 end
 
+OPC.suppressDebug["Offline Key"] = true
 function OPC.Offline_Key(propertyValue)
   log:trace("OPC.Offline_Key('%s')", not IsEmpty(propertyValue) and "****" or "")
   keyRejections = 0
@@ -1805,6 +1806,7 @@ function OPC.Yale_Email(propertyValue)
   end
 end
 
+OPC.suppressDebug["Yale Password"] = true
 function OPC.Yale_Password(propertyValue)
   log:trace("OPC.Yale_Password('%s')", propertyValue and "***" or "nil")
 end

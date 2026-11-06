@@ -84,6 +84,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   only a real change now fires it. Bluetooth presence fires its Home and room
   Occupied events only for a real change too, and a device or room not heard
   again after a restart now reads away or empty once the Away Timeout passes
+- Fixed passwords, keys and lock codes appearing in a driver's log at the higher
+  log levels; they are now left out or masked at every level
 
 ### Changed
 
