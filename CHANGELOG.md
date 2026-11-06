@@ -74,6 +74,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   <!-- #ifdef DRIVERCENTRAL -->
 - Fixed the Bluetooth Coordinator's Driver Status reading Running while the
   license had lapsed; it now reads No active license
+- Fixed an ESPHome driver logging an error every 30 minutes while Automatic
+  Updates was On, and waiting a little longer to reconnect a device each time
   <!-- #endif -->
 - Fixed button link LEDs staying lit when a light was bound to another device
   that reports off
