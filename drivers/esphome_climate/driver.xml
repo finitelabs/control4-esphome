@@ -83,6 +83,18 @@
           <item>Print and Log</item>
         </items>
       </property>
+      <property>
+        <name>Remote Temperature Service</name>
+        <type>DYNAMIC_LIST</type>
+        <default>(Select)</default>
+        <description>ESPHome service called with the remote temperature reading. Selecting a service creates a Remote Temperature Sensor binding for connecting an external C4 sensor.</description>
+      </property>
+      <property>
+        <name>Internal Temperature Service</name>
+        <type>DYNAMIC_LIST</type>
+        <default>None</default>
+        <description>ESPHome service called when reverting to the internal sensor. Leave as None if your device auto-reverts when remote updates stop.</description>
+      </property>
       <!-- #ifdef DRIVERCENTRAL -->
       <property>
         <name>Support Code</name>
@@ -102,18 +114,6 @@
         <description>Sends memory and error reports to Finite Labs so we can fix driver problems.</description>
       </property>
       <!-- #endif -->
-      <property>
-        <name>Remote Temperature Service</name>
-        <type>DYNAMIC_LIST</type>
-        <default>(Select)</default>
-        <description>ESPHome service called with the remote temperature reading. Selecting a service creates a Remote Temperature Sensor binding for connecting an external C4 sensor.</description>
-      </property>
-      <property>
-        <name>Internal Temperature Service</name>
-        <type>DYNAMIC_LIST</type>
-        <default>None</default>
-        <description>ESPHome service called when reverting to the internal sensor. Leave as None if your device auto-reverts when remote updates stop.</description>
-      </property>
     </properties>
     <commands/>
     <actions>

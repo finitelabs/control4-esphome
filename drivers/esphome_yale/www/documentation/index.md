@@ -47,6 +47,7 @@ rejects it.
   - [DriverCentral Cloud Setup](#drivercentral-cloud-setup)
   <!-- #endif -->
   - [Adding the Driver](#adding-the-driver)
+  - [Binding to ESPHome Proxy](#binding-to-esphome-proxy)
   - [Key Setup](#key-setup)
   - [Driver Properties](#driver-properties)
     <!-- #ifdef DRIVERCENTRAL -->
@@ -142,13 +143,9 @@ the Yale app or HomeKit).
 
 ### Persistent
 
-The driver maintains a continuous BLE connection to the lock with a 20-second
-keepalive poll. This provides the lowest latency for status updates but consumes
-more battery and monopolizes the lock's single BLE connection slot.
-
-If the connection drops, the driver automatically reconnects with exponential
-backoff (5s, 10s, 20s, 40s, 80s) for up to 5 attempts. After 5 failures, it
-falls back to listening and waits for the next BLE advertisement to retry.
+The driver keeps a continuous BLE connection to the lock. Status updates arrive
+fastest this way, but the lock uses more battery and its only BLE connection
+slot stays taken. If the connection drops, the driver tries to reconnect.
 
 > **Note:** Yale/August locks only support one active BLE connection at a time.
 > In Persistent mode, the Yale app and HomeKit will be unable to connect to the
@@ -178,19 +175,45 @@ lock status to confirm the operation, and a lock that reports a jam there shows
 
 ## DriverCentral Cloud Setup
 
-After adding the driver, enter your DriverCentral credentials in the Cloud
-Settings section to activate the license and enable automatic updates.
+> If you already have the
+> [DriverCentral Cloud driver](https://drivercentral.io/platforms/control4-drivers/utility/drivercentral-cloud-driver/)
+> installed in your project you can continue to
+> [Adding the Driver](#adding-the-driver).
+
+This driver relies on the DriverCentral Cloud driver to manage licensing and
+automatic updates. If you are new to using DriverCentral you can refer to their
+[Cloud Driver](https://help.drivercentral.io/407519-Cloud-Driver) documentation
+for setting it up.
 
 <!-- #endif -->
 
 ## Adding the Driver
 
-1. Add the ESPHome driver and configure it with Bluetooth proxy enabled
-1. The ESPHome driver will scan for nearby BLE devices - Yale/August locks
-   appear as "Yale Lock" or similar
-1. Add the ESPHome Yale driver from the Lock category
-1. Bind the ESPHome Yale connection to the Yale Lock device exposed by the
-   ESPHome driver
+<!-- #ifdef DRIVERCENTRAL -->
+
+1. Download the latest `control4-esphome.zip` from
+   [DriverCentral](https://drivercentral.io/platforms/control4-drivers/utility/esphome).
+1. Extract and install the `esphome_yale.c4z` driver.
+1. Use the "Search" tab to find "ESPHome Yale" and add it to your project.
+
+<!-- #else -->
+
+1. Download the latest `control4-esphome.zip` from
+   [Github](https://github.com/finitelabs/control4-esphome/releases/latest).
+1. Extract and install the `esphome_yale.c4z` driver.
+1. Use the "Search" tab to find "ESPHome Yale" and add it to your project.
+
+<!-- #endif -->
+
+## Binding to ESPHome Proxy
+
+1. Ensure the main ESPHome driver is connected and Bluetooth Proxy is ready.
+1. In the main ESPHome driver properties, select "Refresh List" from the "Select
+   Bluetooth Devices" dropdown.
+1. Select your Yale lock from the list. A connection binding will be
+   automatically created.
+1. Go to the "Connections" tab and bind the ESPHome Yale driver to the newly
+   created Yale connection.
 
 ## Key Setup
 
@@ -271,6 +294,21 @@ Sets the logging level. Default is `3 - Info`.
 Sets the logging mode. Logging automatically turns off after 3 hours to prevent
 excessive log output. Default is `Off`.
 
+#### Connection Mode \[ Persistent | **_Poll_** \]
+
+Controls how the driver connects to the lock. See
+[Connection Modes](#connection-modes) for details.
+
+- **Poll** (default) - Connect on-demand, query status, disconnect. Best battery
+  life. The lock's BLE connection remains available for other clients.
+- **Persistent** - Keep a continuous BLE connection. Fastest status updates, but
+  more battery drain, and the lock's BLE connection stays taken.
+
+#### Polling Interval \[ 15 - 300, default: **_60_** \]
+
+How often (in seconds) to connect and query lock status in Poll mode. Only
+visible when Connection Mode is set to `Poll`.
+
 <!-- #ifdef DRIVERCENTRAL -->
 
 #### Support Code
@@ -292,21 +330,6 @@ anything in it that looks like a password, token, key, network address or email
 address is removed.
 
 <!-- #endif -->
-
-#### Connection Mode \[ Persistent | **_Poll_** \]
-
-Controls how the driver connects to the lock. See
-[Connection Modes](#connection-modes) for details.
-
-- **Poll** (default) - Connect on-demand, query status, disconnect. Best battery
-  life. The lock's BLE connection remains available for other clients.
-- **Persistent** - Maintain a continuous BLE connection with 20s keepalive.
-  Lowest latency but higher battery drain and monopolizes the lock's BLE slot.
-
-#### Polling Interval \[ 15 - 300, default: **_60_** \]
-
-How often (in seconds) to connect and query lock status in Poll mode. Only
-visible when Connection Mode is set to `Poll`.
 
 ### Authentication Settings
 
@@ -462,8 +485,7 @@ list.
 Triggers an immediate status refresh from the lock. Queries lock state, door
 sensor (if equipped), and battery level in a single status chain.
 
-- **Persistent mode:** Executes immediately on the active connection instead of
-  waiting for the next 20-second keepalive poll.
+- **Persistent mode:** Runs at once on the active connection.
 - **Poll mode:** Connects to the lock, runs the full status chain, then
   disconnects.
 
@@ -504,14 +526,14 @@ conditions and event handlers.
 
 ### Lock (provider)
 
-The Control4 Lock proxy connection (binding 5001). This is automatically managed
-by the driver and provides lock/unlock/toggle functionality to Control4.
+The Control4 Lock proxy connection. This is automatically managed by the driver
+and provides lock/unlock/toggle functionality to Control4.
 
 ### ESPHome Yale (consumer)
 
-The BLE connection to the lock via the ESPHome driver (binding 5002). Bind this
-to the Yale Lock device exposed by the main ESPHome driver after scanning for
-Bluetooth devices.
+The BLE connection to the lock via the ESPHome driver. Bind this to the lock's
+connection on the main ESPHome driver (see
+[Binding to ESPHome Proxy](#binding-to-esphome-proxy)).
 
 ### Door (dynamic, provider)
 
@@ -536,9 +558,7 @@ to fetch the current key.
 **"Lock rejected the offline key - no newer key in the Yale cloud"** The lock
 turned the key down on five connects in a row, and the cloud has the same key.
 Check that the **Key Slot** matches, and that the lock still belongs to the
-signed-in account. The driver waits for five because a connection lost during
-the handshake for another reason looks the same. The status clears when the lock
-accepts the key again.
+signed-in account. The status clears when the lock accepts the key again.
 
 **"Offline key is provisioned but not yet loaded on the lock"** The key exists
 in the Yale cloud but has not been loaded onto the lock hardware. Open the Yale

@@ -40,7 +40,6 @@ thermostat proxy.
     - [Cloud Settings](#cloud-settings)
     <!-- #endif -->
     - [Driver Settings](#driver-settings)
-    - [Remote Sensor Properties](#remote-sensor-properties)
   - [Connections](#connections)
 - [Setpoints](#setpoints)
 - [Presets and Scheduling](#presets-and-scheduling)
@@ -161,6 +160,31 @@ Sets the logging level. Default is `3 - Info`.
 Sets the logging mode. Default is `Off`. Automatically reverts to `Off` after 3
 hours to prevent excessive logging.
 
+#### Remote Temperature Service \[ **_(Select)_** | *discovered services...* \]
+
+> Only visible when the ESPHome device exposes user-defined services. Used for
+> the [Remote Temperature Sensor](#remote-temperature-sensor) feature.
+
+The ESPHome user-defined service that accepts a remote temperature reading. This
+service must accept a `float` parameter named `temperature` (in Celsius).
+Selecting a service creates a **Remote Temperature Sensor** binding on the
+driver for connecting an external Control4 temperature sensor.
+
+Set to `(Select)` to disable the remote sensor feature and remove the binding.
+
+#### Internal Temperature Service \[ **_None_** | *discovered services...* \]
+
+> Only visible when the ESPHome device exposes user-defined services. Used for
+> the [Remote Temperature Sensor](#remote-temperature-sensor) feature.
+
+The ESPHome user-defined service to call when reverting to the device's internal
+temperature sensor. This service should take no parameters. Called when the
+remote sensor is disabled via the thermostat UI.
+
+Leave as `None` if your ESPHome device automatically reverts to its internal
+sensor when remote temperature updates stop (most devices have a configurable
+timeout for this).
+
 <!-- #ifdef DRIVERCENTRAL -->
 
 #### Support Code
@@ -185,31 +209,6 @@ The Diagnostics Snapshot action prints a report in the Lua output, and sends it
 only while Cloud Monitoring is Enabled.
 
 <!-- #endif -->
-
-### Remote Sensor Properties
-
-These properties become visible when the ESPHome device exposes user-defined
-services. They are used to configure the
-[Remote Temperature Sensor](#remote-temperature-sensor) feature.
-
-#### Remote Temperature Service \[ **_(Select)_** | *discovered services...* \]
-
-The ESPHome user-defined service that accepts a remote temperature reading. This
-service must accept a `float` parameter named `temperature` (in Celsius).
-Selecting a service creates a **Remote Temperature Sensor** binding on the
-driver for connecting an external Control4 temperature sensor.
-
-Set to `(Select)` to disable the remote sensor feature and remove the binding.
-
-#### Internal Temperature Service \[ **_None_** | *discovered services...* \]
-
-The ESPHome user-defined service to call when reverting to the device's internal
-temperature sensor. This service should take no parameters. Called when the
-remote sensor is disabled via the thermostat UI.
-
-Leave as `None` if your ESPHome device automatically reverts to its internal
-sensor when remote temperature updates stop (most devices have a configurable
-timeout for this).
 
 ## Programming Variables
 

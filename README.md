@@ -13,8 +13,8 @@ Integrate [ESPHome-based devices](https://devices.esphome.io) into Control4.
 ESPHome is an open-source system that transforms common microcontrollers, like
 ESP8266 and ESP32, into smart home devices through simple YAML configuration.
 ESPHome devices can be set up, monitored, and controlled using a web browser,
-Home Assistant, or other compatible platforms. This driver enables seamless
-monitoring and control of ESPHome devices directly from your Control4 system.
+Home Assistant, or other compatible platforms. This driver monitors and controls
+ESPHome devices directly from your Control4 system.
 
 # <span style="color:#17BCF2">Index</span>
 
@@ -282,18 +282,19 @@ list of status components:
 **Standalone Mode:** `Standalone Mode | Scanning (Passive) | 1/4 Active`
 
 **Coordinator Mode:**
-`Coordinator Mode | Scanning (Passive) | 0/3 Active | MAC Filter: 5`
+`Coordinator Mode | Scanning (Passive) | 0/3 Active | MAC Filter: 5 device(s)`
 
 Components explained:
 
 - **Mode** - "Standalone Mode" or "Coordinator Mode" depending on whether the
   driver is connected to a Bluetooth Coordinator
-- **Scanner State** - Current state (Idle, Starting, Running, Stopping, Stopped,
-  Failed) and mode (Passive or Active)
+- **Scanner State** - Current state (Scanner Idle, Starting Scan, Scanning,
+  Stopping Scan, Scanner Stopped or Scan Failed) and mode (Passive or Active)
 - **Connection Slots** - Shows "used/total Active" slots (e.g., "1/4 Active"
-  means 1 slot in use out of 4 available). If you select more active devices
-  than available slots, "(Oversubscribed)" is appended (see
-  [Oversubscription](#oversubscription))
+  means 1 slot in use out of 4 available). Passive devices use no slot, and a
+  device that connects only briefly frees its slot after each exchange. If you
+  select more active devices than available slots, "(Oversubscribed)" is
+  appended (see [Oversubscription](#oversubscription))
 - **MAC Filter** - (Coordinator mode only) Shows how many device MACs are being
   filtered for, or "none" if forwarding all advertisements
 - **Not Recovering - Power Cycle Device** - The proxy is wedged and only a
@@ -803,7 +804,7 @@ and retry until a slot becomes available.
 
 1. **Add the ESPHome driver** and configure it to connect to your ESP32 device.
 
-1. **Verify Bluetooth Proxy Status** shows "Ready" with available slots.
+1. **Verify Bluetooth Proxy Status** shows "Scanning" with free slots.
 
 1. **Scan for devices:**
 
@@ -1153,6 +1154,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   the light is on now stays when the light is dimmed or brightened, until the
   light turns off, instead of until the next brightness command. The next time
   the light turns on, Dim-To-Warm applies again
+- Changed ESPHome Lock and ESPHome Yale to Composer's Locks category, where
+  Control4's own lock drivers are listed
 
 ## v20261027 - 2026-10-27
 

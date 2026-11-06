@@ -11,7 +11,7 @@
   <modified/>
   <minimum_os_version>3.3.0</minimum_os_version>
   <composer_categories>
-    <category>Lock</category>
+    <category>Locks</category>
   </composer_categories>
   <conditionals/>
   <events/>
