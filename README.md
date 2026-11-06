@@ -1140,6 +1140,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   every connection, variable and event the driver made and puts its settings
   back to their defaults, keeping only what reaches the same device, its address
   and login. A device's encryption keys no longer go with it
+- Fixed a Bluetooth Coordinator room deleting its Occupied and Empty events, and
+  the programming on them, along with its connection and variables, when its
+  last Bluetooth proxy was removed or moved to another room; the room now keeps
+  them
+- Fixed the Bluetooth Coordinator starting on a controller below its minimum OS;
+  it now shows that it is disabled, as the other drivers do
 
 ### Changed
 

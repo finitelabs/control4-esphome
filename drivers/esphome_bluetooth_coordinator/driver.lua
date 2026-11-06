@@ -499,13 +499,9 @@ local function setupProxyBindings()
   proxyRegistry:onProxyChange("driver", function(event, proxyInfo)
     if event == "disconnected" then
       onProxyDisconnected(proxyInfo)
-      -- Clean up rooms that are no longer used by any proxy
-      presenceTracker:cleanupUnusedRooms()
     elseif event == "updated" then
       -- Proxy room may have changed - recalculate presence for all tracked devices
       presenceTracker:onProxyUpdated(proxyInfo.deviceId)
-      -- Clean up rooms that are no longer used after room reassignment
-      presenceTracker:cleanupUnusedRooms()
     end
   end)
 
@@ -693,6 +689,9 @@ end
 
 function OnDriverLateInit()
   log:trace("OnDriverLateInit()")
+  if not CheckMinimumVersion("Driver Status") then
+    return
+  end
   if initialized then
     return
   end
