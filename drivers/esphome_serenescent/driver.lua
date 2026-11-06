@@ -943,7 +943,8 @@ function EC.Set_Polling_Interval(params)
   end
 end
 
---- Settable properties at their driver.xml defaults. The shared Automatic Updates stays.
+--- Property values for reset.
+--- @type table<string, string>
 local RESET_PROPERTY_VALUES = {
   ["Polling Interval"] = "5",
   ["Log Level"] = "3 - Info",

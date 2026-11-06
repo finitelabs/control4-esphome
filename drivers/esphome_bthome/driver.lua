@@ -1071,8 +1071,8 @@ end
 -- EC Handlers
 --------------------------------------------------------------------------------
 
---- Settable properties at their driver.xml defaults. Bind Key, the device's credential, and the shared Automatic
---- Updates stay.
+--- Property values for reset.
+--- @type table<string, string>
 local RESET_PROPERTY_VALUES = {
   ["Log Level"] = "3 - Info",
   ["Log Mode"] = "Off",

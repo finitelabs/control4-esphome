@@ -748,7 +748,8 @@ end
 -- EC Handlers
 --------------------------------------------------------------------------------
 
---- Settable properties at their driver.xml defaults. The shared Automatic Updates stays.
+--- Property values for reset.
+--- @type table<string, string>
 local RESET_PROPERTY_VALUES = {
   ["Log Level"] = "3 - Info",
   ["Log Mode"] = "Off",

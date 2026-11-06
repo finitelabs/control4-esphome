@@ -2303,8 +2303,8 @@ function EC.Set_Polling_Interval(params)
   end
 end
 
---- Settable properties at their driver.xml defaults. The lock's key, its slot, the Yale login and the shared
---- Automatic Updates stay.
+--- Property values for reset.
+--- @type table<string, string>
 local RESET_PROPERTY_VALUES = {
   ["Connection Mode"] = "Poll",
   ["Polling Interval"] = "60",
