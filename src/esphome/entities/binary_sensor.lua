@@ -41,7 +41,6 @@ function BinarySensorEntity:discovered(entity)
       "CONTACT_SENSOR"
     )
   )
-  -- A newly bound consumer is told the last state told, silently.
   OBC[binding.bindingId] = function(_idBinding, _strClass, bIsBound)
     local state = told:state(entity.ref)
     if bIsBound and state ~= nil then
