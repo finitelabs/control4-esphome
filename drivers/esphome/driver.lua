@@ -82,6 +82,7 @@ local Entities = {
   [WaterHeaterEntity.TYPE] = WaterHeaterEntity:new(esphome),
 }
 
+--#ifndef DRIVERCENTRAL
 --- Get all ESPHome driver instances sorted by device ID
 --- @return integer[] deviceIds Sorted list of device IDs
 local function getESPHomeDriverIds()
@@ -94,6 +95,7 @@ local function getESPHomeDriverIds()
   table.sort(ids)
   return ids
 end
+--#endif
 
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
@@ -145,6 +147,15 @@ function OnDriverLateInit()
   end
   gInitialized = true
   Connect()
+  --#ifndef DRIVERCENTRAL
+  SetTimer("UpdateCheck", 30 * ONE_MINUTE, function()
+    -- Only the lowest-numbered item checks, worked out each time in case that item was removed
+    if Select(getESPHomeDriverIds(), 1) == C4:GetDeviceID() and toboolean(Properties["Automatic Updates"]) then
+      log:info("Checking for driver update (leader instance)")
+      UpdateDrivers()
+    end
+  end, true)
+  --#endif
   --#ifdef DRIVERCENTRAL
   -- The heartbeat drops the connection while the gate holds the driver stopped, and reconnects at its next tick.
   drivercentral:startGate(function(licensed)
@@ -481,7 +492,6 @@ function Connect()
     Properties["Use OpenSSL"] == "Yes"
   )
 
-  local lastUpdateTime = os.time() -- Don't check for updates on the first cycle
   local lastFatalErrorTime = 0 -- Track when the last fatal error occurred
 
   --- @param suspend? boolean The driver dropped the connection itself; the device was not lost.
@@ -538,15 +548,7 @@ function Connect()
     wasConnected = connected
 
     local now = os.time()
-    local secondsSinceLastUpdate = now - lastUpdateTime
-    -- Recompute leader each cycle in case the previous leader was removed
-    local isLeaderInstance = Select(getESPHomeDriverIds(), 1) == C4:GetDeviceID()
-    -- Only the leader instance (lowest device ID) performs update checks
-    if isLeaderInstance and toboolean(Properties["Automatic Updates"]) and secondsSinceLastUpdate > (30 * 60) then
-      log:info("Checking for driver update (leader instance)")
-      lastUpdateTime = now
-      UpdateDrivers()
-    elseif not esphome:isConnected() then
+    if not esphome:isConnected() then
       -- Check for fatal error and apply backoff
       local fatalError = esphome:getFatalError()
       if fatalError then
