@@ -672,8 +672,8 @@ local function updateLockStatus(status)
   end
 end
 
---- At late init, take what the proxy shows as told. A driver update leaves it
---- shown; a controller start leaves it unknown, and the status kept initializes it.
+--- At late init, take what the proxy shows as told. A proxy that shows no status
+--- is initialized with the status kept.
 local function initLockStatus()
   local ok, shown = pcall(function()
     return C4:GetDeviceVariable(C4:GetProxyDevices(), PROXY_STATUS_VARIABLE)

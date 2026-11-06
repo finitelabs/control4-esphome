@@ -282,7 +282,7 @@ local function convertLockStateToStatus(lockState)
   return "unknown"
 end
 
---- Read what the proxy shows, once a load. A driver update leaves its status shown, and a controller start unknown.
+--- Read what the proxy shows, once a load.
 local function readShown()
   shownRead = true
   local ok, status = pcall(function()
