@@ -329,8 +329,26 @@ H.test("a tag removed and added again while home starts away", function()
   T.eq("its kept state is away", persist:get("PresenceStates").device_020000000001, "OPENED")
 end)
 
-H.test("Reset Driver forgets every presence state told", function()
+H.test("Reset Driver removes every room, one with no proxy left included, and forgets every presence state told", function()
+  H.boot(nil, function()
+    persist:set("PresenceDevices", { [MAC] = { mac = MAC, name = "Test Tag" } })
+    persist:delete("PresenceStates")
+    package.loaded["esphome.ble.coordinator.presence_tracker"] = nil
+  end)
+  for proxy, room in pairs({ [KITCHEN] = { "11", "Kitchen" }, [LIVING_ROOM] = { "12", "Living Room" } }) do
+    OnBindingChanged(PROXIES, "ESPHOME_BLUETOOTH", true, proxy, 1)
+    H.rfp(PROXIES, "PROXY_CONNECTED", { proxyId = tostring(proxy), roomId = room[1], roomName = room[2] })
+  end
+  stay(7, -50, -80)
+  OnBindingChanged(PROXIES, "ESPHOME_BLUETOOTH", false, KITCHEN, 1)
+  T.truthy("the Kitchen keeps its connection with no proxy left", bindings:getDynamicBinding("presence", "room_11"))
+
   ExecuteCommand("Reset Driver", { ["Are You Sure?"] = "Yes" })
+  local events = require("lib.events"):getEvents()
+  for _, room in ipairs({ "11", "12" }) do
+    T.eq("room " .. room .. "'s connection is gone", bindings:getDynamicBinding("presence", "room_" .. room), nil)
+    T.eq("and its Occupied event", Select(events, "presence", "room_" .. room .. "_occupied", "eventId"), nil)
+  end
   T.eq("nothing is kept", persist:get("PresenceStates"), nil)
 end)
 
