@@ -426,9 +426,12 @@ In both connection modes, this is also available as a programming command (see
 
 ### Reset Driver
 
-Resets the driver state to defaults. Clears all persisted data, cached BLE
-handles, and dynamic bindings, and signs out of the Yale cloud. The offline key
-and other properties are preserved.
+> ⚠️ This will remove the Door connection and delete the variables, along with
+> any programming on them.
+
+Resets the driver to its initial state, signs out of the Yale cloud, and returns
+Connection Mode, Polling Interval, Log Level and Log Mode to their defaults. The
+Offline Key, Key Slot and Yale login stay.
 
 <!-- #ifdef DRIVERCENTRAL -->
 

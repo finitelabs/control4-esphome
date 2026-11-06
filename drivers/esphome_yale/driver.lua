@@ -2303,6 +2303,18 @@ function EC.Set_Polling_Interval(params)
   end
 end
 
+--- Settable properties at their driver.xml defaults. The lock's key, its slot, the Yale login and the shared
+--- Automatic Updates stay.
+local RESET_PROPERTY_VALUES = {
+  ["Connection Mode"] = "Poll",
+  ["Polling Interval"] = "60",
+  ["Log Level"] = "3 - Info",
+  ["Log Mode"] = "Off",
+  --#ifdef DRIVERCENTRAL
+  ["Cloud Monitoring"] = "Enabled",
+  --#endif
+}
+
 function EC.Reset_Driver(params)
   log:trace("EC.Reset_Driver(%s)", params)
   if Select(params, "Are You Sure?") ~= "Yes" then
@@ -2322,12 +2334,8 @@ function EC.Reset_Driver(params)
   doorSenseConfigured = nil
   doorTold:reset()
 
-  -- Restore connection mode from property
-  connectionMode = Properties["Connection Mode"] or CONNECTION_MODE.POLL
-  if connectionMode ~= CONNECTION_MODE.POLL then
-    C4:SetPropertyAttribs("Polling Interval", constants.HIDE_PROPERTY)
-  else
-    C4:SetPropertyAttribs("Polling Interval", constants.SHOW_PROPERTY)
+  for propName, defaultValue in pairs(RESET_PROPERTY_VALUES) do
+    UpdateProperty(propName, defaultValue, true)
   end
 
   updateStatus("Disconnected", false)
@@ -2339,7 +2347,4 @@ function EC.Reset_Driver(params)
   C4:SetPropertyAttribs("Door Status", constants.HIDE_PROPERTY)
   UpdateProperty("Battery", "")
   UpdateProperty("Yale Cloud Status", "")
-  --#ifdef DRIVERCENTRAL
-  UpdateProperty("Cloud Monitoring", "Enabled", true)
-  --#endif
 end

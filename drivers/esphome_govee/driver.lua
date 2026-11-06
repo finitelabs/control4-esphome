@@ -748,6 +748,15 @@ end
 -- EC Handlers
 --------------------------------------------------------------------------------
 
+--- Settable properties at their driver.xml defaults. The shared Automatic Updates stays.
+local RESET_PROPERTY_VALUES = {
+  ["Log Level"] = "3 - Info",
+  ["Log Mode"] = "Off",
+  --#ifdef DRIVERCENTRAL
+  ["Cloud Monitoring"] = "Enabled",
+  --#endif
+}
+
 --- Reset driver to initial state
 function EC.Reset_Driver(params)
   log:trace("EC.Reset_Driver(%s)", params)
@@ -768,13 +777,12 @@ function EC.Reset_Driver(params)
   hideOptionalProperties()
 
   -- Reset properties to defaults
-  local resetValues = GetPropertyResetValues({})
-  for propName, defaultValue in pairs(resetValues) do
+  for propName, defaultValue in pairs(GetPropertyResetValues({})) do
     UpdateProperty(propName, defaultValue, true)
   end
-  --#ifdef DRIVERCENTRAL
-  UpdateProperty("Cloud Monitoring", "Enabled", true)
-  --#endif
+  for propName, defaultValue in pairs(RESET_PROPERTY_VALUES) do
+    UpdateProperty(propName, defaultValue, true)
+  end
 
   -- Request refresh from parent
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")

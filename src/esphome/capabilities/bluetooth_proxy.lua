@@ -543,6 +543,12 @@ function BluetoothProxyCapability:onRestartButtonChanged(value)
   persist:set(RESTART_BUTTON_PERSIST_KEY, value)
 end
 
+--- Forget the restart button chosen and when it was last pressed (driver reset).
+function BluetoothProxyCapability:resetRestart()
+  persist:delete(RESTART_BUTTON_PERSIST_KEY)
+  persist:delete(LAST_AUTO_RESTART_PERSIST_KEY)
+end
+
 --- Update the read-only status property.
 --- @private
 function BluetoothProxyCapability:_updateStatusProperty()

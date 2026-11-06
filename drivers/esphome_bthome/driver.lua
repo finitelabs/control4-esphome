@@ -1071,6 +1071,16 @@ end
 -- EC Handlers
 --------------------------------------------------------------------------------
 
+--- Settable properties at their driver.xml defaults. Bind Key, the device's credential, and the shared Automatic
+--- Updates stay.
+local RESET_PROPERTY_VALUES = {
+  ["Log Level"] = "3 - Info",
+  ["Log Mode"] = "Off",
+  --#ifdef DRIVERCENTRAL
+  ["Cloud Monitoring"] = "Enabled",
+  --#endif
+}
+
 --- Reset driver to initial state
 function EC.Reset_Driver(params)
   log:trace("EC.Reset_Driver(%s)", params)
@@ -1095,14 +1105,13 @@ function EC.Reset_Driver(params)
   lastNotified = {}
   contactTold:reset()
 
-  -- Reset properties to defaults (excludes user-entered credentials)
-  local resetValues = GetPropertyResetValues({ "Bind Key" })
-  for propName, defaultValue in pairs(resetValues) do
+  -- Reset properties to defaults
+  for propName, defaultValue in pairs(GetPropertyResetValues({})) do
     UpdateProperty(propName, defaultValue, true)
   end
-  --#ifdef DRIVERCENTRAL
-  UpdateProperty("Cloud Monitoring", "Enabled", true)
-  --#endif
+  for propName, defaultValue in pairs(RESET_PROPERTY_VALUES) do
+    UpdateProperty(propName, defaultValue, true)
+  end
 
   -- Hide optional properties
   hideOptionalProperties()

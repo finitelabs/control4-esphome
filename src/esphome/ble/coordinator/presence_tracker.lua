@@ -100,8 +100,15 @@ function PresenceTracker:new()
   return instance
 end
 
---- Forget every presence state told (driver reset).
-function PresenceTracker:forgetTold()
+--- Forget every tracked device and room, and every presence state told (driver reset).
+function PresenceTracker:reset()
+  self._presenceDevices = {}
+  self._deviceState = {}
+  self._rssiState = {}
+  self._roomOccupancy = {}
+  self._roomBindings = {}
+  self._deviceBindings = {}
+  self._roomNames = {}
   self._told:reset()
 end
 

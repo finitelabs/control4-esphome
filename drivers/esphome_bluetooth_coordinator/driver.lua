@@ -379,6 +379,23 @@ end
 -- Action Handlers
 --------------------------------------------------------------------------------
 
+--- Settable properties at their driver.xml defaults. The shared Automatic Updates stays; the device selections
+--- clear with the scanner's own reset.
+local RESET_PROPERTY_VALUES = {
+  ["Log Level"] = "3 - Info",
+  ["Log Mode"] = "Off",
+  ["Scan Duration (seconds)"] = "30",
+  ["RSSI Freshness (seconds)"] = "60",
+  ["RSSI Smoothing Factor"] = "0.2",
+  ["Room Change Hysteresis (dBm)"] = "6",
+  ["Room Change Dwell Time (seconds)"] = "5",
+  ["Away Timeout (seconds)"] = "120",
+  ["Minimum Room RSSI (dBm)"] = "-100",
+  --#ifdef DRIVERCENTRAL
+  ["Cloud Monitoring"] = "Enabled",
+  --#endif
+}
+
 function EC.Reset_Driver(tParams)
   if Select(tParams, "Are You Sure?") ~= "Yes" then
     return
@@ -386,23 +403,24 @@ function EC.Reset_Driver(tParams)
 
   log:warn("Resetting driver...")
 
-  -- Clear all state
+  -- Stop any scan, forget the devices it found, and clear both device selections, which untracks every presence
+  -- device
+  bleScanner:reset()
   deviceRegistry:clear()
   selectedDevices = {}
-  persist:set(PERSIST_SELECTED_DEVICES, {})
-  persist:set(PERSIST_PRESENCE_DEVICES, {})
-  presenceTracker:forgetTold()
+  bleScannerProperties:reset()
+  presenceTracker:reset()
 
-  -- Delete all dynamic bindings
-  bindings:deleteAllBindings(BINDINGS_NAMESPACE)
-
-  -- Remove the connection state variables alongside the rest of the state
+  -- Delete every dynamic binding, variable and event, presence ones included
+  bindings:reset()
   values:reset()
+  events:reset()
+
+  for propName, defaultValue in pairs(RESET_PROPERTY_VALUES) do
+    UpdateProperty(propName, defaultValue, true)
+  end
 
   updateStatusProperties()
-  --#ifdef DRIVERCENTRAL
-  UpdateProperty("Cloud Monitoring", "Enabled", true)
-  --#endif
 end
 
 --------------------------------------------------------------------------------
