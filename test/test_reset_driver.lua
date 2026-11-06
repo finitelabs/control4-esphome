@@ -11,6 +11,8 @@
 local T = require("testlib")
 local H = require("ble_driver_harness")
 local bindings = require("lib.bindings")
+local deferred = require("deferred")
+local ESPHomeClient = require("esphome.client")
 local events = require("lib.events")
 local persist = require("lib.persist")
 
@@ -36,8 +38,13 @@ end
 
 H.use("esphome")
 H.test("the ESPHome driver forgets its events, LED lights and restart button, and resets its settings", function()
+  -- The device never answers, so late init's connect stays off the network.
+  local realConnect = ESPHomeClient.connect
+  ESPHomeClient.connect = function()
+    return deferred.new():reject("Connection refused")
+  end
   H.boot({
-    ["IP Address"] = "192.168.9.9",
+    ["IP Address"] = "192.0.2.10",
     ["Log Level"] = "5 - Trace",
     ["Bluetooth Proxy Room"] = "12",
     ["Minimum Room RSSI Override (dBm)"] = "-70",
@@ -55,7 +62,8 @@ H.test("the ESPHome driver forgets its events, LED lights and restart button, an
   T.eq("Bluetooth Proxy Room is back to its default", Properties["Bluetooth Proxy Room"], "")
   T.eq("so is Minimum Room RSSI Override", Properties["Minimum Room RSSI Override (dBm)"], "-100")
   T.eq("so is Log Level", Properties["Log Level"], "3 - Info")
-  T.eq("its address stays", Properties["IP Address"], "192.168.9.9")
+  T.eq("its address stays", Properties["IP Address"], "192.0.2.10")
+  ESPHomeClient.connect = realConnect
 end)
 
 H.use("esphome_bluetooth_coordinator")
@@ -72,7 +80,17 @@ H.test("the coordinator forgets its presence devices, connections and events, an
   reset()
   local tracker = require("esphome.ble.coordinator.presence_tracker")
   T.eq("the tag's Present connection is gone", bindings:getDynamicBinding("presence", "device_020000000001"), nil)
-  T.eq("its presence events are gone", eventCount(), 0)
+  local left = {}
+  for key in pairs(Select(events:getEvents(), "presence") or {}) do
+    table.insert(left, key)
+  end
+  table.sort(left)
+  T.eq("only the two Any Device events are left, as at a fresh install", left, {
+    "any_device_entered_room",
+    "any_device_left_room",
+  })
+  T.eq("and no other event", eventCount(), 2)
+  T.eq("Last Presence Room is there again", H.variable("Last Presence Room"), "")
   T.eq("it no longer tracks the tag", next(tracker:getPresenceDevices() or {}), nil)
   T.eq("the tag selection is cleared", persist:get("PresenceDevices"), nil)
   T.eq("the devices the scanner found are forgotten", persist:get("DiscoveredBLEDevices"), nil)
