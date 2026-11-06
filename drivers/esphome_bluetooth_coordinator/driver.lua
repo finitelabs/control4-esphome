@@ -379,8 +379,8 @@ end
 -- Action Handlers
 --------------------------------------------------------------------------------
 
---- Settable properties at their driver.xml defaults. The shared Automatic Updates stays; the device selections
---- clear with the scanner's own reset.
+--- Property values for reset.
+--- @type table<string, string>
 local RESET_PROPERTY_VALUES = {
   ["Log Level"] = "3 - Info",
   ["Log Mode"] = "Off",
@@ -415,6 +415,8 @@ function EC.Reset_Driver(tParams)
   bindings:reset()
   values:reset()
   events:reset()
+  -- A fresh install has the Any Device events and the Last Presence variables
+  presenceTracker:createGenericEvents()
 
   for propName, defaultValue in pairs(RESET_PROPERTY_VALUES) do
     UpdateProperty(propName, defaultValue, true)
