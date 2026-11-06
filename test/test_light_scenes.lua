@@ -4741,7 +4741,7 @@ do
     proxySetup = c[2]
     local shim, capture, reported = ShimLateInit, diagnostics.captureError, {}
     if c[3] then
-      -- The late init reports the setup it could not read to Cloud Monitoring, and carries on.
+      -- The real ShimLateInit fails a test on any report from the late init.
       function ShimLateInit()
         diagnostics.captureError = function(_, _message, _traceback, source)
           reported[#reported + 1] = source
