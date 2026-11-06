@@ -9061,6 +9061,40 @@ do
   end
 end
 
+T.section("a light bound to another device shows that device's state on its button links")
+do
+  local dimmer = { ColorMode.COLOR_MODE_BRIGHTNESS }
+  local function answer(on, brightness)
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = dimmer }),
+      state = SerializeSafe({ state = on, brightness = brightness }),
+    })
+  end
+  local function leds()
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.binding == TOP_LINK and s.command == "MATCH_LED_STATE" then
+        out[#out + 1] = s.params.STATE
+      end
+    end
+    return out
+  end
+  light(dimmer)
+  answer(true, 0.6)
+  run(15000)
+  mark()
+  OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+  proxy("REQUEST_BUTTON_COLORS")
+  T.eq("asked before the new light reports: the LEDs read off", leds(), { false })
+  mark()
+  RFP.REQUEST_BUTTON_COLORS(TOP_LINK, "REQUEST_BUTTON_COLORS", {})
+  T.eq("and over a button link", leds(), { false })
+  mark()
+  answer(false, 0)
+  run(15000)
+  T.eq("LEDs lit, then a light that reports off: the LEDs go off", leds(), { false })
+end
+
 T.section("a light's first report after a load, bind or disconnect tells the proxy only a level it does not show")
 do
   -- After a controller start the proxy fires Brightness Changed (3002) for any level it is told, the one it shows
@@ -9111,8 +9145,10 @@ do
       local want = how == "the device back online" and on and { 60 } or {}
       T.eq(name .. ": the device's report tells the proxy the level only where it shows another", levels(), want)
       T.eq(name .. ": which it then shows", proxyLevel, shown)
-      if how == "an update" or how == "a controller start" then
+      if how == "an update" then
         T.eq(name .. ": and the LEDs whether the light is on", leds(), on and { true } or {})
+      elseif how == "a controller start" then
+        T.eq(name .. ": and the LEDs whether the light is on", leds(), { on })
       end
       mark()
       answer(true, 0.3)
@@ -9154,8 +9190,10 @@ do
       local want = how == "the device back online" and on and { 100 } or {}
       T.eq(name .. ": the proxy is told the level only where it shows another", levels(), want)
       T.eq(name .. ": which it then shows", proxyLevel, shown)
-      if how == "an update" or how == "a controller start" then
+      if how == "an update" then
         T.eq(name .. ": and the LEDs whether the light is on", leds(), on and { true } or {})
+      elseif how == "a controller start" then
+        T.eq(name .. ": and the LEDs whether the light is on", leds(), { on })
       end
       mark()
       switched(not on)
