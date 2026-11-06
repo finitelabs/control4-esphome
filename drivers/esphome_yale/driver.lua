@@ -1243,6 +1243,8 @@ local function handleCommandResponse(data)
       awaitingMotor = true
       -- Re-query lock status after 10s to catch late-reported jams
       SetTimer("JamCheck", JAM_CHECK_DELAY_MS, function()
+        -- Its own read follows, so a lock that sent no result frame no longer holds the keepalive off
+        awaitingMotor = false
         if handshakeState == HANDSHAKE_STATE.COMPLETE then
           log:debug("Jam check: re-querying lock status")
           pendingCommand = "status"
