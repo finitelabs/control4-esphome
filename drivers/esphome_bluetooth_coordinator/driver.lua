@@ -497,7 +497,6 @@ local function setupProxyBindings()
   log:trace("setupProxyBindings()")
   -- Register for proxy change callbacks
   proxyRegistry:onProxyChange("driver", function(event, proxyInfo)
-    -- A room a proxy leaves keeps its events, connection and variables, and the programming on them
     if event == "disconnected" then
       onProxyDisconnected(proxyInfo)
     elseif event == "updated" then

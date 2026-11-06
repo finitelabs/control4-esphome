@@ -44,7 +44,7 @@ local StateTell = require("esphome.state_tell")
 --- @field _roomOccupancy table<integer, table<string, boolean?>?> roomId -> {mac -> true}
 --- @field _roomBindings table<integer, integer?> roomId -> bindingId
 --- @field _deviceBindings table<string, integer?> mac -> bindingId
---- @field _roomNames table<integer, string?> roomId -> roomName (for cleanup)
+--- @field _roomNames table<integer, string?> roomId -> roomName
 local PresenceTracker = {}
 PresenceTracker.__index = PresenceTracker
 
@@ -349,7 +349,6 @@ function PresenceTracker:_ensureRoomSetup(roomId, roomName)
   -- A room first set up starts empty; one set up again after a restart keeps what was told.
   self._told:assume("room_" .. tostring(roomId), "OPENED")
 
-  -- Store room name for cleanup
   self._roomNames[roomId] = roomName
 
   log:info("Set up presence tracking for room: %s (%d)", uniqueRoomName, roomId)
