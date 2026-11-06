@@ -86,6 +86,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   again after a restart now reads away or empty once the Away Timeout passes
 - Fixed passwords, keys and lock codes appearing in a driver's log at the higher
   log levels; they are now left out or masked at every level
+- Fixed Reset Driver leaving part of a driver's setup behind: it now removes
+  every connection, variable and event the driver made and puts its settings
+  back to their defaults, keeping only what reaches the same device, its address
+  and login. A device's encryption keys no longer go with it
 
 ### Changed
 

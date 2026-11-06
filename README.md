@@ -453,12 +453,14 @@ the current version.
 
 #### Reset Driver
 
-> ⚠️ This will reset all connection bindings and delete any programming
-> associated with the variables.
+> ⚠️ This will remove all connection bindings and delete the variables and
+> events, along with any programming on them.
 
 Resets the driver to its initial state, removing all dynamically created
-connections and variables. This is useful if you change the connected ESPHome
-device or there are stale connections or variables.
+connections, variables and events. It forgets each button's LED light and the
+Bluetooth proxy's restart button, and returns the settings to their defaults.
+The device's address and login stay. This is useful if you change the connected
+ESPHome device or there are stale connections or variables.
 
 **Parameters:**
 
@@ -1134,6 +1136,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   again after a restart now reads away or empty once the Away Timeout passes
 - Fixed passwords, keys and lock codes appearing in a driver's log at the higher
   log levels; they are now left out or masked at every level
+- Fixed Reset Driver leaving part of a driver's setup behind: it now removes
+  every connection, variable and event the driver made and puts its settings
+  back to their defaults, keeping only what reaches the same device, its address
+  and login. A device's encryption keys no longer go with it
 
 ### Changed
 
