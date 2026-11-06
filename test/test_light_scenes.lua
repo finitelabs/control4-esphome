@@ -9084,6 +9084,12 @@ do
   run(15000)
   mark()
   OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+  proxy("REQUEST_BUTTON_COLORS")
+  T.eq("asked before the new light reports: the LEDs read off", leds(), { false })
+  mark()
+  RFP.REQUEST_BUTTON_COLORS(TOP_LINK, "REQUEST_BUTTON_COLORS", {})
+  T.eq("and over a button link", leds(), { false })
+  mark()
   answer(false, 0)
   run(15000)
   T.eq("LEDs lit, then a light that reports off: the LEDs go off", leds(), { false })
@@ -9142,7 +9148,6 @@ do
       if how == "an update" then
         T.eq(name .. ": and the LEDs whether the light is on", leds(), on and { true } or {})
       elseif how == "a controller start" then
-        -- A bind forgets what the LEDs were told, so they hear the state either way.
         T.eq(name .. ": and the LEDs whether the light is on", leds(), { on })
       end
       mark()
@@ -9188,7 +9193,6 @@ do
       if how == "an update" then
         T.eq(name .. ": and the LEDs whether the light is on", leds(), on and { true } or {})
       elseif how == "a controller start" then
-        -- A bind forgets what the LEDs were told, so they hear the state either way.
         T.eq(name .. ": and the LEDs whether the light is on", leds(), { on })
       end
       mark()
