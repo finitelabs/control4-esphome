@@ -80,7 +80,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed contact sensors and relays running their programming again when nothing
   had changed: after a driver start or a reconnect, or when a consumer is bound,
   only a real change now fires it. Bluetooth presence fires its Home and room
-  Occupied events only for a real change too
+  Occupied events only for a real change too, and a device or room not heard
+  again after a restart now reads away or empty once the Away Timeout passes
 
 ### Changed
 
