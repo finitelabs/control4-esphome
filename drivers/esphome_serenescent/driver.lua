@@ -137,7 +137,6 @@ local initialStatusTriggered = false
 --- @type integer
 local lastAdvProcessedAt = 0
 
---- The power state told to the relay, so only a change fires programming after a restart.
 local told = StateTell:new("RelayStates")
 
 --------------------------------------------------------------------------------

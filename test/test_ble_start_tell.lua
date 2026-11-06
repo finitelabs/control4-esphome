@@ -83,6 +83,17 @@ H.test("a SwitchBot Bot's relay tells a change as one, and nothing else", functi
   H.clearSent()
   advertise("FD3D", BOT_OFF)
   T.eq("a change is told as one", toldTo("SwitchBot", "botRelay"), { "OPENED" })
+
+  H.clearSent()
+  OnBindingChanged(ESPHOME, "ESPHOME_BLUETOOTH", true, 100, 1)
+  advertise("FD3D", BOT_OFF)
+  T.eq(
+    "after the ESPHome connection is bound again, its state is told again, silently",
+    toldTo("SwitchBot", "botRelay"),
+    {
+      "STATE_OPENED",
+    }
+  )
 end)
 
 H.test("after a restart, a SwitchBot Bot's unchanged state fires nothing", function()

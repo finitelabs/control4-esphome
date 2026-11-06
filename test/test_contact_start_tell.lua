@@ -81,6 +81,24 @@ do
   T.eq("after Reset Driver, nothing told before: silent", toldTo(contact), { "STATE_CLOSED" })
 end
 
+T.section("A binary sensor's new consumer is told its state silently")
+do
+  local BinarySensorEntity = load("esphome.entities.binary_sensor")
+  local sensor = BinarySensorEntity:new(client)
+  local entity = { key = 802, ref = "802", name = "Side Gate" }
+  sensor:discovered(entity)
+  local contact = bindings:getDynamicBinding(BinarySensorEntity.TYPE, "binary_sensor_" .. entity.ref).bindingId
+
+  OBC[contact](contact, "CONTACT_SENSOR", true)
+  T.eq("a bind before any state tells nothing", toldTo(contact), {})
+  sensor:updated(entity, { state = true })
+  toldTo(contact)
+  OBC[contact](contact, "CONTACT_SENSOR", true)
+  T.eq("a bind after the first state tells it silently", toldTo(contact), { "STATE_CLOSED" })
+  OBC[contact](contact, "CONTACT_SENSOR", false)
+  T.eq("an unbind tells nothing", toldTo(contact), {})
+end
+
 local Legacy = ESPHomeProtoSchema.Enum.LegacyCoverState
 
 --- Discover a cover and return its entity and its Open and Closed contact bindings.

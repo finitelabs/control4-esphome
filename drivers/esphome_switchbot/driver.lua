@@ -587,7 +587,6 @@ local function isBotSwitchMode()
   return Select(values:getValue("Mode"), "value") == "Switch"
 end
 
---- Relay and contact states told, so only a change fires programming after a restart.
 local told = StateTell:new("RelayContactStates")
 
 --- Set the Bot state and notify bound consumers

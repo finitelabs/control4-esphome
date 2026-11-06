@@ -283,6 +283,18 @@ H.test("a device home and a room occupied before a restart, not heard again, rea
   T.eq("and only once", #H.sent, 0)
 end)
 
+H.test("a tag removed and added again while home starts away", function()
+  H.boot(nil, function()
+    persist:set("PresenceDevices", { [MAC] = { mac = MAC, name = "Test Tag" } })
+    persist:set("PresenceStates", { device_020000000001 = "CLOSED" })
+    package.loaded["esphome.ble.coordinator.presence_tracker"] = nil
+  end)
+  local tracker = require("esphome.ble.coordinator.presence_tracker")
+  tracker:untrackDevice(MAC)
+  tracker:trackDevice(MAC, { mac = MAC, name = "Test Tag" })
+  T.eq("its kept state is away", persist:get("PresenceStates").device_020000000001, "OPENED")
+end)
+
 H.test("Reset Driver forgets every presence state told", function()
   ExecuteCommand("Reset Driver", { ["Are You Sure?"] = "Yes" })
   T.eq("nothing is kept", persist:get("PresenceStates"), nil)

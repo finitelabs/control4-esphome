@@ -4,7 +4,6 @@ local values = require("lib.values")
 local ESPHomeClient = require("esphome.client")
 local StateTell = require("esphome.state_tell")
 
---- ESPHome re-sends every state at each reconnect, so only a change fires programming.
 local told = StateTell:new("BinarySensorStates")
 
 --- @class BinarySensorEntity:Entity
@@ -32,7 +31,7 @@ end
 --- @return void
 function BinarySensorEntity:discovered(entity)
   log:trace("BinarySensorEntity:discovered(%s)", entity)
-  assert(
+  local binding = assert(
     bindings:getOrAddDynamicBinding(
       self.TYPE,
       "binary_sensor_" .. entity.ref,
@@ -42,6 +41,13 @@ function BinarySensorEntity:discovered(entity)
       "CONTACT_SENSOR"
     )
   )
+  -- A newly bound consumer is told the last state told, silently.
+  OBC[binding.bindingId] = function(_idBinding, _strClass, bIsBound)
+    local state = told:state(entity.ref)
+    if bIsBound and state ~= nil then
+      SendToProxy(binding.bindingId, "STATE_" .. state, {}, "NOTIFY")
+    end
+  end
 end
 
 --- Handle updates to the binary sensor entity state.

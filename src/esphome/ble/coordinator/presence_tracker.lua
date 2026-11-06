@@ -93,7 +93,6 @@ function PresenceTracker:new()
   instance._roomBindings = {}
   instance._deviceBindings = {}
   instance._roomNames = {}
-  -- Presence starts unknown at each load, so the state told before decides what is a change.
   instance._told = StateTell:new("PresenceStates")
   instance._loadedAt = os.time()
   instance._roomsSettled = false

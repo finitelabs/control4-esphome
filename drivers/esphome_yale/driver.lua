@@ -655,7 +655,6 @@ local function updateLockStatus(status)
   SendToProxy(PROXY_BINDING, "LOCK_STATUS_CHANGED", { LOCK_STATUS = status }, "NOTIFY")
 end
 
---- The door status told, so only a change fires programming after a restart.
 local doorTold = StateTell:new("DoorStates")
 
 --- Register a bind-time seeder on the door contact binding that tells a newly

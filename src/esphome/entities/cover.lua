@@ -5,7 +5,6 @@ local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 local StateTell = require("esphome.state_tell")
 
---- ESPHome re-sends every state at each reconnect, so only a change fires programming.
 local told = StateTell:new("CoverContactStates")
 
 --- @class CoverEntity:Entity

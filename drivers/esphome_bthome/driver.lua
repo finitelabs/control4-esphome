@@ -552,7 +552,6 @@ local function getOrCreateContactBinding(reading)
   return binding
 end
 
---- Contact states told, so only a change fires programming after a restart.
 local contactTold = StateTell:new("ContactStates")
 
 --- Send contact sensor state to bound consumers.

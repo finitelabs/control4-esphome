@@ -1,6 +1,7 @@
 --- Tells contact and relay bindings their state. OPENED and CLOSED fire the bound
---- driver's programming, so they go out only for a real change, against the state
---- told before (kept across loads); anything else goes in the silent STATE_ form.
+--- driver's programming, and ESPHome re-sends every state at each reconnect, so they
+--- go out only for a real change, against the state told before (kept across loads);
+--- anything else goes in the silent STATE_ form.
 
 local persist = require("lib.persist")
 
