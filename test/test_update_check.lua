@@ -18,6 +18,7 @@ require("drivers-common-public.global.timer")
 
 local deferred = require("deferred")
 local ESPHomeClient = require("esphome.client")
+local driver = require("esphome_driver")
 
 local HERE = debug.getinfo(1, "S").source:match("^@(.*)/") or "."
 local DIR = HERE .. "/../drivers/esphome"
@@ -95,40 +96,12 @@ SetTimer = function(id, delay, fn, repeating) -- luacheck: ignore
   return realSetTimer(id, delay, fn, repeating)
 end
 
-local function read(path)
-  local f = assert(io.open(path))
-  local body = f:read("*a")
-  f:close()
-  return body
-end
-
--- The handlers the client and diagnostics wrap, put back before each load.
-local pristine = {
-  ExecuteCommand = ExecuteCommand,
-  OnPropertyChanged = OnPropertyChanged,
-  OnDriverDestroyed = OnDriverDestroyed,
-}
-
 local checks, errors
 --- Load and start `build` of the driver as Director does, the device set but not answering.
 --- @param build string "oss" or "drivercentral".
 --- @param properties? table<string, string> Properties over the driver.xml defaults.
 local function boot(build, properties)
-  config = read(DIR .. "/driver.xml"):match("<config>(.*)</config>")
-  for k in pairs(Properties) do
-    Properties[k] = nil
-  end
-  for block in config:gmatch("<property>(.-)</property>") do
-    Properties[block:match("<name>(.-)</name>")] = block:match("<default>(.-)</default>") or ""
-  end
-  Properties["IP Address"] = "192.0.2.10"
-  Properties["Authentication Mode"] = "None"
-  for k, v in pairs(properties or {}) do
-    Properties[k] = v
-  end
-  for k, v in pairs(pristine) do
-    _G[k] = v
-  end
+  config = driver.reset(DIR, properties)
   UpdateDrivers = nil -- luacheck: ignore
   package.loaded["lib.drivercentral"] = build == "drivercentral" and gate or nil
   items = items or { [ID] = {} }

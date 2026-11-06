@@ -18,6 +18,7 @@ require("drivers-common-public.global.timer")
 local cloud = require("dc_cloud")
 local deferred = require("deferred")
 local ESPHomeClient = require("esphome.client")
+local driver = require("esphome_driver")
 
 local HERE = debug.getinfo(1, "S").source:match("^@(.*)/") or "."
 local DIR = HERE .. "/../drivers/esphome"
@@ -79,13 +80,6 @@ ESPHomeClient.sendMessage = function()
   return deferred.new():resolve({})
 end
 
-local function read(path)
-  local f = assert(io.open(path))
-  local body = f:read("*a")
-  f:close()
-  return body
-end
-
 --- The driver's DRIVERCENTRAL build, lines its directives leave out blanked, as preprocess.py makes it.
 local function dcBuild(src)
   local out, stack, including = {}, {}, true
@@ -104,34 +98,16 @@ local function dcBuild(src)
   return table.concat(out, "\n")
 end
 
--- The handlers the client wraps, put back before each load so one load's client never wraps another's.
-local pristine = {
-  ExecuteCommand = ExecuteCommand,
-  OnPropertyChanged = OnPropertyChanged,
-  OnDriverDestroyed = OnDriverDestroyed,
-}
-
 local gate
 --- Load and start the driver as Director does, with a light entity a companion can command.
 --- @param prepare? fun() Runs before OnDriverInit.
 local function boot(prepare)
-  config = read(DIR .. "/driver.xml"):match("<config>(.*)</config>")
-  for k in pairs(Properties) do
-    Properties[k] = nil
-  end
-  for block in config:gmatch("<property>(.-)</property>") do
-    Properties[block:match("<name>(.-)</name>")] = block:match("<default>(.-)</default>") or ""
-  end
-  Properties["IP Address"] = "192.0.2.10"
-  Properties["Authentication Mode"] = "None"
-  for k, v in pairs(pristine) do
-    _G[k] = v
-  end
+  config = driver.reset(DIR)
   package.loaded["cloud-client-byte"] = nil
   package.loaded["lib.drivercentral"] = nil
   cloud.ping = nil
   net.connected, net.connects, net.sends = false, 0, 0
-  assert(load(dcBuild(read(DIR .. "/driver.lua")), "@" .. DIR .. "/driver.lua"))()
+  assert(load(dcBuild(driver.read(DIR .. "/driver.lua")), "@" .. DIR .. "/driver.lua"))()
   SendToProxy = function(binding, command, params)
     sent[#sent + 1] = { binding = binding, command = command, params = params or {} }
   end
