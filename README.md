@@ -1125,6 +1125,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed changing Automatic Updates or Update Channel on an ESPHome driver
   briefly holding up every other ESPHome driver, longer in a project with many,
   while the change was copied to them
+- Fixed button link LEDs staying lit when a light was bound to another device
+  that reports off
 
 ### Changed
 
