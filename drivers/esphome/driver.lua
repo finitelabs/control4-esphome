@@ -798,6 +798,8 @@ local RESET_PROPERTY_VALUES = {
   ["Use OpenSSL"] = "Yes",
   ["Bluetooth Proxy Status"] = "",
   ["Bluetooth Scan Duration"] = "30",
+  ["Bluetooth Proxy Room"] = "",
+  ["Minimum Room RSSI Override (dBm)"] = "-100",
   ["Name"] = "N/A",
   ["Model"] = "N/A",
   ["Manufacturer"] = "N/A",
@@ -820,6 +822,13 @@ function EC.Reset_Driver(params)
 
   -- Reset all values (variables and properties)
   values:reset()
+
+  -- Delete the event entities' events
+  events:reset()
+
+  -- Forget each button's light and the Bluetooth proxy's restart button
+  buttonLeds:reset()
+  bluetoothProxyCapability:resetRestart()
 
   -- Clear in-memory notify memos so recreated bindings receive the next state
   BinarySensorEntity.clearNotifiedState()

@@ -582,12 +582,14 @@ the current version.
 
 #### Reset Driver
 
-> ⚠️ This will reset all connection bindings and delete any programming
-> associated with the variables.
+> ⚠️ This will remove all connection bindings and delete the variables and
+> events, along with any programming on them.
 
 Resets the driver to its initial state, removing all dynamically created
-connections and variables. This is useful if you change the connected ESPHome
-device or there are stale connections or variables.
+connections, variables and events. It forgets each button's LED light and the
+Bluetooth proxy's restart button, and returns the settings to their defaults.
+The device's address and login stay. This is useful if you change the connected
+ESPHome device or there are stale connections or variables.
 
 <!-- #ifdef DRIVERCENTRAL -->
 

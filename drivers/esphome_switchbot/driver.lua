@@ -2844,6 +2844,16 @@ end
 -- EC Handlers
 --------------------------------------------------------------------------------
 
+--- Property values for reset.
+--- @type table<string, string>
+local RESET_PROPERTY_VALUES = {
+  ["Log Level"] = "3 - Info",
+  ["Log Mode"] = "Off",
+  --#ifdef DRIVERCENTRAL
+  ["Cloud Monitoring"] = "Enabled",
+  --#endif
+}
+
 --- Reset driver to initial state
 function EC.Reset_Driver(params)
   log:trace("EC.Reset_Driver(%s)", params)
@@ -2879,14 +2889,13 @@ function EC.Reset_Driver(params)
   hideBotProperties()
   hideSensorProperties()
 
-  -- Reset properties to defaults (excludes user-entered credentials)
-  local resetValues = GetPropertyResetValues({ "SwitchBot Username", "SwitchBot Password" })
-  for propName, defaultValue in pairs(resetValues) do
+  -- Reset properties to defaults; the device's keys stay, since only the cloud login fetches them
+  for propName, defaultValue in pairs(GetPropertyResetValues({ "Key ID", "Encryption Key" })) do
     UpdateProperty(propName, defaultValue, true)
   end
-  --#ifdef DRIVERCENTRAL
-  UpdateProperty("Cloud Monitoring", "Enabled", true)
-  --#endif
+  for propName, defaultValue in pairs(RESET_PROPERTY_VALUES) do
+    UpdateProperty(propName, defaultValue, true)
+  end
 
   -- Request refresh from parent
   SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")

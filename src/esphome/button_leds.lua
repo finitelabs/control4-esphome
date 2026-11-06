@@ -152,6 +152,15 @@ function ButtonLeds:hideProperties()
   C4:SetPropertyAttribs(LED_PROPERTY, constants.HIDE_PROPERTY)
 end
 
+--- Forget every button's light and what its LEDs were told (driver reset).
+function ButtonLeds:reset()
+  persist:delete(PAIRS_KEY)
+  self.feedback = {}
+  self.sent = {}
+  self.selectedKey = nil
+  self:hideProperties()
+end
+
 --- Refresh the Composer form from the current buttons, lights and pairs.
 function ButtonLeds:updateProperties()
   if #self.buttonOrder == 0 or #self.lightOrder == 0 then

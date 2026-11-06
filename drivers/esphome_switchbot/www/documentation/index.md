@@ -330,7 +330,11 @@ relevant to the connected device will be shown.
 
 ### Reset Driver
 
-Resets the driver state to defaults.
+> ⚠️ This will remove all connection bindings and delete the variables and
+> events, along with any programming on them.
+
+Resets the driver to its initial state and returns Log Level and Log Mode to
+their defaults. The SwitchBot login and the device's encryption keys stay.
 
 <!-- #ifdef DRIVERCENTRAL -->
 

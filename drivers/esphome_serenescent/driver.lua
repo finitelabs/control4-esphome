@@ -943,6 +943,17 @@ function EC.Set_Polling_Interval(params)
   end
 end
 
+--- Property values for reset.
+--- @type table<string, string>
+local RESET_PROPERTY_VALUES = {
+  ["Polling Interval"] = "5",
+  ["Log Level"] = "3 - Info",
+  ["Log Mode"] = "Off",
+  --#ifdef DRIVERCENTRAL
+  ["Cloud Monitoring"] = "Enabled",
+  --#endif
+}
+
 function EC.Reset_Driver(params)
   log:trace("EC.Reset_Driver(%s)", params)
   if Select(params, "Are You Sure?") ~= "Yes" then
@@ -969,9 +980,9 @@ function EC.Reset_Driver(params)
   for propName, defaultValue in pairs(GetPropertyResetValues({ "Driver Status", "Driver Version" })) do
     UpdateProperty(propName, defaultValue, true)
   end
-  --#ifdef DRIVERCENTRAL
-  UpdateProperty("Cloud Monitoring", "Enabled", true)
-  --#endif
+  for propName, defaultValue in pairs(RESET_PROPERTY_VALUES) do
+    UpdateProperty(propName, defaultValue, true)
+  end
   updateStatus("Disconnected", false)
   -- Delete the variables after the final status write so Reset Driver does not
   -- immediately recreate the Connected variable it just removed

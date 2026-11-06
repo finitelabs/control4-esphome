@@ -450,11 +450,11 @@ for details.
 
 ## Reset Driver
 
-> ⚠️ This will clear all device selections, presence tracking configuration, and
-> dynamic bindings.
+> ⚠️ This will clear all device selections and delete the presence connections,
+> variables and events, along with any programming on them.
 
-Resets the coordinator to its initial state. Use this if you need to start fresh
-or are experiencing issues.
+Resets the coordinator to its initial state and returns its settings to their
+defaults. Use this if you need to start fresh or are experiencing issues.
 
 <!-- #ifdef DRIVERCENTRAL -->
 

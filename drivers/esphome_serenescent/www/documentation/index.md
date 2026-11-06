@@ -354,8 +354,11 @@ Connects to the diffuser, reads its status, then disconnects.
 
 ### Reset Driver
 
-Resets the driver state to defaults. Clears the diffuser's last known state and
-the driver's variables. Settings such as the polling interval are kept.
+> ⚠️ This will delete the driver's variables, along with any programming on
+> them.
+
+Resets the driver to its initial state, clears the diffuser's last known state,
+and returns Polling Interval, Log Level and Log Mode to their defaults.
 
 <!-- #ifdef DRIVERCENTRAL -->
 

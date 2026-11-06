@@ -296,7 +296,11 @@ Properties shown depend on the connected device type:
 
 ### Reset Driver
 
-Resets the driver state and clears cached sensor values.
+> ⚠️ This will remove all connection bindings and delete the variables and
+> events, along with any programming on them.
+
+Resets the driver to its initial state and returns Log Level and Log Mode to
+their defaults.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
