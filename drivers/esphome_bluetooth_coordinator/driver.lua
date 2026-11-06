@@ -391,6 +391,7 @@ function EC.Reset_Driver(tParams)
   selectedDevices = {}
   persist:set(PERSIST_SELECTED_DEVICES, {})
   persist:set(PERSIST_PRESENCE_DEVICES, {})
+  presenceTracker:forgetTold()
 
   -- Delete all dynamic bindings
   bindings:deleteAllBindings(BINDINGS_NAMESPACE)

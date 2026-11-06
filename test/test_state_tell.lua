@@ -85,6 +85,17 @@ do
   T.eq("nothing told", sent(), {})
 end
 
+T.section("state and states read what was told")
+do
+  persist:delete("TellRead")
+  local teller = StateTell:new("TellRead")
+  T.eq("nothing kept", teller:state("door"), nil)
+  teller:tell("door", nil, "CLOSED")
+  teller:tell("gate", nil, "OPENED")
+  T.eq("one key", StateTell:new("TellRead"):state("door"), "CLOSED")
+  T.eq("every key", StateTell:new("TellRead"):states(), { door = "CLOSED", gate = "OPENED" })
+end
+
 T.section("assume, forget, clear and reset")
 do
   persist:delete("TellAssume")

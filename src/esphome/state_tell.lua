@@ -38,6 +38,19 @@ function StateTell:tell(key, bindingId, state)
   return changed
 end
 
+--- The state told before for one binding key.
+--- @param key string A stable name for the binding.
+--- @return string|nil state "OPENED", "CLOSED", or nil if none is kept.
+function StateTell:state(key)
+  return persist:get(self._key, {})[key]
+end
+
+--- Every state told before.
+--- @return table<string, string> states By binding key.
+function StateTell:states()
+  return persist:get(self._key, {})
+end
+
 --- Take a state as the one told before, unless one is kept already.
 --- @param key string A stable name for the binding.
 --- @param state string "OPENED" or "CLOSED".

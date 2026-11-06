@@ -95,8 +95,15 @@ function PresenceTracker:new()
   instance._roomNames = {}
   -- Presence starts unknown at each load, so the state told before decides what is a change.
   instance._told = StateTell:new("PresenceStates")
+  instance._loadedAt = os.time()
+  instance._roomsSettled = false
 
   return instance
+end
+
+--- Forget every presence state told (driver reset).
+function PresenceTracker:forgetTold()
+  self._told:reset()
 end
 
 --- Configure presence tracking settings
@@ -134,16 +141,20 @@ end
 function PresenceTracker:trackDevice(mac, config)
   self._presenceDevices[mac] = config
 
+  -- A device first tracked starts away. One told home before a restart starts home,
+  -- so the away check tells it away if it is not heard again.
+  local key = "device_" .. mac:gsub(":", "")
+  self._told:assume(key, "OPENED")
+  local wasHome = self._told:state(key) == "CLOSED"
+
   -- Initialize state
   self._deviceState[mac] = {
     room = nil,
     roomId = nil,
-    lastSeen = nil,
+    lastSeen = wasHome and os.time() or nil,
     pendingTransition = nil,
-    isHome = false,
+    isHome = wasHome,
   }
-  -- A device first tracked starts away; one tracked again after a restart keeps what was told.
-  self._told:assume("device_" .. mac:gsub(":", ""), "OPENED")
 
   local uniqueName = makeUniqueName(config.name, mac)
 
@@ -719,6 +730,20 @@ function PresenceTracker:checkAwayStatus()
         state.isHome = false
 
         self:_onDeviceAway(mac, config.name, previousRoom, previousRoomId)
+      end
+    end
+  end
+
+  -- A room told occupied before a restart that no one has entered since is empty by now.
+  if not self._roomsSettled and now - self._loadedAt > self._awayTimeout then
+    self._roomsSettled = true
+    for key, state in pairs(self._told:states()) do
+      local roomId = tointeger(key:match("^room_(%-?%d+)$"))
+      if roomId and state == "CLOSED" and next(self._roomOccupancy[roomId] or {}) == nil then
+        local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, key)
+        if self._told:tell(key, binding and binding.bindingId, "OPENED") then
+          events:fire(NAMESPACE, key .. "_empty")
+        end
       end
     end
   end
