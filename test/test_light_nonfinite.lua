@@ -82,6 +82,7 @@ local function compileHandler(source)
     COLOR_MODES_SUPPORTING_RGB = {},
     ESPHomeProtoSchema = require("esphome.proto_schema"),
     -- The range a light has until Max and Min On Level are set.
+    PersistKey = {},
     persist = {
       get = function(_, _, default)
         return default
