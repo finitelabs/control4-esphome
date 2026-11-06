@@ -2,8 +2,8 @@
 -- Do not edit manually
 --
 -- generator: v0.6.12
--- esphome: 2026.8.2
--- body-sha256: 4e50c6b9289841a34971d89d79b4a0384a6a29942bff49048fafc7d1fa661f3b
+-- esphome: 2026.10.2
+-- body-sha256: 93ad534054107d7933f7263139fccf269e333a0cf68fb91b33aadfc8cb030fc2
 -- provenance-boundary: every line below is covered by body-sha256
 
 --- @class ProtoSchema
@@ -77,6 +77,7 @@ ProtoSchema.DataType = {
 --- @field client_info string?
 --- @field api_version_major number?
 --- @field api_version_minor number?
+--- @field outgoing_connection_target boolean?
 
 --- @class ProtoHelloResponse
 --- @field api_version_major number?
@@ -113,6 +114,7 @@ ProtoSchema.DataType = {
 --- @class ProtoSerialProxyInfo
 --- @field name string?
 --- @field port_type ProtoSerialProxyPortType?
+--- @field configured_line_states number?
 
 --- @class ProtoDeviceInfoResponse
 --- @field uses_password boolean?
@@ -141,6 +143,7 @@ ProtoSchema.DataType = {
 --- @field zwave_home_id number?
 --- @field serial_proxies ProtoSerialProxyInfo[]?
 --- @field api_encryption_provisionable boolean?
+--- @field api_outgoing_connection_supported boolean?
 
 --- @class ProtoDeviceCapabilitiesRequest
 
@@ -155,11 +158,29 @@ ProtoSchema.DataType = {
 --- @field feature_flags number?
 --- @field home_id number?
 
+--- @class ProtoWizardCapabilities
+--- @field configured boolean?
+
+--- @class ProtoSendspinCapabilities
+--- @field feature_flags number?
+--- @field client_id string?
+
 --- @class ProtoDeviceCapabilitiesResponse
 --- @field bluetooth_proxy ProtoBluetoothProxyCapabilities?
 --- @field voice_assistant ProtoVoiceAssistantCapabilities?
 --- @field zwave_proxy ProtoZWaveProxyCapabilities?
 --- @field serial_proxies ProtoSerialProxyInfo[]?
+--- @field wizard ProtoWizardCapabilities?
+--- @field sendspin ProtoSendspinCapabilities?
+
+--- @class ProtoDeviceWizardRequest
+
+--- @class ProtoDeviceWizardResponse
+--- @field data string?
+
+--- @class ProtoWizardInputSetRequest
+--- @field key number?
+--- @field entity_id string?
 
 --- @class ProtoListEntitiesRequest
 
@@ -356,6 +377,7 @@ ProtoSchema.DataType = {
 --- @field key number?
 --- @field state boolean?
 --- @field device_id number?
+--- @field missing_state boolean?
 
 --- @class ProtoSwitchCommandRequest
 --- @field key number?
@@ -450,12 +472,15 @@ ProtoSchema.DataType = {
 --- @class ProtoListEntitiesServicesArgument
 --- @field name string?
 --- @field type ProtoServiceArgType?
+--- @field description string?
+--- @field example string?
 
 --- @class ProtoListEntitiesServicesResponse
 --- @field name string?
 --- @field key number?
 --- @field args ProtoListEntitiesServicesArgument[]?
 --- @field supports_response ProtoSupportsResponseType?
+--- @field description string?
 
 --- @class ProtoExecuteServiceArgument
 --- @field bool_ boolean?
@@ -545,6 +570,7 @@ ProtoSchema.DataType = {
 --- @field current_humidity number?
 --- @field target_humidity number?
 --- @field device_id number?
+--- @field missing_state boolean?
 
 --- @class ProtoClimateCommandRequest
 --- @field key number?
@@ -596,6 +622,7 @@ ProtoSchema.DataType = {
 --- @field state number?
 --- @field target_temperature_low number?
 --- @field target_temperature_high number?
+--- @field missing_state boolean?
 
 --- @class ProtoWaterHeaterCommandRequest
 --- @field key number?
@@ -1172,6 +1199,10 @@ ProtoSchema.DataType = {
 --- @field type ProtoZWaveProxyRequestType?
 --- @field data string?
 
+--- @class ProtoZWaveProxyRequestResponse
+--- @field type ProtoZWaveProxyRequestType?
+--- @field status ProtoZWaveProxyStatus?
+
 --- @class ProtoListEntitiesInfraredResponse
 --- @field object_id string?
 --- @field key number?
@@ -1195,6 +1226,11 @@ ProtoSchema.DataType = {
 --- @field device_id number?
 --- @field key number?
 --- @field timings number[]?
+
+--- @class ProtoInfraredRFTransmitCompleteResponse
+--- @field device_id number?
+--- @field key number?
+--- @field success boolean?
 
 --- @class ProtoListEntitiesRadioFrequencyResponse
 --- @field object_id string?
@@ -1235,6 +1271,7 @@ ProtoSchema.DataType = {
 --- @class ProtoSerialProxyGetModemPinsResponse
 --- @field instance number?
 --- @field line_states number?
+--- @field status ProtoSerialProxyStatus?
 
 --- @class ProtoSerialProxyRequest
 --- @field instance number?
@@ -1246,6 +1283,29 @@ ProtoSchema.DataType = {
 --- @field status ProtoSerialProxyStatus?
 --- @field error_message string?
 
+--- @class ProtoSerialProxySetModeRequest
+--- @field instance number?
+--- @field mode ProtoSerialProxyMode?
+
+--- @class ProtoSubscribeSerialProxyIdentityRequest
+
+--- @class ProtoUsbDeviceDescriptor
+--- @field vendor_id number?
+--- @field product_id number?
+--- @field bcd_device number?
+--- @field interface_number number?
+--- @field interface_class number?
+--- @field port_number number?
+
+--- @class ProtoSerialProxyIdentity
+--- @field instance number?
+--- @field source ProtoSerialProxyIdentitySource?
+--- @field flags number?
+--- @field manufacturer string?
+--- @field product string?
+--- @field serial_number string?
+--- @field usb ProtoUsbDeviceDescriptor?
+
 --- @class ProtoBluetoothSetConnectionParamsRequest
 --- @field address (number|Int64HighLow)?
 --- @field min_interval number?
@@ -1256,6 +1316,12 @@ ProtoSchema.DataType = {
 --- @class ProtoBluetoothSetConnectionParamsResponse
 --- @field address (number|Int64HighLow)?
 --- @field error number?
+
+--- @class ProtoSendspinPairingTokenRequest
+
+--- @class ProtoSendspinPairingTokenResponse
+--- @field status ProtoSendspinPairingTokenStatus?
+--- @field token string?
 
 --- @enum ProtoAPISourceType
 ProtoSchema.Enum.APISourceType = {
@@ -1275,6 +1341,7 @@ ProtoSchema.Enum.SerialProxyPortType = {
   SERIAL_PROXY_PORT_TYPE_TTL = 0,
   SERIAL_PROXY_PORT_TYPE_RS232 = 1,
   SERIAL_PROXY_PORT_TYPE_RS485 = 2,
+  SERIAL_PROXY_PORT_TYPE_USB_SERIAL = 3,
 }
 
 --- @enum ProtoEntityCategory
@@ -1655,6 +1722,13 @@ ProtoSchema.Enum.ZWaveProxyRequestType = {
   ZWAVE_PROXY_REQUEST_TYPE_HOME_ID_CHANGE = 2,
 }
 
+--- @enum ProtoZWaveProxyStatus
+ProtoSchema.Enum.ZWaveProxyStatus = {
+  ZWAVE_PROXY_STATUS_OK = 0,
+  ZWAVE_PROXY_STATUS_IN_USE = 1,
+  ZWAVE_PROXY_STATUS_NOT_SUPPORTED = 2,
+}
+
 --- @enum ProtoSerialProxyParity
 ProtoSchema.Enum.SerialProxyParity = {
   SERIAL_PROXY_PARITY_NONE = 0,
@@ -1667,6 +1741,9 @@ ProtoSchema.Enum.SerialProxyRequestType = {
   SERIAL_PROXY_REQUEST_TYPE_SUBSCRIBE = 0,
   SERIAL_PROXY_REQUEST_TYPE_UNSUBSCRIBE = 1,
   SERIAL_PROXY_REQUEST_TYPE_FLUSH = 2,
+  SERIAL_PROXY_REQUEST_TYPE_CONFIGURE = 3,
+  SERIAL_PROXY_REQUEST_TYPE_SET_MODEM_PINS = 4,
+  SERIAL_PROXY_REQUEST_TYPE_SET_MODE = 5,
 }
 
 --- @enum ProtoSerialProxyStatus
@@ -1676,6 +1753,37 @@ ProtoSchema.Enum.SerialProxyStatus = {
   SERIAL_PROXY_STATUS_ERROR = 2,
   SERIAL_PROXY_STATUS_TIMEOUT = 3,
   SERIAL_PROXY_STATUS_NOT_SUPPORTED = 4,
+  SERIAL_PROXY_STATUS_PORT_IN_USE = 5,
+  SERIAL_PROXY_STATUS_INVALID_ARGUMENT = 6,
+}
+
+--- @enum ProtoSerialProxyMode
+ProtoSchema.Enum.SerialProxyMode = {
+  SERIAL_PROXY_MODE_RAW = 0,
+  SERIAL_PROXY_MODE_PROTOCOL = 1,
+}
+
+--- @enum ProtoSerialProxyIdentitySource
+ProtoSchema.Enum.SerialProxyIdentitySource = {
+  SERIAL_PROXY_IDENTITY_SOURCE_NONE = 0,
+  SERIAL_PROXY_IDENTITY_SOURCE_CONFIGURED = 1,
+  SERIAL_PROXY_IDENTITY_SOURCE_USB = 2,
+}
+
+--- @enum ProtoSerialProxyIdentityFlag
+ProtoSchema.Enum.SerialProxyIdentityFlag = {
+  SERIAL_PROXY_IDENTITY_FLAG_NONE = 0,
+  SERIAL_PROXY_IDENTITY_FLAG_CONNECTED = 1,
+  SERIAL_PROXY_IDENTITY_FLAG_ERROR = 2,
+}
+
+--- @enum ProtoSendspinPairingTokenStatus
+ProtoSchema.Enum.SendspinPairingTokenStatus = {
+  SENDSPIN_PAIRING_TOKEN_STATUS_NOT_READY = 0,
+  SENDSPIN_PAIRING_TOKEN_STATUS_OK = 1,
+  SENDSPIN_PAIRING_TOKEN_STATUS_ENCRYPTION_REQUIRED = 2,
+  SENDSPIN_PAIRING_TOKEN_STATUS_DISABLED = 3,
+  SENDSPIN_PAIRING_TOKEN_STATUS_FAILED = 4,
 }
 
 --- @type ProtoMessageSchema
@@ -1708,6 +1816,11 @@ ProtoSchema.Message.HelloRequest = {
       name = "api_version_minor",
       wireType = ProtoSchema.WireType.VARINT,
       type = ProtoSchema.DataType.UINT32,
+    },
+    [4] = {
+      name = "outgoing_connection_target",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.BOOL,
     },
   },
 }
@@ -1892,6 +2005,11 @@ ProtoSchema.Message.SerialProxyInfo = {
       wireType = ProtoSchema.WireType.VARINT,
       type = ProtoSchema.DataType.ENUM, -- SerialProxyPortType
     },
+    [3] = {
+      name = "configured_line_states",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
   },
 }
 
@@ -2040,6 +2158,11 @@ ProtoSchema.Message.DeviceInfoResponse = {
       wireType = ProtoSchema.WireType.VARINT,
       type = ProtoSchema.DataType.BOOL,
     },
+    [27] = {
+      name = "api_outgoing_connection_supported",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.BOOL,
+    },
   },
 }
 
@@ -2103,6 +2226,37 @@ ProtoSchema.Message.ZWaveProxyCapabilities = {
 }
 
 --- @type ProtoMessageSchema
+ProtoSchema.Message.WizardCapabilities = {
+  name = "WizardCapabilities",
+  options = {},
+  fields = {
+    [1] = {
+      name = "configured",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.BOOL,
+    },
+  },
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.SendspinCapabilities = {
+  name = "SendspinCapabilities",
+  options = {},
+  fields = {
+    [1] = {
+      name = "feature_flags",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+    [2] = {
+      name = "client_id",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.STRING,
+    },
+  },
+}
+
+--- @type ProtoMessageSchema
 ProtoSchema.Message.DeviceCapabilitiesResponse = {
   name = "DeviceCapabilitiesResponse",
   options = {
@@ -2134,6 +2288,68 @@ ProtoSchema.Message.DeviceCapabilitiesResponse = {
       type = ProtoSchema.DataType.MESSAGE,
       repeated = true,
       subschema = "SerialProxyInfo",
+    },
+    [5] = {
+      name = "wizard",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.MESSAGE,
+      subschema = "WizardCapabilities",
+    },
+    [6] = {
+      name = "sendspin",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.MESSAGE,
+      subschema = "SendspinCapabilities",
+    },
+  },
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.DeviceWizardRequest = {
+  name = "DeviceWizardRequest",
+  options = {
+    id = 156,
+    source = 2,
+    ifdef = "USE_API_WIZARD",
+  },
+  fields = {},
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.DeviceWizardResponse = {
+  name = "DeviceWizardResponse",
+  options = {
+    id = 157,
+    source = 1,
+    ifdef = "USE_API_WIZARD",
+  },
+  fields = {
+    [1] = {
+      name = "data",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.BYTES,
+    },
+  },
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.WizardInputSetRequest = {
+  name = "WizardInputSetRequest",
+  options = {
+    id = 158,
+    source = 2,
+    ifdef = "USE_API_WIZARD_INPUTS",
+  },
+  fields = {
+    [1] = {
+      name = "key",
+      wireType = ProtoSchema.WireType.FIXED32,
+      type = ProtoSchema.DataType.FIXED32,
+    },
+    [2] = {
+      name = "entity_id",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.STRING,
     },
   },
 }
@@ -3174,6 +3390,11 @@ ProtoSchema.Message.SwitchStateResponse = {
       wireType = ProtoSchema.WireType.VARINT,
       type = ProtoSchema.DataType.UINT32,
     },
+    [4] = {
+      name = "missing_state",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.BOOL,
+    },
   },
 }
 
@@ -3686,6 +3907,16 @@ ProtoSchema.Message.ListEntitiesServicesArgument = {
       wireType = ProtoSchema.WireType.VARINT,
       type = ProtoSchema.DataType.ENUM, -- ServiceArgType
     },
+    [3] = {
+      name = "description",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.STRING,
+    },
+    [4] = {
+      name = "example",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.STRING,
+    },
   },
 }
 
@@ -3719,6 +3950,11 @@ ProtoSchema.Message.ListEntitiesServicesResponse = {
       name = "supports_response",
       wireType = ProtoSchema.WireType.VARINT,
       type = ProtoSchema.DataType.ENUM, -- SupportsResponseType
+    },
+    [5] = {
+      name = "description",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.STRING,
     },
   },
 }
@@ -4199,6 +4435,11 @@ ProtoSchema.Message.ClimateStateResponse = {
       wireType = ProtoSchema.WireType.VARINT,
       type = ProtoSchema.DataType.UINT32,
     },
+    [17] = {
+      name = "missing_state",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.BOOL,
+    },
   },
 }
 
@@ -4465,6 +4706,11 @@ ProtoSchema.Message.WaterHeaterStateResponse = {
       name = "target_temperature_high",
       wireType = ProtoSchema.WireType.FIXED32,
       type = ProtoSchema.DataType.FLOAT,
+    },
+    [9] = {
+      name = "missing_state",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.BOOL,
     },
   },
 }
@@ -7593,6 +7839,28 @@ ProtoSchema.Message.ZWaveProxyRequest = {
 }
 
 --- @type ProtoMessageSchema
+ProtoSchema.Message.ZWaveProxyRequestResponse = {
+  name = "ZWaveProxyRequestResponse",
+  options = {
+    id = 151,
+    source = 1,
+    ifdef = "USE_ZWAVE_PROXY",
+  },
+  fields = {
+    [1] = {
+      name = "type",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.ENUM, -- ZWaveProxyRequestType
+    },
+    [2] = {
+      name = "status",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.ENUM, -- ZWaveProxyStatus
+    },
+  },
+}
+
+--- @type ProtoMessageSchema
 ProtoSchema.Message.ListEntitiesInfraredResponse = {
   name = "ListEntitiesInfraredResponse",
   options = {
@@ -7656,7 +7924,7 @@ ProtoSchema.Message.InfraredRFTransmitRawTimingsRequest = {
   options = {
     id = 136,
     source = 2,
-    ifdef = "USE_IR_RF || USE_RADIO_FREQUENCY",
+    ifdef = "USE_IR_RF",
   },
   fields = {
     [1] = {
@@ -7699,7 +7967,7 @@ ProtoSchema.Message.InfraredRFReceiveEvent = {
   options = {
     id = 137,
     source = 1,
-    ifdef = "USE_IR_RF || USE_RADIO_FREQUENCY",
+    ifdef = "USE_IR_RF",
     no_delay = true,
     speed_optimized = true,
   },
@@ -7719,6 +7987,34 @@ ProtoSchema.Message.InfraredRFReceiveEvent = {
       wireType = ProtoSchema.WireType.VARINT,
       type = ProtoSchema.DataType.SINT32,
       repeated = true,
+    },
+  },
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.InfraredRFTransmitCompleteResponse = {
+  name = "InfraredRFTransmitCompleteResponse",
+  options = {
+    id = 153,
+    source = 1,
+    ifdef = "USE_IR_RF",
+    no_delay = true,
+  },
+  fields = {
+    [1] = {
+      name = "device_id",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+    [2] = {
+      name = "key",
+      wireType = ProtoSchema.WireType.FIXED32,
+      type = ProtoSchema.DataType.FIXED32,
+    },
+    [3] = {
+      name = "success",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.BOOL,
     },
   },
 }
@@ -7938,6 +8234,11 @@ ProtoSchema.Message.SerialProxyGetModemPinsResponse = {
       wireType = ProtoSchema.WireType.VARINT,
       type = ProtoSchema.DataType.UINT32,
     },
+    [3] = {
+      name = "status",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.ENUM, -- SerialProxyStatus
+    },
   },
 }
 
@@ -7991,6 +8292,125 @@ ProtoSchema.Message.SerialProxyRequestResponse = {
       name = "error_message",
       wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
       type = ProtoSchema.DataType.STRING,
+    },
+  },
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.SerialProxySetModeRequest = {
+  name = "SerialProxySetModeRequest",
+  options = {
+    id = 152,
+    source = 2,
+    ifdef = "USE_SERIAL_PROXY",
+  },
+  fields = {
+    [1] = {
+      name = "instance",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+    [2] = {
+      name = "mode",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.ENUM, -- SerialProxyMode
+    },
+  },
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.SubscribeSerialProxyIdentityRequest = {
+  name = "SubscribeSerialProxyIdentityRequest",
+  options = {
+    id = 154,
+    source = 2,
+    ifdef = "USE_SERIAL_PROXY",
+  },
+  fields = {},
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.UsbDeviceDescriptor = {
+  name = "UsbDeviceDescriptor",
+  options = {},
+  fields = {
+    [1] = {
+      name = "vendor_id",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+    [2] = {
+      name = "product_id",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+    [3] = {
+      name = "bcd_device",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+    [4] = {
+      name = "interface_number",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+    [5] = {
+      name = "interface_class",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+    [6] = {
+      name = "port_number",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+  },
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.SerialProxyIdentity = {
+  name = "SerialProxyIdentity",
+  options = {
+    id = 155,
+    source = 1,
+    ifdef = "USE_SERIAL_PROXY",
+  },
+  fields = {
+    [1] = {
+      name = "instance",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+    [2] = {
+      name = "source",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.ENUM, -- SerialProxyIdentitySource
+    },
+    [3] = {
+      name = "flags",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.UINT32,
+    },
+    [4] = {
+      name = "manufacturer",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.STRING,
+    },
+    [5] = {
+      name = "product",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.STRING,
+    },
+    [6] = {
+      name = "serial_number",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.STRING,
+    },
+    [7] = {
+      name = "usb",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.MESSAGE,
+      subschema = "UsbDeviceDescriptor",
     },
   },
 }
@@ -8054,6 +8474,39 @@ ProtoSchema.Message.BluetoothSetConnectionParamsResponse = {
   },
 }
 
+--- @type ProtoMessageSchema
+ProtoSchema.Message.SendspinPairingTokenRequest = {
+  name = "SendspinPairingTokenRequest",
+  options = {
+    id = 159,
+    source = 2,
+    ifdef = "USE_SENDSPIN",
+  },
+  fields = {},
+}
+
+--- @type ProtoMessageSchema
+ProtoSchema.Message.SendspinPairingTokenResponse = {
+  name = "SendspinPairingTokenResponse",
+  options = {
+    id = 160,
+    source = 1,
+    ifdef = "USE_SENDSPIN",
+  },
+  fields = {
+    [1] = {
+      name = "status",
+      wireType = ProtoSchema.WireType.VARINT,
+      type = ProtoSchema.DataType.ENUM, -- SendspinPairingTokenStatus
+    },
+    [2] = {
+      name = "token",
+      wireType = ProtoSchema.WireType.LENGTH_DELIMITED,
+      type = ProtoSchema.DataType.STRING,
+    },
+  },
+}
+
 --- @type ProtoServiceSchema
 ProtoSchema.RPC.APIConnection = {
   hello = {
@@ -8085,6 +8538,18 @@ ProtoSchema.RPC.APIConnection = {
     method = "device_capabilities",
     inputType = ProtoSchema.Message.DeviceCapabilitiesRequest,
     outputType = ProtoSchema.Message.DeviceCapabilitiesResponse,
+  },
+  device_wizard = {
+    service = "APIConnection",
+    method = "device_wizard",
+    inputType = ProtoSchema.Message.DeviceWizardRequest,
+    outputType = ProtoSchema.Message.DeviceWizardResponse,
+  },
+  wizard_input_set = {
+    service = "APIConnection",
+    method = "wizard_input_set",
+    inputType = ProtoSchema.Message.WizardInputSetRequest,
+    outputType = ProtoSchema.Message.void,
   },
   list_entities = {
     service = "APIConnection",
@@ -8380,11 +8845,29 @@ ProtoSchema.RPC.APIConnection = {
     inputType = ProtoSchema.Message.SerialProxyGetModemPinsRequest,
     outputType = ProtoSchema.Message.void,
   },
+  subscribe_serial_proxy_identity = {
+    service = "APIConnection",
+    method = "subscribe_serial_proxy_identity",
+    inputType = ProtoSchema.Message.SubscribeSerialProxyIdentityRequest,
+    outputType = ProtoSchema.Message.void,
+  },
   serial_proxy_request = {
     service = "APIConnection",
     method = "serial_proxy_request",
     inputType = ProtoSchema.Message.SerialProxyRequest,
     outputType = ProtoSchema.Message.void,
+  },
+  serial_proxy_set_mode = {
+    service = "APIConnection",
+    method = "serial_proxy_set_mode",
+    inputType = ProtoSchema.Message.SerialProxySetModeRequest,
+    outputType = ProtoSchema.Message.void,
+  },
+  sendspin_pairing_token = {
+    service = "APIConnection",
+    method = "sendspin_pairing_token",
+    inputType = ProtoSchema.Message.SendspinPairingTokenRequest,
+    outputType = ProtoSchema.Message.SendspinPairingTokenResponse,
   },
 }
 
