@@ -312,6 +312,7 @@ function OPC.Authentication_Mode(propertyValue)
   Connect()
 end
 
+OPC.suppressDebug["Password"] = true
 function OPC.Password(propertyValue)
   log:trace("OPC.Password('%s')", not IsEmpty(propertyValue) and "****" or "")
   if not gInitialized then
@@ -320,6 +321,7 @@ function OPC.Password(propertyValue)
   Connect()
 end
 
+OPC.suppressDebug["Encryption Key"] = true
 function OPC.Encryption_Key(propertyValue)
   log:trace("OPC.Encryption_Key('%s')", not IsEmpty(propertyValue) and "****" or "")
   if not gInitialized then

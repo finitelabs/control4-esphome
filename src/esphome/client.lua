@@ -16,6 +16,22 @@ local BLEAddress = require("esphome.ble.address")
 
 local NULL_BYTE = "\x00"
 
+--- A request body as a log line may show it: a device password or a lock code is masked.
+--- @param body any The request body.
+--- @return any shown The body, or a copy with its secrets masked.
+local function loggable(body)
+  if type(body) ~= "table" or (body.password == nil and body.code == nil) then
+    return body
+  end
+  local shown = {}
+  for k, v in pairs(body) do
+    shown[k] = v
+  end
+  shown.password = body.password ~= nil and "****" or nil
+  shown.code = body.code ~= nil and "****" or nil
+  return shown
+end
+
 --- @enum NoiseProtocolCallbackKey
 local NoiseProtocolCallbackKey = {
   HELLO = "noise_hello",
@@ -1992,7 +2008,7 @@ end
 --- @param timeout? number The timeout for the request in milliseconds (optional). Only non-void methods support this. Default is 5 seconds.
 --- @return Deferred<any, string> result A promise that resolves with the response.
 function ESPHomeClient:callServiceMethod(method, body, timeout)
-  log:trace("ESPHomeClient:callServiceMethod(%s, %s, %s)", method.method, body, timeout)
+  log:trace("ESPHomeClient:callServiceMethod(%s, %s, %s)", method.method, loggable(body), timeout)
 
   -- Determine if we expect a response
   local responseSchema = nil
@@ -2030,7 +2046,7 @@ end
 --- @param timeout? number The timeout for the response in milliseconds (optional).
 --- @return Deferred<any, string> result A promise that resolves when the message is sent (and response received if expected).
 function ESPHomeClient:sendMessage(messageSchema, body, responseSchema, timeout)
-  log:trace("ESPHomeClient:sendMessage(%s, %s, %s, %s)", messageSchema.name, body, responseSchema, timeout)
+  log:trace("ESPHomeClient:sendMessage(%s, %s, %s, %s)", messageSchema.name, loggable(body), responseSchema, timeout)
   --- @type Deferred<any, string>
   local d = deferred.new()
 

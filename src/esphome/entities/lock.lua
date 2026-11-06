@@ -26,8 +26,10 @@ function LockEntity:discovered(entity)
   local bindingId = assert(
     bindings:getOrAddDynamicBinding(self.TYPE, "lock_" .. entity.ref, "PROXY", true, entity.name, "ESPHOME_LOCK")
   ).bindingId
-  RFP[bindingId] = function(idBinding, strCommand, tParams, args)
-    log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
+  -- A command's body carries the lock code.
+  RFP.suppressDebug[bindingId] = { ENTITY_COMMAND = true }
+  RFP[bindingId] = function(idBinding, strCommand, tParams)
+    log:trace("RFP idBinding=%s strCommand=%s", idBinding, strCommand)
     if strCommand == "REFRESH_STATE" then
       -- TODO: Find a more elegant way to refresh the state of the light entity.
       RefreshState(idBinding)
@@ -39,18 +41,16 @@ function LockEntity:discovered(entity)
       body.device_id = body.device_id or entity.device_id
       self.client:callServiceMethod(command, body):next(function()
         log:debug(
-          "Method %s.%s(%s) called by entity %s",
+          "Method %s.%s called by entity %s",
           command.service,
           command.method,
-          body,
           ESPHomeClient.describeEntity(entity)
         )
       end, function(error)
         log:error(
-          "An error occurred calling method %s.%s(%s) by entity %s; %s",
+          "An error occurred calling method %s.%s by entity %s; %s",
           command.service,
           command.method,
-          body,
           ESPHomeClient.describeEntity(entity),
           error
         )
