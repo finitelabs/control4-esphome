@@ -1,2 +1,5 @@
 # <output name>|<query>: one listing photo per line, in upload order. README.md lists the fields.
-# 1-overview|img=overview.png&fit=1&t=Title%20of%20the%20photo&s=One%20sentence%20on%20what%20it%20shows.
+1-every-entity|img=composer-connections.png&fit=1&t=One%20driver%2C%20every%20entity&s=Lights%2C%20fans%2C%20locks%2C%20climate%2C%20covers%2C%20relays%20and%20sensors%20from%20one%20ESPHome%20device.
+2-programming|img=composer-programming.png&fit=1&t=Programming&s=Button%20presses%20start%20Control4%20programming%2C%20and%20the%20device%27s%20buttons%20and%20options%20are%20commands.
+3-variables|img=composer-conditionals.png&fit=1&t=Every%20reading%20as%20a%20variable&s=Readings%2C%20switches%20and%20settings%20are%20Control4%20variables%2C%20ready%20for%20conditionals.
+4-setup|img=composer-setup.png&fit=1&t=Setup&s=Enter%20the%20device%27s%20address%20and%20its%20encryption%20key.
