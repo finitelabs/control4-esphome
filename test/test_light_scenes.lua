@@ -14,6 +14,7 @@ local T = require("testlib")
 require("c4_shim")
 
 local ColorMode = require("esphome.proto_schema").Enum.ColorMode
+local diagnostics = require("lib.diagnostics")
 local persist = require("lib.persist")
 
 -- From this file: make test runs at the repo root, run_test.sh in test/.
@@ -4734,12 +4735,27 @@ do
   for _, c in ipairs({
     { "no answer", false },
     { "an empty answer", "" },
-    { "an answer that is not whole", setup:sub(1, 2000) },
+    { "an answer that is not whole", setup:sub(1, 2000), "Light.readProxySetup" },
     { "a setup with none of the tags", withTags(setup, none) },
   }) do
     proxySetup = c[2]
+    local shim, capture, reported = ShimLateInit, diagnostics.captureError, {}
+    if c[3] then
+      -- The real ShimLateInit fails a test on any report from the late init.
+      function ShimLateInit()
+        diagnostics.captureError = function(_, _message, _traceback, source)
+          reported[#reported + 1] = source
+        end
+        OnDriverLateInit()
+        diagnostics.captureError = capture
+      end
+    end
     restart({ RGBCT, CT }, false)
+    ShimLateInit = shim
     T.eq(c[1] .. ": nothing stored changes", stored(), before)
+    if c[3] then
+      T.eq(c[1] .. ": Cloud Monitoring hears of it", reported, { c[3] })
+    end
   end
   -- A preset the setup names and does not list has no color or level to
   -- store: the mode stored stands.
@@ -9093,6 +9109,33 @@ do
   answer(false, 0)
   run(15000)
   T.eq("LEDs lit, then a light that reports off: the LEDs go off", leds(), { false })
+end
+
+T.section("a first report whose proxy variables cannot be read: Cloud Monitoring hears of each")
+do
+  local RGB = ColorMode.COLOR_MODE_RGB
+  light({ RGB })
+  RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
+  local read, capture, reported = C4.GetDeviceVariable, diagnostics.captureError, {}
+  function C4:GetDeviceVariable(id, variable)
+    if id == 643 then
+      error("no variable " .. tostring(variable))
+    end
+    return read(self, id, variable)
+  end
+  diagnostics.captureError = function(_, _message, _traceback, source)
+    reported[#reported + 1] = source
+  end
+  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { RGB } }),
+    state = SerializeSafe({ state = true, brightness = 1.0, color_mode = RGB, red = 1, green = 0.5, blue = 0 }),
+  })
+  C4.GetDeviceVariable, diagnostics.captureError = read, capture
+  T.eq("its capabilities, its level and its color each", reported, {
+    "Light.updateDynamicCapabilities",
+    "Light.state",
+    "Light.tellShownColor",
+  })
 end
 
 T.section("a light's first report after a load, bind or disconnect tells the proxy only a level it does not show")
