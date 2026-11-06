@@ -11,9 +11,9 @@ JSON = require("JSON")
 local log = require("lib.logging")
 --#ifdef DRIVERCENTRAL
 local updateSettings = require("lib.update-settings")
--- No local: this chunk is at Lua's 200-local limit.
-require("lib.support-code")
-require("lib.diagnostics")
+local drivercentral = require("lib.drivercentral")
+local supportCode = require("lib.support-code")
+local diagnostics = require("lib.diagnostics")
 --#endif
 local values = require("lib.values")
 local persist = require("lib.persist")
@@ -249,7 +249,7 @@ local function readProxySetup()
   end)
   --#ifdef DRIVERCENTRAL
   if not ok then
-    require("lib.diagnostics"):captureError(tostring(setup), nil, "Light.readProxySetup")
+    diagnostics:captureError(tostring(setup), nil, "Light.readProxySetup")
   end
   --#endif
   if not ok or type(setup) ~= "table" then
@@ -319,7 +319,7 @@ end
 
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
-  require("lib.drivercentral"):startClient()
+  drivercentral:startClient()
   --#else
   C4:AllowExecute(true)
   --#endif
@@ -360,7 +360,7 @@ function OnDriverLateInit()
 end
 
 --#ifdef DRIVERCENTRAL
-OnDriverLateInit = require("lib.diagnostics"):wrapLateInit(OnDriverLateInit)
+OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
 --#endif
 
 ---------------------------------------------------------------------------
@@ -396,18 +396,18 @@ end
 
 --- Not logged: the value is the code.
 function OPC.Support_Code(propertyValue)
-  require("lib.support-code"):enter(propertyValue)
+  supportCode:enter(propertyValue)
 end
 
 --- Turns Cloud Monitoring on or off.
 --- @param propertyValue string
 function OPC.Cloud_Monitoring(propertyValue)
-  require("lib.diagnostics"):setEnabled(propertyValue == "Enabled")
+  diagnostics:setEnabled(propertyValue == "Enabled")
 end
 
 --- Prints a diagnostics report, and sends it while Cloud Monitoring is on.
 function EC.DiagnosticsSnapshot()
-  require("lib.diagnostics"):dumpSnapshot()
+  diagnostics:dumpSnapshot()
 end
 --#endif
 
@@ -560,7 +560,7 @@ local function updateDynamicCapabilities(entity)
   end)
   --#ifdef DRIVERCENTRAL
   if not ok then
-    require("lib.diagnostics"):captureError(tostring(xml), nil, "Light.updateDynamicCapabilities")
+    diagnostics:captureError(tostring(xml), nil, "Light.updateDynamicCapabilities")
   end
   --#endif
   local shown, same = ok and Select(xml, "DynamicCapabilities") or {}, nil
@@ -3517,7 +3517,7 @@ local function tellShownColor(fields, force, first)
     end)
     --#ifdef DRIVERCENTRAL
     if not ok then
-      require("lib.diagnostics"):captureError(tostring(value), nil, "Light.tellShownColor")
+      diagnostics:captureError(tostring(value), nil, "Light.tellShownColor")
     end
     --#endif
     local x, y, mode = string.match(ok and tostring(value or "") or "", "^([^,]+),([^,]+),([^,]+)$")
@@ -3709,7 +3709,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     end)
     --#ifdef DRIVERCENTRAL
     if not ok then
-      require("lib.diagnostics"):captureError(tostring(level), nil, "Light.state")
+      diagnostics:captureError(tostring(level), nil, "Light.state")
     end
     --#endif
     level = ok and tointeger(level)

@@ -14,6 +14,7 @@ local T = require("testlib")
 require("c4_shim")
 
 local ColorMode = require("esphome.proto_schema").Enum.ColorMode
+local diagnostics = require("lib.diagnostics")
 local persist = require("lib.persist")
 
 -- From this file: make test runs at the repo root, run_test.sh in test/.
@@ -4731,7 +4732,6 @@ do
   }) do
     none[tag] = false
   end
-  local diagnostics = require("lib.diagnostics")
   for _, c in ipairs({
     { "no answer", false },
     { "an empty answer", "" },
@@ -9113,7 +9113,6 @@ end
 
 T.section("a first report whose proxy variables cannot be read: Cloud Monitoring hears of each")
 do
-  local diagnostics = require("lib.diagnostics")
   local RGB = ColorMode.COLOR_MODE_RGB
   light({ RGB })
   RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
