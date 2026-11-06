@@ -86,6 +86,13 @@
           <item>Print and Log</item>
         </items>
       </property>
+      <property>
+        <name>Polling Interval</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>1</minimum>
+        <maximum>10</maximum>
+        <default>5</default>
+      </property>
       <!-- #ifdef DRIVERCENTRAL -->
       <property>
         <name>Support Code</name>
@@ -105,13 +112,6 @@
         <description>Sends memory and error reports to Finite Labs so we can fix driver problems.</description>
       </property>
       <!-- #endif -->
-      <property>
-        <name>Polling Interval</name>
-        <type>RANGED_INTEGER</type>
-        <minimum>1</minimum>
-        <maximum>10</maximum>
-        <default>5</default>
-      </property>
       <property>
         <name>Device State</name>
         <type>LABEL</type>

@@ -96,6 +96,16 @@
           <item>Print and Log</item>
         </items>
       </property>
+      <property>
+        <name>Device Log Forwarding</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <description>Sends the device's own logs to the driver's Lua output at the current Log Level.</description>
+      </property>
       <!-- #ifdef DRIVERCENTRAL -->
       <property>
         <name>Support Code</name>
@@ -115,16 +125,6 @@
         <description>Sends memory and error reports to Finite Labs so we can fix driver problems.</description>
       </property>
       <!-- #endif -->
-      <property>
-        <name>Device Log Forwarding</name>
-        <type>LIST</type>
-        <default>Off</default>
-        <items>
-          <item>Off</item>
-          <item>On</item>
-        </items>
-        <description>Forward ESPHome device logs to the driver's Lua output at the current Log Level. Changing Log Level or disabling Log Mode will reconnect to apply the new settings.</description>
-      </property>
       <property>
         <name>Device Settings</name>
         <type>LABEL</type>
@@ -183,7 +183,7 @@
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
-        <description>Shows scanner state and active BLE connection slots in use. You may select more devices than available slots if they don't require continuous connections - brief-connection devices free up their slot after exchanging data. Passive devices (like BTHome sensors) don't use slots at all.</description>
+        <description>Shows the scanner state and the connection slots in use.</description>
       </property>
       <property>
         <name>Bluetooth Proxy Capabilities</name>
@@ -195,7 +195,7 @@
       <property>
         <name>Select Bluetooth Devices</name>
         <type>DYNAMIC_LIST</type>
-        <description>Select "Refresh List" to scan. Wake sleepy devices (e.g., buttons and sensors) by interacting with them during the scan.</description>
+        <description>Select "Refresh List" to scan, then pick a device to add its connection.</description>
       </property>
       <property>
         <name>Bluetooth Scan Duration</name>
@@ -221,12 +221,12 @@
         <minimum>-100</minimum>
         <maximum>-40</maximum>
         <default>-100</default>
-        <description>Override the coordinator's global Minimum Room RSSI for this proxy's room. -100 means use coordinator default.</description>
+        <description>Minimum RSSI for this proxy's room; -100 uses the coordinator's setting.</description>
       </property>
       <property>
         <name>Restart Bluetooth Proxy When Stuck</name>
         <type>DYNAMIC_LIST</type>
-        <description>Restart button to press when the proxy stops scanning or stops answering a connected device, at most once every 6 hours. Off only reports it in Bluetooth Proxy Status. Pick the device's Restart button, never Safe Mode or Factory Reset.</description>
+        <description>The device's Restart button, pressed when the proxy gets stuck. Off only reports it.</description>
       </property>
       <property>
         <name>Button LEDs</name>
@@ -236,12 +236,12 @@
       <property>
         <name>Configure Button LED</name>
         <type>DYNAMIC_LIST</type>
-        <description>Pick a button to choose which of the device's lights shows the state of the load the button is bound to, the way a Control4 keypad lights its buttons.</description>
+        <description>Pick a button to choose which of the device's lights is its LED.</description>
       </property>
       <property>
         <name>Button LED</name>
         <type>DYNAMIC_LIST</type>
-        <description>The light that shows the selected button's load in the load's button colors, the way a Control4 keypad lights its buttons. (None) leaves the light alone.</description>
+        <description>The light that shows the selected button's load in its button colors.</description>
       </property>
       <property>
         <name>Device Info</name>

@@ -78,8 +78,6 @@ relay.
 
 </div>
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#17BCF2">System Requirements</span>
 
 - Control4 OS 3.3+
@@ -105,9 +103,7 @@ relay.
 | -------------------- | ----------------------- | :-----: | :------: |
 | Homedics SereneScent | `ARMH-xxx`, `ARPRP-xxx` |   ✅    |    ✅    |
 
-The diffuser is recognized by its advertised Bluetooth name. It also advertises
-the generic `0xFFF0` service, but so do many unrelated devices, so that alone
-does not identify it.
+The diffuser is recognized by its advertised Bluetooth name.
 
 ## Tested Devices
 
@@ -121,24 +117,15 @@ If you try this driver on another model, and it works, let us know!
 
 ## Connection Cycle
 
-The diffuser serves one Bluetooth client at a time and each connection holds one
-of the ESP32's few connection slots, so the driver never stays connected. Each
-command or poll runs one cycle:
+The diffuser serves one Bluetooth client at a time, so the driver never stays
+connected. For each command or poll it connects through the ESPHome proxy, sends
+any commands, reads the diffuser's status and disconnects. The properties,
+variables and power relay always show the status the diffuser reports.
 
-1. Connect through the ESPHome proxy and subscribe to the diffuser's
-   notifications.
-1. Send each queued command and wait for the diffuser to acknowledge it.
-1. Query the diffuser's status. The properties, variables and power relay are
-   updated only from this reply, never from the command that was sent, so they
-   always show what the diffuser reports.
-1. Disconnect three seconds later and schedule the next poll. Commands that
-   arrive during those three seconds reuse the connection; one that arrives
-   while the proxy is still releasing it waits for that, up to three seconds.
-
-Commands sent while a connection is being made are queued and sent in order, so
-a scene that turns the diffuser on and sets a color does both. If a cycle fails,
-the commands waiting in it are dropped and have to be sent again; the next poll
-only reads the status.
+Commands sent close together go out in order, so a scene that turns the diffuser
+on and sets a color does both. If a cycle fails, its commands are dropped and
+have to be sent again. While the Homedics app is connected to the diffuser, the
+driver cannot reach it, so close the app on every nearby phone and tablet.
 
 The first status read happens as soon as the driver is bound when the diffuser
 was selected in the ESPHome driver, or on the diffuser's first Bluetooth
@@ -152,8 +139,6 @@ schedule set in the Homedics app. It only accepts intensity and color changes in
 HOME mode. When the last status reported SCHEDULE mode, the driver switches the
 diffuser to HOME mode before sending a command, which ends the app's schedule.
 Status requests and polls do not change the mode.
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#17BCF2">Installer Setup</span>
 
@@ -255,6 +240,10 @@ Sets the logging level. Default is `3 - Info`.
 Sets the logging mode. Logging automatically turns off after 3 hours to prevent
 excessive log output. Default is `Off`.
 
+#### Polling Interval \[ 1 - 10, default: **_5_** \]
+
+How often, in minutes, the driver connects to read the diffuser's status.
+
 <!-- #ifdef DRIVERCENTRAL -->
 
 #### Support Code
@@ -276,10 +265,6 @@ anything in it that looks like a password, token, key, network address or email
 address is removed.
 
 <!-- #endif -->
-
-#### Polling Interval \[ 1 - 10, default: **_5_** \]
-
-How often, in minutes, the driver connects to read the diffuser's status.
 
 ### Device State
 
@@ -413,8 +398,8 @@ event handlers.
 
 ### ESPHome SereneScent (consumer)
 
-The BLE connection to the diffuser via the ESPHome driver (binding 5002). Bind
-this to the diffuser's connection on the ESPHome driver.
+The BLE connection to the diffuser via the ESPHome driver. Bind this to the
+diffuser's connection on the ESPHome driver.
 
 ### Button Links (provider)
 
@@ -502,7 +487,5 @@ https://github.com/finitelabs/control4-esphome/issues/new
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 <!-- #endif -->
-
-<div style="page-break-after: always"></div>
 
 <!-- #embed-changelog -->

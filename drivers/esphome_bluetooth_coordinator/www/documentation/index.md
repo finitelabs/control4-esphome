@@ -82,17 +82,16 @@ with BLE devices.
   <!-- #endif -->
   - [Driver Installation](#driver-installation)
   - [Coordinator Setup](#coordinator-setup)
-- [Driver Properties](#driver-properties)
-  <!-- #ifdef DRIVERCENTRAL -->
-  - [Cloud Settings](#cloud-settings)
-  <!-- #endif -->
-  - [Driver Settings](#driver-settings)
-  - [Coordinator Status](#coordinator-status)
-  - [Device Settings](#device-settings)
-  - [Presence Settings](#presence-settings)
-- [Connections](#connections)
-- [Driver Actions](#driver-actions)
-  - [Reset Driver](#reset-driver)
+  - [Driver Properties](#driver-properties)
+    <!-- #ifdef DRIVERCENTRAL -->
+    - [Cloud Settings](#cloud-settings)
+    <!-- #endif -->
+    - [Driver Settings](#driver-settings)
+    - [Coordinator Status](#coordinator-status)
+    - [Device Settings](#device-settings)
+    - [Presence Settings](#presence-settings)
+  - [Driver Actions](#driver-actions)
+  - [Connections](#connections)
 - [Presence Tracking](#presence-tracking)
   - [How It Works](#how-it-works)
   - [Anti-Flapping Algorithm](#anti-flapping-algorithm)
@@ -257,20 +256,20 @@ If you want room-level presence tracking:
 1. Adjust presence settings as needed (see
    [Presence Settings](#presence-settings))
 
-# <span style="color:#17BCF2">Driver Properties</span>
+## Driver Properties
 
 <!-- #ifdef DRIVERCENTRAL -->
 
-## Cloud Settings
+### Cloud Settings
 
-### Cloud Status (read-only)
+#### Cloud Status (read-only)
 
 Displays the current DriverCentral cloud connection and license status. Without
 an active license the ESPHome devices disconnect, so presence devices stay as
 they were, with no Away or room events. Once a license is active, each gets a
 whole **Away Timeout** to be heard again.
 
-### Automatic Updates \[ Off | **_On_** \]
+#### Automatic Updates \[ Off | **_On_** \]
 
 When enabled, the driver will automatically update to the latest version when
 available. Changing it on any ESPHome driver or sub-driver changes it on all of
@@ -278,32 +277,32 @@ them. Default is `On`.
 
 <!-- #endif -->
 
-## Driver Settings
+### Driver Settings
 
-### Driver Status (read-only)
+#### Driver Status (read-only)
 
 Displays the current status of the coordinator.
 
-### Driver Version (read-only)
+#### Driver Version (read-only)
 
 Displays the current version of the driver.
 
-### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
+#### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
 
 Sets the logging level. Default is `3 - Info`.
 
-### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
+#### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
 
 Sets the logging mode. Default is `Off`.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
-### Support Code
+#### Support Code
 
 Leave it blank unless Finite Labs support gives you a code: it opens Composer's
 Lua tab to this driver for an hour.
 
-### Cloud Monitoring \[ Disabled | **_Enabled_** \]
+#### Cloud Monitoring \[ Disabled | **_Enabled_** \]
 
 When Enabled, the driver sends Finite Labs a short report once an hour, and a
 report of each error it hits, at most 10 a minute. We use them to find and fix
@@ -318,20 +317,20 @@ address is removed.
 
 <!-- #endif -->
 
-## Coordinator Status
+### Coordinator Status
 
-### Connected Proxies (read-only)
+#### Connected Proxies (read-only)
 
 Shows the number of ESPHome Bluetooth proxies currently connected.
 
-### Selected Devices (read-only)
+#### Selected Devices (read-only)
 
 Shows the number of BLE devices selected for tracking via the "Select Bluetooth
 Devices" property.
 
-## Device Settings
+### Device Settings
 
-### Select Bluetooth Devices
+#### Select Bluetooth Devices
 
 A dropdown list showing BLE devices discovered across all connected proxies.
 Selecting a device:
@@ -341,19 +340,19 @@ Selecting a device:
 - Enables RSSI-based routing for that device
 - Tracks the device across all proxies
 
-### Scan Duration (seconds) \[ 5 - 60, default: **_30_** \]
+#### Scan Duration (seconds) \[ 5 - 60, default: **_30_** \]
 
 Sets the duration in seconds to scan for BLE devices when refreshing the device
 list.
 
-### RSSI Freshness (seconds) \[ 10 - 300, default: **_60_** \]
+#### RSSI Freshness (seconds) \[ 10 - 300, default: **_60_** \]
 
 Sets how long RSSI readings remain valid for proxy selection. After this time,
 stale readings are discarded.
 
-## Presence Settings
+### Presence Settings
 
-### Select Presence Devices
+#### Select Presence Devices
 
 A dropdown list for selecting devices to track for presence/location. Any BLE
 device can be tracked, including:
@@ -364,14 +363,14 @@ device can be tracked, including:
 - BLE beacons
 - Any other device with a consistent MAC address
 
-### RSSI Smoothing Factor \[ 0.1 - 0.5, default: **_0.2_** \]
+#### RSSI Smoothing Factor \[ 0.1 - 0.5, default: **_0.2_** \]
 
 Controls how quickly the RSSI tracking responds to signal changes.
 
 - **Lower values (0.1)** - Smoother, slower response; better for stable tracking
 - **Higher values (0.5)** - Faster response; may cause more room "flapping"
 
-### Room Change Hysteresis (dBm) \[ 3 - 15, default: **_6_** \]
+#### Room Change Hysteresis (dBm) \[ 3 - 15, default: **_6_** \]
 
 The signal improvement (in dBm) required before changing rooms. This prevents
 bouncing between rooms when a device is near a boundary. A room whose proxies
@@ -381,18 +380,18 @@ the strongest signal is taken after the dwell time.
 - **Higher values** - More stable, slower transitions
 - **Lower values** - Faster transitions, may cause flapping
 
-### Room Change Dwell Time (seconds) \[ 2 - 30, default: **_5_** \]
+#### Room Change Dwell Time (seconds) \[ 2 - 30, default: **_5_** \]
 
 How long a new room must have the best signal before committing to the change.
 
 - **Higher values** - More stable, ignores brief signal spikes
 - **Lower values** - Faster room changes
 
-### Away Timeout (seconds) \[ 30 - 600, default: **_120_** \]
+#### Away Timeout (seconds) \[ 30 - 600, default: **_120_** \]
 
 How long without any signal before marking a device as "away" from home.
 
-### Minimum Room RSSI (dBm) \[ -100 - -40, default: **_-100_** \]
+#### Minimum Room RSSI (dBm) \[ -100 - -40, default: **_-100_** \]
 
 Sets the global minimum signal strength (in dBm) required to assign a device to
 a room. Devices with weaker signals will be considered "home" but not in any
@@ -424,31 +423,9 @@ specific room.
 > regardless of strength. Individual proxies can override this value (see
 > ESPHome driver "Minimum Room RSSI Override" property).
 
-# <span style="color:#17BCF2">Connections</span>
+## Driver Actions
 
-## Bluetooth Proxies (provider)
-
-The provider binding that all ESPHome Bluetooth proxy drivers connect to. Each
-ESPHome driver instance with Bluetooth proxy capability binds to this connection
-as a consumer, enabling the coordinator to aggregate signals and route commands
-across all proxies.
-
-## Dynamic Device Bindings (provider)
-
-When BLE devices are selected via "Select Bluetooth Devices", the coordinator
-dynamically creates provider bindings for each device. These bindings allow
-sub-drivers (BTHome, SwitchBot, Govee, etc.) to connect and communicate with BLE
-devices through the coordinator's RSSI-based routing.
-
-## Dynamic Contact Sensor Bindings (provider)
-
-The coordinator dynamically creates CONTACT_SENSOR bindings for presence
-tracking integration. See [Contact Sensor Bindings](#contact-sensor-bindings)
-for details.
-
-# <span style="color:#17BCF2">Driver Actions</span>
-
-## Reset Driver
+### Reset Driver
 
 > ⚠️ This will clear all device selections and delete the presence connections,
 > variables and events, along with any programming on them.
@@ -468,12 +445,34 @@ It also turns Cloud Monitoring back on, as a fresh install has it.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
-## Diagnostics Snapshot
+### Diagnostics Snapshot
 
 Prints a report in the Lua output, and sends it to Finite Labs only while Cloud
 Monitoring is Enabled.
 
 <!-- #endif -->
+
+## Connections
+
+### Bluetooth Proxies (provider)
+
+The provider binding that all ESPHome Bluetooth proxy drivers connect to. Each
+ESPHome driver instance with Bluetooth proxy capability binds to this connection
+as a consumer, enabling the coordinator to aggregate signals and route commands
+across all proxies.
+
+### Dynamic Device Bindings (provider)
+
+When BLE devices are selected via "Select Bluetooth Devices", the coordinator
+dynamically creates provider bindings for each device. These bindings allow
+sub-drivers (BTHome, SwitchBot, Govee, etc.) to connect and communicate with BLE
+devices through the coordinator's RSSI-based routing.
+
+### Dynamic Contact Sensor Bindings (provider)
+
+The coordinator dynamically creates CONTACT_SENSOR bindings for presence
+tracking integration. See [Contact Sensor Bindings](#contact-sensor-bindings)
+for details.
 
 # <span style="color:#17BCF2">Presence Tracking</span>
 

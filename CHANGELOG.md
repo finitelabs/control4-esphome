@@ -115,6 +115,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   sub-drivers: changing it on any of them now changes it on all of them, so the
   drivers update together
   <!-- #endif -->
+- Changed ESPHome Lock and ESPHome Yale to Composer's Locks category, where
+  Control4's own lock drivers are listed
+  <!-- #ifdef DRIVERCENTRAL -->
+- Changed where each driver's own settings sit in Composer: Support Code and
+  Cloud Monitoring now close Driver Settings, after the settings for the device
+  <!-- #endif -->
 
 ## v20261027 - 2026-10-27
 
