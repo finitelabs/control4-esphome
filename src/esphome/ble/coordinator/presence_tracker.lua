@@ -355,68 +355,6 @@ function PresenceTracker:_ensureRoomSetup(roomId, roomName)
   log:info("Set up presence tracking for room: %s (%d)", uniqueRoomName, roomId)
 end
 
---- Clean up a room's presence tracking resources
---- @param roomId integer Room ID
---- @private
-function PresenceTracker:_cleanupRoom(roomId)
-  local roomName = self._roomNames[roomId]
-  if not roomName then
-    return -- Room was never set up
-  end
-
-  local uniqueRoomName = makeUniqueRoomName(roomName, roomId)
-  log:info("Cleaning up presence tracking for room: %s (%d)", uniqueRoomName, roomId)
-
-  -- A device in the room leaves it but stays home; its next signal places it again
-  for mac, state in pairs(self._deviceState) do
-    if state.roomId == roomId then
-      self:_onDeviceLeftRoom(mac)
-    end
-  end
-
-  -- Remove binding
-  if self._roomBindings[roomId] then
-    bindings:deleteBinding(BINDINGS_NAMESPACE, "room_" .. tostring(roomId))
-    self._roomBindings[roomId] = nil
-  end
-
-  -- Remove events
-  events:deleteEvent(NAMESPACE, "room_" .. tostring(roomId) .. "_occupied")
-  events:deleteEvent(NAMESPACE, "room_" .. tostring(roomId) .. "_empty")
-
-  -- Remove variables
-  values:delete(uniqueRoomName .. " Occupied")
-  values:delete(uniqueRoomName .. " Occupant Count")
-  values:delete(uniqueRoomName .. " Occupants")
-
-  -- Remove occupancy tracking
-  self._roomOccupancy[roomId] = nil
-  self._told:forget("room_" .. tostring(roomId))
-
-  -- Remove room name tracking
-  self._roomNames[roomId] = nil
-end
-
---- Clean up rooms that are no longer used by any proxy
---- Should be called when proxies disconnect or change rooms
-function PresenceTracker:cleanupUnusedRooms()
-  local usedRoomIds = {}
-
-  -- Get all room IDs currently in use by connected proxies
-  for _, proxy in ipairs(proxyRegistry:getConnectedProxies()) do
-    if proxy.roomId then
-      usedRoomIds[proxy.roomId] = true
-    end
-  end
-
-  -- Clean up rooms that are no longer in use
-  for roomId, _ in pairs(self._roomNames) do
-    if not usedRoomIds[roomId] then
-      self:_cleanupRoom(roomId)
-    end
-  end
-end
-
 --- Calculate estimated distance from RSSI using log-distance path loss model
 --- @param rssi number Measured RSSI in dBm
 --- @param txPower number? Reference RSSI at 1 meter (default -59)
@@ -917,15 +855,8 @@ function PresenceTracker:_updateRoomOccupancy(roomId, mac, present)
     end
   end
 
-  -- Find room name
-  --- @type string?
-  local roomName = nil
-  for _, p in ipairs(proxyRegistry:getConnectedProxies()) do
-    if p.roomId == roomId then
-      roomName = p.roomName
-      break
-    end
-  end
+  -- A room keeps its name after its last proxy goes
+  local roomName = self._roomNames[roomId]
 
   if roomName then
     -- Update room variables using unique room name
