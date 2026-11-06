@@ -359,6 +359,9 @@ runs `fn` with `print` collected and returns `ok, err, output`, and
 - `F.captureTcpClient()` swaps in a `C4:CreateTCPClient` that records every
   write and completes the connect synchronously. Read `.writes`, then
   `.restore()`.
+- `F.dofileBuild(path, build)` runs a Lua file as the `"drivercentral"` or
+  `"oss"` build compiles it, with its `#ifdef` blocks applied. A driver loaded
+  raw runs every arm.
 
 ### Persisted values
 
