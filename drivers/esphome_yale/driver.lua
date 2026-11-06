@@ -464,6 +464,19 @@ local function cancelPendingDisconnect()
   CancelTimer("DisconnectDelay")
 end
 
+--- Whether a lock or unlock is queued, awaits its ack or is still turning the
+--- motor. Until its own status read the lock answers one with its state from
+--- before it. A minute from the tap a lost answer no longer counts.
+--- @return boolean
+local function commandInFlight()
+  local inFlight = pendingCommand == "lock"
+    or pendingCommand == "unlock"
+    or awaitingResponse == "lock"
+    or awaitingResponse == "unlock"
+    or awaitingMotor
+  return inFlight and commandRequestedAt ~= nil and os.time() - commandRequestedAt <= COMMAND_MAX_AGE_S
+end
+
 --- Start keepalive timer for persistent connection.
 --- Periodically polls lock status to keep the BLE connection alive
 --- and detect state changes from unsolicited notifications.
@@ -472,6 +485,10 @@ local function startKeepalive()
   updateStatus("Connected", true)
   CancelTimer("DisconnectDelay")
   SetTimer("Keepalive", KEEPALIVE_INTERVAL_MS, function()
+    if commandInFlight() then
+      log:debug("Keepalive: a lock or unlock is in flight, its own status read follows")
+      return
+    end
     if handshakeState == HANDSHAKE_STATE.COMPLETE and session and session:isReady() then
       log:debug("Keepalive: polling lock status")
       pendingCommand = "status"
@@ -1226,6 +1243,8 @@ local function handleCommandResponse(data)
       awaitingMotor = true
       -- Re-query lock status after 10s to catch late-reported jams
       SetTimer("JamCheck", JAM_CHECK_DELAY_MS, function()
+        -- Its own read follows, so a lock that sent no result frame no longer holds the keepalive off
+        awaitingMotor = false
         if handshakeState == HANDSHAKE_STATE.COMPLETE then
           log:debug("Jam check: re-querying lock status")
           pendingCommand = "status"

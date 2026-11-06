@@ -185,6 +185,75 @@ H.test("a lock that sends no result gets its status read from the jam check", fu
   T.eq("nothing is disconnected", H.count("DISCONNECT", ESPHOME), 0)
 end)
 
+-- An unlock's ack and result, and the status chain's frames: lock, door, battery
+local UNLOCK_ACK = "aa0a00490000000000000000000000000200"
+local UNLOCK_DONE = "bb0a003a0000000000000000000000000000"
+local STATUS_LOCKED = "bb02003a0200000005000000000000000200"
+local DOOR = "bb02003a2e00000002000000000000000000"
+local BATTERY = "bb02003a0f000000a00f0000000000000000"
+
+--- A Persistent link that has locked and read its status, door and battery,
+--- which arms the keepalive.
+local function persistentLink()
+  H.boot(PERSISTENT)
+  lock()
+  session()
+  lockSays(LOCK_ACK)
+  lockSays(LOCK_DONE)
+  H.fire("StatusPoll")
+  lockSays(STATUS_LOCKED)
+  H.fire("DoorPoll")
+  lockSays(DOOR)
+  H.fire("BatteryPoll")
+  lockSays(BATTERY)
+end
+
+H.test("Persistent: the keepalive reads no status while an unlock is in flight", function()
+  persistentLink()
+  T.truthy("the keepalive runs", H.armed("Keepalive"))
+  H.rfp(PROXY, "UNLOCK")
+  H.clearSent()
+  H.fire("Keepalive")
+  T.eq("no status read while the unlock awaits its ack", H.count("GATT_WRITE", ESPHOME), 0)
+  lockSays(UNLOCK_ACK)
+  H.fire("Keepalive")
+  T.eq("nor while the motor turns", H.count("GATT_WRITE", ESPHOME), 0)
+  T.truthy("the keepalive stays armed", H.armed("Keepalive"))
+  lockSays(UNLOCK_DONE)
+  H.fire("StatusPoll")
+  T.eq("the unlock's own status read follows", H.count("GATT_WRITE", ESPHOME), 1)
+end)
+
+H.test("Persistent: an unlock whose answer is lost holds the keepalive off for a minute at most", function()
+  persistentLink()
+  H.rfp(PROXY, "UNLOCK")
+  H.clearSent()
+  local realTime = os.time
+  local now = realTime()
+  os.time = function() -- luacheck: ignore
+    return now + 61
+  end
+  local ok, err = pcall(H.fire, "Keepalive")
+  os.time = realTime -- luacheck: ignore
+  T.check("the keepalive ran", ok, err)
+  T.eq("it reads the status again", H.count("GATT_WRITE", ESPHOME), 1)
+end)
+
+H.test("Persistent: for a lock that sends no result, the keepalive reads again after the jam check", function()
+  persistentLink()
+  H.rfp(PROXY, "UNLOCK")
+  lockSays(UNLOCK_ACK)
+  H.fire("JamCheck")
+  lockSays("bb02003a0200000003000000000000000200")
+  H.fire("DoorPoll")
+  lockSays(DOOR)
+  H.fire("BatteryPoll")
+  lockSays(BATTERY)
+  H.clearSent()
+  H.fire("Keepalive")
+  T.eq("the next keepalive reads the status", H.count("GATT_WRITE", ESPHOME), 1)
+end)
+
 H.test("the parser reads status frames from their data bytes", function()
   local status = yale_protocol.parseResponse(fromHex("bb02003a0200000005000000000000000200"))
   T.eq("a lock status frame carries the lock's state", status.lockStatus, yale_protocol.LockStatus.LOCKED)
