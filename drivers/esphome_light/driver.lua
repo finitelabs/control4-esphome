@@ -244,6 +244,11 @@ local function readProxySetup()
   local ok, setup = pcall(function()
     return Select(ParseXml(SendUIRequest(C4:GetProxyDevices(), "GET_SETUP", {})), "setup")
   end)
+  --#ifdef DRIVERCENTRAL
+  if not ok then
+    require("lib.diagnostics"):captureError(tostring(setup), nil, "Light.readProxySetup")
+  end
+  --#endif
   if not ok or type(setup) ~= "table" then
     log:warn("The proxy's setup could not be read: %s", ok and "no setup in its answer" or setup)
     return
@@ -550,6 +555,11 @@ local function updateDynamicCapabilities(entity)
   local ok, xml = pcall(function()
     return gInitialized and ParseXml(C4:GetDeviceVariable(C4:GetProxyDevices(), 6661))
   end)
+  --#ifdef DRIVERCENTRAL
+  if not ok then
+    require("lib.diagnostics"):captureError(tostring(xml), nil, "Light.updateDynamicCapabilities")
+  end
+  --#endif
   local shown, same = ok and Select(xml, "DynamicCapabilities") or {}, nil
   -- The proxy rewrites 6661 only when one of these changes, so the others can
   -- lag what it holds.
@@ -3502,6 +3512,11 @@ local function tellShownColor(fields, force, first)
         return C4:GetDeviceVariable(proxy, 1200), C4:GetDeviceVariable(proxy, 1210)
       end
     end)
+    --#ifdef DRIVERCENTRAL
+    if not ok then
+      require("lib.diagnostics"):captureError(tostring(value), nil, "Light.tellShownColor")
+    end
+    --#endif
     local x, y, mode = string.match(ok and tostring(value or "") or "", "^([^,]+),([^,]+),([^,]+)$")
     x, y, mode = tonumber(x), tonumber(y), tointeger(mode)
     if x and y and mode and target == value and sameColor(newX, newY, toldMode(newColorMode), x, y, mode) then
@@ -3689,6 +3704,11 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
         return C4:GetDeviceVariable(proxy, 1001), C4:GetDeviceVariable(proxy, 1110)
       end
     end)
+    --#ifdef DRIVERCENTRAL
+    if not ok then
+      require("lib.diagnostics"):captureError(tostring(level), nil, "Light.state")
+    end
+    --#endif
     level = ok and tointeger(level)
     if level and level >= 0 and level <= 100 and (target == nil or tointeger(target) == level) then
       shownLevel = level
