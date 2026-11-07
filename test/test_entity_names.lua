@@ -305,7 +305,11 @@ do
     metricsDb = "test_metrics",
     logsDb = "test_logs",
   })
-  package.loaded["lib.diagnostics"] = diagnostics
+  -- The client keeps the shared instance from its load, so its errors go through this configured one.
+  local captureError = shared.captureError
+  function shared.captureError(_, ...)
+    return diagnostics:captureError(...)
+  end
   local post = http.post
   local posts = {}
   function http:post(_, body)
@@ -319,7 +323,7 @@ do
   end)
   receive("SensorStateResponse", { key = 9, state = 1 })
   diagnostics:setEnabled(false)
-  http.post, package.loaded["lib.diagnostics"] = post, shared
+  http.post, shared.captureError = post, captureError
 
   T.eq("one error is posted", #posts, 1)
   T.contains("from the state callback", posts[1] or "", "source=ESPHome.StateCallback")

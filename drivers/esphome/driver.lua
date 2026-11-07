@@ -11,6 +11,7 @@ local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local events = require("lib.events")
 --#ifndef DRIVERCENTRAL
+local driverFilenames = require("lib.driver-filenames")
 local githubUpdater = require("lib.github-updater")
 --#endif
 local updateSettings = require("lib.update-settings")
@@ -904,12 +905,7 @@ end
 function UpdateDrivers(forceUpdate)
   log:trace("UpdateDrivers(%s)", forceUpdate)
   githubUpdater
-    :updateAll(
-      DRIVER_GITHUB_REPO,
-      require("lib.driver-filenames"),
-      Properties["Update Channel"] == "Prerelease",
-      forceUpdate
-    )
+    :updateAll(DRIVER_GITHUB_REPO, driverFilenames, Properties["Update Channel"] == "Prerelease", forceUpdate)
     :next(function(updatedDrivers)
       if not IsEmpty(updatedDrivers) then
         log:info("Updated driver(s): %s", table.concat(updatedDrivers, ","))
