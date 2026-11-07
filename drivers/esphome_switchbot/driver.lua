@@ -2227,12 +2227,12 @@ local function fetchEncryptionKeys()
       if statusCode ~= 100 then
         --- @type string?
         local message = Select(response.body, "message")
-        error(message or ("Login status " .. statusCode))
+        error(message or ("Login status " .. statusCode), 0)
       end
       --- @type string?
       local accessToken = Select(response.body, "body", "access_token")
       if IsEmpty(accessToken) then
-        error("No access token in response")
+        error("No access token in response", 0)
       end
       --- @cast accessToken -nil
       log:info("SwitchBot login successful")
@@ -2254,12 +2254,12 @@ local function fetchEncryptionKeys()
         local statusCode = tointeger(Select(response.body, "statusCode")) or -1
         if statusCode ~= 100 then
           local message = Select(response.body, "message")
-          error(message or ("User info status " .. statusCode))
+          error(message or ("User info status " .. statusCode), 0)
         end
         --- @type string?
         local region = Select(response.body, "body", "botRegion")
         if IsEmpty(region) then
-          error("No region in response")
+          error("No region in response", 0)
         end
         --- @cast region -nil
         log:info("SwitchBot user region: %s", region)
@@ -2289,14 +2289,14 @@ local function fetchEncryptionKeys()
       local statusCode = tointeger(Select(response.body, "statusCode")) or -1
       if statusCode ~= 100 then
         local message = Select(response.body, "message")
-        error(message or ("Get keys status " .. statusCode))
+        error(message or ("Get keys status " .. statusCode), 0)
       end
       --- @type string?
       local keyId = Select(response.body, "body", "communicationKey", "keyId")
       --- @type string?
       local encKey = Select(response.body, "body", "communicationKey", "key")
       if IsEmpty(keyId) or IsEmpty(encKey) then
-        error("Missing keys in response")
+        error("Missing keys in response", 0)
       end
       --- @cast keyId -nil
       --- @cast encKey -nil
