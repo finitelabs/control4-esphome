@@ -57,6 +57,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   showing its state as unconfirmed after a controller restart; it is told again
   that it reads open, without running its programming
 
+### Changed
+
+- Changed Reset Driver on the ESPHome driver to leave Automatic Updates and
+  Update Channel as they are
+
 ## v20261106 - 2026-11-06
 
 ### Added
