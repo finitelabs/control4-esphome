@@ -1143,6 +1143,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   variable is there, blank, from the start. A number or switch variable kept
   from before a driver start now takes a value at once too, instead of only
   after the device reports again
+- Fixed a relay bound to an ESPHome cover's Open, Close or Stop connection
+  showing its state as unconfirmed after a controller restart; it is told again
+  that it reads open, without running its programming
 
 ## v20261106 - 2026-11-06
 
