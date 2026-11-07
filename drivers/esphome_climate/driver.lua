@@ -107,7 +107,6 @@ end
 local publishHoldModes
 local scheduleSignature
 local runPendingEvent
-local registerSensorBindingHandlers
 local updateScheduleBoundaryTimer
 
 --- Stable digest of the preset list, for the persist dedupe.
@@ -751,6 +750,101 @@ local function sendCapabilities(entity)
     SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", { HAS_EXTRAS = false }, "NOTIFY")
   end
 end
+
+---------------------------------------------------------------------------
+-- Remote temperature sensor
+---------------------------------------------------------------------------
+
+--- Send a remote temperature command via the ESPHome binding.
+--- @param serviceName string The ESPHome service name to call.
+--- @param celsius number|nil Temperature in Celsius, or nil for no-arg services (e.g. use_internal_temperature).
+local function sendRemoteTemperatureCommand(serviceName, celsius)
+  log:trace("sendRemoteTemperatureCommand(%s, %s)", serviceName, celsius)
+  local params = { service_name = serviceName }
+  if celsius ~= nil then
+    params.temperature = tostring(celsius)
+  end
+  SendToProxy(ESPHOME_BINDING, "SET_REMOTE_TEMPERATURE", params)
+end
+
+--- Revert the climate device to its internal temperature sensor.
+local function revertToInternalTemperature()
+  local internalService = Properties["Internal Temperature Service"]
+  if IsEmpty(internalService) or internalService == NONE_OPTION then
+    log:info("No internal temperature service configured - device will auto-revert")
+    return
+  end
+  sendRemoteTemperatureCommand(internalService, nil)
+end
+
+--- Handle a temperature value change from the bound sensor.
+--- @param idBinding integer The binding ID.
+--- @param tParams table The parameters.
+local function handleValueChanged(idBinding, tParams)
+  log:trace("handleValueChanged(%s, %s)", idBinding, tParams)
+  if not REMOTE_SENSOR_IN_USE then
+    return
+  end
+  local celsius = CelsiusFromParams(tParams, "CELSIUS")
+  if celsius == nil then
+    return
+  end
+  local serviceName = Properties["Remote Temperature Service"]
+  if IsEmpty(serviceName) or serviceName == SELECT_OPTION then
+    log:warn("Remote Temperature Service not configured - cannot send remote temperature")
+    return
+  end
+  sendRemoteTemperatureCommand(serviceName, celsius)
+end
+
+--- Register RFP and OBC handlers for the sensor binding.
+--- @param bindingId integer The sensor binding ID.
+local function registerSensorBindingHandlers(bindingId)
+  RFP[bindingId] = function(idBinding, strCommand, tParams)
+    if strCommand == "VALUE_CHANGED" then
+      handleValueChanged(idBinding, tParams)
+    end
+  end
+  OBC[bindingId] = function(idBinding, strClass, isBound)
+    if not isBound and REMOTE_SENSOR_IN_USE then
+      revertToInternalTemperature()
+    end
+  end
+end
+
+--- Dynamically add the TEMPERATURE_VALUE consumer binding and enable remote sensor.
+local function configureRemoteSensor()
+  log:info("Configuring remote temperature sensor")
+  local binding = bindings:getOrAddDynamicBinding(
+    REMOTE_BINDING_NAMESPACE,
+    REMOTE_BINDING_KEY,
+    "CONTROL",
+    false,
+    "Remote Temperature Sensor",
+    "TEMPERATURE_VALUE"
+  )
+  if binding == nil then
+    log:error("Failed to create dynamic binding for remote temperature sensor")
+    return
+  end
+  SENSOR_BINDING = binding.bindingId
+  registerSensorBindingHandlers(SENSOR_BINDING)
+  log:info("Remote temperature sensor configured (binding %d)", SENSOR_BINDING)
+end
+
+--- Remove the TEMPERATURE_VALUE binding and disable remote sensor.
+local function unconfigureRemoteSensor()
+  log:info("Unconfiguring remote temperature sensor")
+  revertToInternalTemperature()
+  REMOTE_SENSOR_IN_USE = false
+  SENSOR_BINDING = nil
+  bindings:deleteBinding(REMOTE_BINDING_NAMESPACE, REMOTE_BINDING_KEY)
+  log:info("Remote temperature sensor unconfigured")
+end
+
+---------------------------------------------------------------------------
+-- Driver lifecycle
+---------------------------------------------------------------------------
 
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
@@ -2381,97 +2475,6 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
       end
     end
   end
-end
-
----------------------------------------------------------------------------
--- Remote temperature sensor
----------------------------------------------------------------------------
-
---- Send a remote temperature command via the ESPHome binding.
---- @param serviceName string The ESPHome service name to call.
---- @param celsius number|nil Temperature in Celsius, or nil for no-arg services (e.g. use_internal_temperature).
-local function sendRemoteTemperatureCommand(serviceName, celsius)
-  log:trace("sendRemoteTemperatureCommand(%s, %s)", serviceName, celsius)
-  local params = { service_name = serviceName }
-  if celsius ~= nil then
-    params.temperature = tostring(celsius)
-  end
-  SendToProxy(ESPHOME_BINDING, "SET_REMOTE_TEMPERATURE", params)
-end
-
---- Revert the climate device to its internal temperature sensor.
-local function revertToInternalTemperature()
-  local internalService = Properties["Internal Temperature Service"]
-  if IsEmpty(internalService) or internalService == NONE_OPTION then
-    log:info("No internal temperature service configured - device will auto-revert")
-    return
-  end
-  sendRemoteTemperatureCommand(internalService, nil)
-end
-
---- Handle a temperature value change from the bound sensor.
---- @param idBinding integer The binding ID.
---- @param tParams table The parameters.
-local function handleValueChanged(idBinding, tParams)
-  log:trace("handleValueChanged(%s, %s)", idBinding, tParams)
-  if not REMOTE_SENSOR_IN_USE then
-    return
-  end
-  local celsius = CelsiusFromParams(tParams, "CELSIUS")
-  if celsius == nil then
-    return
-  end
-  local serviceName = Properties["Remote Temperature Service"]
-  if IsEmpty(serviceName) or serviceName == SELECT_OPTION then
-    log:warn("Remote Temperature Service not configured - cannot send remote temperature")
-    return
-  end
-  sendRemoteTemperatureCommand(serviceName, celsius)
-end
-
---- Register RFP and OBC handlers for the sensor binding.
---- @param bindingId integer The sensor binding ID.
-registerSensorBindingHandlers = function(bindingId)
-  RFP[bindingId] = function(idBinding, strCommand, tParams)
-    if strCommand == "VALUE_CHANGED" then
-      handleValueChanged(idBinding, tParams)
-    end
-  end
-  OBC[bindingId] = function(idBinding, strClass, isBound)
-    if not isBound and REMOTE_SENSOR_IN_USE then
-      revertToInternalTemperature()
-    end
-  end
-end
-
---- Dynamically add the TEMPERATURE_VALUE consumer binding and enable remote sensor.
-local function configureRemoteSensor()
-  log:info("Configuring remote temperature sensor")
-  local binding = bindings:getOrAddDynamicBinding(
-    REMOTE_BINDING_NAMESPACE,
-    REMOTE_BINDING_KEY,
-    "CONTROL",
-    false,
-    "Remote Temperature Sensor",
-    "TEMPERATURE_VALUE"
-  )
-  if binding == nil then
-    log:error("Failed to create dynamic binding for remote temperature sensor")
-    return
-  end
-  SENSOR_BINDING = binding.bindingId
-  registerSensorBindingHandlers(SENSOR_BINDING)
-  log:info("Remote temperature sensor configured (binding %d)", SENSOR_BINDING)
-end
-
---- Remove the TEMPERATURE_VALUE binding and disable remote sensor.
-local function unconfigureRemoteSensor()
-  log:info("Unconfiguring remote temperature sensor")
-  revertToInternalTemperature()
-  REMOTE_SENSOR_IN_USE = false
-  SENSOR_BINDING = nil
-  bindings:deleteBinding(REMOTE_BINDING_NAMESPACE, REMOTE_BINDING_KEY)
-  log:info("Remote temperature sensor unconfigured")
 end
 
 ---------------------------------------------------------------------------
