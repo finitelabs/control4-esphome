@@ -42,6 +42,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed the Govee, BTHome and SwitchBot drivers hiding their readings in
   Composer after a driver start until the device next reported them; the last
   readings now show at once
+- Fixed the SwitchBot driver's Encryption Status putting Lua file and line
+  details in front of the reason when fetching its keys from the SwitchBot cloud
+  failed; it now shows the reason alone
 
 ## v20261106 - 2026-11-06
 
