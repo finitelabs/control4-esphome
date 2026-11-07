@@ -2006,6 +2006,13 @@ function OnDriverInit()
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
 
+  -- Hidden until reported; the restore below shows each reading a device reported before
+  hideOptionalProperties()
+  hideEncryptionProperties()
+  hideSwitchProperties()
+  hideBotProperties()
+  hideSensorProperties()
+
   -- Restore persisted state
   values:restoreValues()
   bindings:restoreBindings()
@@ -2019,13 +2026,6 @@ function OnDriverLateInit()
 
   -- Restore persisted events (C4:AddEvent is unavailable before OnDriverLateInit)
   events:restoreEvents()
-
-  -- Hide all optional properties initially
-  hideOptionalProperties()
-  hideEncryptionProperties()
-  hideSwitchProperties()
-  hideBotProperties()
-  hideSensorProperties()
 
   -- Reset notification state on boot
   resetConnectionState()
