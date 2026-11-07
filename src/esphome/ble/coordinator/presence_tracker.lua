@@ -174,7 +174,6 @@ function PresenceTracker:trackDevice(mac, config)
   values:update("Presence " .. uniqueName .. " Room", "", "STRING")
   values:update("Presence " .. uniqueName .. " Distance", "0", "NUMBER")
   values:update("Presence " .. uniqueName .. " RSSI", "-999", "NUMBER")
-  --values:update("Presence " .. uniqueName .. " Last Seen", "", "STRING")
 
   log:info("Added presence device: %s (%s)", uniqueName, mac)
 end
@@ -224,7 +223,6 @@ function PresenceTracker:untrackDevice(mac)
   values:delete("Presence " .. uniqueName .. " Room")
   values:delete("Presence " .. uniqueName .. " Distance")
   values:delete("Presence " .. uniqueName .. " RSSI")
-  --values:delete("Presence " .. uniqueName .. " Last Seen")
 
   log:info("Removed presence device: %s", mac)
 end
@@ -651,7 +649,6 @@ function PresenceTracker:onAdvertisement(mac, proxyDeviceId, rssi)
   values:update("Presence " .. uniqueName .. " Room", finalRoom or "Home", "STRING")
   values:update("Presence " .. uniqueName .. " Distance", string.format("%.1f", distance), "NUMBER")
   values:update("Presence " .. uniqueName .. " RSSI", string.format("%.0f", bestRssi or rssi), "NUMBER")
-  --values:update("Presence " .. uniqueName .. " Last Seen", os.date("%Y-%m-%d %H:%M:%S"), "STRING")
 end
 
 --- Check for away status on all devices

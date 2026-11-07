@@ -1021,7 +1021,6 @@ function RFP.BLE_ADVERTISEMENT(idBinding, strCommand, tParams, args)
   end
 
   -- Device type
-  --local deviceType = Select(tParams, "deviceType")
   local version = tointeger(Select(result.device_info, "version"))
   if version ~= nil then
     local deviceType = "BTHome V" .. version
