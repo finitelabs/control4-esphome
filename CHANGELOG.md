@@ -30,6 +30,15 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Coordinator was removed
 - Fixed a Yale lock in Poll mode with no Offline Key connecting to the lock at
   every poll; it now waits for a key and shows Error: Offline key required
+- Fixed Bluetooth sub-drivers still showing connected, and the Bluetooth
+  Coordinator still routing through a proxy, after the ESPHome device acting as
+  the Bluetooth proxy went offline; they now show disconnected until it is back
+- Fixed a Bluetooth sub-driver that controls its device losing the device's
+  Bluetooth services, and starting its connection over, whenever another driver
+  bound to the same ESPHome device loaded or asked for its state
+- Fixed Bluetooth sub-drivers showing Waiting for data after a driver update
+  until their device next advertised; the ESPHome driver and the Bluetooth
+  Coordinator now answer their request for state
 
 ## v20261106 - 2026-11-06
 
