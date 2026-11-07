@@ -18,24 +18,14 @@ function DateTimeEntity:new(client)
   return instance
 end
 
---- Handle updates to the datetime entity state.
+--- The variable's write callback: a valid value goes to the device, and an invalid one or one it rejects goes
+--- back to its last report.
+--- @param self DateTimeEntity
 --- @param entity table<string, any> The entity data received from the ESPHome client.
---- @param state table<string, any> The state data received from the ESPHome client.
---- @return void
-function DateTimeEntity:updated(entity, state)
-  log:trace("DateTimeEntity:updated(%s, %s)", entity, state)
-
-  if state.missing_state then
-    values:update(entity.name, "", "STRING")
-    return
-  end
-
-  -- The wire uses UTC epoch; format in the project's local time (os.date defaults to local)
-  -- so the variable round-trips with os.time on write.
-  local epochSeconds = state.epoch_seconds or 0
-  local t = os.date("*t", epochSeconds)
-  local formatted = string.format("%04d-%02d-%02d %02d:%02d:%02d", t.year, t.month, t.day, t.hour, t.min, t.sec)
-  values:update(entity.name, formatted, "STRING", function(newValue)
+--- @return fun(newValue: string|integer|number): void
+local function writer(self, entity)
+  return function(newValue)
+    local reported = Select(values:getValue(entity.name), "value") or ""
     local year, month, day, hour, minute, second = (newValue or ""):match(
       "^(%d%d%d%d)-(%d%d)-(%d%d) (%d%d):(%d%d):(%d%d)$"
     )
@@ -45,7 +35,7 @@ function DateTimeEntity:updated(entity, state)
         ESPHomeClient.describeEntity(entity),
         newValue or ""
       )
-      values:update(entity.name, formatted, "STRING")
+      values:update(entity.name, reported, "STRING")
       return
     end
     local epoch = os.time({
@@ -66,9 +56,39 @@ function DateTimeEntity:updated(entity, state)
         log:info("Datetime updated to %s for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update datetime for %s: %s", ESPHomeClient.describeEntity(entity), error)
-        values:update(entity.name, formatted, "STRING")
+        values:update(entity.name, reported, "STRING")
       end)
-  end)
+  end
+end
+
+--- Handle the discovery of a datetime entity.
+--- @param entity table<string, any> The entity data received from the ESPHome client.
+--- @return void
+function DateTimeEntity:discovered(entity)
+  log:trace("DateTimeEntity:discovered(%s)", entity)
+  -- Writable from discovery, blank until the device's first state
+  local kept = values:getValue(entity.name)
+  values:update(entity.name, kept and not kept.deleted and kept.value or "", "STRING", writer(self, entity))
+end
+
+--- Handle updates to the datetime entity state.
+--- @param entity table<string, any> The entity data received from the ESPHome client.
+--- @param state table<string, any> The state data received from the ESPHome client.
+--- @return void
+function DateTimeEntity:updated(entity, state)
+  log:trace("DateTimeEntity:updated(%s, %s)", entity, state)
+
+  if state.missing_state then
+    values:update(entity.name, "", "STRING")
+    return
+  end
+
+  -- The wire uses UTC epoch; format in the project's local time (os.date defaults to local)
+  -- so the variable round-trips with os.time on write.
+  local epochSeconds = state.epoch_seconds or 0
+  local t = os.date("*t", epochSeconds)
+  local formatted = string.format("%04d-%02d-%02d %02d:%02d:%02d", t.year, t.month, t.day, t.hour, t.min, t.sec)
+  values:update(entity.name, formatted, "STRING", writer(self, entity))
 end
 
 return DateTimeEntity

@@ -23,29 +23,14 @@ function SelectEntity:new(client)
   return instance
 end
 
---- Handle the discovery of a select entity.
+--- The variable's write callback: a valid option goes to the device, and an invalid one or one it rejects goes
+--- back to its last report.
+--- @param self SelectEntity
 --- @param entity table<string, any> The entity data received from the ESPHome client.
---- @return void
-function SelectEntity:discovered(entity)
-  log:trace("SelectEntity:discovered(%s)", entity)
-
-  -- Register select for programming commands
-  selectRegistry[entity.name] = {
-    key = entity.key,
-    device_id = entity.device_id,
-    options = entity.options or {},
-    client = self.client,
-  }
-end
-
---- Handle updates to the select entity state.
---- @param entity table<string, any> The entity data received from the ESPHome client.
---- @param state table<string, any> The state data received from the ESPHome client.
---- @return void
-function SelectEntity:updated(entity, state)
-  log:trace("SelectEntity:updated(%s, %s)", entity, state)
-  local currentState = state.state or ""
-  values:update(entity.name, currentState, "STRING", function(newValue)
+--- @return fun(newValue: string|integer|number): void
+local function writer(self, entity)
+  return function(newValue)
+    local currentState = Select(values:getValue(entity.name), "value") or ""
     newValue = newValue or ""
     local options = Select(selectRegistry, entity.name, "options") or {}
     local isValid = false
@@ -77,7 +62,35 @@ function SelectEntity:updated(entity, state)
         log:error("Failed to update select option for %s: %s", ESPHomeClient.describeEntity(entity), error)
         values:update(entity.name, currentState, "STRING")
       end)
-  end)
+  end
+end
+
+--- Handle the discovery of a select entity.
+--- @param entity table<string, any> The entity data received from the ESPHome client.
+--- @return void
+function SelectEntity:discovered(entity)
+  log:trace("SelectEntity:discovered(%s)", entity)
+
+  -- Register select for programming commands
+  selectRegistry[entity.name] = {
+    key = entity.key,
+    device_id = entity.device_id,
+    options = entity.options or {},
+    client = self.client,
+  }
+
+  -- Writable from discovery, blank until the device's first state
+  local kept = values:getValue(entity.name)
+  values:update(entity.name, kept and not kept.deleted and kept.value or "", "STRING", writer(self, entity))
+end
+
+--- Handle updates to the select entity state.
+--- @param entity table<string, any> The entity data received from the ESPHome client.
+--- @param state table<string, any> The state data received from the ESPHome client.
+--- @return void
+function SelectEntity:updated(entity, state)
+  log:trace("SelectEntity:updated(%s, %s)", entity, state)
+  values:update(entity.name, state.state or "", "STRING", writer(self, entity))
 end
 
 --- Get sorted list of select names for programming commands.

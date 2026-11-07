@@ -18,19 +18,12 @@ function NumberEntity:new(client)
   return instance
 end
 
---- Handle updates to the number entity state.
+--- The variable's write callback: the value goes to the device, and one it rejects goes back to its last report.
+--- @param self NumberEntity
 --- @param entity table<string, any> The entity data received from the ESPHome client.
---- @param state table<string, any> The state data received from the ESPHome client.
---- @return void
-function NumberEntity:updated(entity, state)
-  log:trace("NumberEntity:updated(%s, %s)", entity, state)
-  local value = tofinite(state.state)
-  if value == nil or state.missing_state then
-    log:debug("Ignoring non-finite reading for %s", ESPHomeClient.describeEntity(entity))
-    return
-  end
-  local reported = round(value, 1)
-  values:update(entity.name, reported, "NUMBER", function(newValue)
+--- @return fun(newValue: string|integer|number): void
+local function writer(self, entity)
+  return function(newValue)
     -- Convert the Control4 value (string or number) to a number for ESPHome
     local numValue = tonumber(newValue) or 0
     self.client
@@ -43,9 +36,35 @@ function NumberEntity:updated(entity, state)
         log:info("Number value updated to %s for %s", numValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update number value for %s: %s", ESPHomeClient.describeEntity(entity), error)
-        values:update(entity.name, reported, "NUMBER")
+        values:update(entity.name, Select(values:getValue(entity.name), "value"), "NUMBER")
       end)
-  end)
+  end
+end
+
+--- Handle the discovery of a number entity.
+--- @param entity table<string, any> The entity data received from the ESPHome client.
+--- @return void
+function NumberEntity:discovered(entity)
+  log:trace("NumberEntity:discovered(%s)", entity)
+  -- A variable kept from an earlier load takes writes before the device's first state; a new one waits for it
+  local kept = values:getValue(entity.name)
+  if kept ~= nil and not kept.deleted and kept.varType ~= nil then
+    values:setCallback(entity.name, writer(self, entity))
+  end
+end
+
+--- Handle updates to the number entity state.
+--- @param entity table<string, any> The entity data received from the ESPHome client.
+--- @param state table<string, any> The state data received from the ESPHome client.
+--- @return void
+function NumberEntity:updated(entity, state)
+  log:trace("NumberEntity:updated(%s, %s)", entity, state)
+  local value = tofinite(state.state)
+  if value == nil or state.missing_state then
+    log:debug("Ignoring non-finite reading for %s", ESPHomeClient.describeEntity(entity))
+    return
+  end
+  values:update(entity.name, round(value, 1), "NUMBER", writer(self, entity))
 end
 
 return NumberEntity
