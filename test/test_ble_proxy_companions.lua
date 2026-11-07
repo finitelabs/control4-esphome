@@ -122,6 +122,9 @@ case("the ESPHome connection closing tells each bound device once", function()
 
   proxy:_onConnectionSlots({ free = 3, limit = 3, allocated = {} })
   T.eq("the first slot report after it does not tell the lock again", #sentTo(LOCK_BINDING, "DISCONNECTED"), 1)
+
+  proxy:disconnected(true)
+  T.eq("nor does a second close before the next connection", #sentTo(LOCK_BINDING, "DISCONNECTED"), 1)
 end)
 
 case("the ESPHome connection closing tells the coordinator the proxy is gone", function()

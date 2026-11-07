@@ -217,7 +217,6 @@ function handleDeviceCommand(mac, bindingId, strCommand, tParams)
       end
     end)
   elseif strCommand == "REFRESH_STATE" then
-    -- A driver asks for its state when it loads; it gets what a bind gives it
     onDeviceBindingChanged(mac, bindingId, true)
   elseif strCommand == "DISCONNECT" then
     router:disconnect(mac)
@@ -481,7 +480,7 @@ end
 
 --- Handle proxy disconnect cleanup
 --- @param proxy ProxyInfo The disconnected proxy
---- @param unbound boolean The proxy was unbound; one that only lost its ESPHome connection keeps its scanner node
+--- @param unbound boolean The proxy was unbound
 local function onProxyDisconnected(proxy, unbound)
   log:trace("onProxyDisconnected(%s, %s)", proxy, unbound)
   log:info("Cleaning up state for disconnected proxy (device %d)", proxy.deviceId or 0)
@@ -496,7 +495,7 @@ local function onProxyDisconnected(proxy, unbound)
   -- Clear RSSI state from presence tracker for this proxy
   presenceTracker:clearProxyRSSI(proxy.deviceId)
 
-  -- Cancel any pending GATT operations that were using this proxy, and tell each device whose link it held
+  -- Cancel any pending GATT operations that were using this proxy
   for _, mac in ipairs(router:onProxyDisconnected(proxy.deviceId)) do
     local device = deviceRegistry:getDevice(mac)
     if device and device.bindingId then

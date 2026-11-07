@@ -201,6 +201,7 @@ function BluetoothProxyCapability:new(client)
   instance._addedDevices = {}
   instance._featureFlags = 0
   instance._previousAllocated = {}
+  instance._toldDisconnected = false
   instance._coordinatorConnected = false
   instance._coordinatorCallbackId = nil
   instance._coordinatorBindingId = nil
@@ -862,7 +863,6 @@ function BluetoothProxyCapability:handleCommand(mac, idBinding, strCommand, tPar
     return
   end
 
-  -- A driver asks for its state when it loads; it gets what a bind gives it
   if strCommand == "REFRESH_STATE" then
     if self._client:isConnected() then
       self:onBindingChanged(idBinding, true)
@@ -1392,6 +1392,7 @@ end
 --- @param deviceInfo ProtoDeviceInfoResponse|nil Device info containing feature flags
 function BluetoothProxyCapability:discovered(deviceInfo)
   log:trace("BluetoothProxyCapability:discovered(%s)", deviceInfo)
+  self._toldDisconnected = false
 
   self._featureFlags = math.max(0, Select(deviceInfo, "bluetooth_proxy_feature_flags") or 0)
   if self._featureFlags == 0 then
@@ -1494,11 +1495,15 @@ function BluetoothProxyCapability:_onConnectionSlots(state)
   self:_updateStatusProperty()
 end
 
---- The ESPHome connection closed, and every link through it with it: tell each bound device and the coordinator,
---- and forget the links, so the first slot report after a reconnect tells nobody twice.
+--- The ESPHome connection closed, and every link through it with it: tell each bound device and the coordinator
+--- once, until the next connection, and forget the links, so the first slot report after a reconnect tells nobody twice.
 --- @param _suspend? boolean The driver dropped the connection itself.
 function BluetoothProxyCapability:disconnected(_suspend)
   log:trace("BluetoothProxyCapability:disconnected()")
+  if self._toldDisconnected then
+    return
+  end
+  self._toldDisconnected = true
   for mac, device in pairs(self._addedDevices) do
     device.services = nil
     if device.bindingId then
