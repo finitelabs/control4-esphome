@@ -160,7 +160,7 @@ function UUID.matches(uuid1, uuid2)
 end
 
 --- Find service data by UUID in a BLE advertisement.
---- Searches for the first matching UUID from the provided list.
+--- Returns the first service data entry whose UUID matches any of those given.
 --- @param data BLEServiceData[]|nil Array of service data entries {uuid, data}
 --- @param ... string|integer One or more UUIDs to search for (e.g., "FCD2", 0xFCD2)
 --- @return string|nil data Raw service data bytes or nil if not found

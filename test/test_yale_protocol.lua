@@ -72,16 +72,13 @@ for _, case in ipairs({
   T.eq(case[1], yale_protocol.simpleChecksum(string.char(unpack(hexToBytes(case[2])))), case[3])
 end
 
-T.section("Known-good responses sum to zero")
+T.section("Known-good responses carry the checksum the driver validates")
 for _, case in ipairs({
   { "LOCK_JAMMED", "bb0b001b00000000000000000000001f0000" },
   { "LOCK_UNLOCKED", "bb0b00030000000000000000000000370000" },
 }) do
-  local sum = 0
-  for _, byte in ipairs(hexToBytes(case[2])) do
-    sum = sum + byte
-  end
-  T.eq(case[1], sum % 256, 0)
+  local packet = string.char(unpack(hexToBytes(case[2])))
+  T.eq(case[1], yale_protocol.simpleChecksum(packet), string.byte(packet, 4))
 end
 
 T.finish()
