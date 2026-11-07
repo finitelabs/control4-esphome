@@ -1138,6 +1138,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed the Bluetooth Coordinator's RSSI Freshness setting having no effect:
   picking a proxy for a device always counted readings up to 60 seconds old; it
   now counts only readings within the setting
+- Fixed an ESPHome text, select, date, time or datetime variable set from
+  programming before the device first reported its value doing nothing; the
+  variable is there, blank, from the start. A number or switch variable kept
+  from before a driver start now takes a value at once too, instead of only
+  after the device reports again
 
 ## v20261106 - 2026-11-06
 
