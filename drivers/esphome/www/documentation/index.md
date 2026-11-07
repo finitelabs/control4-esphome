@@ -1154,9 +1154,31 @@ light:
     output: led_1_out
 ```
 
-On a display, a template output can recolor a widget instead of driving a pin:
+On a display, an LVGL button can fire the event, and a template output can
+recolor it instead of driving a pin. Fire press from `on_short_click`, not
+`on_click`: LVGL also sends a click after a long press, so `on_click` would fire
+press on every hold. Make the on color clearly brighter than the off color;
+close shades look the same on a panel.
 
 ```yaml
+lvgl:
+  pages:
+    - id: main_page
+      widgets:
+        - button:
+            id: lv_button_2
+            on_short_click:
+              - event.trigger: { id: button_2_event, event_type: press }
+            on_long_press:
+              - event.trigger: { id: button_2_event, event_type: long_press }
+            widgets:
+              - label:
+                  text: "Button 2"
+event:
+  - platform: template
+    id: button_2_event
+    name: "Button 2"
+    event_types: [press, long_press]
 output:
   - platform: template
     id: button_2_led_out
@@ -1164,7 +1186,7 @@ output:
     write_action:
       - lvgl.widget.update:
           id: lv_button_2
-          bg_color: !lambda 'return lv_color_hex(state ? 0x3A3420 : 0x20252B);'
+          bg_color: !lambda 'return lv_color_hex(state ? 0xE0A82E : 0x20252B);'
 light:
   - platform: binary
     name: "Button 2 LED"
