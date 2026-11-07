@@ -880,6 +880,7 @@ end
 
 function OPC.RSSI_Freshness_seconds(propertyValue)
   log:trace("OPC.RSSI_Freshness_seconds(%s)", propertyValue)
+  router:setRssiMaxAge(tointeger(propertyValue))
 end
 
 function OPC.Minimum_Room_RSSI_dBm(propertyValue)
