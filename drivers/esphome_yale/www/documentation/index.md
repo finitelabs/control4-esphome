@@ -338,7 +338,7 @@ address is removed.
 
 The 32-character hex string offline key for your Yale/August lock. This is
 populated automatically by the **Verify and Fetch Keys** action, or can be
-entered manually.
+entered manually. Composer hides the key.
 
 #### Key Slot
 
