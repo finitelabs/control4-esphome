@@ -122,64 +122,32 @@ end
 -- Device Binding Management
 --------------------------------------------------------------------------------
 
---- Create a dynamic binding for a BLE device
---- @param device DeviceInfo The device to create a binding for
---- @return integer|nil bindingId The created binding ID
-local function createDeviceBinding(device)
-  log:trace("createDeviceBinding(%s)", device.mac)
-  if IsEmpty(device.bindingClass) then
-    log:warn("Cannot create binding for device %s: no binding class", device.mac)
-    return nil
-  end
-  --- @cast device.bindingClass -nil
-  if IsEmpty(device.deviceType) then
-    log:warn("Cannot create binding for device %s: no device type", device.mac)
-    return nil
-  end
-  --- @cast device.deviceType -nil
-
-  local cleanMac = device.mac:gsub(":", "")
-  local displayName = (not IsEmpty(device.name) and device.name or device.deviceType) .. " [" .. cleanMac .. "]"
-
-  local binding = bindings:getOrAddDynamicBinding(
-    BINDINGS_NAMESPACE,
-    "bt_" .. device.mac:gsub(":", ""),
-    "PROXY",
-    true, -- provider
-    displayName,
-    device.bindingClass
-  )
-
-  if binding then
-    log:info("Created binding %d for device %s (%s)", binding.bindingId, device.mac, device.bindingClass)
-
-    -- Register command handler for this binding
-    RFP[binding.bindingId] = function(idBinding, strCommand, tParams, _args)
-      handleDeviceCommand(device.mac, idBinding, strCommand, tParams)
-    end
-
-    -- Register binding change handler
-    OBC[binding.bindingId] = function(idBinding, _strClass, bIsBound, _otherDeviceId, _otherBindingId)
-      onDeviceBindingChanged(device.mac, idBinding, bIsBound)
-    end
-
-    return binding.bindingId
-  end
-
-  return nil
-end
-
---- Remove a device binding
+--- Handle child driver binding changes
 --- @param mac string MAC address
-local function removeDeviceBinding(mac)
-  log:trace("removeDeviceBinding(%s)", mac)
+--- @param bindingId integer Binding ID
+--- @param bIsBound boolean Whether bound
+local function onDeviceBindingChanged(mac, bindingId, bIsBound)
+  log:debug("Device binding changed: %s, bound=%s", mac, bIsBound)
+
   local device = deviceRegistry:getDevice(mac)
-  if device and device.bindingId then
-    RFP[device.bindingId] = nil
-    OBC[device.bindingId] = nil
-    bindings:deleteBinding(BINDINGS_NAMESPACE, "bt_" .. mac:gsub(":", ""))
-    device.bindingId = nil
-    log:info("Removed binding for device %s", mac)
+  if not device then
+    return
+  end
+
+  if bIsBound then
+    -- Child driver bound - start forwarding advertisements
+    if device.passive then
+      -- For passive devices, just send CONNECTED_PASSIVE
+      SendToProxy(bindingId, "CONNECTED_PASSIVE", {
+        name = device.name or "",
+        mac = mac,
+        deviceType = device.deviceType or "",
+      }, "NOTIFY")
+    end
+    -- Active devices will initiate connection via CONNECT command
+  else
+    -- Child driver unbound - stop tracking
+    router:disconnect(mac)
   end
 end
 
@@ -188,7 +156,7 @@ end
 --- @param bindingId integer Binding ID
 --- @param strCommand string Command name
 --- @param tParams table Command parameters
-function handleDeviceCommand(mac, bindingId, strCommand, tParams)
+local function handleDeviceCommand(mac, bindingId, strCommand, tParams)
   log:trace("handleDeviceCommand(%s, %s, %s, %s)", mac, bindingId, strCommand, tParams)
 
   local device = deviceRegistry:getDevice(mac)
@@ -275,32 +243,64 @@ function handleDeviceCommand(mac, bindingId, strCommand, tParams)
   end
 end
 
---- Handle child driver binding changes
---- @param mac string MAC address
---- @param bindingId integer Binding ID
---- @param bIsBound boolean Whether bound
-function onDeviceBindingChanged(mac, bindingId, bIsBound)
-  log:debug("Device binding changed: %s, bound=%s", mac, bIsBound)
+--- Create a dynamic binding for a BLE device
+--- @param device DeviceInfo The device to create a binding for
+--- @return integer|nil bindingId The created binding ID
+local function createDeviceBinding(device)
+  log:trace("createDeviceBinding(%s)", device.mac)
+  if IsEmpty(device.bindingClass) then
+    log:warn("Cannot create binding for device %s: no binding class", device.mac)
+    return nil
+  end
+  --- @cast device.bindingClass -nil
+  if IsEmpty(device.deviceType) then
+    log:warn("Cannot create binding for device %s: no device type", device.mac)
+    return nil
+  end
+  --- @cast device.deviceType -nil
 
-  local device = deviceRegistry:getDevice(mac)
-  if not device then
-    return
+  local cleanMac = device.mac:gsub(":", "")
+  local displayName = (not IsEmpty(device.name) and device.name or device.deviceType) .. " [" .. cleanMac .. "]"
+
+  local binding = bindings:getOrAddDynamicBinding(
+    BINDINGS_NAMESPACE,
+    "bt_" .. device.mac:gsub(":", ""),
+    "PROXY",
+    true, -- provider
+    displayName,
+    device.bindingClass
+  )
+
+  if binding then
+    log:info("Created binding %d for device %s (%s)", binding.bindingId, device.mac, device.bindingClass)
+
+    -- Register command handler for this binding
+    RFP[binding.bindingId] = function(idBinding, strCommand, tParams, _args)
+      handleDeviceCommand(device.mac, idBinding, strCommand, tParams)
+    end
+
+    -- Register binding change handler
+    OBC[binding.bindingId] = function(idBinding, _strClass, bIsBound, _otherDeviceId, _otherBindingId)
+      onDeviceBindingChanged(device.mac, idBinding, bIsBound)
+    end
+
+    return binding.bindingId
   end
 
-  if bIsBound then
-    -- Child driver bound - start forwarding advertisements
-    if device.passive then
-      -- For passive devices, just send CONNECTED_PASSIVE
-      SendToProxy(bindingId, "CONNECTED_PASSIVE", {
-        name = device.name or "",
-        mac = mac,
-        deviceType = device.deviceType or "",
-      }, "NOTIFY")
-    end
-    -- Active devices will initiate connection via CONNECT command
-  else
-    -- Child driver unbound - stop tracking
-    router:disconnect(mac)
+  return nil
+end
+
+--- Remove a device binding
+--- @param mac string MAC address
+local function removeDeviceBinding(mac)
+  log:trace("removeDeviceBinding(%s)", mac)
+  local device = deviceRegistry:getDevice(mac)
+  if device and device.bindingId then
+    RFP[device.bindingId] = nil
+    OBC[device.bindingId] = nil
+    bindings:deleteBinding(BINDINGS_NAMESPACE, "bt_" .. mac:gsub(":", ""))
+    device.bindingId = nil
+    log:info("Removed binding for device %s", mac)
   end
 end
 

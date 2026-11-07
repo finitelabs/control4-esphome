@@ -494,6 +494,150 @@ local function commandInFlight()
   return inFlight and commandRequestedAt ~= nil and os.time() - commandRequestedAt <= COMMAND_MAX_AGE_S
 end
 
+--------------------------------------------------------------------------------
+-- Command Execution
+--------------------------------------------------------------------------------
+
+--- Execute the pending command (called after handshake completes)
+local function executePendingCommand()
+  log:trace("executePendingCommand()")
+  if not pendingCommand then
+    log:debug("No pending command, requesting status")
+    pendingCommand = "status"
+  end
+
+  if handshakeState ~= HANDSHAKE_STATE.COMPLETE then
+    log:debug("Handshake not complete, deferring command")
+    return
+  end
+
+  if not session or not session:isReady() then
+    log:error("Session not ready for command execution")
+    requestDisconnect()
+    return
+  end
+
+  local writeHandle = getHandles()
+  if not writeHandle then
+    log:error("Write handle not available")
+    requestDisconnect()
+    return
+  end
+
+  local cmd = pendingCommand
+  pendingCommand = nil
+
+  if (cmd == "lock" or cmd == "unlock") and os.time() - commandRequestedAt > COMMAND_MAX_AGE_S then
+    log:warn("Dropping %s requested %ds ago", cmd, os.time() - commandRequestedAt)
+    -- The lock never saw it, so its status stands.
+    updateStatus(cmd == "lock" and "Error: Lock expired" or "Error: Unlock expired", true)
+    cmd = "status"
+  end
+
+  if cmd == "lock" then
+    log:info("Sending LOCK command")
+    local packet = yale_protocol.buildCommand(yale_protocol.Opcode.LOCK)
+    local encrypted = session:encrypt(packet)
+    awaitingResponse = "lock"
+    gattWrite(writeHandle, encrypted)
+  elseif cmd == "unlock" then
+    log:info("Sending UNLOCK command")
+    local packet = yale_protocol.buildCommand(yale_protocol.Opcode.UNLOCK)
+    local encrypted = session:encrypt(packet)
+    awaitingResponse = "unlock"
+    gattWrite(writeHandle, encrypted)
+  elseif cmd == "status" then
+    log:info("Sending GET_STATUS command (lock only)")
+    local packet =
+      yale_protocol.buildOperationCommand(yale_protocol.Opcode.GET_STATUS, yale_protocol.StatusType.LOCK_ONLY)
+    local encrypted = session:encrypt(packet)
+    awaitingResponse = "status_lock"
+    gattWrite(writeHandle, encrypted)
+  elseif cmd == "door" then
+    log:info("Sending GET_STATUS command (door only)")
+    local packet =
+      yale_protocol.buildOperationCommand(yale_protocol.Opcode.GET_STATUS, yale_protocol.StatusType.DOOR_ONLY)
+    local encrypted = session:encrypt(packet)
+    awaitingResponse = "status_door"
+    gattWrite(writeHandle, encrypted)
+  elseif cmd == "battery" then
+    log:info("Sending battery status command")
+    local packet =
+      yale_protocol.buildOperationCommand(yale_protocol.Opcode.GET_STATUS, yale_protocol.StatusType.BATTERY)
+    local encrypted = session:encrypt(packet)
+    awaitingResponse = "status_battery"
+    gattWrite(writeHandle, encrypted)
+  end
+end
+
+--- Initiate a lock/unlock command - connect if needed, then execute
+--- @param command string "lock", "unlock", or "status"
+local function initiateCommand(command)
+  log:info("Initiating command: %s", command)
+  cancelPendingDisconnect()
+  CancelTimer("PollCycle")
+  -- A newer lock or unlock replaces a retry still waiting; a status read takes its command along
+  local retrying = cancelReconnect()
+  if command == "status" and retrying then
+    command = retrying
+  end
+  -- The link is being set up until its last subscription is answered
+  local settingUp = pendingConnect
+    or pendingSubscribe ~= nil
+    or (handshakeState ~= HANDSHAKE_STATE.IDLE and handshakeState ~= HANDSHAKE_STATE.COMPLETE)
+  if settingUp and command == "status" and (pendingCommand == "lock" or pendingCommand == "unlock") then
+    -- The queued command reads the status once it is done
+    log:info("Status requested with %s queued, keeping it", pendingCommand)
+    return
+  end
+  pendingCommand = command
+
+  if handshakeState == HANDSHAKE_STATE.COMPLETE and session and session:isReady() and not pendingSubscribe then
+    -- Already connected and authenticated, execute immediately
+    executePendingCommand()
+  elseif settingUp or handshakeState ~= HANDSHAKE_STATE.IDLE then
+    -- A second CONNECT would make the parent fail the one in flight
+    log:info("Connect in progress (state=%d), command queued", handshakeState)
+  else
+    -- Not connected, need to connect first
+    requestConnection()
+  end
+end
+
+--- Queue a status poll after lock/unlock command
+local function queueStatusPoll()
+  SetTimer("StatusPoll", STATUS_POLL_DELAY_MS, function()
+    if handshakeState == HANDSHAKE_STATE.COMPLETE then
+      pendingCommand = "status"
+      executePendingCommand()
+    end
+  end)
+end
+
+--- Queue a door status poll after lock status
+local function queueDoorPoll()
+  SetTimer("DoorPoll", STATUS_POLL_DELAY_MS, function()
+    if handshakeState == HANDSHAKE_STATE.COMPLETE then
+      pendingCommand = "door"
+      executePendingCommand()
+    end
+  end)
+end
+
+--- Queue a battery poll after door status
+local function queueBatteryPoll()
+  SetTimer("BatteryPoll", STATUS_POLL_DELAY_MS, function()
+    if handshakeState == HANDSHAKE_STATE.COMPLETE then
+      pendingCommand = "battery"
+      executePendingCommand()
+    end
+  end)
+end
+
+--------------------------------------------------------------------------------
+-- Keepalive, Polling and Notifications
+--------------------------------------------------------------------------------
+
 --- Start keepalive timer for persistent connection.
 --- Periodically polls lock status to keep the BLE connection alive
 --- and detect state changes from unsolicited notifications.
@@ -994,146 +1138,6 @@ local function handleInitResponse(data)
     -- Already subscribed (shouldn't happen in normal flow)
     executePendingCommand()
   end
-end
-
---------------------------------------------------------------------------------
--- Command Execution
---------------------------------------------------------------------------------
-
---- Execute the pending command (called after handshake completes)
-function executePendingCommand()
-  log:trace("executePendingCommand()")
-  if not pendingCommand then
-    log:debug("No pending command, requesting status")
-    pendingCommand = "status"
-  end
-
-  if handshakeState ~= HANDSHAKE_STATE.COMPLETE then
-    log:debug("Handshake not complete, deferring command")
-    return
-  end
-
-  if not session or not session:isReady() then
-    log:error("Session not ready for command execution")
-    requestDisconnect()
-    return
-  end
-
-  local writeHandle = getHandles()
-  if not writeHandle then
-    log:error("Write handle not available")
-    requestDisconnect()
-    return
-  end
-
-  local cmd = pendingCommand
-  pendingCommand = nil
-
-  if (cmd == "lock" or cmd == "unlock") and os.time() - commandRequestedAt > COMMAND_MAX_AGE_S then
-    log:warn("Dropping %s requested %ds ago", cmd, os.time() - commandRequestedAt)
-    -- The lock never saw it, so its status stands.
-    updateStatus(cmd == "lock" and "Error: Lock expired" or "Error: Unlock expired", true)
-    cmd = "status"
-  end
-
-  if cmd == "lock" then
-    log:info("Sending LOCK command")
-    local packet = yale_protocol.buildCommand(yale_protocol.Opcode.LOCK)
-    local encrypted = session:encrypt(packet)
-    awaitingResponse = "lock"
-    gattWrite(writeHandle, encrypted)
-  elseif cmd == "unlock" then
-    log:info("Sending UNLOCK command")
-    local packet = yale_protocol.buildCommand(yale_protocol.Opcode.UNLOCK)
-    local encrypted = session:encrypt(packet)
-    awaitingResponse = "unlock"
-    gattWrite(writeHandle, encrypted)
-  elseif cmd == "status" then
-    log:info("Sending GET_STATUS command (lock only)")
-    local packet =
-      yale_protocol.buildOperationCommand(yale_protocol.Opcode.GET_STATUS, yale_protocol.StatusType.LOCK_ONLY)
-    local encrypted = session:encrypt(packet)
-    awaitingResponse = "status_lock"
-    gattWrite(writeHandle, encrypted)
-  elseif cmd == "door" then
-    log:info("Sending GET_STATUS command (door only)")
-    local packet =
-      yale_protocol.buildOperationCommand(yale_protocol.Opcode.GET_STATUS, yale_protocol.StatusType.DOOR_ONLY)
-    local encrypted = session:encrypt(packet)
-    awaitingResponse = "status_door"
-    gattWrite(writeHandle, encrypted)
-  elseif cmd == "battery" then
-    log:info("Sending battery status command")
-    local packet =
-      yale_protocol.buildOperationCommand(yale_protocol.Opcode.GET_STATUS, yale_protocol.StatusType.BATTERY)
-    local encrypted = session:encrypt(packet)
-    awaitingResponse = "status_battery"
-    gattWrite(writeHandle, encrypted)
-  end
-end
-
---- Initiate a lock/unlock command - connect if needed, then execute
---- @param command string "lock", "unlock", or "status"
-function initiateCommand(command)
-  log:info("Initiating command: %s", command)
-  cancelPendingDisconnect()
-  CancelTimer("PollCycle")
-  -- A newer lock or unlock replaces a retry still waiting; a status read takes its command along
-  local retrying = cancelReconnect()
-  if command == "status" and retrying then
-    command = retrying
-  end
-  -- The link is being set up until its last subscription is answered
-  local settingUp = pendingConnect
-    or pendingSubscribe ~= nil
-    or (handshakeState ~= HANDSHAKE_STATE.IDLE and handshakeState ~= HANDSHAKE_STATE.COMPLETE)
-  if settingUp and command == "status" and (pendingCommand == "lock" or pendingCommand == "unlock") then
-    -- The queued command reads the status once it is done
-    log:info("Status requested with %s queued, keeping it", pendingCommand)
-    return
-  end
-  pendingCommand = command
-
-  if handshakeState == HANDSHAKE_STATE.COMPLETE and session and session:isReady() and not pendingSubscribe then
-    -- Already connected and authenticated, execute immediately
-    executePendingCommand()
-  elseif settingUp or handshakeState ~= HANDSHAKE_STATE.IDLE then
-    -- A second CONNECT would make the parent fail the one in flight
-    log:info("Connect in progress (state=%d), command queued", handshakeState)
-  else
-    -- Not connected, need to connect first
-    requestConnection()
-  end
-end
-
---- Queue a status poll after lock/unlock command
-local function queueStatusPoll()
-  SetTimer("StatusPoll", STATUS_POLL_DELAY_MS, function()
-    if handshakeState == HANDSHAKE_STATE.COMPLETE then
-      pendingCommand = "status"
-      executePendingCommand()
-    end
-  end)
-end
-
---- Queue a door status poll after lock status
-local function queueDoorPoll()
-  SetTimer("DoorPoll", STATUS_POLL_DELAY_MS, function()
-    if handshakeState == HANDSHAKE_STATE.COMPLETE then
-      pendingCommand = "door"
-      executePendingCommand()
-    end
-  end)
-end
-
---- Queue a battery poll after door status
-local function queueBatteryPoll()
-  SetTimer("BatteryPoll", STATUS_POLL_DELAY_MS, function()
-    if handshakeState == HANDSHAKE_STATE.COMPLETE then
-      pendingCommand = "battery"
-      executePendingCommand()
-    end
-  end)
 end
 
 --------------------------------------------------------------------------------

@@ -408,7 +408,7 @@ end
 
 --- Get or create a dynamic event for a button/dimmer event.
 --- @param reading BTHomeReading The BTHome reading with name and index fields
---- @return Event|nil event The event object or nil if creation failed
+--- @return string|nil eventKey The event key, or nil if there is no event to fire
 local function getOrCreateEntityEvent(reading)
   if reading.name ~= "button" and reading.name ~= "dimmer" then
     log:warn("Cannot create event for non-button/dimmer entity: %s", reading.name)
@@ -441,21 +441,19 @@ local function getOrCreateEntityEvent(reading)
   local eventKey = reading.name .. "_" .. reading.instance .. eventDef.key
   local eventDisplayName = displayName .. " " .. eventDef.name
   local eventDescription = "NAME " .. displayName .. " " .. eventDef.description
-  return events:getOrAddEvent(EVENT_NAMESPACE, eventKey, eventDisplayName, eventDescription)
+  if not events:getOrAddEvent(EVENT_NAMESPACE, eventKey, eventDisplayName, eventDescription) then
+    return nil
+  end
+  return eventKey
 end
 
 --- Fire a dynamic event for an entity.
 --- @param reading BTHomeReading The BTHome reading with name and index fields
 local function fireEntityEvent(reading)
-  local event = getOrCreateEntityEvent(reading)
-  if not event then
-    return
+  local eventKey = getOrCreateEntityEvent(reading)
+  if eventKey then
+    events:fire(EVENT_NAMESPACE, eventKey)
   end
-  if type(event.eventId) ~= "number" then
-    log:warn("Cannot fire event - no ID for event: %s", event.name)
-    return
-  end
-  C4:FireEventByID(event.eventId)
 end
 
 --------------------------------------------------------------------------------
