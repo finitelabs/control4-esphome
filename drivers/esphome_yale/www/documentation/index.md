@@ -278,7 +278,8 @@ Displays the current driver state. Common values:
 - `Listening (next poll in Ns)` - Poll mode, waiting for next cycle
 - `Connected` - Active BLE session (Persistent mode or mid-query)
 - `Reconnecting (N/5)` - Persistent mode auto-reconnect with attempt count
-- `Listening (reconnect failed)` - Persistent mode max retries exhausted
+- `Listening (reconnect failed)` - Persistent mode retries ran out; the next
+  advertisement at least five minutes later starts a fresh round
 - `Error: <message>` - Configuration or connection error
 
 #### Driver Version (read-only)
