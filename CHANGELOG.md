@@ -45,6 +45,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed the SwitchBot driver's Encryption Status putting Lua file and line
   details in front of the reason when fetching its keys from the SwitchBot cloud
   failed; it now shows the reason alone
+- Fixed the Bluetooth Coordinator's RSSI Freshness setting having no effect:
+  picking a proxy for a device always counted readings up to 60 seconds old; it
+  now counts only readings within the setting
 
 ## v20261106 - 2026-11-06
 
