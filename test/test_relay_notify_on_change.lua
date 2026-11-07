@@ -192,4 +192,22 @@ do
   package.loaded["esphome.entities.cover"] = CoverEntity
 end
 
+T.section("A cover's trigger relay bound after it is discovered is told once at its bind, not again on a reconnect")
+do
+  package.loaded["esphome.entities.cover"] = nil
+  local Cover = require("esphome.entities.cover")
+  local cover = Cover:new(client)
+  local entity = { key = 952, ref = "952", name = "Side Gate", supports_stop = true }
+  cover:discovered(entity)
+  local relay = bindings:getDynamicBinding(Cover.TYPE, "open_cover_" .. entity.ref).bindingId
+  told = {}
+  C4:Bind(C4:GetDeviceID(), relay, 9010, 1, "RELAY")
+  OBC[relay](relay, "RELAY", true)
+  T.eq("its bind tells it it is open", toldTo(relay), { "STATE_OPENED" })
+
+  cover:discovered(entity)
+  T.eq("a reconnect tells it nothing", toldTo(relay), {})
+  package.loaded["esphome.entities.cover"] = CoverEntity
+end
+
 T.finish()
