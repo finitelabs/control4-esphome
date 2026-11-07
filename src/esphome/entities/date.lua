@@ -58,7 +58,6 @@ end
 --- @return void
 function DateEntity:discovered(entity)
   log:trace("DateEntity:discovered(%s)", entity)
-  -- Writable from discovery, blank until the device's first state
   local kept = values:getValue(entity.name)
   values:update(entity.name, kept and not kept.deleted and kept.value or "", "STRING", writer(self, entity))
 end

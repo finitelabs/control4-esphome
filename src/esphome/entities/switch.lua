@@ -74,7 +74,6 @@ end
 --- @return void
 function SwitchEntity:discovered(entity)
   log:trace("SwitchEntity:discovered(%s)", entity)
-  -- A State variable kept from an earlier load takes writes before the device's first state; a new one waits for it
   local kept = values:getValue(entity.name .. " State")
   if kept ~= nil and not kept.deleted and kept.varType ~= nil then
     values:setCallback(entity.name .. " State", writer(self, entity))

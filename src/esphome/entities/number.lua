@@ -46,7 +46,6 @@ end
 --- @return void
 function NumberEntity:discovered(entity)
   log:trace("NumberEntity:discovered(%s)", entity)
-  -- A variable kept from an earlier load takes writes before the device's first state; a new one waits for it
   local kept = values:getValue(entity.name)
   if kept ~= nil and not kept.deleted and kept.varType ~= nil then
     values:setCallback(entity.name, writer(self, entity))
