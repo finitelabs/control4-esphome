@@ -18,21 +18,21 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
-## Unreleased
+## v20261106 - 2026-11-06
 
 ### Added
 
-- Added Restart Bluetooth Proxy When Stuck, which presses the chosen ESPHome
-  restart button when the proxy is wedged, at most once every 6 hours. Off by
-  default
+- Added a `Restart Bluetooth Proxy When Stuck` property, which presses the
+  ESPHome restart button you choose when a Bluetooth proxy stops answering, at
+  most once every 6 hours. Off by default
   <!-- #ifdef DRIVERCENTRAL -->
 - Added a `Support Code` property to the ESPHome driver and its sub-drivers. A
   code from Finite Labs support opens the driver's Lua tab in Composer for an
-  hour; leave it blank otherwise.
+  hour; leave it blank otherwise
 - Added a `Cloud Monitoring` property, Enabled by default, and a
   `Diagnostics Snapshot` action to every driver. Cloud Monitoring sends Finite
   Labs an hourly report of the driver's memory use and a report of each error it
-  hits; the documentation says what they hold.
+  hits; the documentation says what they hold
   <!-- #endif -->
 
 ### Fixed
@@ -42,30 +42,25 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   reads as Cooling, Heat/Cool and Auto as Idle). A water heater now reports an
   HVAC state too: Heating while it is on, Off while it is off
 - Fixed a Bluetooth proxy that still held a device connected but no longer
-  answered it going unreported: Bluetooth Proxy Status now asks for a power
+  answered it going unreported: `Bluetooth Proxy Status` now asks for a power
   cycle, and the device shows "Bluetooth proxy needs a restart" instead of "GATT
   discovery failed"
-- Fixed a SwitchBot command sent while the device was still connecting failing
-  with "GATT discovery failed", and a Relay Switch 2PM turning on only one
-  channel when a scene set both
-- Fixed a Yale lock or unlock tapped in Persistent mode being dropped when the
-  connection failed; it is now retried like after a dropped connection
-- Fixed an ESPHome switch turning off when a relay driver bound to it asked for
-  its state
-- Fixed a relay driver bound to an ESPHome switch running its programming again
-  every time the device reconnected
+- Fixed a SwitchBot command sent while the device was still connecting failing,
+  and a two-channel SwitchBot relay turning on only one channel when a scene set
+  both
+- Fixed a Yale lock or unlock in Persistent mode being dropped when the
+  connection failed; it is now retried, as it is after a dropped connection
+- Fixed relay drivers bound to ESPHome switches and covers: a switch no longer
+  turns off when a relay driver bound to it asks for its state, and a relay
+  driver no longer runs its programming each time the device reconnects or a
+  cover updates
 - Fixed a pulsed ESPHome switch staying on when another switch on the same
   device was pulsed before it finished
-- Fixed a relay driver bound to an ESPHome cover's Open, Close or Stop relay
-  running its programming on every cover update
 - Fixed a light's color in Navigator and in its variables staying on the old
-  color after a color preset was picked, one of the Color Agent's (such as
-  Relax) or one of the light's own, or after the light turned on with Color On
-  Mode set to Previous or to one of the light's own presets; the light itself
-  changed color
+  color after a color preset was picked, or after the light turned on with Color
+  On Mode set to Previous or to a preset; the light itself changed color
 - Fixed a light reporting its capability and color variables as changed each
-  time its driver started or its device reconnected, once Control4's record of
-  its capabilities had fallen behind
+  time its driver started or its device reconnected, with nothing changed
   <!-- #ifndef DRIVERCENTRAL -->
 - Fixed changing Automatic Updates or Update Channel on an ESPHome driver
   briefly holding up every other ESPHome driver, longer in a project with many,
@@ -119,7 +114,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Changed how long the ESPHome driver waits without an active license before it
   drops its devices, from one minute to five, so a DriverCentral Cloud driver
   update or a slow controller start no longer drops a licensed system. A license
-  bought later reconnects the devices within 10 seconds
+  reconnects the devices within 10 seconds
   <!-- #endif -->
 - Changed how long a color set on a light with Dim-To-Warm lasts: one set while
   the light is on now stays when the light is dimmed or brightened, until the
