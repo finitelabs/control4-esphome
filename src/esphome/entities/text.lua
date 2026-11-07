@@ -18,15 +18,12 @@ function TextEntity:new(client)
   return instance
 end
 
---- Handle updates to the text entity state.
+--- The variable's write callback: the value goes to the device, and one it rejects goes back to its last report.
+--- @param self TextEntity
 --- @param entity table<string, any> The entity data received from the ESPHome client.
---- @param state table<string, any> The state data received from the ESPHome client.
---- @return void
-function TextEntity:updated(entity, state)
-  log:trace("TextEntity:updated(%s, %s)", entity, state)
-  local reported = state.state or ""
-  values:update(entity.name, reported, "STRING", function(newValue)
-    -- Convert the Control4 value (string or number) to a number for ESPHome
+--- @return fun(newValue: string|integer|number): void
+local function writer(self, entity)
+  return function(newValue)
     self.client
       :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.text_command, {
         key = entity.key,
@@ -37,9 +34,27 @@ function TextEntity:updated(entity, state)
         log:info("Text value updated to %s for %s", newValue or "", ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update text value for %s: %s", ESPHomeClient.describeEntity(entity), error)
-        values:update(entity.name, reported, "STRING")
+        values:update(entity.name, Select(values:getValue(entity.name), "value") or "", "STRING")
       end)
-  end)
+  end
+end
+
+--- Handle the discovery of a text entity.
+--- @param entity table<string, any> The entity data received from the ESPHome client.
+--- @return void
+function TextEntity:discovered(entity)
+  log:trace("TextEntity:discovered(%s)", entity)
+  local kept = values:getValue(entity.name)
+  values:update(entity.name, kept and not kept.deleted and kept.value or "", "STRING", writer(self, entity))
+end
+
+--- Handle updates to the text entity state.
+--- @param entity table<string, any> The entity data received from the ESPHome client.
+--- @param state table<string, any> The state data received from the ESPHome client.
+--- @return void
+function TextEntity:updated(entity, state)
+  log:trace("TextEntity:updated(%s, %s)", entity, state)
+  values:update(entity.name, state.state or "", "STRING", writer(self, entity))
 end
 
 return TextEntity

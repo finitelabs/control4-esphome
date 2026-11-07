@@ -40,11 +40,44 @@ function SwitchEntity:new(client)
   return instance
 end
 
+--- The State variable's write callback: the value goes to the device, and one it rejects goes back to its last report.
+--- @param self SwitchEntity
+--- @param entity table<string, any> The entity data received from the ESPHome client.
+--- @return fun(newValue: string|integer|number): void
+local function writer(self, entity)
+  return function(newValue)
+    -- Convert the Control4 value (0/1 string) to a boolean for ESPHome
+    local boolValue = toboolean(newValue)
+    self.client
+      :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
+        key = entity.key,
+        device_id = entity.device_id,
+        state = boolValue,
+      })
+      :next(function()
+        log:info("Commanded %s to %s", ESPHomeClient.describeEntity(entity), boolValue and "on" or "off")
+      end, function(error)
+        log:error(
+          "Failed to command %s to %s: %s",
+          ESPHomeClient.describeEntity(entity),
+          boolValue and "on" or "off",
+          error
+        )
+        -- Director keeps the value programming set, which the device never took.
+        values:update(entity.name .. " State", Select(values:getValue(entity.name .. " State"), "value"), "BOOL")
+      end)
+  end
+end
+
 --- Handle the discovery of a switch entity.
 --- @param entity table<string, any> The entity data received from the ESPHome client.
 --- @return void
 function SwitchEntity:discovered(entity)
   log:trace("SwitchEntity:discovered(%s)", entity)
+  local kept = values:getValue(entity.name .. " State")
+  if kept ~= nil and not kept.deleted and kept.varType ~= nil then
+    values:setCallback(entity.name .. " State", writer(self, entity))
+  end
   local bindingId = assert(
     bindings:getOrAddDynamicBinding(self.TYPE, "switch_" .. entity.ref, "PROXY", true, entity.name, "RELAY")
   ).bindingId
@@ -122,28 +155,7 @@ function SwitchEntity:updated(entity, state)
 
   local value = toboolean(state.state)
   local stored = Select(values:getValue(entity.name .. " State"), "value")
-  values:update(entity.name .. " State", value and "1" or "0", "BOOL", function(newValue)
-    -- Convert the Control4 value (0/1 string) to a boolean for ESPHome
-    local boolValue = toboolean(newValue)
-    self.client
-      :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.switch_command, {
-        key = entity.key,
-        device_id = entity.device_id,
-        state = boolValue,
-      })
-      :next(function()
-        log:info("Commanded %s to %s", ESPHomeClient.describeEntity(entity), boolValue and "on" or "off")
-      end, function(error)
-        log:error(
-          "Failed to command %s to %s: %s",
-          ESPHomeClient.describeEntity(entity),
-          boolValue and "on" or "off",
-          error
-        )
-        -- Director keeps the value programming set, which the device never took.
-        values:update(entity.name .. " State", value and "1" or "0", "BOOL")
-      end)
-  end)
+  values:update(entity.name .. " State", value and "1" or "0", "BOOL", writer(self, entity))
 
   local relayBinding = bindings:getDynamicBinding(self.TYPE, "switch_" .. entity.ref)
   if relayBinding ~= nil then
