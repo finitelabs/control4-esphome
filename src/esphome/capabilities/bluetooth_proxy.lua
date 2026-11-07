@@ -155,6 +155,9 @@ local SELECTED_BLUETOOTH_DEVICES_PERSIST_KEY = "SelectedBluetoothDevices"
 --- Home Assistant/bleak also defaults to PUBLIC for unknown devices.
 local DEFAULT_ADDRESS_TYPE = BLEAddress.Type.PUBLIC
 
+--- The reason a bound device is told when the ESPHome connection closes.
+local DEVICE_GONE = "ESPHome device disconnected"
+
 --- @class AddedDevice
 --- @field name string|nil Device name from advertisement
 --- @field addressType BLEAddressType Address type, defaults to PUBLIC (0) if not set
@@ -198,6 +201,7 @@ function BluetoothProxyCapability:new(client)
   instance._addedDevices = {}
   instance._featureFlags = 0
   instance._previousAllocated = {}
+  instance._toldDisconnected = false
   instance._coordinatorConnected = false
   instance._coordinatorCallbackId = nil
   instance._coordinatorBindingId = nil
@@ -811,6 +815,39 @@ function BluetoothProxyCapability:disconnectDevice(mac)
   log:info("Disconnected from Bluetooth device: %s", mac)
 end
 
+--- Send CONNECTED to a device whose link is up, with its full service list: the cached one, or one discovered
+--- first when none is cached.
+--- @param mac string MAC address
+--- @param idBinding number The device's binding
+--- @private
+function BluetoothProxyCapability:_sendConnected(mac, idBinding)
+  local device = self._addedDevices[mac]
+  local function send()
+    SendToProxy(idBinding, "CONNECTED", {
+      name = device.name,
+      mac = mac,
+      deviceType = device.deviceType,
+      services = SerializeSafe(device.services or {}),
+    }, "NOTIFY")
+  end
+  if device.services and #device.services > 0 then
+    log:info("Device %s already connected with %d cached services", mac, #device.services)
+    send()
+    return
+  end
+  log:info("Device %s connected but no cached services, discovering", mac)
+  self:_discoverGattServices(mac, function(success)
+    if success then
+      send()
+    else
+      SendToProxy(idBinding, "CONNECTION_FAILED", {
+        mac = mac,
+        error = self:_discoveryFailedError(),
+      }, "NOTIFY")
+    end
+  end)
+end
+
 --- Handle commands from sub-driver.
 --- @param mac string MAC address
 --- @param idBinding number Binding ID
@@ -826,40 +863,22 @@ function BluetoothProxyCapability:handleCommand(mac, idBinding, strCommand, tPar
     return
   end
 
+  if strCommand == "REFRESH_STATE" then
+    if self._client:isConnected() then
+      self:onBindingChanged(idBinding, true)
+    else
+      SendToProxy(idBinding, "DISCONNECTED", { mac = mac, reason = DEVICE_GONE }, "NOTIFY")
+    end
+    return
+  end
+
   -- Handle CONNECT command - initiates BLE connection with GATT discovery
   if strCommand == "CONNECT" then
     -- Check if device is already allocated (connected)
     local isAllocated = self._client:isBluetoothDeviceAllocated(mac)
 
     if isAllocated then
-      -- Device already connected - check if we have cached services
-      if device.services and #device.services > 0 then
-        log:info("Device %s already connected with %d cached services", mac, #device.services)
-        SendToProxy(idBinding, "CONNECTED", {
-          name = device.name,
-          mac = mac,
-          deviceType = device.deviceType,
-          services = SerializeSafe(device.services),
-        }, "NOTIFY")
-      else
-        -- Connected but no cached services - discover them
-        log:info("Device %s connected but no cached services, discovering", mac)
-        self:_discoverGattServices(mac, function(success)
-          if success then
-            SendToProxy(idBinding, "CONNECTED", {
-              name = device.name,
-              mac = mac,
-              deviceType = device.deviceType,
-              services = SerializeSafe(device.services or {}),
-            }, "NOTIFY")
-          else
-            SendToProxy(idBinding, "CONNECTION_FAILED", {
-              mac = mac,
-              error = self:_discoveryFailedError(),
-            }, "NOTIFY")
-          end
-        end)
-      end
+      self:_sendConnected(mac, idBinding)
     else
       -- Device not connected - check if we have a slot available
       local state = self._client:getBluetoothConnectionState()
@@ -1165,13 +1184,7 @@ function BluetoothProxyCapability:onBindingChanged(idBinding, bIsBound)
     -- For non-passive devices (like switches), also establish GATT connection
     if not device.passive then
       if self._client:isBluetoothDeviceAllocated(mac) then
-        log:info("Device %s already connected, sending CONNECTED", mac)
-        SendToProxy(idBinding, "CONNECTED", {
-          name = device.name,
-          mac = mac,
-          deviceType = device.deviceType,
-          services = SerializeSafe(device.services or {}),
-        }, "NOTIFY")
+        self:_sendConnected(mac, idBinding)
       else
         log:info("Initiating GATT connection to %s", mac)
         local connOk, connErr = pcall(function()
@@ -1379,6 +1392,7 @@ end
 --- @param deviceInfo ProtoDeviceInfoResponse|nil Device info containing feature flags
 function BluetoothProxyCapability:discovered(deviceInfo)
   log:trace("BluetoothProxyCapability:discovered(%s)", deviceInfo)
+  self._toldDisconnected = false
 
   self._featureFlags = math.max(0, Select(deviceInfo, "bluetooth_proxy_feature_flags") or 0)
   if self._featureFlags == 0 then
@@ -1419,14 +1433,6 @@ function BluetoothProxyCapability:discovered(deviceInfo)
   end)
 
   self._discoveryTimeouts = {}
-
-  -- Clear cached GATT services for active devices - handles may change after reconnect
-  for mac, device in pairs(self._addedDevices) do
-    if not device.passive and device.services then
-      log:debug("Clearing cached services for %s (will rediscover on reconnect)", mac)
-      device.services = nil
-    end
-  end
 
   -- Initialize Bluetooth proxy, then check for already-bound child drivers
   self._client:initBluetoothProxy():next(function()
@@ -1487,6 +1493,28 @@ function BluetoothProxyCapability:_onConnectionSlots(state)
 
   -- Update the status property
   self:_updateStatusProperty()
+end
+
+--- The ESPHome connection closed, and every link through it with it: tell each bound device and the coordinator
+--- once, until the next connection, and forget the links, so the first slot report after a reconnect tells nobody twice.
+--- @param _suspend? boolean The driver dropped the connection itself.
+function BluetoothProxyCapability:disconnected(_suspend)
+  log:trace("BluetoothProxyCapability:disconnected()")
+  if self._toldDisconnected then
+    return
+  end
+  self._toldDisconnected = true
+  for mac, device in pairs(self._addedDevices) do
+    device.services = nil
+    if device.bindingId then
+      SendToProxy(device.bindingId, "DISCONNECTED", { mac = mac, reason = DEVICE_GONE }, "NOTIFY")
+    end
+  end
+  if self._coordinatorConnected and self._coordinatorBindingId then
+    SendToProxy(self._coordinatorBindingId, "PROXY_DISCONNECTED", { proxyId = tostring(C4:GetDeviceID()) }, "NOTIFY")
+  end
+  self._coordinatorServices = {}
+  self._previousAllocated = {}
 end
 
 --- Check all added devices for already-bound child drivers and notify them.

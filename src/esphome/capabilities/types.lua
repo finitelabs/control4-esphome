@@ -3,3 +3,4 @@
 --- @field new (fun(client: ESPHomeClient): Capability) A constructor function to create a new capability instance.
 --- @field discovered (fun(self: Capability, deviceInfo: ProtoDeviceInfoResponse|nil): void )? A function to handle device discovery.
 --- @field updated (fun(self: Capability, entity: table<string, any>, state: table<string, any>): void)? A function to update the capability state.
+--- @field disconnected (fun(self: Capability, suspend: boolean|nil): void)? A function to handle the ESPHome connection closing.

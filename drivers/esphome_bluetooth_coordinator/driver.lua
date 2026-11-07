@@ -63,7 +63,6 @@ local PERSIST_PRESENCE_DEVICES = "PresenceDevices"
 -- State
 --------------------------------------------------------------------------------
 
-local initialized = false
 --- @type table<string, DeviceInfo>
 local selectedDevices = {} -- MAC -> DeviceInfo for selected devices
 --- @type C4LuaTimer|nil
@@ -217,6 +216,8 @@ function handleDeviceCommand(mac, bindingId, strCommand, tParams)
         }, "NOTIFY")
       end
     end)
+  elseif strCommand == "REFRESH_STATE" then
+    onDeviceBindingChanged(mac, bindingId, true)
   elseif strCommand == "DISCONNECT" then
     router:disconnect(mac)
     SendToProxy(bindingId, "DISCONNECTED", {
@@ -321,6 +322,9 @@ local function handleProxyMessage(proxyDeviceId, strCommand, tParams)
     updateStatusProperties()
     -- Send current filter to newly connected proxy
     broadcastAdvertisementFilter()
+  elseif strCommand == "PROXY_DISCONNECTED" then
+    proxyRegistry:onProxyLost(proxyDeviceId)
+    updateStatusProperties()
   elseif strCommand == "CONNECTION_STATE" then
     proxyRegistry:onConnectionState(proxyDeviceId, tParams)
   elseif strCommand == "BLE_ADVERTISEMENT" then
@@ -476,12 +480,14 @@ end
 
 --- Handle proxy disconnect cleanup
 --- @param proxy ProxyInfo The disconnected proxy
-local function onProxyDisconnected(proxy)
-  log:trace("onProxyDisconnected(%s)", proxy)
+--- @param unbound boolean The proxy was unbound
+local function onProxyDisconnected(proxy, unbound)
+  log:trace("onProxyDisconnected(%s, %s)", proxy, unbound)
   log:info("Cleaning up state for disconnected proxy (device %d)", proxy.deviceId or 0)
 
-  -- Remove the scanner node
-  removeProxyScannerNode(proxy.deviceId)
+  if unbound then
+    removeProxyScannerNode(proxy.deviceId)
+  end
 
   -- Clear RSSI data from device registry for this proxy
   deviceRegistry:clearProxyRSSI(proxy.deviceId)
@@ -490,15 +496,20 @@ local function onProxyDisconnected(proxy)
   presenceTracker:clearProxyRSSI(proxy.deviceId)
 
   -- Cancel any pending GATT operations that were using this proxy
-  router:onProxyDisconnected(proxy.deviceId)
+  for _, mac in ipairs(router:onProxyDisconnected(proxy.deviceId)) do
+    local device = deviceRegistry:getDevice(mac)
+    if device and device.bindingId then
+      SendToProxy(device.bindingId, "DISCONNECTED", { mac = mac, reason = "Bluetooth proxy disconnected" }, "NOTIFY")
+    end
+  end
 end
 
 local function setupProxyBindings()
   log:trace("setupProxyBindings()")
   -- Register for proxy change callbacks
   proxyRegistry:onProxyChange("driver", function(event, proxyInfo)
-    if event == "disconnected" then
-      onProxyDisconnected(proxyInfo)
+    if event == "disconnected" or event == "lost" then
+      onProxyDisconnected(proxyInfo, event == "disconnected")
     elseif event == "updated" then
       -- Proxy room may have changed - recalculate presence for all tracked devices
       presenceTracker:onProxyUpdated(proxyInfo.deviceId)
@@ -682,6 +693,8 @@ function OnDriverInit()
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
 
+  gInitialized = false
+
   -- Restore persisted state
   values:restoreValues()
   bindings:restoreBindings()
@@ -692,7 +705,7 @@ function OnDriverLateInit()
   if not CheckMinimumVersion("Driver Status") then
     return
   end
-  if initialized then
+  if gInitialized then
     return
   end
 
@@ -719,7 +732,7 @@ function OnDriverLateInit()
   updateStatus("Running", true)
 
   -- Fire OnPropertyChanged for all properties to initialize OPC handlers
-  -- This runs while initialized=false, so handlers that check initialized will skip
+  -- This runs while gInitialized is false, so handlers that check it will skip
   -- But config handlers (scan duration, presence settings) will run since they check object existence
   for p, _ in pairs(Properties) do
     local status, err = pcall(OnPropertyChanged, p)
@@ -728,7 +741,7 @@ function OnDriverLateInit()
     end
   end
 
-  initialized = true
+  gInitialized = true
   log:info("Bluetooth Coordinator initialized")
 
   --#ifdef DRIVERCENTRAL
@@ -762,7 +775,7 @@ end
 --#ifdef DRIVERCENTRAL
 function OPC.Automatic_Updates(propertyValue)
   log:trace("OPC.Automatic_Updates('%s')", propertyValue)
-  if initialized then
+  if gInitialized then
     updateSettings:share("Automatic Updates", propertyValue)
   end
 end
@@ -826,7 +839,7 @@ end
 
 function OPC.Select_Bluetooth_Devices(propertyValue)
   log:trace("OPC.Select_Bluetooth_Devices(%s)", propertyValue)
-  if not initialized or not bleScannerProperties then
+  if not gInitialized or not bleScannerProperties then
     return
   end
   bleScannerProperties:handleSelection("Select Bluetooth Devices", propertyValue)
@@ -834,7 +847,7 @@ end
 
 function OPC.Select_Presence_Devices(propertyValue)
   log:trace("OPC.Select_Presence_Devices(%s)", propertyValue)
-  if not initialized or not bleScannerProperties then
+  if not gInitialized or not bleScannerProperties then
     return
   end
   bleScannerProperties:handleSelection("Select Presence Devices", propertyValue)

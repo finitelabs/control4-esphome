@@ -473,11 +473,14 @@ end
 
 --- Handle proxy disconnection - clean up pending requests and tracked devices for that proxy
 --- @param proxyDeviceId integer The disconnected proxy's device ID
+--- @return string[] macs The devices whose link went through that proxy
 function Router:onProxyDisconnected(proxyDeviceId)
   -- Clear all devices connected via this proxy
+  local dropped = {}
   for mac, connectedProxyId in pairs(self._connectedDevices) do
     if connectedProxyId == proxyDeviceId then
       self._connectedDevices[mac] = nil
+      table.insert(dropped, mac)
     end
   end
 
@@ -513,6 +516,7 @@ function Router:onProxyDisconnected(proxyDeviceId)
   if cancelled > 0 then
     log:info("Cancelled %d pending request(s) due to proxy device %d disconnection", cancelled, proxyDeviceId)
   end
+  return dropped
 end
 
 return Router:new()
