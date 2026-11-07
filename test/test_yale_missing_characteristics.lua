@@ -63,7 +63,7 @@ local CASES = {
 
 for _, case in ipairs(CASES) do
   H.test("Poll mode: CONNECTED without " .. case.name .. " frees the slot and polls again", function()
-    boot()
+    boot({ ["Offline Key"] = OFFLINE_KEY })
     lock()
     connected(case.services)
     T.eq("it sends DISCONNECT once", H.count("DISCONNECT", ESPHOME), 1)

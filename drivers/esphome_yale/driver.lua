@@ -198,6 +198,20 @@ local currentLockStatus = nil
 --- @type string|nil
 local toldStatus = nil
 
+--- Whether the proxy was last told the lock is online
+--- @type boolean|nil
+local toldOnline = nil
+
+--- Tell the proxy whether the lock is reachable, once per change
+--- @param online boolean
+local function tellOnline(online)
+  if toldOnline == online then
+    return
+  end
+  toldOnline = online
+  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = online }, "NOTIFY")
+end
+
 -- The proxy's LockStatus variable, and the statuses it shows.
 local PROXY_STATUS_VARIABLE = 1000
 local SHOWN = { locked = true, unlocked = true, fault = true }
@@ -211,6 +225,13 @@ local doorSenseConfigured = nil
 local reconnectAttempts = 0
 local MAX_RECONNECT_ATTEMPTS = 5
 local BASE_RECONNECT_MS = 5000
+
+--- Once the reconnects run out, the soonest an advertisement starts a fresh round
+local RECONNECT_ROUND_S = 300
+
+--- When the last round of reconnects ran out (os.time)
+--- @type number|nil
+local gaveUpAt = nil
 
 --- The lock or unlock a scheduled Reconnect will retry
 --- @type string|nil
@@ -645,7 +666,9 @@ scheduleRecovery = function(status, savedCommand)
     if reconnectAttempts > MAX_RECONNECT_ATTEMPTS then
       log:warn("Max reconnect attempts (%d) reached: %s", MAX_RECONNECT_ATTEMPTS, status)
       updateStatus("Listening (reconnect failed)", false)
+      tellOnline(false)
       reconnectAttempts = 0
+      gaveUpAt = os.time()
       return
     end
     local delay = BASE_RECONNECT_MS * (2 ^ (reconnectAttempts - 1))
@@ -657,6 +680,12 @@ scheduleRecovery = function(status, savedCommand)
       initiateCommand(retryCommand)
     end)
   elseif connectionMode == CONNECTION_MODE.POLL then
+    -- Every cycle fails without a key, so polling waits for one to be entered
+    if not isAuthConfigured() then
+      CancelTimer("PollCycle")
+      updateStatus("Error: Offline key required", false)
+      return
+    end
     -- Only failures land here; healthy cycles bypass this path via
     -- expectedDisconnect in RFP.DISCONNECTED. The failure text is superseded
     -- by the schedule text in the same tick — Connected = false carries the
@@ -959,7 +988,7 @@ local function handleInitResponse(data)
   reconnectAttempts = 0
   onKeyAccepted()
   updateStatus("Connected", true)
-  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
+  tellOnline(true)
 
   -- Per yalexs-ble: subscribe regular read AFTER handshake completes
   local _, readHandle = getHandles()
@@ -1693,7 +1722,7 @@ function OnDriverLateInit()
   end
   gInitialized = true
   updateStatus("Disconnected", false)
-  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
+  tellOnline(false)
 
   -- Restore lock status from persisted property
   local savedStatus = Properties["Lock Status"]
@@ -1837,6 +1866,11 @@ OPC.suppressDebug["Offline Key"] = true
 function OPC.Offline_Key(propertyValue)
   log:trace("OPC.Offline_Key('%s')", not IsEmpty(propertyValue) and "****" or "")
   keyRejections = 0
+  -- Polling stopped for want of a key starts again with the next advertisement
+  if gInitialized and isAuthConfigured() and Properties["Driver Status"] == "Error: Offline key required" then
+    initialStatusTriggered = false
+    updateStatus("Listening", false)
+  end
 end
 
 function OPC.Key_Slot(propertyValue)
@@ -1982,14 +2016,18 @@ function RFP.BLE_ADVERTISEMENT(idBinding, strCommand, tParams, args)
   end
   if driverStatus == "Disconnected" then
     updateStatus("Listening", false)
-    SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
+    tellOnline(true)
   end
 
   -- Mode-specific connection logic
   if connectionMode == CONNECTION_MODE.PERSISTENT then
+    -- A lock heard after the reconnects ran out gets a fresh round, at most every RECONNECT_ROUND_S
+    local freshRound = driverStatus == "Listening (reconnect failed)"
+      and gaveUpAt ~= nil
+      and os.time() - gaveUpAt >= RECONNECT_ROUND_S
     -- Auto-connect when idle and auth is configured
     if
-      (driverStatus == "Disconnected" or driverStatus == "Listening")
+      (driverStatus == "Disconnected" or driverStatus == "Listening" or freshRound)
       and handshakeState == HANDSHAKE_STATE.IDLE
       and not pendingCommand
       and not pendingSubscribe
@@ -2294,6 +2332,7 @@ OBC[ESPHOME_BINDING] = function(idBinding, strClass, bIsBound, otherDeviceId)
     updateStatus("Waiting for data", false)
   else
     updateStatus("Disconnected", false)
+    tellOnline(false)
   end
 end
 

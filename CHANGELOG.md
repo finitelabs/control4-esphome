@@ -18,6 +18,19 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed a Yale lock in Persistent mode staying disconnected for good once its
+  reconnect attempts ran out; it now tries again when the lock is heard, at most
+  every five minutes
+- Fixed a Yale lock still showing online in Control4 after its reconnect
+  attempts ran out or its connection to the ESPHome driver or Bluetooth
+  Coordinator was removed
+- Fixed a Yale lock in Poll mode with no Offline Key connecting to the lock at
+  every poll; it now waits for a key and shows Error: Offline key required
+
 ## v20261106 - 2026-11-06
 
 ### Added

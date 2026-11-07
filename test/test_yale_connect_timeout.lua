@@ -105,7 +105,7 @@ local function retryCommand()
 end
 
 H.test("a CONNECT nobody answers times out, frees the slot and polls again", function()
-  H.boot()
+  H.boot({ ["Offline Key"] = OFFLINE_KEY })
   lock()
   T.eq("LOCK asks the parent to connect", H.count("CONNECT", ESPHOME), 1)
   T.truthy("and arms the connect timeout", H.armed("ConnectionTimeout"))
@@ -125,7 +125,7 @@ end)
 
 H.test("the parent's DISCONNECTED answer to that DISCONNECT leaves recovery armed", function()
   -- The coordinator answers every DISCONNECT, connected or not.
-  H.boot()
+  H.boot({ ["Offline Key"] = OFFLINE_KEY })
   lock()
   H.fire("ConnectionTimeout")
   disconnectAnswered()
@@ -230,7 +230,7 @@ H.test("a link dropped mid-handshake still recovers, after an earlier failure to
 end)
 
 H.test("CONNECTED cancels the timeout", function()
-  H.boot()
+  H.boot({ ["Offline Key"] = OFFLINE_KEY })
   lock()
   connected()
   T.falsy("the timeout is cancelled", H.armed("ConnectionTimeout"))
@@ -239,7 +239,7 @@ H.test("CONNECTED cancels the timeout", function()
 end)
 
 H.test("CONNECTION_FAILED cancels the timeout", function()
-  H.boot()
+  H.boot({ ["Offline Key"] = OFFLINE_KEY })
   lock()
   H.rfp(ESPHOME, "CONNECTION_FAILED", { error = "No connection slots available" })
   T.falsy("the timeout is cancelled", H.armed("ConnectionTimeout"))
