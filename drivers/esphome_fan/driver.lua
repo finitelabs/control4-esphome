@@ -50,7 +50,6 @@ local DISCRETE_LEVELS = __FAN_SPEED_COUNT__
 -- The fan proxy's CURRENT_SPEED variable, 0 while it shows the fan off.
 local PROXY_SPEED_VARIABLE = 1001
 
-local ENTITY
 local STATE
 local PRESET_SPEED
 
@@ -428,7 +427,6 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   if idBinding ~= ESPHOME_BINDING then
     return
   end
-  ENTITY = nil
   STATE = nil
   updateStatus("Disconnected", false)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
@@ -460,7 +458,6 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   end
   local newIsOn = toboolean(Select(state, "state"))
 
-  ENTITY = entity
   STATE = state
 
   -- Always update connection status
@@ -533,7 +530,6 @@ end
 
 OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   -- When the binding is changed, reset globals to allow for a refresh of the driver state.
-  ENTITY = nil
   STATE = nil
   -- Otherwise the proxy stays online with nothing to report to it.
   if not isBound then

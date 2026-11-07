@@ -506,7 +506,6 @@ function ESPHomeClient:connect()
     self._lastDataReceived = os.time()
 
     log:trace("Received %d byte(s) from ESPHome device", #data)
-    --log:ultra("Incoming raw data (hex): %s", to_hex(data))
     self._buffer = self._buffer .. data
 
     self:_processBuffer()
@@ -1590,8 +1589,6 @@ function ESPHomeClient:initBluetoothProxy()
   -- Helper to process a parsed advertisement and dispatch to all registered callbacks
   --- @param advertisement BLEAdvertisement
   local function processAdvertisement(advertisement)
-    --log:trace("BLE advertisement: %s", BLEAdvertisementParser.toString(advertisement))
-
     -- Dispatch to all registered callbacks
     for callbackId, callback in pairs(self._btAdvertisementsCallbacks) do
       local success, err = pcall(callback, advertisement)
@@ -2118,7 +2115,6 @@ function ESPHomeClient:sendMessage(messageSchema, body, responseSchema, timeout)
   end
 
   log:debug("Sending message %s with %d byte(s) of data", messageSchema.name, #encodedData)
-  -- log:ultra("Outgoing frame (hex): %s", to_hex(frame))
   self._client:Write(frame)
 
   return d:next(function(message)
@@ -2341,7 +2337,6 @@ function ESPHomeClient:_processBuffer()
   if self._buffer == nil or #self._buffer < 3 then
     return
   end
-  -- log:ultra("Processing buffer (hex): %s", to_hex(self._buffer))
 
   -- Process the indicator
   local indicator, indicatorEndPos = string.byte(self._buffer, 1), 2
@@ -2536,8 +2531,6 @@ function ESPHomeClient:_processBuffer()
         return
       end
       --- @cast decryptedPayload string
-
-      -- log:trace("READY message - %s", to_hex(decryptedPayload))
 
       -- Extract the message type and data length from the decrypted payload
       if #decryptedPayload < 4 then

@@ -232,12 +232,6 @@ function BLEScanner:getNode(nodeId)
   return self._nodes[nodeId]
 end
 
---- Get all nodes.
---- @return table<string|number, BLEScannerNode?> nodes Map of node ID to node
-function BLEScanner:getNodes()
-  return self._nodes
-end
-
 --- Get the count of nodes.
 --- @return number count Number of nodes
 function BLEScanner:getNodeCount()
@@ -246,17 +240,6 @@ function BLEScanner:getNodeCount()
     count = count + 1
   end
   return count
-end
-
---- Check if any node is connected.
---- @return boolean hasConnected True if at least one node is connected
-function BLEScanner:hasConnectedNodes()
-  for _, node in pairs(self._nodes) do
-    if node:isConnected() then
-      return true
-    end
-  end
-  return false
 end
 
 --- Get list of connected nodes.
@@ -333,12 +316,6 @@ function BLEScanner:setScanDuration(duration)
   log:trace("BLEScanner:setScanDuration(%s)", duration)
   local value = tointeger(duration) or DEFAULT_SCAN_DURATION
   self._scanDuration = math.max(MIN_SCAN_DURATION, math.min(MAX_SCAN_DURATION, value))
-end
-
---- Get the scan duration.
---- @return number duration Scan duration in seconds
-function BLEScanner:getScanDuration()
-  return self._scanDuration or DEFAULT_SCAN_DURATION
 end
 
 --- Set the callback to invoke when a scan starts.

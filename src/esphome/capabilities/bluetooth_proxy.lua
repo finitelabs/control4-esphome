@@ -1138,12 +1138,6 @@ function BluetoothProxyCapability:removeDevice(mac)
   log:info("Removed device: %s", mac)
 end
 
---- Get list of added devices (may or may not be connected).
---- @return table<string, AddedDevice?> Map of MAC address to device info
-function BluetoothProxyCapability:getAddedDevices()
-  return self._addedDevices
-end
-
 --- Handle binding changes from Control4.
 --- When a child driver binds, automatically connect to the BLE device.
 --- @param idBinding number The binding ID that changed
@@ -1576,14 +1570,6 @@ end
 --------------------------------------------------------------------------------
 -- Coordinator Mode Support
 --------------------------------------------------------------------------------
-
---- Check if a Bluetooth Coordinator is connected to this proxy.
---- When a coordinator is connected, advertisements are forwarded to it instead of
---- being handled locally with individual device bindings.
---- @return boolean connected True if coordinator is connected
-function BluetoothProxyCapability:isCoordinatorConnected()
-  return self._coordinatorConnected
-end
 
 --- Get room information for this proxy.
 --- Returns the room ID and name from the "Bluetooth Proxy Room" property.

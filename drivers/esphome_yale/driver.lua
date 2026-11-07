@@ -10,7 +10,6 @@ local mainDriverCatchup = require("esphome.main_driver_catchup")
 
 JSON = require("JSON")
 
-local deferred = require("deferred")
 local log = require("lib.logging")
 --#ifdef DRIVERCENTRAL
 local updateSettings = require("lib.update-settings")
@@ -164,8 +163,6 @@ local secureSession = nil
 local session = nil
 
 --- GATT notification subscription tracking
---- @type boolean
-local secureReadSubscribed = false
 --- @type boolean
 local regularReadSubscribed = false
 
@@ -322,7 +319,6 @@ local function resetConnectionState(clearHandles)
   handshakeKeys = nil
   secureSession = nil
   session = nil
-  secureReadSubscribed = false
   regularReadSubscribed = false
   pendingCommand = nil
   awaitingResponse = nil
@@ -1973,7 +1969,6 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
       )
       saveHandles(writeHandle, readHandle, secureWriteHandle, secureReadHandle)
 
-      secureReadSubscribed = false
       regularReadSubscribed = false
 
       -- Subscribe to notifications on secure read first, then regular read
@@ -1984,7 +1979,6 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
       local cW, cR, cSW, cSR = getHandles()
       if cW and cR and cSW and cSR then
         log:warn("Using cached handles as fallback")
-        secureReadSubscribed = false
         regularReadSubscribed = false
         subscribeUnderTimeout(cSR)
       else
@@ -2249,7 +2243,6 @@ function RFP.GATT_NOTIFY_SUBSCRIBED(idBinding, strCommand, tParams, args)
 
   if handle == secureReadHandle then
     log:info("Secure read notifications subscribed")
-    secureReadSubscribed = true
     -- Per yalexs-ble: subscribe secure read, then start handshake immediately
     -- Regular read is subscribed AFTER handshake completes
     if isAuthConfigured() then

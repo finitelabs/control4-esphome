@@ -1732,37 +1732,6 @@ end
 -- Data Processing
 --------------------------------------------------------------------------------
 
------ Parse Bot status response from notification
------ @param data string Binary data from notification
---local function parseBotStatusResponse(data)
---  log:trace("parseBotStatusResponse()")
---
---  --- @type integer?
---  local battery = string.byte(data, 2)
---  if battery then
---    log:info("Battery level: %d%%", battery)
---    setBatteryLevel(battery)
---  end
---
---  if #data >= 10 then
---    --- @type integer?
---    local modeFlags = string.byte(data, 10)
---    if modeFlags then
---      local isSwitch = bit32.band(modeFlags, 0x10) ~= 0
---      local modeChanged = setBotMode(isSwitch)
---      if modeChanged then
---        getOrCreateBotModeBindings(isSwitch)
---      end
---      if isSwitch then
---        local isOn = bit32.band(modeFlags, 0x40) ~= 0
---        setBotState(isOn)
---      end
---    end
---  end
---
---  updateLastSeen()
---end
-
 --- Process incoming SwitchBot data from advertisement or GATT
 --- @param data SwitchBotParsedData Parsed SwitchBot data
 --- @param rssi string|nil RSSI value
@@ -2809,16 +2778,6 @@ function RFP.GATT_NOTIFY_DATA(idBinding, strCommand, tParams, args)
     commandDone()
     return
   end
-
-  ---- Bot status response
-  --local _, rxHandle = getHandles()
-  --if deviceCategory == DEVICE_CATEGORY.BOT and handle == rxHandle then
-  --  if #binaryData >= 2 then
-  --    parseBotStatusResponse(binaryData)
-  --    requestDisconnect()
-  --    return
-  --  end
-  --end
 
   log:debug("Unexpected notification data")
 end
