@@ -785,6 +785,9 @@ function OnDriverInit()
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
 
+  -- Hidden until reported; the restore below shows each reading a device reported before
+  hideOptionalProperties()
+
   -- Restore persisted state
   values:restoreValues()
   bindings:restoreBindings()
@@ -798,9 +801,6 @@ function OnDriverLateInit()
 
   -- Restore persisted events (C4:AddEvent is unavailable before OnDriverLateInit)
   events:restoreEvents()
-
-  -- Hide all optional properties initially
-  hideOptionalProperties()
 
   -- Fire OnPropertyChanged to set the initial Headers and other Property
   -- global sets, they'll change if Property is changed.
