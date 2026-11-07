@@ -533,7 +533,7 @@ function BluetoothProxyCapability:setRestartButtons(entities)
     selected = RESTART_BUTTON_OFF
   end
   C4:UpdatePropertyList(self.RESTART_BUTTON_PROPERTY_NAME, table.concat(names, ","), selected)
-  C4:UpdateProperty(self.RESTART_BUTTON_PROPERTY_NAME, selected)
+  UpdateProperty(self.RESTART_BUTTON_PROPERTY_NAME, selected)
   self:setPropertiesAttribs(self._featureFlags ~= 0 and constants.SHOW_PROPERTY or constants.HIDE_PROPERTY)
 end
 
@@ -615,7 +615,7 @@ function BluetoothProxyCapability:_updateStatusProperty()
   end
 
   C4:UpdateProperty(self.STATUS_PROPERTY_NAME, table.concat(parts, " | "))
-  C4:UpdateProperty(self.CAPABILITIES_PROPERTY_NAME, decodeFeatureFlags(self._featureFlags))
+  UpdateProperty(self.CAPABILITIES_PROPERTY_NAME, decodeFeatureFlags(self._featureFlags))
 end
 
 --- Proceed with GATT service discovery after connection is established.

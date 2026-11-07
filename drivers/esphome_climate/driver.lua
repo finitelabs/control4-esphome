@@ -107,6 +107,7 @@ end
 local publishHoldModes
 local scheduleSignature
 local runPendingEvent
+local registerSensorBindingHandlers
 local updateScheduleBoundaryTimer
 
 --- Stable digest of the preset list, for the persist dedupe.
@@ -2430,7 +2431,7 @@ end
 
 --- Register RFP and OBC handlers for the sensor binding.
 --- @param bindingId integer The sensor binding ID.
-function registerSensorBindingHandlers(bindingId)
+registerSensorBindingHandlers = function(bindingId)
   RFP[bindingId] = function(idBinding, strCommand, tParams)
     if strCommand == "VALUE_CHANGED" then
       handleValueChanged(idBinding, tParams)

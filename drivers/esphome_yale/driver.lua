@@ -394,6 +394,10 @@ end
 --- Defined with the recovery logic below; abandonAttempt needs it first.
 local scheduleRecovery
 
+--- Defined with the command execution below; the connection code needs them first.
+local executePendingCommand
+local initiateCommand
+
 --- Defined with the cloud key code below; the handshake needs them first.
 local onKeyRejected
 local onKeyAccepted
@@ -1001,7 +1005,7 @@ end
 --------------------------------------------------------------------------------
 
 --- Execute the pending command (called after handshake completes)
-function executePendingCommand()
+executePendingCommand = function()
   log:trace("executePendingCommand()")
   if not pendingCommand then
     log:debug("No pending command, requesting status")
@@ -1074,7 +1078,7 @@ end
 
 --- Initiate a lock/unlock command - connect if needed, then execute
 --- @param command string "lock", "unlock", or "status"
-function initiateCommand(command)
+initiateCommand = function(command)
   log:info("Initiating command: %s", command)
   cancelPendingDisconnect()
   CancelTimer("PollCycle")

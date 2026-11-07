@@ -122,6 +122,10 @@ end
 -- Device Binding Management
 --------------------------------------------------------------------------------
 
+--- Defined with the child driver handlers below; createDeviceBinding needs them first.
+local handleDeviceCommand
+local onDeviceBindingChanged
+
 --- Create a dynamic binding for a BLE device
 --- @param device DeviceInfo The device to create a binding for
 --- @return integer|nil bindingId The created binding ID
@@ -188,7 +192,7 @@ end
 --- @param bindingId integer Binding ID
 --- @param strCommand string Command name
 --- @param tParams table Command parameters
-function handleDeviceCommand(mac, bindingId, strCommand, tParams)
+handleDeviceCommand = function(mac, bindingId, strCommand, tParams)
   log:trace("handleDeviceCommand(%s, %s, %s, %s)", mac, bindingId, strCommand, tParams)
 
   local device = deviceRegistry:getDevice(mac)
@@ -279,7 +283,7 @@ end
 --- @param mac string MAC address
 --- @param bindingId integer Binding ID
 --- @param bIsBound boolean Whether bound
-function onDeviceBindingChanged(mac, bindingId, bIsBound)
+onDeviceBindingChanged = function(mac, bindingId, bIsBound)
   log:debug("Device binding changed: %s, bound=%s", mac, bIsBound)
 
   local device = deviceRegistry:getDevice(mac)
