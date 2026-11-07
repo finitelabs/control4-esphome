@@ -19,6 +19,16 @@ gen-proto: ## Regenerate src/esphome/proto_schema.lua from the ESPHome API proto
 	@$(PROTO_PROVENANCE) stamp "$(PROTO_SCHEMA)" "$(PROTOBUF_RUNTIME)" "esphome=$(ESPHOME_VERSION)"
 	@$(MAKE) check-lua # a header make fmt would rewrite must never reach a commit
 
+.PHONY: protobuf-ref
+protobuf-ref: ## Print the lua-protobuf release tag recorded in vendor/protobuf.lua
+	@n=$$(grep -c '^local VERSION = ".*"$$' "$(PROTOBUF_RUNTIME)" || true); \
+	[ "$$n" -eq 1 ] || { echo "$(PROTOBUF_RUNTIME): expected exactly one VERSION assignment, found $$n" >&2; exit 1; }; \
+	v=$$(sed -n 's/^local VERSION = "\(.*\)"$$/\1/p' "$(PROTOBUF_RUNTIME)"); \
+	case "$$v" in \
+		v[0-9]*) echo "$$v" ;; \
+		*) echo "$(PROTOBUF_RUNTIME): VERSION '$$v' is not a lua-protobuf release tag" >&2; exit 1 ;; \
+	esac
+
 .PHONY: check-proto
 check-proto: ## Assert src/esphome/proto_schema.lua matches its recorded provenance
 	@[ -x "$(PROTO_PROVENANCE)" ] || { echo "$(PROTO_PROVENANCE) not found; check out finitelabs/lua-protobuf at the VERSION recorded in $(PROTOBUF_RUNTIME) and set LUA_PROTOBUF=<path>"; exit 1; }
