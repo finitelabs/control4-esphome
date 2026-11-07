@@ -295,6 +295,22 @@ do
   T.eq("kitchen sensor", find("SensorStateResponse", { key = 9, device_id = KITCHEN, state = 2 }), "Kitchen Status")
 end
 
+T.section("Two sub-devices' events with one name get names, and so button links, of their own")
+do
+  local listed = list({
+    name = "panel",
+    friendly_name = "Panel",
+    devices = { { device_id = KITCHEN, name = "Kitchen" }, { device_id = BEDROOM, name = "Bedroom" } },
+  }, {
+    { "ListEntitiesEventResponse", { key = 21, name = "Button", device_id = KITCHEN } },
+    { "ListEntitiesEventResponse", { key = 22, name = "Button", device_id = BEDROOM } },
+  })
+  T.eq("an event's links are named from these", listed, {
+    ["event:" .. KITCHEN .. ":21"] = "Button [21]",
+    ["event:" .. BEDROOM .. ":22"] = "Bedroom Button [22]",
+  })
+end
+
 T.section("A state handler that raises is reported while Cloud Monitoring is on")
 do
   local http = require("lib.http")
