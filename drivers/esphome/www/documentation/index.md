@@ -588,7 +588,8 @@ the current version.
 Resets the driver to its initial state, removing all dynamically created
 connections, variables and events. It forgets each button's LED light and the
 Bluetooth proxy's restart button, and returns the settings to their defaults.
-The device's address and login stay. This is useful if you change the connected
+The device's address and login stay. The update settings stay as they are too,
+since every ESPHome item shares them. This is useful if you change the connected
 ESPHome device or there are stale connections or variables.
 
 <!-- #ifdef DRIVERCENTRAL -->
