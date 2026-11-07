@@ -13,6 +13,9 @@ local log = require("lib.logging")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 local BLEAdvertisementParser = require("esphome.ble.parsers.advertisement")
 local BLEAddress = require("esphome.ble.address")
+--#ifdef DRIVERCENTRAL
+local diagnostics = require("lib.diagnostics")
+--#endif
 
 local NULL_BYTE = "\x00"
 
@@ -449,7 +452,7 @@ function ESPHomeClient:connect()
           end)
         end
         --#ifdef DRIVERCENTRAL
-        ping = require("lib.diagnostics"):wrap(ping, "ESPHome.PingTimer")
+        ping = diagnostics:wrap(ping, "ESPHome.PingTimer")
         --#endif
         self._pingTimer = C4:SetTimer(15 * ONE_SECOND, ping, true)
 
@@ -511,7 +514,6 @@ function ESPHomeClient:connect()
     client:ReadUpTo(4096)
   end
   --#ifdef DRIVERCENTRAL
-  local diagnostics = require("lib.diagnostics")
   onConnect = diagnostics:wrap(onConnect, "ESPHome.OnConnect")
   onDisconnect = diagnostics:wrap(onDisconnect, "ESPHome.OnDisconnect")
   onError = diagnostics:wrap(onError, "ESPHome.OnError")
@@ -582,7 +584,7 @@ function ESPHomeClient:disconnect()
         if not success then
           log:error("Abort handler for callback %s failed: %s", key, err or "unknown error")
           --#ifdef DRIVERCENTRAL
-          require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.DisconnectAbort")
+          diagnostics:captureError(tostring(err), nil, "ESPHome.DisconnectAbort")
           --#endif
         end
       end
@@ -825,7 +827,7 @@ function ESPHomeClient:subscribeStates(callback)
         if not callbackSuccess then
           log:error("State callback for %s failed: %s", name, err or "unknown error")
           --#ifdef DRIVERCENTRAL
-          require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.StateCallback")
+          diagnostics:captureError(tostring(err), nil, "ESPHome.StateCallback")
           --#endif
         end
       end)
@@ -875,7 +877,7 @@ function ESPHomeClient:subscribeLogs(callback, level, dumpConfig)
       if not callbackSuccess then
         log:error("Log callback failed: %s", err or "unknown error")
         --#ifdef DRIVERCENTRAL
-        require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.LogCallback")
+        diagnostics:captureError(tostring(err), nil, "ESPHome.LogCallback")
         --#endif
       end
     end
@@ -954,7 +956,7 @@ function ESPHomeClient:bluetoothDeviceConnect(mac, addressType, withCache)
     self:bluetoothDeviceDisconnect(mac)
   end
   --#ifdef DRIVERCENTRAL
-  connectTimeout = require("lib.diagnostics"):wrap(connectTimeout, "ESPHome.BluetoothConnectTimer")
+  connectTimeout = diagnostics:wrap(connectTimeout, "ESPHome.BluetoothConnectTimer")
   --#endif
   local connectTimer = C4:SetTimer(30 * ONE_SECOND, connectTimeout)
 
@@ -1352,7 +1354,7 @@ function ESPHomeClient:_bluetoothGattNotifyInternal(mac, handle, enable, callbac
         if not callbackSuccess then
           log:error("Bluetooth GATT notify callback for %s handle %s failed: %s", mac, handle, err or "unknown error")
           --#ifdef DRIVERCENTRAL
-          require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.GattNotifyCallback")
+          diagnostics:captureError(tostring(err), nil, "ESPHome.GattNotifyCallback")
           --#endif
         end
       end)
@@ -1460,7 +1462,7 @@ function ESPHomeClient:subscribeBluetoothConnectionsFree()
     d:reject("Bluetooth connections subscription timeout")
   end
   --#ifdef DRIVERCENTRAL
-  initialResponseTimeout = require("lib.diagnostics"):wrap(initialResponseTimeout, "ESPHome.BluetoothConnectionsTimer")
+  initialResponseTimeout = diagnostics:wrap(initialResponseTimeout, "ESPHome.BluetoothConnectionsTimer")
   --#endif
   local initialResponseTimer = C4:SetTimer(10 * ONE_SECOND, initialResponseTimeout)
 
@@ -1504,7 +1506,7 @@ function ESPHomeClient:subscribeBluetoothConnectionsFree()
         if not callbackSuccess then
           log:error("Bluetooth connections callback '%s' failed: %s", callbackId, err or "unknown error")
           --#ifdef DRIVERCENTRAL
-          require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BluetoothConnectionsCallback")
+          diagnostics:captureError(tostring(err), nil, "ESPHome.BluetoothConnectionsCallback")
           --#endif
         end
       end
@@ -1573,7 +1575,7 @@ function ESPHomeClient:initBluetoothProxy()
         if not callbackSuccess then
           log:error("Bluetooth scanner state callback '%s' failed: %s", callbackId, err or "unknown error")
           --#ifdef DRIVERCENTRAL
-          require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BluetoothScannerStateCallback")
+          diagnostics:captureError(tostring(err), nil, "ESPHome.BluetoothScannerStateCallback")
           --#endif
         end
       end
@@ -1596,7 +1598,7 @@ function ESPHomeClient:initBluetoothProxy()
       if not success then
         log:error("Bluetooth advertisement callback '%s' failed: %s", callbackId, err or "unknown error")
         --#ifdef DRIVERCENTRAL
-        require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.AdvertisementCallback")
+        diagnostics:captureError(tostring(err), nil, "ESPHome.AdvertisementCallback")
         --#endif
       end
     end
@@ -1741,7 +1743,7 @@ function ESPHomeClient:addBluetoothConnectionsCallback(callbackId, callback)
     if not success then
       log:error("Bluetooth connections callback '%s' failed: %s", callbackId, err or "unknown error")
       --#ifdef DRIVERCENTRAL
-      require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BluetoothConnectionsCallback")
+      diagnostics:captureError(tostring(err), nil, "ESPHome.BluetoothConnectionsCallback")
       --#endif
     end
   end
@@ -1775,7 +1777,7 @@ function ESPHomeClient:addBluetoothScannerStateCallback(callbackId, callback)
     if not success then
       log:error("Bluetooth scanner state callback '%s' failed: %s", callbackId, err or "unknown error")
       --#ifdef DRIVERCENTRAL
-      require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BluetoothScannerStateCallback")
+      diagnostics:captureError(tostring(err), nil, "ESPHome.BluetoothScannerStateCallback")
       --#endif
     end
   end
@@ -2202,7 +2204,7 @@ function ESPHomeClient:_registerCallback(key, callback, timeout, onTimeout)
       if not success then
         log:error("Abort handler for callback %s failed: %s", key, err or "unknown error")
         --#ifdef DRIVERCENTRAL
-        require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.SupersedeAbort")
+        diagnostics:captureError(tostring(err), nil, "ESPHome.SupersedeAbort")
         --#endif
       end
     end
@@ -2218,7 +2220,7 @@ function ESPHomeClient:_registerCallback(key, callback, timeout, onTimeout)
       self:_unregisterCallback(handle)
     end
     --#ifdef DRIVERCENTRAL
-    expire = require("lib.diagnostics"):wrap(expire, "ESPHome.CallbackTimer")
+    expire = diagnostics:wrap(expire, "ESPHome.CallbackTimer")
     --#endif
     entry.timer = C4:SetTimer(timeout, expire)
   end
@@ -2321,7 +2323,7 @@ function ESPHomeClient:_invokeCallbackByKey(key, ...)
     if not success then
       log:error("Callback for key %s failed: %s", key, err or "unknown error")
       --#ifdef DRIVERCENTRAL
-      require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.MessageCallback")
+      diagnostics:captureError(tostring(err), nil, "ESPHome.MessageCallback")
       --#endif
     end
     return true

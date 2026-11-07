@@ -13,6 +13,9 @@ local SereneScent = require("esphome.ble.parsers.serenescent")
 local SwitchBot = require("esphome.ble.parsers.switchbot")
 local Yale = require("esphome.ble.parsers.yale")
 local UUID = require("esphome.ble.uuid")
+--#ifdef DRIVERCENTRAL
+local diagnostics = require("lib.diagnostics")
+--#endif
 
 --- Persistence key for discovered devices
 local DISCOVERED_DEVICES_KEY = "DiscoveredBLEDevices"
@@ -515,7 +518,7 @@ function BLEScanner:scan()
     if not ok then
       log:error("onScanStart callback failed: %s", err or "unknown error")
       --#ifdef DRIVERCENTRAL
-      require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BLEScanStart")
+      diagnostics:captureError(tostring(err), nil, "ESPHome.BLEScanStart")
       --#endif
     end
   end
@@ -588,7 +591,7 @@ function BLEScanner:_finalizeScan(save)
     if not ok then
       log:error("onScanEnd callback failed: %s", err or "unknown error")
       --#ifdef DRIVERCENTRAL
-      require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BLEScanEnd")
+      diagnostics:captureError(tostring(err), nil, "ESPHome.BLEScanEnd")
       --#endif
     end
   end

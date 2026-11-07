@@ -5,6 +5,9 @@ local log = require("lib.logging")
 local persist = require("lib.persist")
 local constants = require("constants")
 local bleScanner = require("esphome.ble.scanner")
+--#ifdef DRIVERCENTRAL
+local diagnostics = require("lib.diagnostics")
+--#endif
 
 --- @class PropertyRegistrationOptions
 --- @field persistKey string Key for persisting selections in storage
@@ -93,7 +96,7 @@ function BLEScannerProperties:applySelection(propertyName)
   if not success then
     log:error("Property '%s' onChanged callback failed: %s", propertyName, err or "unknown error")
     --#ifdef DRIVERCENTRAL
-    require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BLEScannerSelection")
+    diagnostics:captureError(tostring(err), nil, "ESPHome.BLEScannerSelection")
     --#endif
   end
 end
@@ -329,7 +332,7 @@ function BLEScannerProperties:handleSelection(propertyName, propertyValue)
     if not success then
       log:error("Property '%s' onChanged callback failed: %s", propertyName, err or "unknown error")
       --#ifdef DRIVERCENTRAL
-      require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BLEScannerSelection")
+      diagnostics:captureError(tostring(err), nil, "ESPHome.BLEScannerSelection")
       --#endif
     end
   end
@@ -356,7 +359,7 @@ function BLEScannerProperties:reset()
       if not success then
         log:error("Property '%s' onChanged callback failed: %s", propertyName, err or "unknown error")
         --#ifdef DRIVERCENTRAL
-        require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BLEScannerSelection")
+        diagnostics:captureError(tostring(err), nil, "ESPHome.BLEScannerSelection")
         --#endif
       end
     end

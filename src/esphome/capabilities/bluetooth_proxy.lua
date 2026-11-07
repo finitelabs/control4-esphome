@@ -12,6 +12,9 @@ local BLEAddress = require("esphome.ble.address")
 local UUID = require("esphome.ble.uuid")
 
 local bleScannerProperties = require("esphome.ble.scanner_properties")
+--#ifdef DRIVERCENTRAL
+local diagnostics = require("lib.diagnostics")
+--#endif
 
 --- Bluetooth proxy feature flags (from ESPHome API)
 local FEATURE_FLAGS = {
@@ -1155,7 +1158,7 @@ function BluetoothProxyCapability:onBindingChanged(idBinding, bIsBound)
     if not advOk then
       log:error("Failed to start advertisement monitoring for %s: %s", mac, advErr or "unknown error")
       --#ifdef DRIVERCENTRAL
-      require("lib.diagnostics"):captureError(tostring(advErr), nil, "ESPHome.BluetoothProxyMonitor")
+      diagnostics:captureError(tostring(advErr), nil, "ESPHome.BluetoothProxyMonitor")
       --#endif
     end
 
@@ -1177,7 +1180,7 @@ function BluetoothProxyCapability:onBindingChanged(idBinding, bIsBound)
         if not connOk then
           log:error("Failed to initiate connection for %s: %s", mac, connErr or "unknown error")
           --#ifdef DRIVERCENTRAL
-          require("lib.diagnostics"):captureError(tostring(connErr), nil, "ESPHome.BluetoothProxyConnect")
+          diagnostics:captureError(tostring(connErr), nil, "ESPHome.BluetoothProxyConnect")
           --#endif
         end
       end
@@ -1522,7 +1525,7 @@ function BluetoothProxyCapability:_connectBoundDevices()
         errorCount = errorCount + 1
         log:error("Error processing device %s (binding %s): %s", mac, device.bindingId, err or "unknown error")
         --#ifdef DRIVERCENTRAL
-        require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BluetoothProxyBoundDevice")
+        diagnostics:captureError(tostring(err), nil, "ESPHome.BluetoothProxyBoundDevice")
         --#endif
       end
     else

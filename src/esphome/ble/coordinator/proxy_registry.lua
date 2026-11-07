@@ -2,6 +2,9 @@
 --- Tracks connected ESPHome Bluetooth proxies and their status.
 
 local log = require("lib.logging")
+--#ifdef DRIVERCENTRAL
+local diagnostics = require("lib.diagnostics")
+--#endif
 
 --- @class ProxyInfo
 --- @field deviceId integer The Control4 device ID of the ESPHome proxy
@@ -49,7 +52,7 @@ function ProxyRegistry:_fireProxyChange(event, proxyInfo)
     if not ok then
       log:error("Proxy change callback error: %s", err or "unknown error")
       --#ifdef DRIVERCENTRAL
-      require("lib.diagnostics"):captureError(tostring(err), nil, "ESPHome.BLEProxyChange")
+      diagnostics:captureError(tostring(err), nil, "ESPHome.BLEProxyChange")
       --#endif
     end
   end
