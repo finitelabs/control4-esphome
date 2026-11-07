@@ -142,7 +142,7 @@ address is removed.
 #### Lock Code
 
 Code sent with lock and unlock commands. Leave blank if the device does not
-require a code.
+require a code. Composer hides the code.
 
 ## Programming Variables
 

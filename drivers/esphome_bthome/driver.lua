@@ -916,20 +916,12 @@ function OPC.Bind_Key(propertyValue)
     return
   end
 
-  -- Ignore error messages (they get cleared by delay)
-  if propertyValue:match("^Error:") then
-    return
-  end
-
-  -- Validate hex string (32 chars = 16 bytes)
+  -- Validate hex string (32 chars = 16 bytes). The field is masked, so the error goes to Driver Status.
   if #propertyValue ~= 32 or not propertyValue:match("^[0-9A-Fa-f]+$") then
     log:warn("Bind key must be 32 hex characters (16 bytes)")
     cachedBindKey = nil
-    -- Show error in property field, then clear after delay
-    UpdateProperty("Bind Key", "Error: Must be 32 hex chars")
-    delay(2 * ONE_SECOND):next(function()
-      UpdateProperty("Bind Key", "")
-    end)
+    updateStatus("Error: Bind Key must be 32 hex characters", false)
+    UpdateProperty("Bind Key", "")
     return
   end
 

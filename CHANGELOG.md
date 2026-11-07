@@ -56,6 +56,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a relay bound to an ESPHome cover's Open, Close or Stop connection
   showing its state as unconfirmed after a controller restart; it is told again
   that it reads open, without running its programming
+- Fixed Composer showing the Yale Offline Key, the BTHome Bind Key, the ESPHome
+  lock driver's Lock Code and the SwitchBot Key ID and Encryption Key in plain
+  text; it now hides them. A BTHome Bind Key that isn't 32 hex characters is
+  cleared and Driver Status says why
 
 ### Changed
 

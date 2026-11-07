@@ -2110,8 +2110,9 @@ function OPC.Log_Level(propertyValue)
   end
 end
 
+OPC.suppressDebug["Key ID"] = true
 function OPC.Key_ID(propertyValue)
-  log:trace("OPC.Key_ID('%s')", propertyValue)
+  log:trace("OPC.Key_ID('%s')", not IsEmpty(propertyValue) and "****" or "")
   if IsEmpty(propertyValue) then
     -- Cleared - just update status
     encryptionIV = nil
