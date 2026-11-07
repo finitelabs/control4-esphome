@@ -14,7 +14,6 @@ require("lib.utils")
 local T = require("testlib")
 
 local bindings = require("lib.bindings")
-local ESPHomeProtoSchema = require("esphome.proto_schema")
 
 local client = {}
 
@@ -99,7 +98,8 @@ do
   T.eq("an unbind tells nothing", toldTo(contact), {})
 end
 
-local Legacy = ESPHomeProtoSchema.Enum.LegacyCoverState
+--- What ESPHome sends for a cover open and one closed.
+local OPEN, CLOSED = { position = 1.0 }, { position = 0.0 }
 
 --- Discover a cover and return its entity and its Open and Closed contact bindings.
 local function newCover(CoverEntity)
@@ -116,16 +116,16 @@ do
   local CoverEntity = load("esphome.entities.cover")
   local cover, entity, open, closed = newCover(CoverEntity)
 
-  cover:updated(entity, { legacy_state = Legacy.LEGACY_COVER_STATE_OPEN })
+  cover:updated(entity, OPEN)
   local first = told
   T.eq("its first state is told silently on Open", toldTo(open), { "STATE_CLOSED" })
   told = first
   T.eq("and on Closed", toldTo(closed), { "STATE_OPENED" })
 
-  cover:updated(entity, { legacy_state = Legacy.LEGACY_COVER_STATE_OPEN })
+  cover:updated(entity, OPEN)
   T.eq("the same state again tells nothing", told, {})
 
-  cover:updated(entity, { legacy_state = Legacy.LEGACY_COVER_STATE_CLOSED })
+  cover:updated(entity, CLOSED)
   local change = told
   T.eq("a change is told as one on Open", toldTo(open), { "OPENED" })
   told = change
@@ -137,7 +137,7 @@ do
   local CoverEntity = load("esphome.entities.cover")
   local cover, entity, open, closed = newCover(CoverEntity)
 
-  cover:updated(entity, { legacy_state = Legacy.LEGACY_COVER_STATE_CLOSED })
+  cover:updated(entity, CLOSED)
   local first = told
   T.eq("the state told before the restart is told silently on Open", toldTo(open), { "STATE_OPENED" })
   told = first

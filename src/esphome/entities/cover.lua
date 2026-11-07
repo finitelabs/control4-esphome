@@ -50,7 +50,6 @@ end
 function CoverEntity:discovered(entity)
   log:trace("CoverEntity:discovered(%s)", entity)
   local supportsStop = toboolean(entity.supports_stop)
-  local supportsPosition = toboolean(entity.supports_position)
 
   -- Contacts
   local coverClosedContactId = assert(
@@ -113,38 +112,22 @@ function CoverEntity:discovered(entity)
 
   local commandRfp = function(idBinding, strCommand, tParams, args)
     log:trace("RFP idBinding=%s strCommand=%s tParams=%s args=%s", idBinding, strCommand, tParams, args)
-    local legacyCommand = nil
     local positionCommand = nil
     local stopCommand = nil
     local coverCommand = nil
-    if supportsPosition then
-      if idBinding == openCoverBindingId then
-        positionCommand = 1.0
-        coverCommand = "open"
-      elseif idBinding == closeCoverBindingId then
-        positionCommand = 0.0
-        coverCommand = "close"
-      elseif idBinding == stopCoverBindingId then
-        stopCommand = true
-        coverCommand = "stop"
-      else
-        log:warn("Unknown binding id %s for %s", idBinding, ESPHomeClient.describeEntity(entity))
-        return
-      end
+    -- ESPHome takes open and close as positions 1 and 0 on every cover, with or without position support.
+    if idBinding == openCoverBindingId then
+      positionCommand = 1.0
+      coverCommand = "open"
+    elseif idBinding == closeCoverBindingId then
+      positionCommand = 0.0
+      coverCommand = "close"
+    elseif idBinding == stopCoverBindingId then
+      stopCommand = true
+      coverCommand = "stop"
     else
-      if idBinding == openCoverBindingId then
-        legacyCommand = ESPHomeProtoSchema.Enum.LegacyCoverCommand.LEGACY_COVER_COMMAND_OPEN
-        coverCommand = "open"
-      elseif idBinding == closeCoverBindingId then
-        legacyCommand = ESPHomeProtoSchema.Enum.LegacyCoverCommand.LEGACY_COVER_COMMAND_CLOSE
-        coverCommand = "close"
-      elseif idBinding == stopCoverBindingId then
-        legacyCommand = ESPHomeProtoSchema.Enum.LegacyCoverCommand.LEGACY_COVER_COMMAND_STOP
-        coverCommand = "stop"
-      else
-        log:warn("Unknown binding id %s for %s", idBinding, ESPHomeClient.describeEntity(entity))
-        return
-      end
+      log:warn("Unknown binding id %s for %s", idBinding, ESPHomeClient.describeEntity(entity))
+      return
     end
 
     -- We only trigger when the relays are turned on
@@ -153,8 +136,6 @@ function CoverEntity:discovered(entity)
         :callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.cover_command, {
           key = entity.key,
           device_id = entity.device_id,
-          has_legacy_command = legacyCommand ~= nil,
-          legacy_command = legacyCommand,
           has_position = positionCommand ~= nil,
           position = positionCommand,
           has_tilt = false,
@@ -200,41 +181,28 @@ function CoverEntity:updated(entity, state)
   local coverOpen = true -- When both open and closed, relay controller drivers will report "unknown"
   local coverClosed = true
   local coverOperation = tointeger(state.current_operation) or 0
-  local supportsPosition = toboolean(entity.supports_position)
-  -- ESPHome sends NaN for a position the device has not reported.
+  -- ESPHome sends every cover's state as a position, 0 or 1 for one without position support, and NaN for a
+  -- position the device has not reported.
   local position = tointeger((tofinite(state.position) or 0) * 100)
-  local legacyState = tointeger(state.legacy_state)
 
-  if supportsPosition then
-    if coverOperation == nil or coverOperation == ESPHomeProtoSchema.Enum.CoverOperation.COVER_OPERATION_IDLE then
-      if position == 0 then
-        stateString = "closed"
-        coverOpen = false
-        coverClosed = true
-      else
-        stateString = "open"
-        coverOpen = true
-        coverClosed = false
-      end
-    elseif coverOperation == ESPHomeProtoSchema.Enum.CoverOperation.COVER_OPERATION_IS_OPENING then
-      stateString = "opening"
-      coverOpen = false
-      coverClosed = false
-    elseif coverOperation == ESPHomeProtoSchema.Enum.CoverOperation.COVER_OPERATION_IS_CLOSING then
-      stateString = "closing"
-      coverOpen = false
-      coverClosed = false
-    end
-  else
-    if legacyState == ESPHomeProtoSchema.Enum.LegacyCoverState.LEGACY_COVER_STATE_OPEN then
-      stateString = "open"
-      coverOpen = true
-      coverClosed = false
-    elseif legacyState == ESPHomeProtoSchema.Enum.LegacyCoverState.LEGACY_COVER_STATE_CLOSED then
+  if coverOperation == ESPHomeProtoSchema.Enum.CoverOperation.COVER_OPERATION_IDLE then
+    if position == 0 then
       stateString = "closed"
       coverOpen = false
       coverClosed = true
+    else
+      stateString = "open"
+      coverOpen = true
+      coverClosed = false
     end
+  elseif coverOperation == ESPHomeProtoSchema.Enum.CoverOperation.COVER_OPERATION_IS_OPENING then
+    stateString = "opening"
+    coverOpen = false
+    coverClosed = false
+  elseif coverOperation == ESPHomeProtoSchema.Enum.CoverOperation.COVER_OPERATION_IS_CLOSING then
+    stateString = "closing"
+    coverOpen = false
+    coverClosed = false
   end
 
   values:update(entity.name .. " State", stateString, "STRING")

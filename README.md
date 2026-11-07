@@ -1155,6 +1155,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a lock in Persistent mode going back to its old status for a while after
   a lock or unlock, with a history line for it, when its periodic status check
   came while the bolt was still moving
+- Fixed a cover without position control on ESPHome 2025.8 or later reading
+  unknown, with its Open and Closed contacts both closed, and ignoring Open,
+  Close and Stop; its state and commands now use the position ESPHome reports
+  and takes
 
 ### Changed
 

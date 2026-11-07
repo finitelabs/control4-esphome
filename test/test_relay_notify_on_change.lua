@@ -20,7 +20,6 @@ local deferred = require("deferred")
 local bindings = require("lib.bindings")
 local CoverEntity = require("esphome.entities.cover")
 local SwitchEntity = require("esphome.entities.switch")
-local ESPHomeProtoSchema = require("esphome.proto_schema")
 
 --- Every switch command sent to the device, as { key, state }.
 local sent = {}
@@ -146,9 +145,8 @@ do
   end
 
   told = {}
-  local Legacy = ESPHomeProtoSchema.Enum.LegacyCoverState
-  for _, legacyState in ipairs({ Legacy.LEGACY_COVER_STATE_OPEN, Legacy.LEGACY_COVER_STATE_CLOSED }) do
-    cover:updated(entity, { legacy_state = legacyState })
+  for _, position in ipairs({ 1.0, 0.0 }) do
+    cover:updated(entity, { position = position })
   end
   local updates = told
   for _, relay in ipairs(trigger) do
