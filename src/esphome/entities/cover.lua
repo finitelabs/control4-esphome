@@ -7,6 +7,10 @@ local StateTell = require("esphome.state_tell")
 
 local told = StateTell:new("CoverContactStates")
 
+--- Trigger relays told they read open this load, by binding ID.
+--- @type table<number, boolean>
+local triggersTold = {}
+
 --- @class CoverEntity:Entity
 local CoverEntity = {
   TYPE = ESPHomeClient.EntityType.COVER,
@@ -16,6 +20,7 @@ CoverEntity.__index = CoverEntity
 --- Forget the contact states told (driver reset).
 function CoverEntity.clearNotifiedState()
   told:reset()
+  triggersTold = {}
 end
 
 --- Register a bind-time seeder that tells a newly bound consumer the last known
@@ -157,6 +162,7 @@ function CoverEntity:discovered(entity)
   -- The relays only trigger the cover, so they always read open. Told once at bind, silently.
   local triggerObc = function(idBinding, _strClass, bIsBound)
     if bIsBound then
+      triggersTold[idBinding] = true
       SendToProxy(idBinding, "STATE_OPENED", {}, "NOTIFY")
     end
     RefreshStatus()
@@ -168,6 +174,14 @@ function CoverEntity:discovered(entity)
   if stopCoverBindingId ~= nil then
     RFP[stopCoverBindingId] = commandRfp
     OBC[stopCoverBindingId] = triggerObc
+  end
+
+  -- At a controller start Director binds before the cover is discovered, so a relay bound then is told here, once
+  for _, triggerId in ipairs({ openCoverBindingId, closeCoverBindingId, stopCoverBindingId }) do
+    if not triggersTold[triggerId] and not IsEmpty(C4:GetBoundConsumerDevices(C4:GetDeviceID(), triggerId)) then
+      triggersTold[triggerId] = true
+      SendToProxy(triggerId, "STATE_OPENED", {}, "NOTIFY")
+    end
   end
 end
 

@@ -160,4 +160,36 @@ do
   end
 end
 
+T.section("A cover's trigger relays bound before it is discovered, as at a controller start, are told once")
+do
+  local entity = { key = 951, ref = "951", name = "Gate", supports_stop = true }
+  CoverEntity:new(client):discovered(entity)
+  local trigger = {}
+  for i, name in ipairs({ "open_cover_", "close_cover_", "stop_cover_" }) do
+    trigger[i] = bindings:getDynamicBinding(CoverEntity.TYPE, name .. entity.ref).bindingId
+    C4:Bind(C4:GetDeviceID(), trigger[i], 9000 + i, 1, "RELAY")
+  end
+
+  -- A new load: Director has bound the relays already, and the cover is discovered after
+  package.loaded["esphome.entities.cover"] = nil
+  local Cover = require("esphome.entities.cover")
+  local cover = Cover:new(client)
+  told = {}
+  cover:discovered(entity)
+  local first = told
+  for _, relay in ipairs(trigger) do
+    told = first
+    T.eq("trigger relay " .. relay .. " is told it is open", toldTo(relay), { "STATE_OPENED" })
+  end
+
+  told = {}
+  cover:discovered(entity)
+  local again = told
+  for _, relay in ipairs(trigger) do
+    told = again
+    T.eq("a reconnect tells trigger relay " .. relay .. " nothing", toldTo(relay), {})
+  end
+  package.loaded["esphome.entities.cover"] = CoverEntity
+end
+
 T.finish()
