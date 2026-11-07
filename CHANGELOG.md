@@ -39,6 +39,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed Bluetooth sub-drivers showing Waiting for data after a driver update
   until their device next advertised; the ESPHome driver and the Bluetooth
   Coordinator now answer their request for state
+- Fixed the Govee, BTHome and SwitchBot drivers hiding their readings in
+  Composer after a driver start until the device next reported them; the last
+  readings now show at once
 
 ## v20261106 - 2026-11-06
 
