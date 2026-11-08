@@ -1,11 +1,13 @@
---- A logging utility module for managing log levels and output modes.
+--- A logging utility module for managing log levels and output modes, and the Log Level property's list.
 
+require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 
 --- A logging utility class with support for multiple log levels and output modes.
 --- @class Log
 --- @field _logName string The name of the log.
 --- @field _logLevel LogLevel The current log level.
+--- @field _maxLogLevel LogLevel The highest level the build allows now.
 --- @field _outputPrint boolean Whether to output logs to print.
 --- @field _outputC4Log boolean Whether to output logs to C4 log.
 --- @field _maxTableLevels integer The maximum depth for table rendering.
@@ -58,12 +60,23 @@ Log.LevelPrefix = {
   [Log.LogLevel.ULTRA] = "[ULTRA]",
 }
 
+local LOG_LEVEL_PROPERTY = "Log Level"
+
+-- A DriverCentral build stops at Debug unless the Support Code opens the Lua window (lib/support-code.lua). Tests run
+-- the source as it is, where the second line wins.
+--#ifdef DRIVERCENTRAL
+local DEFAULT_MAX_LOG_LEVEL = Log.LogLevel.DEBUG
+--#else
+local DEFAULT_MAX_LOG_LEVEL = Log.LogLevel.ULTRA
+--#endif
+
 --- Creates a new instance of the Log class.
 --- @return Log log A new instance of the Log class.
 function Log:new()
   local instance = setmetatable({}, self)
   instance._logName = ""
   instance._logLevel = Log.LogLevel.INFO
+  instance._maxLogLevel = DEFAULT_MAX_LOG_LEVEL
   instance._outputPrint = false
   instance._outputC4Log = false
   instance._maxTableLevels = 10
@@ -86,7 +99,8 @@ function Log:getLogName()
   return self._logName
 end
 
---- Sets the log level.
+--- Sets the log level, no higher than the build allows, and puts the Log Level property back to the highest allowed
+--- level when it shows more.
 --- @param level string|integer|nil The log level to set (e.g., 3 or "3 - Info" for INFO).
 function Log:setLogLevel(level)
   if type(level) == "string" then
@@ -95,13 +109,30 @@ function Log:setLogLevel(level)
   if type(level) ~= "number" then
     return
   end
-  self._logLevel = math.max(self.LogLevel.PRINT, math.min(self.LogLevel.ULTRA, level))
+  self._logLevel = math.max(self.LogLevel.PRINT, math.min(self._maxLogLevel, level))
+  self:_setDumps()
+  self:_capLogLevelProperty(false)
 end
 
 --- Gets the current log level.
 --- @return LogLevel level The current log level.
 function Log:getLogLevel()
   return self._logLevel
+end
+
+--- Lets the level reach Trace and Ultra, or stops it at Debug, and gives the Log Level property's list the same
+--- levels. A level above Debug goes back to Debug with OnPropertyChanged, so the driver's handler sees it. Control4
+--- takes no list change during OnDriverInit, so call it only after.
+--- @param allowed boolean Whether Trace and Ultra are allowed.
+function Log:allowTraceAndUltra(allowed)
+  self._maxLogLevel = allowed and self.LogLevel.ULTRA or self.LogLevel.DEBUG
+  self._logLevel = math.min(self._logLevel, self._maxLogLevel)
+  self:_setDumps()
+  -- The value first, so the shorter list never lacks it.
+  self:_capLogLevelProperty(true)
+  if type(Properties) == "table" and Properties[LOG_LEVEL_PROPERTY] ~= nil then
+    C4:UpdatePropertyList(LOG_LEVEL_PROPERTY, table.concat(self:_logLevelNames(), ","), Properties[LOG_LEVEL_PROPERTY])
+  end
 end
 
 --- Sets the log output mode.
@@ -121,6 +152,7 @@ end
 --- @param value boolean Whether to enable or disable print output.
 function Log:setOutputPrintEnabled(value)
   self._outputPrint = value and true or false
+  self:_setDumps()
 end
 
 --- Enables or disables C4 log output.
@@ -145,6 +177,35 @@ end
 --- @return boolean logEnabled True if C4 log output is enabled, false otherwise.
 function Log:isC4LogEnabled()
   return self._outputC4Log
+end
+
+--- Turns drivers-common-public's own dumps (each handler's arguments, timers, network data, whole HTTP requests and
+--- replies, websocket frames) on at Ultra with Print, and off otherwise. Nothing else sets them.
+--- @private
+function Log:_setDumps()
+  local on = self._outputPrint and self._logLevel >= self.LogLevel.ULTRA
+  DEBUGPRINT, DEBUG_TIMER, DEBUG_RFN, DEBUG_URL, DEBUG_WEBSOCKET = on, on, on, on, on
+end
+
+--- The Log Level property's values allowed now, from `0 - Fatal` up.
+--- @private
+--- @return string[] names
+function Log:_logLevelNames()
+  local names = {}
+  for level = self.LogLevel.FATAL, self._maxLogLevel do
+    names[#names + 1] = self.LevelToName[level]
+  end
+  return names
+end
+
+--- Puts the Log Level property back to the highest allowed level when it shows more.
+--- @private
+--- @param notify boolean Whether to raise OnPropertyChanged for it.
+function Log:_capLogLevelProperty(notify)
+  local shown = type(Properties) == "table" and self.NameToLevel[Properties[LOG_LEVEL_PROPERTY]]
+  if shown and shown > self._maxLogLevel then
+    UpdateProperty(LOG_LEVEL_PROPERTY, self.LevelToName[self._maxLogLevel], notify)
+  end
 end
 
 --- Formats and fixes arguments for logging, ensuring they are strings or numbers.

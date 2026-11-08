@@ -68,8 +68,10 @@
           <item>2 - Warning</item>
           <item>3 - Info</item>
           <item>4 - Debug</item>
+          <!-- #ifdef OSS -->
           <item>5 - Trace</item>
           <item>6 - Ultra</item>
+          <!-- #endif -->
         </items>
       </property>
       <property>

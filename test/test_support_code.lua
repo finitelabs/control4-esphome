@@ -181,5 +181,54 @@ T.eq("and closes on the hour", allowed, { true, false })
 T.contains("reporting the hook again", traced, "the driver's hook broke")
 sc:onChange(nil)
 
+T.section("Log Level reaches Trace and Ultra only while the window is open")
+local log = require("lib.logging")
+local lists = {}
+function C4:UpdatePropertyList(name, list)
+  lists[#lists + 1] = name .. ": " .. list
+end
+function OPC.Log_Level(propertyValue)
+  log:setLogLevel(propertyValue)
+end
+log:allowTraceAndUltra(false)
+Properties["Log Level"] = "4 - Debug"
+lists = {}
+enter(sc, "VEAFA-RSBWM")
+T.contains("the code adds Trace and Ultra to the list", lists[1], "4 - Debug,5 - Trace,6 - Ultra")
+Properties["Log Level"] = "6 - Ultra"
+OnPropertyChanged("Log Level")
+T.eq("and Ultra can be picked", log:getLogLevel(), log.LogLevel.ULTRA)
+output = anHourOn()
+T.eq("when the hour is up, Ultra goes back to Debug", Properties["Log Level"], "4 - Debug")
+T.eq("in the logger too", log:getLogLevel(), log.LogLevel.DEBUG)
+T.eq("and the list stops at Debug", lists[2], "Log Level: 0 - Fatal,1 - Error,2 - Warning,3 - Info,4 - Debug")
+T.contains("and says so", output, "stops at Debug")
+enter(sc, "VEAFA-RSBWM")
+Properties["Log Level"] = "6 - Ultra"
+OnPropertyChanged("Log Level")
+enter(sc, "VEAFA-RSBWM")
+T.eq("entering the code again stops it at Debug too", log:getLogLevel(), log.LogLevel.DEBUG)
+T.eq("and puts the property back", Properties["Log Level"], "4 - Debug")
+
+function C4:UpdatePropertyList()
+  error("the list broke")
+end
+function OPC.Support_Code(propertyValue)
+  sc:enter(propertyValue)
+end
+Properties["Support Code"] = "VEAFA-RSBWM"
+_, _, traced = T.capture(function()
+  OnPropertyChanged("Support Code")
+end)
+T.excludes("a Log Level failure does not print the code", traced, "VEAFA")
+T.contains("its error is reported", traced, "the list broke")
+T.contains("and the window still opened", traced, "Support Code accepted")
+Properties["Support Code"] = "VEAFA-RSBWM"
+_, _, traced = T.capture(function()
+  OnPropertyChanged("Support Code")
+end)
+T.excludes("nor when the code closes it", traced, "VEAFA")
+T.contains("which still closes", traced, "is closed")
+
 os.time = realTime -- luacheck: ignore
 T.finish()

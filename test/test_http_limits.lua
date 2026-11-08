@@ -421,7 +421,6 @@ do
     return o
   end
 
-  DEBUG_URL = true
   log:setLogMode("Print and Log")
   for level = log.LogLevel.FATAL, log.LogLevel.ULTRA do
     log:setLogLevel(level)
@@ -437,14 +436,14 @@ do
   log:setLogLevel(log.LogLevel.TRACE)
   logged = {}
   T.contains("without privateUrl, trace shows the host", everything(opts()), host)
+  log:setLogLevel(log.LogLevel.ULTRA)
   logged = {}
   serve({ { code = 200, chunks = { "ok" } } })
   local _, _, printed = T.capture(function()
     get(private)
   end)
-  T.contains("and urlDo's DEBUG_URL prints the whole URL", printed .. table.concat(logged, "\n"), token)
+  T.contains("and at Ultra urlDo's DEBUG_URL prints the whole URL", printed .. table.concat(logged, "\n"), token)
 
-  DEBUG_URL = false
   log:setLogMode("")
   log:setLogLevel(log.LogLevel.INFO)
   C4.ErrorLog, C4.DebugLog = errorLog, debugLog
