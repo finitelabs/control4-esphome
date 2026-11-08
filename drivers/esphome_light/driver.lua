@@ -342,10 +342,7 @@ function OnDriverLateInit()
   -- Fire OnPropertyChanged to set the initial Headers and other Property
   -- global sets, they'll change if Property is changed.
   for p, _ in pairs(Properties) do
-    local status, err = pcall(OnPropertyChanged, p)
-    if not status and err then
-      log:error("Error in OnPropertyChanged for property '%s': %s", p, err or "unknown error")
-    end
+    OnPropertyChanged(p)
   end
 
   gInitialized = true

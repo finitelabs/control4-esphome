@@ -735,10 +735,7 @@ function OnDriverLateInit()
   -- This runs while gInitialized is false, so handlers that check it will skip
   -- But config handlers (scan duration, presence settings) will run since they check object existence
   for p, _ in pairs(Properties) do
-    local status, err = pcall(OnPropertyChanged, p)
-    if not status and err then
-      log:error("Error in OnPropertyChanged for property '%s': %s", p, err or "unknown error")
-    end
+    OnPropertyChanged(p)
   end
 
   gInitialized = true
