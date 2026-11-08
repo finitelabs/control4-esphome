@@ -369,11 +369,11 @@ local function parseContact(manufacturerData, serviceData)
 
   result.battery = parseBattery(serviceData, 3)
 
-  -- Byte 3 (index 4): Contact state - bit 0 = light, bit 1 = contact open, bit 2 = contact timeout
+  -- Byte 3 (index 4): bit 0 = light; bits 1-2 = door: 0 closed, 1 open, 2 open too long
   local contactByte = getByte(serviceData, 4)
   if contactByte then
     result.isLight = bit32.band(contactByte, 0x01) ~= 0
-    result.contactOpen = bit32.band(contactByte, 0x02) ~= 0
+    result.contactOpen = bit32.band(contactByte, 0x06) ~= 0
     result.contactTimeout = bit32.band(contactByte, 0x04) ~= 0
   end
 

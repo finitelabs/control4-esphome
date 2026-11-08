@@ -175,13 +175,14 @@ local SENSOR_BINDINGS = {
   [SENSOR_TYPE.HUMIDITY] = { bindingClass = "HUMIDITY_VALUE", scale = "PERCENT", displayName = "Humidity" },
 }
 
---- Contact sensor binding configurations
---- @type table<ContactType, {openEvent: string, closedEvent: string, displayName: string}?>
+--- Contact sensor binding configurations: the state told while the sensor is active
+--- (motion seen, door open, leak or tamper found) and while it is not
+--- @type table<ContactType, {active: string, inactive: string, displayName: string}?>
 local CONTACT_BINDINGS = {
-  [CONTACT_TYPE.MOTION] = { openEvent = "OPENED", closedEvent = "CLOSED", displayName = "Motion" },
-  [CONTACT_TYPE.CONTACT] = { openEvent = "OPENED", closedEvent = "CLOSED", displayName = "Contact" },
-  [CONTACT_TYPE.LEAK] = { openEvent = "CLOSED", closedEvent = "OPENED", displayName = "Leak" },
-  [CONTACT_TYPE.TAMPER] = { openEvent = "CLOSED", closedEvent = "OPENED", displayName = "Tamper" },
+  [CONTACT_TYPE.MOTION] = { active = "CLOSED", inactive = "OPENED", displayName = "Motion" },
+  [CONTACT_TYPE.CONTACT] = { active = "OPENED", inactive = "CLOSED", displayName = "Contact" },
+  [CONTACT_TYPE.LEAK] = { active = "OPENED", inactive = "CLOSED", displayName = "Leak" },
+  [CONTACT_TYPE.TAMPER] = { active = "OPENED", inactive = "CLOSED", displayName = "Tamper" },
 }
 
 --- SwitchBot Cloud API configuration
@@ -962,7 +963,7 @@ local function sendContactState(contactType, isActive)
     return
   end
 
-  local event = isActive and config.closedEvent or config.openEvent
+  local event = isActive and config.active or config.inactive
   log:debug("Telling %s to contact binding %s", event, binding.bindingId)
   told:tell(contactType, binding.bindingId, event)
 end
