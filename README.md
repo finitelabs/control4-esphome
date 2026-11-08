@@ -1151,6 +1151,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   lock driver's Lock Code and the SwitchBot Key ID and Encryption Key in plain
   text; it now hides them. A BTHome Bind Key that isn't 32 hex characters is
   cleared and Driver Status says why
+- Fixed the Bluetooth Coordinator firing a device's Entered Room events, and
+  changing its room, room occupancy and Last Presence variables, at every driver
+  update or controller restart when the device had not moved; a device now keeps
+  its room across a restart
 
 ### Changed
 

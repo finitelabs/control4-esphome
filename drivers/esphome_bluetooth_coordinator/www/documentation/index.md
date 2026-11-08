@@ -562,6 +562,10 @@ ID for rooms) to avoid conflicts.
 > **Note:** A device that moves from one room to another fires Entered Room
 > only; "Last Presence Previous Room" names the room it left.
 
+> **Note:** A device keeps its room across a driver update or controller
+> restart. Heard in the same room again, it fires nothing. Heard in another room
+> first, it enters that one. Not heard again, it goes away and leaves its room.
+
 ## Variables
 
 Variable names for per-device and per-room variables include a unique suffix
