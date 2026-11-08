@@ -1,5 +1,6 @@
 local log = require("lib.logging")
 local values = require("lib.values")
+local entityValues = require("esphome.entity_values")
 local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 
@@ -35,7 +36,7 @@ local function writer(self, entity)
         ESPHomeClient.describeEntity(entity),
         newValue or ""
       )
-      values:update(entity.name, reported, "STRING")
+      entityValues.update(entity.name, reported, "STRING")
       return
     end
     local epoch = os.time({
@@ -56,7 +57,7 @@ local function writer(self, entity)
         log:info("Datetime updated to %s for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update datetime for %s: %s", ESPHomeClient.describeEntity(entity), error)
-        values:update(entity.name, reported, "STRING")
+        entityValues.update(entity.name, reported, "STRING")
       end)
   end
 end
@@ -67,7 +68,7 @@ end
 function DateTimeEntity:discovered(entity)
   log:trace("DateTimeEntity:discovered(%s)", entity)
   local kept = values:getValue(entity.name)
-  values:update(entity.name, kept and not kept.deleted and kept.value or "", "STRING", writer(self, entity))
+  entityValues.update(entity.name, kept and not kept.deleted and kept.value or "", "STRING", writer(self, entity))
 end
 
 --- Handle updates to the datetime entity state.
@@ -78,7 +79,7 @@ function DateTimeEntity:updated(entity, state)
   log:trace("DateTimeEntity:updated(%s, %s)", entity, state)
 
   if state.missing_state then
-    values:update(entity.name, "", "STRING")
+    entityValues.update(entity.name, "", "STRING")
     return
   end
 
@@ -87,7 +88,7 @@ function DateTimeEntity:updated(entity, state)
   local epochSeconds = state.epoch_seconds or 0
   local t = os.date("*t", epochSeconds)
   local formatted = string.format("%04d-%02d-%02d %02d:%02d:%02d", t.year, t.month, t.day, t.hour, t.min, t.sec)
-  values:update(entity.name, formatted, "STRING", writer(self, entity))
+  entityValues.update(entity.name, formatted, "STRING", writer(self, entity))
 end
 
 return DateTimeEntity

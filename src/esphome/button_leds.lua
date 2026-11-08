@@ -8,7 +8,7 @@
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local persist = require("lib.persist")
-local values = require("lib.values")
+local entityValues = require("esphome.entity_values")
 local constants = require("constants")
 local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
@@ -348,7 +348,7 @@ function ButtonLeds:apply(button, darkWithoutLoad)
     return
   end
   local state = feedback ~= nil and feedback.state or false
-  values:update(button.label .. " LED", state, "BOOL")
+  entityValues.update(button.label .. " LED", state, "BOOL")
   local ref = getPairs()[button.key]
   local light = ref and self.lights[ref]
   if light == nil or not self.client:isConnected() then

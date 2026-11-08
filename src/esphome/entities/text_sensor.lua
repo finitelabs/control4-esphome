@@ -1,5 +1,5 @@
 local log = require("lib.logging")
-local values = require("lib.values")
+local entityValues = require("esphome.entity_values")
 local ESPHomeClient = require("esphome.client")
 
 --- @class TextSensorEntity:Entity
@@ -24,7 +24,7 @@ end
 --- @diagnostic disable-next-line: unused
 function TextSensorEntity:updated(entity, state)
   log:trace("TextSensorEntity:updated(%s, %s)", entity, state)
-  values:update(entity.name, state.state or "", "STRING")
+  entityValues.update(entity.name, state.state or "", "STRING")
 end
 
 return TextSensorEntity

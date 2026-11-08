@@ -195,4 +195,16 @@ T.section("No lights, no form")
 leds:discovered({ a = gang1Event })
 T.eq("hidden", attribs["Configure Button LED"], constants.HIDE_PROPERTY)
 
+T.section("A button named Button leaves the Button LED setting alone")
+local button =
+  { entity_type = "event", key = 50, ref = "50", device_id = 0, name = "Button", event_types = { "press" } }
+events:discovered(button)
+entities.e = button
+leds:discovered(entities)
+local buttonPress = bindings:getDynamicBinding(EventEntity.TYPE, "event_50:press").bindingId
+local setting = Properties["Button LED"]
+RFP[buttonPress](buttonPress, "MATCH_LED_STATE", { STATE = "1" })
+T.eq("its LED variable follows the load", Variables["Button LED"], "1")
+T.eq("the Button LED setting keeps its value", Properties["Button LED"], setting)
+
 T.finish()

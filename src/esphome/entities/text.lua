@@ -1,5 +1,6 @@
 local log = require("lib.logging")
 local values = require("lib.values")
+local entityValues = require("esphome.entity_values")
 local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 
@@ -34,7 +35,7 @@ local function writer(self, entity)
         log:info("Text value updated to %s for %s", newValue or "", ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update text value for %s: %s", ESPHomeClient.describeEntity(entity), error)
-        values:update(entity.name, Select(values:getValue(entity.name), "value") or "", "STRING")
+        entityValues.update(entity.name, Select(values:getValue(entity.name), "value") or "", "STRING")
       end)
   end
 end
@@ -45,7 +46,7 @@ end
 function TextEntity:discovered(entity)
   log:trace("TextEntity:discovered(%s)", entity)
   local kept = values:getValue(entity.name)
-  values:update(entity.name, kept and not kept.deleted and kept.value or "", "STRING", writer(self, entity))
+  entityValues.update(entity.name, kept and not kept.deleted and kept.value or "", "STRING", writer(self, entity))
 end
 
 --- Handle updates to the text entity state.
@@ -54,7 +55,7 @@ end
 --- @return void
 function TextEntity:updated(entity, state)
   log:trace("TextEntity:updated(%s, %s)", entity, state)
-  values:update(entity.name, state.state or "", "STRING", writer(self, entity))
+  entityValues.update(entity.name, state.state or "", "STRING", writer(self, entity))
 end
 
 return TextEntity

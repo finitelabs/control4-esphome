@@ -1,6 +1,7 @@
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local values = require("lib.values")
+local entityValues = require("esphome.entity_values")
 local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 local StateTell = require("esphome.state_tell")
@@ -219,18 +220,18 @@ function CoverEntity:updated(entity, state)
     coverClosed = false
   end
 
-  values:update(entity.name .. " State", stateString, "STRING")
+  entityValues.update(entity.name .. " State", stateString, "STRING")
 
   local coverOpenBinding = bindings:getDynamicBinding(self.TYPE, "cover_open_" .. entity.ref)
   if coverOpenBinding ~= nil then
     local coverOpenState = coverOpen and "CLOSED" or "OPENED"
-    values:update(entity.name .. " Open", coverOpenState)
+    entityValues.update(entity.name .. " Open", coverOpenState)
     told:tell("open_" .. entity.ref, coverOpenBinding.bindingId, coverOpenState)
   end
   local coverClosedBinding = bindings:getDynamicBinding(self.TYPE, "cover_closed_" .. entity.ref)
   if coverClosedBinding ~= nil then
     local coverClosedState = coverClosed and "CLOSED" or "OPENED"
-    values:update(entity.name .. " Closed", coverClosedState)
+    entityValues.update(entity.name .. " Closed", coverClosedState)
     told:tell("closed_" .. entity.ref, coverClosedBinding.bindingId, coverClosedState)
   end
 end

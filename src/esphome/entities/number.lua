@@ -1,5 +1,6 @@
 local log = require("lib.logging")
 local values = require("lib.values")
+local entityValues = require("esphome.entity_values")
 local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 
@@ -36,7 +37,7 @@ local function writer(self, entity)
         log:info("Number value updated to %s for %s", numValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update number value for %s: %s", ESPHomeClient.describeEntity(entity), error)
-        values:update(entity.name, Select(values:getValue(entity.name), "value"), "NUMBER")
+        entityValues.update(entity.name, Select(values:getValue(entity.name), "value"), "NUMBER")
       end)
   end
 end
@@ -63,7 +64,7 @@ function NumberEntity:updated(entity, state)
     log:debug("Ignoring non-finite reading for %s", ESPHomeClient.describeEntity(entity))
     return
   end
-  values:update(entity.name, round(value, 1), "NUMBER", writer(self, entity))
+  entityValues.update(entity.name, round(value, 1), "NUMBER", writer(self, entity))
 end
 
 return NumberEntity
