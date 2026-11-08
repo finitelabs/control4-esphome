@@ -3,6 +3,7 @@
 
 local log = require("lib.logging")
 local events = require("lib.events")
+local persist = require("lib.persist")
 local values = require("lib.values")
 local bindings = require("lib.bindings")
 local proxyRegistry = require("esphome.ble.coordinator.proxy_registry")
@@ -45,6 +46,7 @@ local StateTell = require("esphome.state_tell")
 --- @field _roomBindings table<integer, integer?> roomId -> bindingId
 --- @field _deviceBindings table<string, integer?> mac -> bindingId
 --- @field _roomNames table<integer, string?> roomId -> roomName
+--- @field _keptRoomNames table<integer, string?> roomId -> name kept from before a restart, until a proxy reports it
 local PresenceTracker = {}
 PresenceTracker.__index = PresenceTracker
 
@@ -53,6 +55,31 @@ local BINDINGS_NAMESPACE = "presence"
 
 -- Seconds a reading counts: to place a device, to hold it in its room and to smooth the next into
 local RSSI_MAX_AGE = 30
+
+--- Persist key for the room each device is in, so a device home in a room before a restart is in it after.
+local ROOMS_PERSIST_KEY = "PresenceRooms"
+
+--- Start a value at its default unless one was restored. A restart restores every value, so
+--- writing the default and then the real value back would change it twice.
+--- @param name string The value's name.
+--- @param default string The value it starts at.
+--- @param varType VariableType The variable's type.
+local function startValue(name, default, varType)
+  local kept = values:getValue(name)
+  if kept == nil or kept.deleted then
+    values:update(name, default, varType)
+  end
+end
+
+--- Keep the room a device is in, or that it is in none, across loads.
+--- @param mac string MAC address
+--- @param roomId integer|nil Room ID, or nil for none
+--- @param room string|nil Room name
+local function keepRoom(mac, roomId, room)
+  local rooms = persist:get(ROOMS_PERSIST_KEY, {})
+  rooms[mac] = roomId and { id = roomId, name = room } or nil
+  persist:set(ROOMS_PERSIST_KEY, rooms)
+end
 
 --- Generate a unique display name with partial MAC suffix
 --- @param name string Base display name
@@ -93,6 +120,7 @@ function PresenceTracker:new()
   instance._roomBindings = {}
   instance._deviceBindings = {}
   instance._roomNames = {}
+  instance._keptRoomNames = {}
   instance._told = StateTell:new("PresenceStates")
   instance._loadedAt = os.time()
   instance._roomsSettled = false
@@ -109,7 +137,9 @@ function PresenceTracker:reset()
   self._roomBindings = {}
   self._deviceBindings = {}
   self._roomNames = {}
+  self._keptRoomNames = {}
   self._told:reset()
+  persist:delete(ROOMS_PERSIST_KEY)
 end
 
 --- Configure presence tracking settings
@@ -152,11 +182,16 @@ function PresenceTracker:trackDevice(mac, config)
   local key = "device_" .. mac:gsub(":", "")
   self._told:assume(key, "OPENED")
   local wasHome = self._told:state(key) == "CLOSED"
+  local kept = wasHome and persist:get(ROOMS_PERSIST_KEY, {})[mac] or nil
+  local keptRoomId = kept and tointeger(kept.id)
+  if not keptRoomId or IsEmpty(kept.name) then
+    kept, keptRoomId = nil, nil
+  end
 
   -- Initialize state
   self._deviceState[mac] = {
-    room = nil,
-    roomId = nil,
+    room = kept and kept.name,
+    roomId = keptRoomId,
     lastSeen = wasHome and os.time() or nil,
     pendingTransition = nil,
     isHome = wasHome,
@@ -171,9 +206,17 @@ function PresenceTracker:trackDevice(mac, config)
   self:_createDeviceEvents(mac, uniqueName)
 
   -- Create variables for this device
-  values:update("Presence " .. uniqueName .. " Room", "", "STRING")
-  values:update("Presence " .. uniqueName .. " Distance", "0", "NUMBER")
-  values:update("Presence " .. uniqueName .. " RSSI", "-999", "NUMBER")
+  startValue("Presence " .. uniqueName .. " Room", "", "STRING")
+  startValue("Presence " .. uniqueName .. " Distance", "0", "NUMBER")
+  startValue("Presence " .. uniqueName .. " RSSI", "-999", "NUMBER")
+
+  -- It stays in its room until it is heard in another or goes away, so being heard there tells nothing.
+  -- The room is set up when a proxy reports it, under the name the proxy gives it.
+  if kept then
+    self._keptRoomNames[keptRoomId] = self._keptRoomNames[keptRoomId] or kept.name
+    self._roomOccupancy[keptRoomId] = self._roomOccupancy[keptRoomId] or {}
+    self._roomOccupancy[keptRoomId][mac] = true
+  end
 
   log:info("Added presence device: %s (%s)", uniqueName, mac)
 end
@@ -212,6 +255,7 @@ function PresenceTracker:untrackDevice(mac)
     self._deviceBindings[mac] = nil
   end
   self._told:forget("device_" .. macKey)
+  keepRoom(mac, nil)
 
   -- Remove events
   events:deleteEvent(NAMESPACE, "device_" .. macKey .. "_home")
@@ -338,16 +382,31 @@ function PresenceTracker:_ensureRoomSetup(roomId, roomName)
   )
 
   -- Create variables for room
-  values:update(uniqueRoomName .. " Occupied", "false", "STRING")
-  values:update(uniqueRoomName .. " Occupant Count", "0", "NUMBER")
-  values:update(uniqueRoomName .. " Occupants", "", "STRING")
+  startValue(uniqueRoomName .. " Occupied", "false", "STRING")
+  startValue(uniqueRoomName .. " Occupant Count", "0", "NUMBER")
+  startValue(uniqueRoomName .. " Occupants", "", "STRING")
 
-  -- Initialize occupancy tracking
-  self._roomOccupancy[roomId] = {}
+  -- Initialize occupancy tracking; a device kept in the room from before a restart is in it
+  self._roomOccupancy[roomId] = self._roomOccupancy[roomId] or {}
   -- A room first set up starts empty; one set up again after a restart keeps what was told.
   self._told:assume("room_" .. tostring(roomId), "OPENED")
 
   self._roomNames[roomId] = roomName
+  self._keptRoomNames[roomId] = nil
+
+  -- Devices restored into this room from before a restart take the name a proxy reports for it now
+  for occupantMac in pairs(self._roomOccupancy[roomId]) do
+    local occupant = self._deviceState[occupantMac]
+    local config = self._presenceDevices[occupantMac]
+    if occupant and config and occupant.roomId == roomId and occupant.room ~= roomName then
+      occupant.room = roomName
+      keepRoom(occupantMac, roomId, roomName)
+      values:update("Presence " .. makeUniqueName(config.name, occupantMac) .. " Room", roomName, "STRING")
+    end
+  end
+  if next(self._roomOccupancy[roomId]) ~= nil then
+    self:_showRoomOccupancy(roomId)
+  end
 
   log:info("Set up presence tracking for room: %s (%d)", uniqueRoomName, roomId)
 end
@@ -727,6 +786,8 @@ function PresenceTracker:_onDeviceEnteredRoom(mac, room, roomId, previousRoom, p
   values:update("Last Presence Previous Room", previousRoom or "Away", "STRING")
   values:update("Last Presence Distance", string.format("%.1f", distance), "NUMBER")
 
+  keepRoom(mac, roomId, room)
+
   -- Update room occupancy
   self:_updateRoomOccupancy(roomId, mac, true)
   if previousRoomId then
@@ -764,6 +825,7 @@ function PresenceTracker:_onDeviceLeftRoom(mac)
   state.room = nil
   state.roomId = nil
   state.pendingTransition = nil
+  keepRoom(mac, nil)
 
   -- Fire events
   local macKey = mac:gsub(":", "")
@@ -780,6 +842,8 @@ end
 function PresenceTracker:_onDeviceAway(mac, name, previousRoom, previousRoomId)
   local uniqueName = makeUniqueName(name, mac)
   log:info("Device %s (%s) has gone away", uniqueName, mac)
+
+  keepRoom(mac, nil)
 
   -- Update variables
   values:update("Presence " .. uniqueName .. " Room", "Away", "STRING")
@@ -839,11 +903,32 @@ function PresenceTracker:_updateRoomOccupancy(roomId, mac, present)
     self._roomOccupancy[roomId][mac] = nil
   end
 
-  local isNowOccupied = next(self._roomOccupancy[roomId]) ~= nil
+  local isNowOccupied = self:_showRoomOccupancy(roomId)
+
+  -- Update room binding (contact sensor: CLOSED = occupied), and fire the room event on a change.
+  -- A room no proxy has reported since a restart still has its connection from before.
+  local key = "room_" .. tostring(roomId)
+  local bindingId = self._roomBindings[roomId]
+  if not bindingId then
+    local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, key)
+    bindingId = binding and binding.bindingId
+  end
+  if self._told:tell(key, bindingId, isNowOccupied and "CLOSED" or "OPENED") then
+    events:fire(NAMESPACE, key .. (isNowOccupied and "_occupied" or "_empty"))
+  end
+end
+
+--- Show a room's occupants in its variables.
+--- @param roomId integer Room ID
+--- @return boolean occupied Whether anyone is in the room
+--- @private
+function PresenceTracker:_showRoomOccupancy(roomId)
+  local occupants = self._roomOccupancy[roomId] or {}
+  local isNowOccupied = next(occupants) ~= nil
   local occupantCount = 0
   local occupantNames = {}
 
-  for occupantMac in pairs(self._roomOccupancy[roomId]) do
+  for occupantMac in pairs(occupants) do
     occupantCount = occupantCount + 1
     local config = self._presenceDevices[occupantMac]
     if config then
@@ -851,8 +936,8 @@ function PresenceTracker:_updateRoomOccupancy(roomId, mac, present)
     end
   end
 
-  -- A room keeps its name after its last proxy goes
-  local roomName = self._roomNames[roomId]
+  -- A room keeps its name after its last proxy goes; one no proxy has reported since a restart has the name kept
+  local roomName = self._roomNames[roomId] or self._keptRoomNames[roomId]
 
   if roomName then
     -- Update room variables using unique room name
@@ -861,12 +946,7 @@ function PresenceTracker:_updateRoomOccupancy(roomId, mac, present)
     values:update(uniqueRoomName .. " Occupant Count", tostring(occupantCount), "NUMBER")
     values:update(uniqueRoomName .. " Occupants", table.concat(occupantNames, ", "), "STRING")
   end
-
-  -- Update room binding (contact sensor: CLOSED = occupied), and fire the room event on a change
-  local key = "room_" .. tostring(roomId)
-  if self._told:tell(key, self._roomBindings[roomId], isNowOccupied and "CLOSED" or "OPENED") then
-    events:fire(NAMESPACE, key .. (isNowOccupied and "_occupied" or "_empty"))
-  end
+  return isNowOccupied
 end
 
 --- Get all tracked presence devices
@@ -957,11 +1037,11 @@ function PresenceTracker:createGenericEvents()
   )
 
   -- Create last event context variables
-  values:update("Last Presence Device MAC", "", "STRING")
-  values:update("Last Presence Device Name", "", "STRING")
-  values:update("Last Presence Room", "", "STRING")
-  values:update("Last Presence Previous Room", "", "STRING")
-  values:update("Last Presence Distance", "0", "NUMBER")
+  startValue("Last Presence Device MAC", "", "STRING")
+  startValue("Last Presence Device Name", "", "STRING")
+  startValue("Last Presence Room", "", "STRING")
+  startValue("Last Presence Previous Room", "", "STRING")
+  startValue("Last Presence Distance", "0", "NUMBER")
 end
 
 return PresenceTracker:new()
