@@ -1,6 +1,6 @@
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
-local values = require("lib.values")
+local entityValues = require("esphome.entity_values")
 local ESPHomeClient = require("esphome.client")
 local StateTell = require("esphome.state_tell")
 
@@ -56,7 +56,7 @@ end
 function BinarySensorEntity:updated(entity, state)
   log:trace("BinarySensorEntity:updated(%s, %s)", entity, state)
   local value = toboolean(state.state)
-  values:update(entity.name .. " State", value and "1" or "0", "BOOL")
+  entityValues.update(entity.name .. " State", value and "1" or "0", "BOOL")
 
   local binding = bindings:getDynamicBinding(self.TYPE, "binary_sensor_" .. entity.ref)
   if binding ~= nil then

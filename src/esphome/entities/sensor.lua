@@ -2,6 +2,7 @@ require("lib.utils")
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local values = require("lib.values")
+local entityValues = require("esphome.entity_values")
 local ESPHomeClient = require("esphome.client")
 
 --- @class SensorBindingConfig
@@ -163,7 +164,7 @@ function SensorEntity:updated(entity, state)
     return
   end
   value = round(value, 1)
-  values:update(entity.name, value, "NUMBER")
+  entityValues.update(entity.name, value, "NUMBER")
 
   local config = getBindingConfig(entity)
   if config == nil then

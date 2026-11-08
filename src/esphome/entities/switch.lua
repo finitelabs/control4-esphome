@@ -1,6 +1,7 @@
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local values = require("lib.values")
+local entityValues = require("esphome.entity_values")
 local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 
@@ -64,7 +65,7 @@ local function writer(self, entity)
           error
         )
         -- Director keeps the value programming set, which the device never took.
-        values:update(entity.name .. " State", Select(values:getValue(entity.name .. " State"), "value"), "BOOL")
+        entityValues.update(entity.name .. " State", Select(values:getValue(entity.name .. " State"), "value"), "BOOL")
       end)
   end
 end
@@ -155,7 +156,7 @@ function SwitchEntity:updated(entity, state)
 
   local value = toboolean(state.state)
   local stored = Select(values:getValue(entity.name .. " State"), "value")
-  values:update(entity.name .. " State", value and "1" or "0", "BOOL", writer(self, entity))
+  entityValues.update(entity.name .. " State", value and "1" or "0", "BOOL", writer(self, entity))
 
   local relayBinding = bindings:getDynamicBinding(self.TYPE, "switch_" .. entity.ref)
   if relayBinding ~= nil then

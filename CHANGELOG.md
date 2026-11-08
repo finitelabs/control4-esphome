@@ -68,6 +68,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   the door was open, and reading a door left open a long time as closed; an item
   bound to it now shows the door's real state, corrected at its first reading
   after the update without running its programming
+- Fixed an ESPHome entity whose name matched one of the ESPHome driver's own
+  settings writing its reading into that setting, which could point the driver
+  at the wrong IP address and reconnect it; the entity's variable keeps its name
+  and the setting is left alone
 
 ### Changed
 

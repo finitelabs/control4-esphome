@@ -1,5 +1,6 @@
 local log = require("lib.logging")
 local values = require("lib.values")
+local entityValues = require("esphome.entity_values")
 local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 
@@ -33,7 +34,7 @@ local function writer(self, entity)
         ESPHomeClient.describeEntity(entity),
         newValue or ""
       )
-      values:update(entity.name, reported, "STRING")
+      entityValues.update(entity.name, reported, "STRING")
       return
     end
     self.client
@@ -48,7 +49,7 @@ local function writer(self, entity)
         log:info("Time updated to %s for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update time for %s: %s", ESPHomeClient.describeEntity(entity), error)
-        values:update(entity.name, reported, "STRING")
+        entityValues.update(entity.name, reported, "STRING")
       end)
   end
 end
@@ -59,7 +60,7 @@ end
 function TimeEntity:discovered(entity)
   log:trace("TimeEntity:discovered(%s)", entity)
   local kept = values:getValue(entity.name)
-  values:update(entity.name, kept and not kept.deleted and kept.value or "", "STRING", writer(self, entity))
+  entityValues.update(entity.name, kept and not kept.deleted and kept.value or "", "STRING", writer(self, entity))
 end
 
 --- Handle updates to the time entity state.
@@ -70,12 +71,12 @@ function TimeEntity:updated(entity, state)
   log:trace("TimeEntity:updated(%s, %s)", entity, state)
 
   if state.missing_state then
-    values:update(entity.name, "", "STRING")
+    entityValues.update(entity.name, "", "STRING")
     return
   end
 
   local formatted = string.format("%02d:%02d:%02d", state.hour or 0, state.minute or 0, state.second or 0)
-  values:update(entity.name, formatted, "STRING", writer(self, entity))
+  entityValues.update(entity.name, formatted, "STRING", writer(self, entity))
 end
 
 return TimeEntity

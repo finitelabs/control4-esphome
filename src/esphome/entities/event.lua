@@ -1,7 +1,7 @@
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
 local events = require("lib.events")
-local values = require("lib.values")
+local entityValues = require("esphome.entity_values")
 local ESPHomeClient = require("esphome.client")
 local ButtonLeds = require("esphome.button_leds")
 
@@ -61,7 +61,7 @@ function EventEntity:discovered(entity)
 
   -- Create the Last Event variable so programming can reference it before the
   -- first event fires. Events have no persistent state, so the initial value is empty.
-  values:update(entity.name .. " Last Event", "", "STRING")
+  entityValues.update(entity.name .. " Last Event", "", "STRING")
 end
 
 --- Handle updates to the event entity state.
@@ -77,7 +77,7 @@ function EventEntity:updated(entity, state)
     return
   end
 
-  values:update(entity.name .. " Last Event", eventType, "STRING")
+  entityValues.update(entity.name .. " Last Event", eventType, "STRING")
 
   events:fire("event_" .. entity.ref, eventType)
   log:info("Fired event %s for %s", eventType, ESPHomeClient.describeEntity(entity))

@@ -1,5 +1,6 @@
 local log = require("lib.logging")
 local values = require("lib.values")
+local entityValues = require("esphome.entity_values")
 local ESPHomeClient = require("esphome.client")
 local ESPHomeProtoSchema = require("esphome.proto_schema")
 
@@ -47,7 +48,7 @@ local function writer(self, entity)
         ESPHomeClient.describeEntity(entity),
         table.concat(options, ", ")
       )
-      values:update(entity.name, currentState, "STRING")
+      entityValues.update(entity.name, currentState, "STRING")
       return
     end
     self.client
@@ -60,7 +61,7 @@ local function writer(self, entity)
         log:info("Select option updated to '%s' for %s", newValue, ESPHomeClient.describeEntity(entity))
       end, function(error)
         log:error("Failed to update select option for %s: %s", ESPHomeClient.describeEntity(entity), error)
-        values:update(entity.name, currentState, "STRING")
+        entityValues.update(entity.name, currentState, "STRING")
       end)
   end
 end
@@ -80,7 +81,7 @@ function SelectEntity:discovered(entity)
   }
 
   local kept = values:getValue(entity.name)
-  values:update(entity.name, kept and not kept.deleted and kept.value or "", "STRING", writer(self, entity))
+  entityValues.update(entity.name, kept and not kept.deleted and kept.value or "", "STRING", writer(self, entity))
 end
 
 --- Handle updates to the select entity state.
@@ -89,7 +90,7 @@ end
 --- @return void
 function SelectEntity:updated(entity, state)
   log:trace("SelectEntity:updated(%s, %s)", entity, state)
-  values:update(entity.name, state.state or "", "STRING", writer(self, entity))
+  entityValues.update(entity.name, state.state or "", "STRING", writer(self, entity))
 end
 
 --- Get sorted list of select names for programming commands.
