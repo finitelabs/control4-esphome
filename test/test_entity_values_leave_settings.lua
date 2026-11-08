@@ -1,7 +1,6 @@
--- An ESPHome entity named like one of the driver's settings never writes that setting.
---
--- wifi_info's "IP Address" text sensor used to replace the IP Address the driver connects to,
--- which ran its handler and reconnected. The entity's variable is still made under its name.
+-- Tests that an ESPHome entity named like one of the driver's settings, such as wifi_info's
+-- "IP Address" text sensor, never writes that setting or runs its handler, and that its
+-- variable is still made under its name.
 --
 -- Run from the driver root:
 --   make test
