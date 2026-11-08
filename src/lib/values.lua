@@ -111,6 +111,7 @@ end
 --- @field labels table<string, string>? Optional property text per variable text (e.g., { ["1"] = "On", ["0"] = "Off" })
 --- @field writable boolean? Whether the variable accepts writes from programming. Persisted so restore can recreate the C4 variable with the correct readOnly flag.
 --- @field deleted boolean? If true, the value has no variable now; its record keeps its id, if it has one
+--- @field property false? If false, a same-named property is left alone: set by `opts.property` in `update`
 
 --- Deleting a plain value in an older build left a deleted record, which restore
 --- by name adds as a hidden placeholder. Each such slot moves to a name built from
@@ -180,7 +181,7 @@ function Values:setCallback(name, callback)
 end
 
 --- Updates a value. If the value does not exist, it will be created. If the
---- `name` is also a property, it will also be updated.
+--- `name` is also a property, it will also be updated, unless `opts.property` is false.
 ---
 --- The `callbackOrWritable` argument (arg 4) controls callback wiring and
 --- writability. It is dispatched by type:
@@ -205,12 +206,18 @@ end
 --- @param varType VariableType? The type of the variable, if `nil` it will not be registered as a variable.
 --- @param callbackOrWritable (fun(newValue: string|integer|number): void)|boolean|nil Callback to register, `true` for writable-with-placeholder, `false` to clear, or `nil` for no change.
 --- @param propertyFormat string|table<any, string>|nil How the property shows the value: a string is a suffix (e.g., " °C"); a table gives the property's text per value instead (e.g., { [true] = "On", [false] = "Off" }), and a value it does not list shows as the variable reads.
+--- @param opts? { property?: boolean } `property = false` leaves a same-named property alone, here and when the value is restored or deleted: for a value named by something other than the driver, which could match one of its settings.
 --- @return boolean changed True if the value itself changed: a new name, one deleted before, or a different value.
---- @return boolean recordChanged True if anything stored for it changed: the value, or also its type, writability, suffix or labels.
-function Values:update(name, value, varType, callbackOrWritable, propertyFormat)
-  log:trace("Values:update(%s, %s, %s, %s, %s)", name, value, varType, callbackOrWritable, propertyFormat)
+--- @return boolean recordChanged True if anything stored for it changed: the value, or also its type, writability, suffix, labels or `opts.property`.
+function Values:update(name, value, varType, callbackOrWritable, propertyFormat, opts)
+  log:trace("Values:update(%s, %s, %s, %s, %s, %s)", name, value, varType, callbackOrWritable, propertyFormat, opts)
   local suffix = type(propertyFormat) == "string" and propertyFormat or nil
   local labels = type(propertyFormat) == "table" and labelsByText(propertyFormat) or nil
+  -- Stored only when false, so a record that mirrors its property reads as before.
+  local property = nil
+  if type(opts) == "table" and opts.property == false then
+    property = false
+  end
 
   if type(callbackOrWritable) == "function" then
     self:setCallback(name, callbackOrWritable)
@@ -245,6 +252,7 @@ function Values:update(name, value, varType, callbackOrWritable, propertyFormat)
     or not sameLabels(existing.labels, labels)
     or existing.varType ~= varType
     or existing.writable ~= writable
+    or existing.property ~= property
   if changed then
     values[name] = {
       index = Select(values, name, "index") or self:_getNextValueId(),
@@ -254,6 +262,7 @@ function Values:update(name, value, varType, callbackOrWritable, propertyFormat)
       suffix = suffix,
       labels = labels,
       writable = writable,
+      property = property,
     }
   end
   local record = values[name]
@@ -285,7 +294,7 @@ function Values:update(name, value, varType, callbackOrWritable, propertyFormat)
     self:_saveValues(values, idChanged or isVariable(existing) ~= (varType ~= nil))
   end
 
-  if Properties[name] ~= nil then
+  if property ~= false and Properties[name] ~= nil then
     -- Ensure the property is visible
     C4:SetPropertyAttribs(name, constants.SHOW_PROPERTY)
 
@@ -337,7 +346,7 @@ function Values:delete(name)
     Variables[name] = nil
   end
 
-  if Properties[name] ~= nil then
+  if value.property ~= false and Properties[name] ~= nil then
     UpdateProperty(name, "", true)
     -- The best we can do to delete a property is to hide it
     C4:SetPropertyAttribs(name, constants.HIDE_PROPERTY)
@@ -419,7 +428,8 @@ function Values:restoreValues()
         C4:AddVariable(entry.name, "", entry.data.varType or "STRING", true, true)
       else
         log:debug("Restoring %s value %s at index %d", entry.data.varType, entry.name, entry.data.index)
-        self:update(entry.name, entry.data.value, entry.data.varType, nil, entry.data.labels or entry.data.suffix)
+        local data = entry.data
+        self:update(entry.name, data.value, data.varType, nil, data.labels or data.suffix, { property = data.property })
       end
     end)
     if not ok then
