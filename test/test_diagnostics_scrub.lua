@@ -91,14 +91,9 @@ T.eq("the error string", (splitError(rejected)), rejected.error)
 T.eq("another table says only that", (splitError({ 1, 2 })), "a table")
 
 T.section("Census paths keep code names and drop data keys")
-T.eq("a field", pathKey("devices", "_G"), ".devices")
-T.eq("an integer", pathKey(5001, "_G.OBC"), "[5001]")
-T.eq(
-  "a module name under package.loaded",
-  pathKey("drivers-common-public.global.timer", "_G.package.loaded"),
-  ".drivers-common-public.global.timer"
-)
-T.eq("but a dotted key elsewhere is data", pathKey("kitchen.local", "_G.hosts"), "[?]")
+T.eq("a field", pathKey("devices"), ".devices")
+T.eq("an integer", pathKey(5001), "[5001]")
+T.eq("a dotted key is data", pathKey("kitchen.local"), "[?]")
 for _, key in ipairs({
   "00:11:22:ff:fe:33:44:55",
   "0x00112233ffee4455",
@@ -107,9 +102,9 @@ for _, key in ipairs({
   "owner@example.com",
   TOKEN,
 }) do
-  T.eq("a data key: " .. key, pathKey(key, "_G.devices"), "[?]")
+  T.eq("a data key: " .. key, pathKey(key), "[?]")
 end
-T.eq("a fractional number", pathKey(1.5, "_G.x"), "[?]")
+T.eq("a fractional number", pathKey(1.5), "[?]")
 
 T.section("Sources keep the dispatcher and a name a driver defines")
 T.eq("an action", sourceTag("EC.Diagnostics Snapshot"), "EC.Diagnostics Snapshot")

@@ -38,6 +38,9 @@ local INFLUXDB_TOP_N = 10
 --- Paths that should always be recursed into, even if they exceed the CENSUS_THRESHOLD.
 --- @type table<string, boolean?>
 local CENSUS_ALWAYS_RECURSE = { ["_G"] = true }
+--- Paths never walked: package.loaded holds every module loaded, generated data included.
+--- @type table<string, boolean?>
+local CENSUS_SKIP = { ["_G.package"] = true }
 
 local ERROR_RATE_LIMIT = 10
 local ERROR_RATE_WINDOW = 60
@@ -410,12 +413,16 @@ function Diagnostics:_tick(verbose)
   local out = verbose and log.LogLevel.PRINT or log.LogLevel.TRACE
   local outWarn = verbose and log.LogLevel.PRINT or log.LogLevel.DEBUG
 
-  -- Memory
-  local memoryKB = nil
+  -- Memory: as the collector holds it, garbage included, and when reporting, what is live after a full collect.
+  local memoryKB, liveKB = nil, nil
   if self._gcAvailable then
     local success, count = pcall(collectgarbage, "count")
     if success then
       memoryKB = tonumber(count)
+    end
+    if self._enabled and pcall(collectgarbage, "collect") then
+      success, count = pcall(collectgarbage, "count")
+      liveKB = success and tonumber(count) or nil
     end
   end
 
@@ -445,7 +452,8 @@ function Diagnostics:_tick(verbose)
     out,
     "[CENSUS] Total tables found: %d%s",
     #sorted,
-    memoryKB and string.format(", Lua memory: %.1f KB", memoryKB) or ""
+    (memoryKB and string.format(", Lua memory: %.1f KB", memoryKB) or "")
+      .. (liveKB and string.format(", live: %.1f KB", liveKB) or "")
   )
   for i = 1, math.min(CENSUS_TOP_N, #sorted) do
     local entry = sorted[i]
@@ -512,7 +520,7 @@ function Diagnostics:_tick(verbose)
   end
 
   if self._enabled then
-    self:_writeMetrics(memoryKB, #sorted, sorted, sortedByBytes, driverLines)
+    self:_writeMetrics(memoryKB, liveKB, #sorted, sorted, sortedByBytes, driverLines)
   end
 
   -- Reset error counters so they act as per-interval counters
@@ -536,20 +544,13 @@ end
 --- integers and keys shaped like code names are kept, and any other key reads `[?]`. Tables whose paths read the
 --- same are counted together.
 --- @param key any
---- @param parentPath string
 --- @return string
-local function pathKey(key, parentPath)
+local function pathKey(key)
   if type(key) == "number" then
     return key == math.floor(key) and math.abs(key) < 2 ^ 53 and string.format("[%d]", key) or "[?]"
   end
-  if type(key) == "string" and codeLike(key) then
-    if #key <= 32 and key:find("^[%a_][%w_]*$") then
-      return "." .. key
-    end
-    -- package.loaded is keyed by module name, e.g. "drivers-common-public.global.timer".
-    if parentPath == "_G.package.loaded" and #key <= 64 and key:find("^[%a_][%w_%.%-]*$") then
-      return "." .. key
-    end
+  if type(key) == "string" and codeLike(key) and #key <= 32 and key:find("^[%a_][%w_]*$") then
+    return "." .. key
   end
   return "[?]"
 end
@@ -582,7 +583,7 @@ function Diagnostics:_tableCensus()
   local seen = { [self] = true }
 
   local function walk(tbl, path, depth)
-    if depth > CENSUS_MAX_DEPTH then
+    if depth > CENSUS_MAX_DEPTH or CENSUS_SKIP[path] then
       return
     end
     if seen[tbl] then
@@ -619,7 +620,7 @@ function Diagnostics:_tableCensus()
 
     for k, v in pairs(tbl) do
       if type(v) == "table" and not seen[v] then
-        walk(v, path .. pathKey(k, path), depth + 1)
+        walk(v, path .. pathKey(k), depth + 1)
       end
     end
   end
@@ -820,11 +821,12 @@ end
 --- Writes metrics and census data to the metrics database.
 --- @private
 --- @param memoryKB number|nil
+--- @param liveKB number|nil
 --- @param totalTables number
 --- @param sorted CensusEntry[] Sorted by entry count descending.
 --- @param sortedByBytes CensusEntry[] Sorted by string bytes descending.
 --- @param driverLines string[] The driver's own points, as line protocol.
-function Diagnostics:_writeMetrics(memoryKB, totalTables, sorted, sortedByBytes, driverLines)
+function Diagnostics:_writeMetrics(memoryKB, liveKB, totalTables, sorted, sortedByBytes, driverLines)
   local timestamp = os.time()
   local tags = self:_tags()
 
@@ -832,6 +834,9 @@ function Diagnostics:_writeMetrics(memoryKB, totalTables, sorted, sortedByBytes,
   local fields = {}
   if memoryKB then
     table.insert(fields, string.format("memory_kb=%.2f", memoryKB))
+  end
+  if liveKB then
+    table.insert(fields, string.format("live_kb=%.2f", liveKB))
   end
   table.insert(fields, string.format("global_count=%di", TableLength(_G)))
   table.insert(fields, string.format("total_tables=%di", totalTables))

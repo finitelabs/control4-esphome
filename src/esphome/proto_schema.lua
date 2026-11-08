@@ -1,7 +1,7 @@
 -- Generated Lua schema from protobuf descriptor set
 -- Do not edit manually
 --
--- generator: v0.6.12
+-- generator: v0.7.0
 -- esphome: 2026.10.2
 -- body-sha256: 93ad534054107d7933f7263139fccf269e333a0cf68fb91b33aadfc8cb030fc2
 -- provenance-boundary: every line below is covered by body-sha256

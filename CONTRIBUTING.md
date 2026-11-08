@@ -53,7 +53,8 @@ then pull the change in with `copier update`.
 - `support-code.lua`: the Support Code that opens a DriverCentral build's Lua
   window (see [The Support Code](#the-support-code))
 - `update-settings.lua`: keeps Automatic Updates and Update Channel the same on
-  every item of the drivers the repo builds, in DriverCentral and OSS builds
+  every item of the drivers the repo builds, in DriverCentral and OSS builds. A
+  driver's Reset Driver leaves both as they are
 - `utils.lua`: general utilities (XML, device queries, table helpers, type
   coercion)
 - `values.lua`: value parsing, coercion, and formatting

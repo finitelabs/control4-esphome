@@ -119,6 +119,35 @@ T.excludes("and no c4_ prefix", post.body, "c4_")
 sent = posted(ShimFireTimers)
 T.eq("then the repeating report", #sent, 1)
 
+T.section("The report carries the memory still live beside the memory the collector holds")
+collectgarbage("stop")
+for i = 1, 50000 do
+  local _ = { i }
+end
+sent = posted(ShimFireTimers)
+collectgarbage("restart")
+local memoryKB = tonumber(sent[1].body:match("memory_kb=([%d.]+)"))
+local liveKB = tonumber(sent[1].body:match("live_kb=([%d.]+)"))
+T.truthy("both are reported", memoryKB and liveKB)
+T.check(
+  "the live memory leaves out the garbage a full collect frees",
+  memoryKB and liveKB and liveKB < memoryKB - 1000,
+  string.format("memory_kb %s, live_kb %s", tostring(memoryKB), tostring(liveKB))
+)
+
+T.section("The census never walks package, which holds every module loaded")
+_G.CensusProbe = { 1, 2, 3 }
+local census = Diagnostics:new(SERVER):_tableCensus()
+local inPackage = {}
+for path in pairs(census) do
+  if path:find("^_G%.package") then
+    table.insert(inPackage, path)
+  end
+end
+T.eq("no path under package", inPackage, {})
+T.truthy("while a global table is counted", census["_G.CensusProbe"] ~= nil)
+_G.CensusProbe = nil
+
 T.section("An error goes to the logs database, scrubbed")
 sent = posted(function()
   ON_HANDLER_ERROR(
