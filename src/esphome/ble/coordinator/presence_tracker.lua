@@ -46,6 +46,7 @@ local StateTell = require("esphome.state_tell")
 --- @field _roomBindings table<integer, integer?> roomId -> bindingId
 --- @field _deviceBindings table<string, integer?> mac -> bindingId
 --- @field _roomNames table<integer, string?> roomId -> roomName
+--- @field _keptRoomNames table<integer, string?> roomId -> name kept from before a restart, until a proxy reports it
 local PresenceTracker = {}
 PresenceTracker.__index = PresenceTracker
 
@@ -119,6 +120,7 @@ function PresenceTracker:new()
   instance._roomBindings = {}
   instance._deviceBindings = {}
   instance._roomNames = {}
+  instance._keptRoomNames = {}
   instance._told = StateTell:new("PresenceStates")
   instance._loadedAt = os.time()
   instance._roomsSettled = false
@@ -135,6 +137,7 @@ function PresenceTracker:reset()
   self._roomBindings = {}
   self._deviceBindings = {}
   self._roomNames = {}
+  self._keptRoomNames = {}
   self._told:reset()
   persist:delete(ROOMS_PERSIST_KEY)
 end
@@ -208,8 +211,9 @@ function PresenceTracker:trackDevice(mac, config)
   startValue("Presence " .. uniqueName .. " RSSI", "-999", "NUMBER")
 
   -- It stays in its room until it is heard in another or goes away, so being heard there tells nothing.
+  -- The room is set up when a proxy reports it, under the name the proxy gives it.
   if kept then
-    self:_ensureRoomSetup(keptRoomId, kept.name)
+    self._keptRoomNames[keptRoomId] = self._keptRoomNames[keptRoomId] or kept.name
     self._roomOccupancy[keptRoomId] = self._roomOccupancy[keptRoomId] or {}
     self._roomOccupancy[keptRoomId][mac] = true
   end
@@ -382,12 +386,16 @@ function PresenceTracker:_ensureRoomSetup(roomId, roomName)
   startValue(uniqueRoomName .. " Occupant Count", "0", "NUMBER")
   startValue(uniqueRoomName .. " Occupants", "", "STRING")
 
-  -- Initialize occupancy tracking
-  self._roomOccupancy[roomId] = {}
+  -- Initialize occupancy tracking; a device kept in the room from before a restart is in it
+  self._roomOccupancy[roomId] = self._roomOccupancy[roomId] or {}
   -- A room first set up starts empty; one set up again after a restart keeps what was told.
   self._told:assume("room_" .. tostring(roomId), "OPENED")
 
   self._roomNames[roomId] = roomName
+  self._keptRoomNames[roomId] = nil
+  if next(self._roomOccupancy[roomId]) ~= nil then
+    self:_showRoomOccupancy(roomId)
+  end
 
   log:info("Set up presence tracking for room: %s (%d)", uniqueRoomName, roomId)
 end
@@ -566,7 +574,12 @@ function PresenceTracker:_processRoomCandidate(mac, candidateRoom, candidateRoom
   -- Same room - reset any pending transition
   if candidateRoomId == currentRoomId then
     state.pendingTransition = nil
-    return currentRoom, currentRoomId
+    local roomName = currentRoomId and self._roomNames[currentRoomId]
+    if roomName and roomName ~= currentRoom then
+      state.room = roomName
+      keepRoom(mac, currentRoomId, roomName)
+    end
+    return state.room, currentRoomId
   end
 
   -- No candidate room
@@ -884,11 +897,32 @@ function PresenceTracker:_updateRoomOccupancy(roomId, mac, present)
     self._roomOccupancy[roomId][mac] = nil
   end
 
-  local isNowOccupied = next(self._roomOccupancy[roomId]) ~= nil
+  local isNowOccupied = self:_showRoomOccupancy(roomId)
+
+  -- Update room binding (contact sensor: CLOSED = occupied), and fire the room event on a change.
+  -- A room no proxy has reported since a restart still has its connection from before.
+  local key = "room_" .. tostring(roomId)
+  local bindingId = self._roomBindings[roomId]
+  if not bindingId then
+    local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, key)
+    bindingId = binding and binding.bindingId
+  end
+  if self._told:tell(key, bindingId, isNowOccupied and "CLOSED" or "OPENED") then
+    events:fire(NAMESPACE, key .. (isNowOccupied and "_occupied" or "_empty"))
+  end
+end
+
+--- Show a room's occupants in its variables.
+--- @param roomId integer Room ID
+--- @return boolean occupied Whether anyone is in the room
+--- @private
+function PresenceTracker:_showRoomOccupancy(roomId)
+  local occupants = self._roomOccupancy[roomId] or {}
+  local isNowOccupied = next(occupants) ~= nil
   local occupantCount = 0
   local occupantNames = {}
 
-  for occupantMac in pairs(self._roomOccupancy[roomId]) do
+  for occupantMac in pairs(occupants) do
     occupantCount = occupantCount + 1
     local config = self._presenceDevices[occupantMac]
     if config then
@@ -896,8 +930,8 @@ function PresenceTracker:_updateRoomOccupancy(roomId, mac, present)
     end
   end
 
-  -- A room keeps its name after its last proxy goes
-  local roomName = self._roomNames[roomId]
+  -- A room keeps its name after its last proxy goes; one no proxy has reported since a restart has the name kept
+  local roomName = self._roomNames[roomId] or self._keptRoomNames[roomId]
 
   if roomName then
     -- Update room variables using unique room name
@@ -906,12 +940,7 @@ function PresenceTracker:_updateRoomOccupancy(roomId, mac, present)
     values:update(uniqueRoomName .. " Occupant Count", tostring(occupantCount), "NUMBER")
     values:update(uniqueRoomName .. " Occupants", table.concat(occupantNames, ", "), "STRING")
   end
-
-  -- Update room binding (contact sensor: CLOSED = occupied), and fire the room event on a change
-  local key = "room_" .. tostring(roomId)
-  if self._told:tell(key, self._roomBindings[roomId], isNowOccupied and "CLOSED" or "OPENED") then
-    events:fire(NAMESPACE, key .. (isNowOccupied and "_occupied" or "_empty"))
-  end
+  return isNowOccupied
 end
 
 --- Get all tracked presence devices

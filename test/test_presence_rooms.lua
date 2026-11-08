@@ -364,6 +364,34 @@ H.test("a device home in the Kitchen before a restart, not heard again, leaves i
   T.eq("no room is kept for it", persist:get("PresenceRooms", {})[MAC], nil)
 end)
 
+H.test("a device that left its room for home before a restart is in no room after it", function()
+  local belowKitchen = { ["Minimum Room RSSI (dBm)"] = "-75" }
+  H.boot(belowKitchen, keptInKitchen)
+  for proxy, room in pairs({ [KITCHEN] = { "11", "Kitchen" }, [LIVING_ROOM] = { "12", "Living Room" } }) do
+    OnBindingChanged(PROXIES, "ESPHOME_BLUETOOTH", true, proxy, 1)
+    H.rfp(PROXIES, "PROXY_CONNECTED", { proxyId = tostring(proxy), roomId = room[1], roomName = room[2] })
+  end
+  fired = {}
+  stay(3, -80, nil)
+  T.eq("below Minimum Room RSSI it leaves the Kitchen", fired, {
+    TAG .. " Left Room",
+    "Any Device Left Room",
+    "Kitchen [11] Empty",
+  })
+  T.eq("no room is kept for it", persist:get("PresenceRooms", {})[MAC], nil)
+
+  H.boot(belowKitchen, function()
+    package.loaded["esphome.ble.coordinator.presence_tracker"] = nil
+  end)
+  for proxy, room in pairs({ [KITCHEN] = { "11", "Kitchen" }, [LIVING_ROOM] = { "12", "Living Room" } }) do
+    OnBindingChanged(PROXIES, "ESPHOME_BLUETOOTH", true, proxy, 1)
+    H.rfp(PROXIES, "PROXY_CONNECTED", { proxyId = tostring(proxy), roomId = room[1], roomName = room[2] })
+  end
+  fired = {}
+  stay(3, -80, nil)
+  T.eq("after the restart, heard below it again, nothing fires", fired, {})
+end)
+
 H.test("a device home and a room occupied before a restart, with no room kept, read away and empty", function()
   H.boot(nil, function()
     persist:set("PresenceDevices", { [MAC] = { mac = MAC, name = "Test Tag" } })
@@ -428,6 +456,24 @@ H.test("a tag removed and added again while home starts away", function()
   tracker:untrackDevice(MAC)
   tracker:trackDevice(MAC, { mac = MAC, name = "Test Tag" })
   T.eq("its kept state is away", persist:get("PresenceStates").device_020000000001, "OPENED")
+end)
+
+-- Renames the Kitchen's events for the rest of the file, so it runs last before Reset Driver.
+H.test("a room a proxy reports under a new name after a restart takes it, with the device still in it", function()
+  H.boot(nil, keptInKitchen)
+  for proxy, room in pairs({ [KITCHEN] = { "11", "Pantry" }, [LIVING_ROOM] = { "12", "Living Room" } }) do
+    OnBindingChanged(PROXIES, "ESPHOME_BLUETOOTH", true, proxy, 1)
+    H.rfp(PROXIES, "PROXY_CONNECTED", { proxyId = tostring(proxy), roomId = room[1], roomName = room[2] })
+  end
+  fired = {}
+  H.clearSent()
+
+  stay(7, -50, -80)
+  T.eq("no event fires", fired, {})
+  T.eq("it is in the Pantry", H.variable("Presence " .. TAG .. " Room"), "Pantry")
+  T.eq("the Pantry counts it", H.variable("Pantry [11] Occupants"), "Test Tag")
+  T.eq("and reads occupied", H.variable("Pantry [11] Occupied"), "true")
+  T.eq("its room is kept under the new name", persist:get("PresenceRooms", {})[MAC].name, "Pantry")
 end)
 
 H.test("Reset Driver removes every room and forgets every presence state told", function()
