@@ -201,7 +201,7 @@ T.eq("and Ultra can be picked", log:getLogLevel(), log.LogLevel.ULTRA)
 output = anHourOn()
 T.eq("when the hour is up, Ultra goes back to Debug", Properties["Log Level"], "4 - Debug")
 T.eq("in the logger too", log:getLogLevel(), log.LogLevel.DEBUG)
-T.eq("and the list stops at Debug", lists[2], "Log Level: 0 - Fatal,1 - Error,2 - Warning,3 - Info,4 - Debug")
+T.eq("and the list stops at Debug", lists[#lists], "Log Level: 0 - Fatal,1 - Error,2 - Warning,3 - Info,4 - Debug")
 T.contains("and says so", output, "stops at Debug")
 enter(sc, "VEAFA-RSBWM")
 Properties["Log Level"] = "6 - Ultra"

@@ -8,6 +8,7 @@ require("drivers-common-public.global.lib")
 --- @field _logName string The name of the log.
 --- @field _logLevel LogLevel The current log level.
 --- @field _maxLogLevel LogLevel The highest level the build allows now.
+--- @field _offering boolean Whether the Log Level list is being sent now.
 --- @field _outputPrint boolean Whether to output logs to print.
 --- @field _outputC4Log boolean Whether to output logs to C4 log.
 --- @field _maxTableLevels integer The maximum depth for table rendering.
@@ -77,6 +78,7 @@ function Log:new()
   instance._logName = ""
   instance._logLevel = Log.LogLevel.INFO
   instance._maxLogLevel = DEFAULT_MAX_LOG_LEVEL
+  instance._offering = false
   instance._outputPrint = false
   instance._outputC4Log = false
   instance._maxTableLevels = 10
@@ -99,8 +101,8 @@ function Log:getLogName()
   return self._logName
 end
 
---- Sets the log level, no higher than the build allows, and puts the Log Level property back to the highest allowed
---- level when it shows more.
+--- Sets the log level, no higher than the build allows, puts the Log Level property back to the highest allowed
+--- level when it shows more, and fills the property's list with the levels allowed.
 --- @param level string|integer|nil The log level to set (e.g., 3 or "3 - Info" for INFO).
 function Log:setLogLevel(level)
   if type(level) == "string" then
@@ -112,6 +114,7 @@ function Log:setLogLevel(level)
   self._logLevel = math.max(self.LogLevel.PRINT, math.min(self._maxLogLevel, level))
   self:_setDumps()
   self:_capLogLevelProperty(false)
+  self:_offerLogLevels()
 end
 
 --- Gets the current log level.
@@ -121,8 +124,7 @@ function Log:getLogLevel()
 end
 
 --- Lets the level reach Trace and Ultra, or stops it at Debug, and gives the Log Level property's list the same
---- levels. A level above Debug goes back to Debug with OnPropertyChanged, so the driver's handler sees it. Control4
---- takes no list change during OnDriverInit, so call it only after.
+--- levels. A level above Debug goes back to Debug with OnPropertyChanged, so the driver's handler sees it.
 --- @param allowed boolean Whether Trace and Ultra are allowed.
 function Log:allowTraceAndUltra(allowed)
   self._maxLogLevel = allowed and self.LogLevel.ULTRA or self.LogLevel.DEBUG
@@ -130,9 +132,17 @@ function Log:allowTraceAndUltra(allowed)
   self:_setDumps()
   -- The value first, so the shorter list never lacks it.
   self:_capLogLevelProperty(true)
-  if type(Properties) == "table" and Properties[LOG_LEVEL_PROPERTY] ~= nil then
-    C4:UpdatePropertyList(LOG_LEVEL_PROPERTY, table.concat(self:_logLevelNames(), ","), Properties[LOG_LEVEL_PROPERTY])
+  self:_offerLogLevels()
+end
+
+--- The Log Level property's values the build allows now, from `0 - Fatal` up, for a page that offers them.
+--- @return string[] names
+function Log:getLogLevelNames()
+  local names = {}
+  for level = self.LogLevel.FATAL, self._maxLogLevel do
+    names[#names + 1] = self.LevelToName[level]
   end
+  return names
 end
 
 --- Sets the log output mode.
@@ -187,15 +197,17 @@ function Log:_setDumps()
   DEBUGPRINT, DEBUG_TIMER, DEBUG_RFN, DEBUG_URL, DEBUG_WEBSOCKET = on, on, on, on, on
 end
 
---- The Log Level property's values allowed now, from `0 - Fatal` up.
+--- Fills the Log Level property's list with the levels allowed now. The property is a DYNAMIC_LIST, so it shows no
+--- list until this sends one.
 --- @private
---- @return string[] names
-function Log:_logLevelNames()
-  local names = {}
-  for level = self.LogLevel.FATAL, self._maxLogLevel do
-    names[#names + 1] = self.LevelToName[level]
+function Log:_offerLogLevels()
+  if self._offering or type(Properties) ~= "table" or Properties[LOG_LEVEL_PROPERTY] == nil then
+    return
   end
-  return names
+  -- Every set offers the list, so a Director that raised OnPropertyChanged for its selected value would loop.
+  self._offering = true
+  C4:UpdatePropertyList(LOG_LEVEL_PROPERTY, table.concat(self:getLogLevelNames(), ","), Properties[LOG_LEVEL_PROPERTY])
+  self._offering = false
 end
 
 --- Puts the Log Level property back to the highest allowed level when it shows more.

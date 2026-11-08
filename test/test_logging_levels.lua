@@ -22,12 +22,15 @@ local function dumps()
   return on
 end
 
-local lists, handled = {}, {}
+local lists, handled, unlisted = {}, {}, {}
 function C4:UpdateProperty(name, value)
   Properties[name] = value
 end
 function C4:UpdatePropertyList(name, list, value)
   lists[#lists + 1] = { name = name, list = list, value = value }
+  if not ("," .. list .. ","):find("," .. value .. ",", 1, true) then
+    unlisted[#unlisted + 1] = value .. " sent with " .. list
+  end
 end
 function OPC.Log_Level(propertyValue)
   handled[#handled + 1] = propertyValue
@@ -43,16 +46,29 @@ local function pick(value)
   OnPropertyChanged("Log Level")
 end
 
+--- The list the property shows now: the last one sent.
+local function offered()
+  return lists[#lists]
+end
+
 local ALL = "0 - Fatal,1 - Error,2 - Warning,3 - Info,4 - Debug,5 - Trace,6 - Ultra"
 local TO_DEBUG = "0 - Fatal,1 - Error,2 - Warning,3 - Info,4 - Debug"
 
 T.section("The open-source build allows every level")
+Properties["Log Level"] = "3 - Info"
+log:setLogLevel(Properties["Log Level"])
+T.eq(
+  "the list, which driver.xml leaves empty, is filled at load",
+  offered(),
+  { name = "Log Level", list = ALL, value = "3 - Info" }
+)
 log:setLogMode("Print")
 pick("6 - Ultra")
 T.eq("Ultra is Ultra", log:getLogLevel(), log.LogLevel.ULTRA)
 T.eq("the property is left as picked", Properties["Log Level"], "6 - Ultra")
 T.eq("the dumps are on at Ultra with Print", dumps(), ALL_ON)
-T.eq("the list is left as driver.xml has it", lists, {})
+T.eq("the list still offers every level", offered().list, ALL)
+T.eq("and so do the names", table.concat(log:getLogLevelNames(), ","), ALL)
 pick("5 - Trace")
 T.eq("the dumps are off at Trace", dumps(), ALL_OFF)
 pick("6 - Ultra")
@@ -68,24 +84,24 @@ T.eq("Ultra becomes Debug", log:getLogLevel(), log.LogLevel.DEBUG)
 T.eq("the dumps go off", dumps(), ALL_OFF)
 T.eq("the property is put back to Debug", Properties["Log Level"], "4 - Debug")
 T.eq("and the driver's handler sees it", handled, { "4 - Debug" })
-T.eq("the list stops at Debug", lists, { { name = "Log Level", list = TO_DEBUG, value = "4 - Debug" } })
+T.eq("the list stops at Debug", offered(), { name = "Log Level", list = TO_DEBUG, value = "4 - Debug" })
+T.eq("and so do the names", table.concat(log:getLogLevelNames(), ","), TO_DEBUG)
 
-lists = {}
 pick("6 - Ultra")
 T.eq("Ultra set from programming is Debug", log:getLogLevel(), log.LogLevel.DEBUG)
 T.eq("and is put back to Debug", Properties["Log Level"], "4 - Debug")
 T.eq("with the dumps off", dumps(), ALL_OFF)
+T.eq("and a list that stops at Debug", offered(), { name = "Log Level", list = TO_DEBUG, value = "4 - Debug" })
 pick("5 - Trace")
 T.eq("as is Trace", Properties["Log Level"], "4 - Debug")
-T.eq("and the list is not sent again", lists, {})
 
-handled = {}
+handled, lists = {}, {}
 Properties["Log Level"] = "6 - Ultra"
 log:setLogLevel(Properties["Log Level"])
 T.eq("a stored Ultra restored in OnDriverInit is Debug", log:getLogLevel(), log.LogLevel.DEBUG)
 T.eq("and is put back to Debug", Properties["Log Level"], "4 - Debug")
 T.eq("without running the handler", handled, {})
-T.eq("or touching the list, which Control4 takes no change to then", lists, {})
+T.eq("and the list it gets stops at Debug", offered(), { name = "Log Level", list = TO_DEBUG, value = "4 - Debug" })
 
 pick("2 - Warning")
 T.eq("a level up to Debug is taken", log:getLogLevel(), log.LogLevel.WARN)
@@ -96,22 +112,23 @@ T.eq("and leaves a property that shows no more than Debug", Properties["Log Leve
 pick("2 - Warning")
 
 T.section("Allowing Trace and Ultra, as the Support Code does")
-lists, handled = {}, {}
+handled = {}
 log:allowTraceAndUltra(true)
-T.eq("the list reaches Ultra and keeps the value", lists, { { name = "Log Level", list = ALL, value = "2 - Warning" } })
+T.eq("the list reaches Ultra and keeps the value", offered(), { name = "Log Level", list = ALL, value = "2 - Warning" })
 T.eq("the level is left as it was", log:getLogLevel(), log.LogLevel.WARN)
 T.eq("and the handler does not run", handled, {})
 pick("6 - Ultra")
 T.eq("Ultra can be picked", log:getLogLevel(), log.LogLevel.ULTRA)
 T.eq("and turns the dumps on", dumps(), ALL_ON)
+T.eq("with the list still reaching Ultra", offered().list, ALL)
 
-lists, handled = {}, {}
+handled = {}
 log:allowTraceAndUltra(false)
 T.eq("closing it brings Ultra back to Debug", log:getLogLevel(), log.LogLevel.DEBUG)
 T.eq("turns the dumps off", dumps(), ALL_OFF)
 T.eq("puts the property back", Properties["Log Level"], "4 - Debug")
 T.eq("and tells the handler", handled, { "4 - Debug" })
-T.eq("and stops the list at Debug", lists, { { name = "Log Level", list = TO_DEBUG, value = "4 - Debug" } })
+T.eq("and stops the list at Debug", offered(), { name = "Log Level", list = TO_DEBUG, value = "4 - Debug" })
 
 log:allowTraceAndUltra(true)
 pick("3 - Info")
@@ -124,6 +141,8 @@ T.eq("with the dumps off", dumps(), ALL_OFF)
 T.eq("leaving a property that showed Info", Properties["Log Level"], "3 - Info")
 T.eq("and the handler alone", handled, {})
 
+T.eq("every list sent holds the value it selects", unlisted, {})
+
 T.section("No loop when Director raises OnPropertyChanged for the driver's own writes")
 function C4:UpdateProperty(name, value)
   Properties[name] = value
@@ -134,6 +153,7 @@ function C4:UpdatePropertyList(name, list, value)
   Properties[name] = value
   OnPropertyChanged(name)
 end
+handled = {}
 local ok, err = pcall(function()
   log:allowTraceAndUltra(true)
   pick("6 - Ultra")
@@ -141,12 +161,16 @@ local ok, err = pcall(function()
   pick("6 - Ultra")
 end)
 T.check("it settles", ok, err)
+T.truthy("within a few runs of the handler", #handled < 20, #handled)
 T.eq("at Debug", Properties["Log Level"], "4 - Debug")
 T.eq("with the logger at Debug", log:getLogLevel(), log.LogLevel.DEBUG)
 
 T.section("A driver with no Log Level property")
 function C4:UpdateProperty(name, value)
   Properties[name] = value
+end
+function C4:UpdatePropertyList(name, list, value)
+  lists[#lists + 1] = { name = name, list = list, value = value }
 end
 lists = {}
 Properties["Log Level"] = nil

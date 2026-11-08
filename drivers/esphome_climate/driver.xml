@@ -60,19 +60,8 @@
       </property>
       <property>
         <name>Log Level</name>
-        <type>LIST</type>
+        <type>DYNAMIC_LIST</type>
         <default>3 - Info</default>
-        <items>
-          <item>0 - Fatal</item>
-          <item>1 - Error</item>
-          <item>2 - Warning</item>
-          <item>3 - Info</item>
-          <item>4 - Debug</item>
-          <!-- #ifdef OSS -->
-          <item>5 - Trace</item>
-          <item>6 - Ultra</item>
-          <!-- #endif -->
-        </items>
       </property>
       <property>
         <name>Log Mode</name>
