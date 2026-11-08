@@ -1157,8 +1157,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   its room across a restart
 - Fixed the SwitchBot Contact Sensor telling its contact connection Closed while
   the door was open, and reading a door left open a long time as closed; an item
-  bound to it now shows the door's real state, the reverse of what it showed
-  before
+  bound to it now shows the door's real state, corrected at its first reading
+  after the update without running its programming
 
 ### Changed
 

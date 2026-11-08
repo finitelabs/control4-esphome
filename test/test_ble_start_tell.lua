@@ -128,6 +128,19 @@ H.test("a SwitchBot contact tells an open door OPENED, however long it is open, 
   T.eq("closed again: CLOSED", toldTo("SwitchBot", "contact_contact"), { "CLOSED" })
 end)
 
+H.test("after the update, a SwitchBot contact told the reverse before is corrected silently", function()
+  H.boot({ ["MAC Address"] = MAC }, function()
+    -- An earlier build told a shut door OPENED.
+    persist:set("RelayContactStates", { contact = "OPENED" })
+    require("lib.values"):delete("Device Type")
+  end)
+  advertise("FD3D", CONTACT_CLOSED)
+  T.eq("the shut door is told CLOSED, silently", toldTo("SwitchBot", "contact_contact"), { "STATE_CLOSED" })
+  H.clearSent()
+  advertise("FD3D", CONTACT_OPEN)
+  T.eq("and its next change as one", toldTo("SwitchBot", "contact_contact"), { "OPENED" })
+end)
+
 H.test("after a restart, a SwitchBot contact's unchanged state fires nothing", function()
   H.boot({ ["MAC Address"] = MAC }, function()
     persist:delete("RelayContactStates")

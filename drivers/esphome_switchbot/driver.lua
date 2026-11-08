@@ -175,14 +175,16 @@ local SENSOR_BINDINGS = {
   [SENSOR_TYPE.HUMIDITY] = { bindingClass = "HUMIDITY_VALUE", scale = "PERCENT", displayName = "Humidity" },
 }
 
---- Contact sensor binding configurations: the state told while the sensor is active
---- (motion seen, door open, leak or tamper found) and while it is not
---- @type table<ContactType, {active: string, inactive: string, displayName: string}?>
+--- Contact sensor binding configurations, shaped like BTHome's: openEvent is told while the
+--- sensor is active (motion seen, door open, leak or tamper found), closedEvent while it is not.
+--- toldKey, where set, is the key its told state is kept under instead of its type.
+--- @type table<ContactType, {openEvent: string, closedEvent: string, displayName: string, toldKey: string?}?>
 local CONTACT_BINDINGS = {
-  [CONTACT_TYPE.MOTION] = { active = "CLOSED", inactive = "OPENED", displayName = "Motion" },
-  [CONTACT_TYPE.CONTACT] = { active = "OPENED", inactive = "CLOSED", displayName = "Contact" },
-  [CONTACT_TYPE.LEAK] = { active = "OPENED", inactive = "CLOSED", displayName = "Leak" },
-  [CONTACT_TYPE.TAMPER] = { active = "OPENED", inactive = "CLOSED", displayName = "Tamper" },
+  [CONTACT_TYPE.MOTION] = { openEvent = "CLOSED", closedEvent = "OPENED", displayName = "Motion" },
+  -- States kept under "contact" were told reversed; a first state under a new key goes out silently.
+  [CONTACT_TYPE.CONTACT] = { openEvent = "OPENED", closedEvent = "CLOSED", displayName = "Contact", toldKey = "door" },
+  [CONTACT_TYPE.LEAK] = { openEvent = "OPENED", closedEvent = "CLOSED", displayName = "Leak" },
+  [CONTACT_TYPE.TAMPER] = { openEvent = "OPENED", closedEvent = "CLOSED", displayName = "Tamper" },
 }
 
 --- SwitchBot Cloud API configuration
@@ -963,9 +965,9 @@ local function sendContactState(contactType, isActive)
     return
   end
 
-  local event = isActive and config.active or config.inactive
+  local event = isActive and config.openEvent or config.closedEvent
   log:debug("Telling %s to contact binding %s", event, binding.bindingId)
-  told:tell(contactType, binding.bindingId, event)
+  told:tell(config.toldKey or contactType, binding.bindingId, event)
 end
 
 --- Forget what was told this load, so the next reading is told again (ESPHome rebind).
