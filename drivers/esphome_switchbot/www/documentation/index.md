@@ -445,6 +445,9 @@ Door/window contact sensor with physical button.
 
 **Bindings:** CONTACT_SENSOR, BUTTON_LINK (for physical button)
 
+The CONTACT_SENSOR connection reads Opened while the door is open, including
+when it has been left open a long time, and Closed while it is shut.
+
 **Events:**
 
 - Contact Opened - Contact was opened

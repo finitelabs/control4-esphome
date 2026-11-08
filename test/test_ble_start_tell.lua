@@ -105,6 +105,42 @@ H.test("after a restart, a SwitchBot Bot's unchanged state fires nothing", funct
   T.eq("one that changed while the driver was down is told as a change", toldTo("SwitchBot", "botRelay"), { "CLOSED" })
 end)
 
+H.test("a SwitchBot contact tells an open door OPENED, however long it is open, and a closed one CLOSED", function()
+  H.boot({ ["MAC Address"] = MAC }, function()
+    persist:delete("RelayContactStates")
+    require("lib.values"):delete("Device Type")
+  end)
+  advertise("FD3D", CONTACT_CLOSED)
+  T.eq("closed, first heard: CLOSED, silently", toldTo("SwitchBot", "contact_contact"), { "STATE_CLOSED" })
+  T.eq("its Contact reads Closed", H.variable("Contact"), "Closed")
+  H.clearSent()
+  advertise("FD3D", CONTACT_OPEN)
+  T.eq("opened: OPENED", toldTo("SwitchBot", "contact_contact"), { "OPENED" })
+  T.eq("its Contact reads Open", H.variable("Contact"), "Open")
+  H.clearSent()
+  -- SwitchBot's spec gives open too long as 2 in bits 1-2; some decoders read it as 3. Both are open.
+  for _, data in ipairs({ "\100\0\100\4", "\100\0\100\6" }) do
+    advertise("FD3D", data)
+    T.eq("open too long (" .. data:byte(4) .. ") tells nothing more", toldTo("SwitchBot", "contact_contact"), {})
+    T.eq("and its Contact still reads Open", H.variable("Contact"), "Open")
+  end
+  advertise("FD3D", CONTACT_CLOSED)
+  T.eq("closed again: CLOSED", toldTo("SwitchBot", "contact_contact"), { "CLOSED" })
+end)
+
+H.test("after the update, a SwitchBot contact told the reverse before is corrected silently", function()
+  H.boot({ ["MAC Address"] = MAC }, function()
+    -- An earlier build told a shut door OPENED.
+    persist:set("RelayContactStates", { contact = "OPENED" })
+    require("lib.values"):delete("Device Type")
+  end)
+  advertise("FD3D", CONTACT_CLOSED)
+  T.eq("the shut door is told CLOSED, silently", toldTo("SwitchBot", "contact_contact"), { "STATE_CLOSED" })
+  H.clearSent()
+  advertise("FD3D", CONTACT_OPEN)
+  T.eq("and its next change as one", toldTo("SwitchBot", "contact_contact"), { "OPENED" })
+end)
+
 H.test("after a restart, a SwitchBot contact's unchanged state fires nothing", function()
   H.boot({ ["MAC Address"] = MAC }, function()
     persist:delete("RelayContactStates")
