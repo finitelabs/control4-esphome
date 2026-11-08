@@ -393,6 +393,17 @@ function PresenceTracker:_ensureRoomSetup(roomId, roomName)
 
   self._roomNames[roomId] = roomName
   self._keptRoomNames[roomId] = nil
+
+  -- Devices restored into this room from before a restart take the name a proxy reports for it now
+  for occupantMac in pairs(self._roomOccupancy[roomId]) do
+    local occupant = self._deviceState[occupantMac]
+    local config = self._presenceDevices[occupantMac]
+    if occupant and config and occupant.roomId == roomId and occupant.room ~= roomName then
+      occupant.room = roomName
+      keepRoom(occupantMac, roomId, roomName)
+      values:update("Presence " .. makeUniqueName(config.name, occupantMac) .. " Room", roomName, "STRING")
+    end
+  end
   if next(self._roomOccupancy[roomId]) ~= nil then
     self:_showRoomOccupancy(roomId)
   end
@@ -574,12 +585,7 @@ function PresenceTracker:_processRoomCandidate(mac, candidateRoom, candidateRoom
   -- Same room - reset any pending transition
   if candidateRoomId == currentRoomId then
     state.pendingTransition = nil
-    local roomName = currentRoomId and self._roomNames[currentRoomId]
-    if roomName and roomName ~= currentRoom then
-      state.room = roomName
-      keepRoom(mac, currentRoomId, roomName)
-    end
-    return state.room, currentRoomId
+    return currentRoom, currentRoomId
   end
 
   -- No candidate room

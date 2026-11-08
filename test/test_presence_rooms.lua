@@ -458,6 +458,41 @@ H.test("a tag removed and added again while home starts away", function()
   T.eq("its kept state is away", persist:get("PresenceStates").device_020000000001, "OPENED")
 end)
 
+H.test("a room renamed while the driver runs: a device entering it keeps the name the proxy gives", function()
+  H.boot(nil, function()
+    persist:set("PresenceDevices", { [MAC] = { mac = MAC, name = "Test Tag" } })
+    persist:delete("PresenceStates")
+    persist:delete("PresenceRooms")
+    package.loaded["esphome.ble.coordinator.presence_tracker"] = nil
+  end)
+  for proxy, room in pairs({ [KITCHEN] = { "11", "Kitchen" }, [LIVING_ROOM] = { "12", "Living Room" } }) do
+    OnBindingChanged(PROXIES, "ESPHOME_BLUETOOTH", true, proxy, 1)
+    H.rfp(PROXIES, "PROXY_CONNECTED", { proxyId = tostring(proxy), roomId = room[1], roomName = room[2] })
+  end
+  stay(7, -80, -50)
+  T.eq("it is in the Living Room", H.variable("Presence " .. TAG .. " Room"), "Living Room")
+
+  H.rfp(PROXIES, "PROXY_CONNECTED", { proxyId = tostring(KITCHEN), roomId = "11", roomName = "Pantry" })
+  local rooms = {}
+  local ok, err = pcall(function()
+    countChanges()
+    stay(12, -50, -80)
+  end)
+  for _, name in ipairs(counted()) do
+    if name == "Presence " .. TAG .. " Room" then
+      table.insert(rooms, H.variable(name))
+    end
+  end
+  assert(ok, err)
+  T.eq(
+    "it moves to the Pantry, and its Room reads Pantry from then on",
+    H.variable("Presence " .. TAG .. " Room"),
+    "Pantry"
+  )
+  T.eq("its Room changes once", #rooms, 1)
+  T.eq("its room is kept as the Pantry", persist:get("PresenceRooms", {})[MAC].name, "Pantry")
+end)
+
 -- Renames the Kitchen's events for the rest of the file, so it runs last before Reset Driver.
 H.test("a room a proxy reports under a new name after a restart takes it, with the device still in it", function()
   H.boot(nil, keptInKitchen)
