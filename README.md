@@ -460,7 +460,8 @@ the current version.
 Resets the driver to its initial state, removing all dynamically created
 connections, variables and events. It forgets each button's LED light and the
 Bluetooth proxy's restart button, and returns the settings to their defaults.
-The device's address and login stay. This is useful if you change the connected
+The device's address and login stay. The update settings stay as they are too,
+since every ESPHome item shares them. This is useful if you change the connected
 ESPHome device or there are stale connections or variables.
 
 **Parameters:**
@@ -1120,6 +1121,41 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Coordinator was removed
 - Fixed a Yale lock in Poll mode with no Offline Key connecting to the lock at
   every poll; it now waits for a key and shows Error: Offline key required
+- Fixed Bluetooth sub-drivers still showing connected, and the Bluetooth
+  Coordinator still routing through a proxy, after the ESPHome device acting as
+  the Bluetooth proxy went offline; they now show disconnected until it is back
+- Fixed a Bluetooth sub-driver that controls its device losing the device's
+  Bluetooth services, and starting its connection over, whenever another driver
+  bound to the same ESPHome device loaded or asked for its state
+- Fixed Bluetooth sub-drivers showing Waiting for data after a driver update
+  until their device next advertised; the ESPHome driver and the Bluetooth
+  Coordinator now answer their request for state
+- Fixed the Govee, BTHome and SwitchBot drivers hiding their readings in
+  Composer after a driver start until the device next reported them; the last
+  readings now show at once
+- Fixed the SwitchBot driver's Encryption Status putting Lua file and line
+  details in front of the reason when fetching its keys from the SwitchBot cloud
+  failed; it now shows the reason alone
+- Fixed the Bluetooth Coordinator's RSSI Freshness setting having no effect:
+  picking a proxy for a device always counted readings up to 60 seconds old; it
+  now counts only readings within the setting
+- Fixed an ESPHome text, select, date, time or datetime variable set from
+  programming before the device first reported its value doing nothing; the
+  variable is there, blank, from the start. A number or switch variable kept
+  from before a driver start now takes a value at once too, instead of only
+  after the device reports again
+- Fixed a relay bound to an ESPHome cover's Open, Close or Stop connection
+  showing its state as unconfirmed after a controller restart; it is told again
+  that it reads open, without running its programming
+- Fixed Composer showing the Yale Offline Key, the BTHome Bind Key, the ESPHome
+  lock driver's Lock Code and the SwitchBot Key ID and Encryption Key in plain
+  text; it now hides them. A BTHome Bind Key that isn't 32 hex characters is
+  cleared and Driver Status says why
+
+### Changed
+
+- Changed Reset Driver on the ESPHome driver to leave Automatic Updates and
+  Update Channel as they are
 
 ## v20261106 - 2026-11-06
 

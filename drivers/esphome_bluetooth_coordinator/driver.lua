@@ -63,7 +63,6 @@ local PERSIST_PRESENCE_DEVICES = "PresenceDevices"
 -- State
 --------------------------------------------------------------------------------
 
-local initialized = false
 --- @type table<string, DeviceInfo>
 local selectedDevices = {} -- MAC -> DeviceInfo for selected devices
 --- @type C4LuaTimer|nil
@@ -122,6 +121,127 @@ end
 --------------------------------------------------------------------------------
 -- Device Binding Management
 --------------------------------------------------------------------------------
+
+--- Handle child driver binding changes
+--- @param mac string MAC address
+--- @param bindingId integer Binding ID
+--- @param bIsBound boolean Whether bound
+local function onDeviceBindingChanged(mac, bindingId, bIsBound)
+  log:debug("Device binding changed: %s, bound=%s", mac, bIsBound)
+
+  local device = deviceRegistry:getDevice(mac)
+  if not device then
+    return
+  end
+
+  if bIsBound then
+    -- Child driver bound - start forwarding advertisements
+    if device.passive then
+      -- For passive devices, just send CONNECTED_PASSIVE
+      SendToProxy(bindingId, "CONNECTED_PASSIVE", {
+        name = device.name or "",
+        mac = mac,
+        deviceType = device.deviceType or "",
+      }, "NOTIFY")
+    end
+    -- Active devices will initiate connection via CONNECT command
+  else
+    -- Child driver unbound - stop tracking
+    router:disconnect(mac)
+  end
+end
+
+--- Handle commands from child drivers
+--- @param mac string MAC address
+--- @param bindingId integer Binding ID
+--- @param strCommand string Command name
+--- @param tParams table Command parameters
+local function handleDeviceCommand(mac, bindingId, strCommand, tParams)
+  log:trace("handleDeviceCommand(%s, %s, %s, %s)", mac, bindingId, strCommand, tParams)
+
+  local device = deviceRegistry:getDevice(mac)
+  if not device then
+    log:error("Device not found: %s", mac)
+    return
+  end
+
+  if strCommand == "CONNECT" then
+    -- Use router for failover-enabled connection
+    router:connectWithFailover(mac, 3, nil, function(success, result)
+      if success then
+        SendToProxy(bindingId, "CONNECTED", {
+          name = device.name or "",
+          mac = mac,
+          deviceType = device.deviceType or "",
+          services = SerializeSafe(result.services),
+        }, "NOTIFY")
+      else
+        SendToProxy(bindingId, "CONNECTION_FAILED", {
+          name = device.name or "",
+          mac = mac,
+          deviceType = device.deviceType or "",
+          error = tostring(result or "Connection failed"),
+        }, "NOTIFY")
+      end
+    end)
+  elseif strCommand == "REFRESH_STATE" then
+    onDeviceBindingChanged(mac, bindingId, true)
+  elseif strCommand == "DISCONNECT" then
+    router:disconnect(mac)
+    SendToProxy(bindingId, "DISCONNECTED", {
+      mac = mac,
+      reason = "Requested",
+    }, "NOTIFY")
+  elseif strCommand == "GATT_WRITE" then
+    local handle = tointeger(Select(tParams, "handle"))
+    if not handle then
+      log:warn("GATT_WRITE missing or invalid handle for %s", mac)
+      return
+    end
+    local data = C4:Base64Decode(Select(tParams, "data") or "")
+    local needResponse = Select(tParams, "response") == "true"
+
+    router:gattWrite(mac, handle, data, needResponse, function(success, err)
+      SendToProxy(bindingId, "GATT_WRITE_RESPONSE", {
+        success = success and "true" or "false",
+        error = err and tostring(err) or "0",
+      }, "NOTIFY")
+    end)
+  elseif strCommand == "GATT_READ" then
+    local handle = tointeger(Select(tParams, "handle"))
+    if not handle then
+      log:warn("GATT_READ missing or invalid handle for %s", mac)
+      return
+    end
+
+    router:gattRead(mac, handle, function(success, data, err)
+      SendToProxy(bindingId, "GATT_READ_RESPONSE", {
+        data = data and C4:Base64Encode(data) or "",
+        error = (success and "0") or (err and tostring(err)) or "-1",
+      }, "NOTIFY")
+    end)
+  elseif strCommand == "GATT_NOTIFY" then
+    local handle = tointeger(Select(tParams, "handle"))
+    if not handle then
+      log:warn("GATT_NOTIFY missing or invalid handle for %s", mac)
+      return
+    end
+    local enable = Select(tParams, "enable") == "true"
+
+    router:gattNotify(mac, handle, enable, function(data)
+      SendToProxy(bindingId, "GATT_NOTIFY_DATA", {
+        handle = tostring(handle),
+        data = C4:Base64Encode(data or ""),
+      }, "NOTIFY")
+    end, function(success, err)
+      SendToProxy(bindingId, "GATT_NOTIFY_SUBSCRIBED", {
+        handle = tostring(handle),
+        success = success and "true" or "false",
+        error = err and tostring(err) or "",
+      }, "NOTIFY")
+    end)
+  end
+end
 
 --- Create a dynamic binding for a BLE device
 --- @param device DeviceInfo The device to create a binding for
@@ -184,125 +304,6 @@ local function removeDeviceBinding(mac)
   end
 end
 
---- Handle commands from child drivers
---- @param mac string MAC address
---- @param bindingId integer Binding ID
---- @param strCommand string Command name
---- @param tParams table Command parameters
-function handleDeviceCommand(mac, bindingId, strCommand, tParams)
-  log:trace("handleDeviceCommand(%s, %s, %s, %s)", mac, bindingId, strCommand, tParams)
-
-  local device = deviceRegistry:getDevice(mac)
-  if not device then
-    log:error("Device not found: %s", mac)
-    return
-  end
-
-  if strCommand == "CONNECT" then
-    -- Use router for failover-enabled connection
-    router:connectWithFailover(mac, 3, nil, function(success, result)
-      if success then
-        SendToProxy(bindingId, "CONNECTED", {
-          name = device.name or "",
-          mac = mac,
-          deviceType = device.deviceType or "",
-          services = SerializeSafe(result.services),
-        }, "NOTIFY")
-      else
-        SendToProxy(bindingId, "CONNECTION_FAILED", {
-          name = device.name or "",
-          mac = mac,
-          deviceType = device.deviceType or "",
-          error = tostring(result or "Connection failed"),
-        }, "NOTIFY")
-      end
-    end)
-  elseif strCommand == "DISCONNECT" then
-    router:disconnect(mac)
-    SendToProxy(bindingId, "DISCONNECTED", {
-      mac = mac,
-      reason = "Requested",
-    }, "NOTIFY")
-  elseif strCommand == "GATT_WRITE" then
-    local handle = tointeger(Select(tParams, "handle"))
-    if not handle then
-      log:warn("GATT_WRITE missing or invalid handle for %s", mac)
-      return
-    end
-    local data = C4:Base64Decode(Select(tParams, "data") or "")
-    local needResponse = Select(tParams, "response") == "true"
-
-    router:gattWrite(mac, handle, data, needResponse, function(success, err)
-      SendToProxy(bindingId, "GATT_WRITE_RESPONSE", {
-        success = success and "true" or "false",
-        error = err and tostring(err) or "0",
-      }, "NOTIFY")
-    end)
-  elseif strCommand == "GATT_READ" then
-    local handle = tointeger(Select(tParams, "handle"))
-    if not handle then
-      log:warn("GATT_READ missing or invalid handle for %s", mac)
-      return
-    end
-
-    router:gattRead(mac, handle, function(success, data, err)
-      SendToProxy(bindingId, "GATT_READ_RESPONSE", {
-        data = data and C4:Base64Encode(data) or "",
-        error = (success and "0") or (err and tostring(err)) or "-1",
-      }, "NOTIFY")
-    end)
-  elseif strCommand == "GATT_NOTIFY" then
-    local handle = tointeger(Select(tParams, "handle"))
-    if not handle then
-      log:warn("GATT_NOTIFY missing or invalid handle for %s", mac)
-      return
-    end
-    local enable = Select(tParams, "enable") == "true"
-
-    router:gattNotify(mac, handle, enable, function(data)
-      SendToProxy(bindingId, "GATT_NOTIFY_DATA", {
-        handle = tostring(handle),
-        data = C4:Base64Encode(data or ""),
-      }, "NOTIFY")
-    end, function(success, err)
-      SendToProxy(bindingId, "GATT_NOTIFY_SUBSCRIBED", {
-        handle = tostring(handle),
-        success = success and "true" or "false",
-        error = err and tostring(err) or "",
-      }, "NOTIFY")
-    end)
-  end
-end
-
---- Handle child driver binding changes
---- @param mac string MAC address
---- @param bindingId integer Binding ID
---- @param bIsBound boolean Whether bound
-function onDeviceBindingChanged(mac, bindingId, bIsBound)
-  log:debug("Device binding changed: %s, bound=%s", mac, bIsBound)
-
-  local device = deviceRegistry:getDevice(mac)
-  if not device then
-    return
-  end
-
-  if bIsBound then
-    -- Child driver bound - start forwarding advertisements
-    if device.passive then
-      -- For passive devices, just send CONNECTED_PASSIVE
-      SendToProxy(bindingId, "CONNECTED_PASSIVE", {
-        name = device.name or "",
-        mac = mac,
-        deviceType = device.deviceType or "",
-      }, "NOTIFY")
-    end
-    -- Active devices will initiate connection via CONNECT command
-  else
-    -- Child driver unbound - stop tracking
-    router:disconnect(mac)
-  end
-end
-
 --------------------------------------------------------------------------------
 -- Proxy Message Handlers
 --------------------------------------------------------------------------------
@@ -321,6 +322,9 @@ local function handleProxyMessage(proxyDeviceId, strCommand, tParams)
     updateStatusProperties()
     -- Send current filter to newly connected proxy
     broadcastAdvertisementFilter()
+  elseif strCommand == "PROXY_DISCONNECTED" then
+    proxyRegistry:onProxyLost(proxyDeviceId)
+    updateStatusProperties()
   elseif strCommand == "CONNECTION_STATE" then
     proxyRegistry:onConnectionState(proxyDeviceId, tParams)
   elseif strCommand == "BLE_ADVERTISEMENT" then
@@ -476,12 +480,14 @@ end
 
 --- Handle proxy disconnect cleanup
 --- @param proxy ProxyInfo The disconnected proxy
-local function onProxyDisconnected(proxy)
-  log:trace("onProxyDisconnected(%s)", proxy)
+--- @param unbound boolean The proxy was unbound
+local function onProxyDisconnected(proxy, unbound)
+  log:trace("onProxyDisconnected(%s, %s)", proxy, unbound)
   log:info("Cleaning up state for disconnected proxy (device %d)", proxy.deviceId or 0)
 
-  -- Remove the scanner node
-  removeProxyScannerNode(proxy.deviceId)
+  if unbound then
+    removeProxyScannerNode(proxy.deviceId)
+  end
 
   -- Clear RSSI data from device registry for this proxy
   deviceRegistry:clearProxyRSSI(proxy.deviceId)
@@ -490,15 +496,20 @@ local function onProxyDisconnected(proxy)
   presenceTracker:clearProxyRSSI(proxy.deviceId)
 
   -- Cancel any pending GATT operations that were using this proxy
-  router:onProxyDisconnected(proxy.deviceId)
+  for _, mac in ipairs(router:onProxyDisconnected(proxy.deviceId)) do
+    local device = deviceRegistry:getDevice(mac)
+    if device and device.bindingId then
+      SendToProxy(device.bindingId, "DISCONNECTED", { mac = mac, reason = "Bluetooth proxy disconnected" }, "NOTIFY")
+    end
+  end
 end
 
 local function setupProxyBindings()
   log:trace("setupProxyBindings()")
   -- Register for proxy change callbacks
   proxyRegistry:onProxyChange("driver", function(event, proxyInfo)
-    if event == "disconnected" then
-      onProxyDisconnected(proxyInfo)
+    if event == "disconnected" or event == "lost" then
+      onProxyDisconnected(proxyInfo, event == "disconnected")
     elseif event == "updated" then
       -- Proxy room may have changed - recalculate presence for all tracked devices
       presenceTracker:onProxyUpdated(proxyInfo.deviceId)
@@ -682,6 +693,8 @@ function OnDriverInit()
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
 
+  gInitialized = false
+
   -- Restore persisted state
   values:restoreValues()
   bindings:restoreBindings()
@@ -692,7 +705,7 @@ function OnDriverLateInit()
   if not CheckMinimumVersion("Driver Status") then
     return
   end
-  if initialized then
+  if gInitialized then
     return
   end
 
@@ -719,7 +732,7 @@ function OnDriverLateInit()
   updateStatus("Running", true)
 
   -- Fire OnPropertyChanged for all properties to initialize OPC handlers
-  -- This runs while initialized=false, so handlers that check initialized will skip
+  -- This runs while gInitialized is false, so handlers that check it will skip
   -- But config handlers (scan duration, presence settings) will run since they check object existence
   for p, _ in pairs(Properties) do
     local status, err = pcall(OnPropertyChanged, p)
@@ -728,7 +741,7 @@ function OnDriverLateInit()
     end
   end
 
-  initialized = true
+  gInitialized = true
   log:info("Bluetooth Coordinator initialized")
 
   --#ifdef DRIVERCENTRAL
@@ -762,7 +775,7 @@ end
 --#ifdef DRIVERCENTRAL
 function OPC.Automatic_Updates(propertyValue)
   log:trace("OPC.Automatic_Updates('%s')", propertyValue)
-  if initialized then
+  if gInitialized then
     updateSettings:share("Automatic Updates", propertyValue)
   end
 end
@@ -826,7 +839,7 @@ end
 
 function OPC.Select_Bluetooth_Devices(propertyValue)
   log:trace("OPC.Select_Bluetooth_Devices(%s)", propertyValue)
-  if not initialized or not bleScannerProperties then
+  if not gInitialized or not bleScannerProperties then
     return
   end
   bleScannerProperties:handleSelection("Select Bluetooth Devices", propertyValue)
@@ -834,7 +847,7 @@ end
 
 function OPC.Select_Presence_Devices(propertyValue)
   log:trace("OPC.Select_Presence_Devices(%s)", propertyValue)
-  if not initialized or not bleScannerProperties then
+  if not gInitialized or not bleScannerProperties then
     return
   end
   bleScannerProperties:handleSelection("Select Presence Devices", propertyValue)
@@ -867,6 +880,7 @@ end
 
 function OPC.RSSI_Freshness_seconds(propertyValue)
   log:trace("OPC.RSSI_Freshness_seconds(%s)", propertyValue)
+  router:setRssiMaxAge(tointeger(propertyValue))
 end
 
 function OPC.Minimum_Room_RSSI_dBm(propertyValue)

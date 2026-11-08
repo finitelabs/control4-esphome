@@ -500,6 +500,13 @@ function Connect()
   --- @param suspend? boolean The driver dropped the connection itself; the device was not lost.
   local function notifyEntitiesDisconnected(suspend)
     buttonLeds:disconnected()
+    local ok, proxyErr = pcall(bluetoothProxyCapability.disconnected, bluetoothProxyCapability, suspend)
+    if not ok then
+      log:error("Bluetooth proxy disconnected handler failed: %s", proxyErr or "unknown error")
+      --#ifdef DRIVERCENTRAL
+      diagnostics:captureError(tostring(proxyErr), nil, "ESPHome.BluetoothProxyDisconnected")
+      --#endif
+    end
     for _, handler in pairs(Entities) do
       if type(handler.disconnected) == "function" then
         local success, err = pcall(handler.disconnected, handler, suspend)
@@ -793,8 +800,6 @@ local RESET_PROPERTY_VALUES = {
   ["Driver Version"] = "",
   ["Log Level"] = "3 - Info",
   ["Log Mode"] = "Off",
-  ["Automatic Updates"] = "On",
-  ["Update Channel"] = "Production",
   ["Device Log Forwarding"] = "Off",
   ["Use OpenSSL"] = "Yes",
   ["Bluetooth Proxy Status"] = "",

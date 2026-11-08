@@ -117,6 +117,7 @@
         <default/>
         <readonly>false</readonly>
         <description>Optional: 32-character hex key for encrypted BTHome devices</description>
+        <password>true</password>
       </property>
       <property>
         <name>Device Info</name>

@@ -129,6 +129,7 @@
         <type>STRING</type>
         <default/>
         <description>32-character hex string (offline key from Yale/August cloud)</description>
+        <password>true</password>
       </property>
       <property>
         <name>Key Slot</name>

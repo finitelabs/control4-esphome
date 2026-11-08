@@ -48,6 +48,8 @@ H.test("the ESPHome driver forgets its events, LED lights and restart button, an
     ["Log Level"] = "5 - Trace",
     ["Bluetooth Proxy Room"] = "12",
     ["Minimum Room RSSI Override (dBm)"] = "-70",
+    ["Automatic Updates"] = "Off",
+    ["Update Channel"] = "Prerelease",
   })
   events:getOrAddEvent("event_1", "press", "Doorbell press", "When the doorbell is pressed")
   persist:set("ButtonLedLights", { ["button_1"] = "light_2" })
@@ -62,6 +64,8 @@ H.test("the ESPHome driver forgets its events, LED lights and restart button, an
   T.eq("Bluetooth Proxy Room is back to its default", Properties["Bluetooth Proxy Room"], "")
   T.eq("so is Minimum Room RSSI Override", Properties["Minimum Room RSSI Override (dBm)"], "-100")
   T.eq("so is Log Level", Properties["Log Level"], "3 - Info")
+  T.eq("Automatic Updates stays as it was", Properties["Automatic Updates"], "Off")
+  T.eq("and so does Update Channel", Properties["Update Channel"], "Prerelease")
   T.eq("its address stays", Properties["IP Address"], "192.0.2.10")
   ESPHomeClient.connect = realConnect
 end)

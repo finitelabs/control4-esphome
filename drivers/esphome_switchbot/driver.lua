@@ -1732,37 +1732,6 @@ end
 -- Data Processing
 --------------------------------------------------------------------------------
 
------ Parse Bot status response from notification
------ @param data string Binary data from notification
---local function parseBotStatusResponse(data)
---  log:trace("parseBotStatusResponse()")
---
---  --- @type integer?
---  local battery = string.byte(data, 2)
---  if battery then
---    log:info("Battery level: %d%%", battery)
---    setBatteryLevel(battery)
---  end
---
---  if #data >= 10 then
---    --- @type integer?
---    local modeFlags = string.byte(data, 10)
---    if modeFlags then
---      local isSwitch = bit32.band(modeFlags, 0x10) ~= 0
---      local modeChanged = setBotMode(isSwitch)
---      if modeChanged then
---        getOrCreateBotModeBindings(isSwitch)
---      end
---      if isSwitch then
---        local isOn = bit32.band(modeFlags, 0x40) ~= 0
---        setBotState(isOn)
---      end
---    end
---  end
---
---  updateLastSeen()
---end
-
 --- Process incoming SwitchBot data from advertisement or GATT
 --- @param data SwitchBotParsedData Parsed SwitchBot data
 --- @param rssi string|nil RSSI value
@@ -2006,6 +1975,13 @@ function OnDriverInit()
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
 
+  -- Hidden until reported; the restore below shows each reading a device reported before
+  hideOptionalProperties()
+  hideEncryptionProperties()
+  hideSwitchProperties()
+  hideBotProperties()
+  hideSensorProperties()
+
   -- Restore persisted state
   values:restoreValues()
   bindings:restoreBindings()
@@ -2019,13 +1995,6 @@ function OnDriverLateInit()
 
   -- Restore persisted events (C4:AddEvent is unavailable before OnDriverLateInit)
   events:restoreEvents()
-
-  -- Hide all optional properties initially
-  hideOptionalProperties()
-  hideEncryptionProperties()
-  hideSwitchProperties()
-  hideBotProperties()
-  hideSensorProperties()
 
   -- Reset notification state on boot
   resetConnectionState()
@@ -2141,8 +2110,9 @@ function OPC.Log_Level(propertyValue)
   end
 end
 
+OPC.suppressDebug["Key ID"] = true
 function OPC.Key_ID(propertyValue)
-  log:trace("OPC.Key_ID('%s')", propertyValue)
+  log:trace("OPC.Key_ID('%s')", not IsEmpty(propertyValue) and "****" or "")
   if IsEmpty(propertyValue) then
     -- Cleared - just update status
     encryptionIV = nil
@@ -2227,12 +2197,12 @@ local function fetchEncryptionKeys()
       if statusCode ~= 100 then
         --- @type string?
         local message = Select(response.body, "message")
-        error(message or ("Login status " .. statusCode))
+        error(message or ("Login status " .. statusCode), 0)
       end
       --- @type string?
       local accessToken = Select(response.body, "body", "access_token")
       if IsEmpty(accessToken) then
-        error("No access token in response")
+        error("No access token in response", 0)
       end
       --- @cast accessToken -nil
       log:info("SwitchBot login successful")
@@ -2254,12 +2224,12 @@ local function fetchEncryptionKeys()
         local statusCode = tointeger(Select(response.body, "statusCode")) or -1
         if statusCode ~= 100 then
           local message = Select(response.body, "message")
-          error(message or ("User info status " .. statusCode))
+          error(message or ("User info status " .. statusCode), 0)
         end
         --- @type string?
         local region = Select(response.body, "body", "botRegion")
         if IsEmpty(region) then
-          error("No region in response")
+          error("No region in response", 0)
         end
         --- @cast region -nil
         log:info("SwitchBot user region: %s", region)
@@ -2289,14 +2259,14 @@ local function fetchEncryptionKeys()
       local statusCode = tointeger(Select(response.body, "statusCode")) or -1
       if statusCode ~= 100 then
         local message = Select(response.body, "message")
-        error(message or ("Get keys status " .. statusCode))
+        error(message or ("Get keys status " .. statusCode), 0)
       end
       --- @type string?
       local keyId = Select(response.body, "body", "communicationKey", "keyId")
       --- @type string?
       local encKey = Select(response.body, "body", "communicationKey", "key")
       if IsEmpty(keyId) or IsEmpty(encKey) then
-        error("Missing keys in response")
+        error("Missing keys in response", 0)
       end
       --- @cast keyId -nil
       --- @cast encKey -nil
@@ -2809,16 +2779,6 @@ function RFP.GATT_NOTIFY_DATA(idBinding, strCommand, tParams, args)
     commandDone()
     return
   end
-
-  ---- Bot status response
-  --local _, rxHandle = getHandles()
-  --if deviceCategory == DEVICE_CATEGORY.BOT and handle == rxHandle then
-  --  if #binaryData >= 2 then
-  --    parseBotStatusResponse(binaryData)
-  --    requestDisconnect()
-  --    return
-  --  end
-  --end
 
   log:debug("Unexpected notification data")
 end

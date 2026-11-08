@@ -408,7 +408,7 @@ end
 
 --- Get or create a dynamic event for a button/dimmer event.
 --- @param reading BTHomeReading The BTHome reading with name and index fields
---- @return Event|nil event The event object or nil if creation failed
+--- @return string|nil eventKey The event key, or nil if there is no event to fire
 local function getOrCreateEntityEvent(reading)
   if reading.name ~= "button" and reading.name ~= "dimmer" then
     log:warn("Cannot create event for non-button/dimmer entity: %s", reading.name)
@@ -441,21 +441,19 @@ local function getOrCreateEntityEvent(reading)
   local eventKey = reading.name .. "_" .. reading.instance .. eventDef.key
   local eventDisplayName = displayName .. " " .. eventDef.name
   local eventDescription = "NAME " .. displayName .. " " .. eventDef.description
-  return events:getOrAddEvent(EVENT_NAMESPACE, eventKey, eventDisplayName, eventDescription)
+  if not events:getOrAddEvent(EVENT_NAMESPACE, eventKey, eventDisplayName, eventDescription) then
+    return nil
+  end
+  return eventKey
 end
 
 --- Fire a dynamic event for an entity.
 --- @param reading BTHomeReading The BTHome reading with name and index fields
 local function fireEntityEvent(reading)
-  local event = getOrCreateEntityEvent(reading)
-  if not event then
-    return
+  local eventKey = getOrCreateEntityEvent(reading)
+  if eventKey then
+    events:fire(EVENT_NAMESPACE, eventKey)
   end
-  if type(event.eventId) ~= "number" then
-    log:warn("Cannot fire event - no ID for event: %s", event.name)
-    return
-  end
-  C4:FireEventByID(event.eventId)
 end
 
 --------------------------------------------------------------------------------
@@ -785,6 +783,9 @@ function OnDriverInit()
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
 
+  -- Hidden until reported; the restore below shows each reading a device reported before
+  hideOptionalProperties()
+
   -- Restore persisted state
   values:restoreValues()
   bindings:restoreBindings()
@@ -798,9 +799,6 @@ function OnDriverLateInit()
 
   -- Restore persisted events (C4:AddEvent is unavailable before OnDriverLateInit)
   events:restoreEvents()
-
-  -- Hide all optional properties initially
-  hideOptionalProperties()
 
   -- Fire OnPropertyChanged to set the initial Headers and other Property
   -- global sets, they'll change if Property is changed.
@@ -916,20 +914,12 @@ function OPC.Bind_Key(propertyValue)
     return
   end
 
-  -- Ignore error messages (they get cleared by delay)
-  if propertyValue:match("^Error:") then
-    return
-  end
-
-  -- Validate hex string (32 chars = 16 bytes)
+  -- Validate hex string (32 chars = 16 bytes). The field is masked, so the error goes to Driver Status.
   if #propertyValue ~= 32 or not propertyValue:match("^[0-9A-Fa-f]+$") then
     log:warn("Bind key must be 32 hex characters (16 bytes)")
     cachedBindKey = nil
-    -- Show error in property field, then clear after delay
-    UpdateProperty("Bind Key", "Error: Must be 32 hex chars")
-    delay(2 * ONE_SECOND):next(function()
-      UpdateProperty("Bind Key", "")
-    end)
+    updateStatus("Error: Bind Key must be 32 hex characters", false)
+    UpdateProperty("Bind Key", "")
     return
   end
 
@@ -1021,7 +1011,6 @@ function RFP.BLE_ADVERTISEMENT(idBinding, strCommand, tParams, args)
   end
 
   -- Device type
-  --local deviceType = Select(tParams, "deviceType")
   local version = tointeger(Select(result.device_info, "version"))
   if version ~= nil then
     local deviceType = "BTHome V" .. version

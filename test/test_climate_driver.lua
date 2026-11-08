@@ -1633,8 +1633,17 @@ test("A fresh install does not forward a bound sensor before the proxy enables i
   dofile(DRIVER)
   ShimLateInit()
   Properties["Remote Temperature Service"] = "set_remote_temperature"
-  local SENSOR = 5100
-  registerSensorBindingHandlers(SENSOR)
+  OnPropertyChanged("Remote Temperature Service")
+  local SENSOR
+  for id, binding in pairs(ShimDynamicBindings()) do
+    if binding.name == "Remote Temperature Sensor" then
+      SENSOR = id
+    end
+  end
+  T.check("choosing a service adds the sensor binding", SENSOR ~= nil and RFP[SENSOR] ~= nil)
+  if SENSOR == nil or RFP[SENSOR] == nil then
+    return
+  end
 
   resetSent()
   RFP[SENSOR](SENSOR, "VALUE_CHANGED", { CELSIUS = "21.5" })
@@ -1649,6 +1658,7 @@ test("A fresh install does not forward a bound sensor before the proxy enables i
     forwarded ~= nil and forwarded.params.temperature == "21.5"
   )
   Properties["Remote Temperature Service"] = nil
+  OnPropertyChanged("Remote Temperature Service")
 end)
 
 test("Preset scheduling is published at runtime, not left to the manifest", function()

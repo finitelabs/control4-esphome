@@ -238,11 +238,11 @@ Your SwitchBot account password.
 
 #### Key ID (read-only)
 
-The encryption key ID retrieved from SwitchBot cloud.
+The encryption key ID retrieved from SwitchBot cloud. Composer hides it.
 
 #### Encryption Key (read-only)
 
-The encryption key retrieved from SwitchBot cloud.
+The encryption key retrieved from SwitchBot cloud. Composer hides it.
 
 ### Device Info
 

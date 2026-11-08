@@ -10,7 +10,6 @@ local mainDriverCatchup = require("esphome.main_driver_catchup")
 
 JSON = require("JSON")
 
-local deferred = require("deferred")
 local log = require("lib.logging")
 --#ifdef DRIVERCENTRAL
 local updateSettings = require("lib.update-settings")
@@ -164,8 +163,6 @@ local secureSession = nil
 local session = nil
 
 --- GATT notification subscription tracking
---- @type boolean
-local secureReadSubscribed = false
 --- @type boolean
 local regularReadSubscribed = false
 
@@ -322,7 +319,6 @@ local function resetConnectionState(clearHandles)
   handshakeKeys = nil
   secureSession = nil
   session = nil
-  secureReadSubscribed = false
   regularReadSubscribed = false
   pendingCommand = nil
   awaitingResponse = nil
@@ -397,10 +393,6 @@ end
 
 --- Defined with the recovery logic below; abandonAttempt needs it first.
 local scheduleRecovery
-
---- Defined with the cloud key code below; the handshake needs them first.
-local onKeyRejected
-local onKeyAccepted
 
 --- Actually perform the GATT disconnection
 local function doDisconnect()
@@ -497,6 +489,150 @@ local function commandInFlight()
     or awaitingMotor
   return inFlight and commandRequestedAt ~= nil and os.time() - commandRequestedAt <= COMMAND_MAX_AGE_S
 end
+
+--------------------------------------------------------------------------------
+-- Command Execution
+--------------------------------------------------------------------------------
+
+--- Execute the pending command (called after handshake completes)
+local function executePendingCommand()
+  log:trace("executePendingCommand()")
+  if not pendingCommand then
+    log:debug("No pending command, requesting status")
+    pendingCommand = "status"
+  end
+
+  if handshakeState ~= HANDSHAKE_STATE.COMPLETE then
+    log:debug("Handshake not complete, deferring command")
+    return
+  end
+
+  if not session or not session:isReady() then
+    log:error("Session not ready for command execution")
+    requestDisconnect()
+    return
+  end
+
+  local writeHandle = getHandles()
+  if not writeHandle then
+    log:error("Write handle not available")
+    requestDisconnect()
+    return
+  end
+
+  local cmd = pendingCommand
+  pendingCommand = nil
+
+  if (cmd == "lock" or cmd == "unlock") and os.time() - commandRequestedAt > COMMAND_MAX_AGE_S then
+    log:warn("Dropping %s requested %ds ago", cmd, os.time() - commandRequestedAt)
+    -- The lock never saw it, so its status stands.
+    updateStatus(cmd == "lock" and "Error: Lock expired" or "Error: Unlock expired", true)
+    cmd = "status"
+  end
+
+  if cmd == "lock" then
+    log:info("Sending LOCK command")
+    local packet = yale_protocol.buildCommand(yale_protocol.Opcode.LOCK)
+    local encrypted = session:encrypt(packet)
+    awaitingResponse = "lock"
+    gattWrite(writeHandle, encrypted)
+  elseif cmd == "unlock" then
+    log:info("Sending UNLOCK command")
+    local packet = yale_protocol.buildCommand(yale_protocol.Opcode.UNLOCK)
+    local encrypted = session:encrypt(packet)
+    awaitingResponse = "unlock"
+    gattWrite(writeHandle, encrypted)
+  elseif cmd == "status" then
+    log:info("Sending GET_STATUS command (lock only)")
+    local packet =
+      yale_protocol.buildOperationCommand(yale_protocol.Opcode.GET_STATUS, yale_protocol.StatusType.LOCK_ONLY)
+    local encrypted = session:encrypt(packet)
+    awaitingResponse = "status_lock"
+    gattWrite(writeHandle, encrypted)
+  elseif cmd == "door" then
+    log:info("Sending GET_STATUS command (door only)")
+    local packet =
+      yale_protocol.buildOperationCommand(yale_protocol.Opcode.GET_STATUS, yale_protocol.StatusType.DOOR_ONLY)
+    local encrypted = session:encrypt(packet)
+    awaitingResponse = "status_door"
+    gattWrite(writeHandle, encrypted)
+  elseif cmd == "battery" then
+    log:info("Sending battery status command")
+    local packet =
+      yale_protocol.buildOperationCommand(yale_protocol.Opcode.GET_STATUS, yale_protocol.StatusType.BATTERY)
+    local encrypted = session:encrypt(packet)
+    awaitingResponse = "status_battery"
+    gattWrite(writeHandle, encrypted)
+  end
+end
+
+--- Initiate a lock/unlock command - connect if needed, then execute
+--- @param command string "lock", "unlock", or "status"
+local function initiateCommand(command)
+  log:info("Initiating command: %s", command)
+  cancelPendingDisconnect()
+  CancelTimer("PollCycle")
+  -- A newer lock or unlock replaces a retry still waiting; a status read takes its command along
+  local retrying = cancelReconnect()
+  if command == "status" and retrying then
+    command = retrying
+  end
+  -- The link is being set up until its last subscription is answered
+  local settingUp = pendingConnect
+    or pendingSubscribe ~= nil
+    or (handshakeState ~= HANDSHAKE_STATE.IDLE and handshakeState ~= HANDSHAKE_STATE.COMPLETE)
+  if settingUp and command == "status" and (pendingCommand == "lock" or pendingCommand == "unlock") then
+    -- The queued command reads the status once it is done
+    log:info("Status requested with %s queued, keeping it", pendingCommand)
+    return
+  end
+  pendingCommand = command
+
+  if handshakeState == HANDSHAKE_STATE.COMPLETE and session and session:isReady() and not pendingSubscribe then
+    -- Already connected and authenticated, execute immediately
+    executePendingCommand()
+  elseif settingUp or handshakeState ~= HANDSHAKE_STATE.IDLE then
+    -- A second CONNECT would make the parent fail the one in flight
+    log:info("Connect in progress (state=%d), command queued", handshakeState)
+  else
+    -- Not connected, need to connect first
+    requestConnection()
+  end
+end
+
+--- Queue a status poll after lock/unlock command
+local function queueStatusPoll()
+  SetTimer("StatusPoll", STATUS_POLL_DELAY_MS, function()
+    if handshakeState == HANDSHAKE_STATE.COMPLETE then
+      pendingCommand = "status"
+      executePendingCommand()
+    end
+  end)
+end
+
+--- Queue a door status poll after lock status
+local function queueDoorPoll()
+  SetTimer("DoorPoll", STATUS_POLL_DELAY_MS, function()
+    if handshakeState == HANDSHAKE_STATE.COMPLETE then
+      pendingCommand = "door"
+      executePendingCommand()
+    end
+  end)
+end
+
+--- Queue a battery poll after door status
+local function queueBatteryPoll()
+  SetTimer("BatteryPoll", STATUS_POLL_DELAY_MS, function()
+    if handshakeState == HANDSHAKE_STATE.COMPLETE then
+      pendingCommand = "battery"
+      executePendingCommand()
+    end
+  end)
+end
+
+--------------------------------------------------------------------------------
+-- Keepalive, Polling and Notifications
+--------------------------------------------------------------------------------
 
 --- Start keepalive timer for persistent connection.
 --- Periodically polls lock status to keep the BLE connection alive
@@ -802,496 +938,6 @@ local function updateBattery(percentage)
 end
 
 --------------------------------------------------------------------------------
--- Handshake State Machine
---------------------------------------------------------------------------------
-
---- Generate 16 random bytes
---- @return string randomBytes 16 random bytes
-local function generateRandomBytes()
-  local bytes = {}
-  for i = 1, 16 do
-    bytes[i] = string.char(math.random(0, 255))
-  end
-  return table.concat(bytes)
-end
-
---- Start the Yale BLE handshake
-local function startHandshake()
-  log:info("Starting Yale BLE handshake")
-  expectedDisconnect = false
-
-  local offlineKey = getOfflineKey()
-  if not offlineKey then
-    log:error("Cannot start handshake: offline key not configured")
-    updateStatus("Error: Offline key required", false)
-    requestDisconnect()
-    return
-  end
-
-  -- Initialize sessions
-  secureSession = yale_protocol.SecureSession:new(offlineKey)
-  session = yale_protocol.Session:new()
-
-  -- Step 1: Generate 16 random bytes
-  handshakeKeys = generateRandomBytes()
-
-  -- Step 2: Build SEC_LOCK_TO_MOBILE_KEY_EXCHANGE command
-  local cmd = yale_protocol.buildSecureCommand(yale_protocol.Opcode.SEC_LOCK_TO_MOBILE_KEY_EXCHANGE, getKeySlot())
-
-  -- Copy first 8 bytes of handshakeKeys to offset 0x04 (bytes 5-12)
-  local cmdBytes = {}
-  for i = 1, 18 do
-    cmdBytes[i] = string.byte(cmd, i)
-  end
-  for i = 1, 8 do
-    cmdBytes[4 + i] = string.byte(handshakeKeys, i)
-  end
-
-  -- Recompute security checksum (LE u32 sum method)
-  yale_protocol.writeSecurityChecksum(cmdBytes)
-
-  local chars = {}
-  for i = 1, 18 do
-    chars[i] = string.char(cmdBytes[i])
-  end
-  local packet = table.concat(chars)
-
-  log:info("Handshake plaintext: %s", C4:Encode(packet, "HEX"))
-
-  -- Encrypt with secure session (ECB)
-  local encrypted = secureSession:encrypt(packet)
-
-  log:info("Handshake encrypted: %s", C4:Encode(encrypted, "HEX"))
-
-  -- Send on secure write characteristic
-  local _, _, secureWriteHandle = getHandles()
-  if not secureWriteHandle then
-    log:error("Secure write handle not available")
-    requestDisconnect()
-    return
-  end
-
-  log:info("Sending KEY_EXCHANGE to handle %d (%d bytes)", secureWriteHandle, #encrypted)
-  handshakeState = HANDSHAKE_STATE.AWAITING_KEY_EXCHANGE_RESPONSE
-  gattWrite(secureWriteHandle, encrypted)
-
-  -- Timeout if lock doesn't respond to handshake
-  SetTimer("HandshakeTimeout", HANDSHAKE_TIMEOUT_MS, function()
-    if handshakeState ~= HANDSHAKE_STATE.IDLE and handshakeState ~= HANDSHAKE_STATE.COMPLETE then
-      log:warn("Handshake timeout - no response after %dms", HANDSHAKE_TIMEOUT_MS)
-      abandonAttempt("Error: Handshake timeout")
-    end
-  end)
-end
-
---- Handle handshake key exchange response
---- @param data string 18-byte response from secure read
-local function handleKeyExchangeResponse(data)
-  log:info("Received key exchange response")
-
-  if not secureSession or not handshakeKeys then
-    log:error("Handshake state lost")
-    requestDisconnect()
-    return
-  end
-
-  -- Decrypt the response
-  local decrypted = secureSession:decrypt(data)
-  local opcode = string.byte(decrypted, 1)
-
-  if opcode ~= yale_protocol.Opcode.SEC_MOBILE_TO_LOCK_KEY_EXCHANGE_RESP then
-    log:error(
-      "Unexpected handshake response opcode: 0x%02X (expected 0x%02X)",
-      opcode,
-      yale_protocol.Opcode.SEC_MOBILE_TO_LOCK_KEY_EXCHANGE_RESP
-    )
-    local command = pendingCommand
-    abandonAttempt("Error: Key rejected")
-    onKeyRejected(command)
-    return
-  end
-
-  -- Extract lock's 8 bytes from offset 0x04 (bytes 5-12)
-  local lockBytes = decrypted:sub(5, 12)
-
-  -- Derive session key: handshakeKeys[1:8] || lockBytes[1:8]
-  local sessionKey = handshakeKeys:sub(1, 8) .. lockBytes:sub(1, 8)
-
-  -- Re-key both sessions
-  secureSession:setKey(sessionKey)
-  session:setKey(sessionKey)
-
-  -- Step 6: Send SEC_INITIALIZATION_COMMAND
-  local cmd = yale_protocol.buildSecureCommand(yale_protocol.Opcode.SEC_INITIALIZATION_COMMAND, getKeySlot())
-
-  -- Copy handshakeKeys[9:16] to offset 0x04 (bytes 5-12)
-  local cmdBytes = {}
-  for i = 1, 18 do
-    cmdBytes[i] = string.byte(cmd, i)
-  end
-  for i = 1, 8 do
-    cmdBytes[4 + i] = string.byte(handshakeKeys, 8 + i)
-  end
-
-  -- Recompute security checksum (LE u32 sum method)
-  yale_protocol.writeSecurityChecksum(cmdBytes)
-
-  local chars = {}
-  for i = 1, 18 do
-    chars[i] = string.char(cmdBytes[i])
-  end
-  local packet = table.concat(chars)
-
-  -- Encrypt with secure session (now using session key)
-  local encrypted = secureSession:encrypt(packet)
-
-  local _, _, secureWriteHandle = getHandles()
-  if not secureWriteHandle then
-    log:error("Secure write handle not available")
-    requestDisconnect()
-    return
-  end
-
-  handshakeState = HANDSHAKE_STATE.AWAITING_INIT_RESPONSE
-  gattWrite(secureWriteHandle, encrypted)
-end
-
---- Handle handshake initialization response
---- @param data string 18-byte response from secure read
-local function handleInitResponse(data)
-  log:info("Received initialization response")
-
-  if not secureSession then
-    log:error("Handshake state lost")
-    requestDisconnect()
-    return
-  end
-
-  local decrypted = secureSession:decrypt(data)
-  local opcode = string.byte(decrypted, 1)
-
-  if opcode ~= yale_protocol.Opcode.SEC_INITIALIZATION_RESP then
-    log:error(
-      "Unexpected init response opcode: 0x%02X (expected 0x%02X)",
-      opcode,
-      yale_protocol.Opcode.SEC_INITIALIZATION_RESP
-    )
-    local command = pendingCommand
-    abandonAttempt("Error: Key rejected")
-    onKeyRejected(command)
-    return
-  end
-
-  log:info("Handshake complete - session established")
-  CancelTimer("HandshakeTimeout")
-  handshakeState = HANDSHAKE_STATE.COMPLETE
-  reconnectAttempts = 0
-  onKeyAccepted()
-  updateStatus("Connected", true)
-  tellOnline(true)
-
-  -- Per yalexs-ble: subscribe regular read AFTER handshake completes
-  local _, readHandle = getHandles()
-  if readHandle and not regularReadSubscribed then
-    subscribeUnderTimeout(readHandle)
-  else
-    -- Already subscribed (shouldn't happen in normal flow)
-    executePendingCommand()
-  end
-end
-
---------------------------------------------------------------------------------
--- Command Execution
---------------------------------------------------------------------------------
-
---- Execute the pending command (called after handshake completes)
-function executePendingCommand()
-  log:trace("executePendingCommand()")
-  if not pendingCommand then
-    log:debug("No pending command, requesting status")
-    pendingCommand = "status"
-  end
-
-  if handshakeState ~= HANDSHAKE_STATE.COMPLETE then
-    log:debug("Handshake not complete, deferring command")
-    return
-  end
-
-  if not session or not session:isReady() then
-    log:error("Session not ready for command execution")
-    requestDisconnect()
-    return
-  end
-
-  local writeHandle = getHandles()
-  if not writeHandle then
-    log:error("Write handle not available")
-    requestDisconnect()
-    return
-  end
-
-  local cmd = pendingCommand
-  pendingCommand = nil
-
-  if (cmd == "lock" or cmd == "unlock") and os.time() - commandRequestedAt > COMMAND_MAX_AGE_S then
-    log:warn("Dropping %s requested %ds ago", cmd, os.time() - commandRequestedAt)
-    -- The lock never saw it, so its status stands.
-    updateStatus(cmd == "lock" and "Error: Lock expired" or "Error: Unlock expired", true)
-    cmd = "status"
-  end
-
-  if cmd == "lock" then
-    log:info("Sending LOCK command")
-    local packet = yale_protocol.buildCommand(yale_protocol.Opcode.LOCK)
-    local encrypted = session:encrypt(packet)
-    awaitingResponse = "lock"
-    gattWrite(writeHandle, encrypted)
-  elseif cmd == "unlock" then
-    log:info("Sending UNLOCK command")
-    local packet = yale_protocol.buildCommand(yale_protocol.Opcode.UNLOCK)
-    local encrypted = session:encrypt(packet)
-    awaitingResponse = "unlock"
-    gattWrite(writeHandle, encrypted)
-  elseif cmd == "status" then
-    log:info("Sending GET_STATUS command (lock only)")
-    local packet =
-      yale_protocol.buildOperationCommand(yale_protocol.Opcode.GET_STATUS, yale_protocol.StatusType.LOCK_ONLY)
-    local encrypted = session:encrypt(packet)
-    awaitingResponse = "status_lock"
-    gattWrite(writeHandle, encrypted)
-  elseif cmd == "door" then
-    log:info("Sending GET_STATUS command (door only)")
-    local packet =
-      yale_protocol.buildOperationCommand(yale_protocol.Opcode.GET_STATUS, yale_protocol.StatusType.DOOR_ONLY)
-    local encrypted = session:encrypt(packet)
-    awaitingResponse = "status_door"
-    gattWrite(writeHandle, encrypted)
-  elseif cmd == "battery" then
-    log:info("Sending battery status command")
-    local packet =
-      yale_protocol.buildOperationCommand(yale_protocol.Opcode.GET_STATUS, yale_protocol.StatusType.BATTERY)
-    local encrypted = session:encrypt(packet)
-    awaitingResponse = "status_battery"
-    gattWrite(writeHandle, encrypted)
-  end
-end
-
---- Initiate a lock/unlock command - connect if needed, then execute
---- @param command string "lock", "unlock", or "status"
-function initiateCommand(command)
-  log:info("Initiating command: %s", command)
-  cancelPendingDisconnect()
-  CancelTimer("PollCycle")
-  -- A newer lock or unlock replaces a retry still waiting; a status read takes its command along
-  local retrying = cancelReconnect()
-  if command == "status" and retrying then
-    command = retrying
-  end
-  -- The link is being set up until its last subscription is answered
-  local settingUp = pendingConnect
-    or pendingSubscribe ~= nil
-    or (handshakeState ~= HANDSHAKE_STATE.IDLE and handshakeState ~= HANDSHAKE_STATE.COMPLETE)
-  if settingUp and command == "status" and (pendingCommand == "lock" or pendingCommand == "unlock") then
-    -- The queued command reads the status once it is done
-    log:info("Status requested with %s queued, keeping it", pendingCommand)
-    return
-  end
-  pendingCommand = command
-
-  if handshakeState == HANDSHAKE_STATE.COMPLETE and session and session:isReady() and not pendingSubscribe then
-    -- Already connected and authenticated, execute immediately
-    executePendingCommand()
-  elseif settingUp or handshakeState ~= HANDSHAKE_STATE.IDLE then
-    -- A second CONNECT would make the parent fail the one in flight
-    log:info("Connect in progress (state=%d), command queued", handshakeState)
-  else
-    -- Not connected, need to connect first
-    requestConnection()
-  end
-end
-
---- Queue a status poll after lock/unlock command
-local function queueStatusPoll()
-  SetTimer("StatusPoll", STATUS_POLL_DELAY_MS, function()
-    if handshakeState == HANDSHAKE_STATE.COMPLETE then
-      pendingCommand = "status"
-      executePendingCommand()
-    end
-  end)
-end
-
---- Queue a door status poll after lock status
-local function queueDoorPoll()
-  SetTimer("DoorPoll", STATUS_POLL_DELAY_MS, function()
-    if handshakeState == HANDSHAKE_STATE.COMPLETE then
-      pendingCommand = "door"
-      executePendingCommand()
-    end
-  end)
-end
-
---- Queue a battery poll after door status
-local function queueBatteryPoll()
-  SetTimer("BatteryPoll", STATUS_POLL_DELAY_MS, function()
-    if handshakeState == HANDSHAKE_STATE.COMPLETE then
-      pendingCommand = "battery"
-      executePendingCommand()
-    end
-  end)
-end
-
---------------------------------------------------------------------------------
--- Response Handling
---------------------------------------------------------------------------------
-
---- Handle a command response from the regular read characteristic.
---- This is called for ALL notifications on the regular read handle (not just
---- solicited ones) because we must always decrypt to keep the CBC IV chain in sync.
---- @param data string 18-byte encrypted response
-local function handleCommandResponse(data)
-  if not session or not session:isReady() then
-    log:error("Session not ready for response decryption")
-    return
-  end
-
-  -- Always decrypt to keep CBC IV chain in sync
-  local decrypted = session:decrypt(data)
-  log:info("Decrypted response hex: %s", C4:Encode(decrypted, "HEX"))
-
-  -- Validate simple checksum on decrypted response
-  local expectedChecksum = yale_protocol.simpleChecksum(decrypted)
-  local actualChecksum = string.byte(decrypted, 4)
-  if expectedChecksum ~= actualChecksum then
-    log:warn("Response checksum mismatch: expected=0x%02X, got=0x%02X", expectedChecksum, actualChecksum)
-  end
-
-  local response = yale_protocol.parseResponse(decrypted)
-
-  if not response then
-    log:warn("Failed to parse response (decryption kept IV in sync)")
-    return
-  end
-
-  log:debug("Response: flag=0x%02X, opcode=0x%02X", response.flag, response.opcode)
-
-  -- Determine if this response matches what we're awaiting.
-  -- Only consume awaitingResponse when the response type matches,
-  -- so unsolicited notifications don't steal the solicited flag.
-  local wasSolicited = false
-  if awaitingResponse then
-    if response.flag == 0xAA and (awaitingResponse == "lock" or awaitingResponse == "unlock") then
-      wasSolicited = true
-      awaitingResponse = nil
-    elseif response.flag == 0xBB and response.opcode == yale_protocol.Opcode.GET_STATUS then
-      if awaitingResponse == "status_lock" and response.statusType == yale_protocol.StatusType.LOCK_ONLY then
-        wasSolicited = true
-        awaitingResponse = nil
-      elseif awaitingResponse == "status_door" and response.statusType == yale_protocol.StatusType.DOOR_ONLY then
-        wasSolicited = true
-        awaitingResponse = nil
-      elseif awaitingResponse == "status_battery" and response.statusType == yale_protocol.StatusType.BATTERY then
-        wasSolicited = true
-        awaitingResponse = nil
-      end
-    end
-  end
-
-  log:debug("Response is %s", wasSolicited and "solicited" or "unsolicited")
-
-  -- Status response
-  if response.flag == 0xBB then
-    if response.operationResult then
-      if response.operationResult ~= 0 then
-        log:warn("Lock operation 0x%02X failed with result 0x%02X", response.opcode, response.operationResult)
-        updateLockStatus("fault")
-      end
-      updateLastSeen()
-      if awaitingMotor then
-        awaitingMotor = false
-        queueStatusPoll()
-      end
-      return
-    end
-
-    if response.lockStatus then
-      local c4Status = yale_protocol.toC4LockStatus(response.lockStatus)
-      local statusStr = yale_protocol.parseLockStatus(response.lockStatus)
-      log:info("Lock status: %s (0x%02X) -> C4: %s", statusStr, response.lockStatus, c4Status)
-      updateLockStatus(c4Status)
-    end
-
-    if response.doorStatus then
-      local doorStr = yale_protocol.parseDoorStatus(response.doorStatus)
-      if doorStr ~= "UNKNOWN" then
-        updateDoorStatus(doorStr)
-      else
-        setDoorSenseConfigured(false)
-      end
-    end
-
-    if response.batteryMillivolts then
-      local battery = yale_protocol.parseBattery(response.batteryMillivolts)
-      if battery > 0 then
-        updateBattery(battery)
-      end
-    end
-
-    updateLastSeen()
-
-    -- Only drive the command state machine for solicited responses
-    if wasSolicited then
-      if response.opcode == yale_protocol.Opcode.GET_STATUS then
-        if response.statusType == yale_protocol.StatusType.LOCK_ONLY then
-          queueDoorPoll()
-        elseif response.statusType == yale_protocol.StatusType.DOOR_ONLY then
-          queueBatteryPoll()
-        else
-          -- Status chain complete (battery done)
-          onStatusChainComplete()
-        end
-      else
-        onStatusChainComplete()
-      end
-    end
-    return
-  end
-
-  -- Acknowledgment response (lock/unlock completed)
-  if response.flag == 0xAA then
-    -- ACK means command succeeded: infer status from opcode
-    if response.opcode == yale_protocol.Opcode.LOCK then
-      updateLockStatus("locked")
-    elseif response.opcode == yale_protocol.Opcode.UNLOCK then
-      updateLockStatus("unlocked")
-    end
-    updateLastSeen()
-
-    -- The result frame queues the status read; the jam check below covers a
-    -- lock that sends none
-    if wasSolicited then
-      awaitingMotor = true
-      -- Re-query lock status after 10s to catch late-reported jams
-      SetTimer("JamCheck", JAM_CHECK_DELAY_MS, function()
-        -- Its own read follows, so a lock that sent no result frame no longer holds the keepalive off
-        awaitingMotor = false
-        if handshakeState == HANDSHAKE_STATE.COMPLETE then
-          log:debug("Jam check: re-querying lock status")
-          pendingCommand = "status"
-          executePendingCommand()
-        elseif connectionMode == CONNECTION_MODE.POLL then
-          log:debug("Jam check: connecting to query status")
-          initiateCommand("status")
-        end
-      end)
-    end
-    return
-  end
-
-  -- Unknown response — just log it, don't disconnect
-  log:debug("Unknown response flag: 0x%02X (CBC IV chain kept in sync)", response.flag)
-end
-
---------------------------------------------------------------------------------
 -- Yale Cloud API Key Fetching
 --------------------------------------------------------------------------------
 
@@ -1570,7 +1216,7 @@ end
 --- The lock turned the key down: check the cloud now, and once it has happened
 --- several times in a row say so.
 --- @param command? string The command the rejected connect was for
-onKeyRejected = function(command)
+local function onKeyRejected(command)
   keyRejections = keyRejections + 1
   log:warn("The lock rejected the offline key for slot %d (%d in a row)", getKeySlot(), keyRejections)
   local signedIn = cloudToken() ~= nil
@@ -1585,7 +1231,7 @@ onKeyRejected = function(command)
 end
 
 --- The lock took the key: put back the status a rejection replaced.
-onKeyAccepted = function()
+local function onKeyAccepted()
   keyRejections = 0
   if statusBeforeRejection ~= nil then
     UpdateProperty("Yale Cloud Status", statusBeforeRejection)
@@ -1684,6 +1330,356 @@ local function verifyAndFetchKeys(code)
     end, function(err)
       return reject(errorText(err))
     end)
+end
+
+--------------------------------------------------------------------------------
+-- Handshake State Machine
+--------------------------------------------------------------------------------
+
+--- Generate 16 random bytes
+--- @return string randomBytes 16 random bytes
+local function generateRandomBytes()
+  local bytes = {}
+  for i = 1, 16 do
+    bytes[i] = string.char(math.random(0, 255))
+  end
+  return table.concat(bytes)
+end
+
+--- Start the Yale BLE handshake
+local function startHandshake()
+  log:info("Starting Yale BLE handshake")
+  expectedDisconnect = false
+
+  local offlineKey = getOfflineKey()
+  if not offlineKey then
+    log:error("Cannot start handshake: offline key not configured")
+    updateStatus("Error: Offline key required", false)
+    requestDisconnect()
+    return
+  end
+
+  -- Initialize sessions
+  secureSession = yale_protocol.SecureSession:new(offlineKey)
+  session = yale_protocol.Session:new()
+
+  -- Step 1: Generate 16 random bytes
+  handshakeKeys = generateRandomBytes()
+
+  -- Step 2: Build SEC_LOCK_TO_MOBILE_KEY_EXCHANGE command
+  local cmd = yale_protocol.buildSecureCommand(yale_protocol.Opcode.SEC_LOCK_TO_MOBILE_KEY_EXCHANGE, getKeySlot())
+
+  -- Copy first 8 bytes of handshakeKeys to offset 0x04 (bytes 5-12)
+  local cmdBytes = {}
+  for i = 1, 18 do
+    cmdBytes[i] = string.byte(cmd, i)
+  end
+  for i = 1, 8 do
+    cmdBytes[4 + i] = string.byte(handshakeKeys, i)
+  end
+
+  -- Recompute security checksum (LE u32 sum method)
+  yale_protocol.writeSecurityChecksum(cmdBytes)
+
+  local chars = {}
+  for i = 1, 18 do
+    chars[i] = string.char(cmdBytes[i])
+  end
+  local packet = table.concat(chars)
+
+  log:info("Handshake plaintext: %s", C4:Encode(packet, "HEX"))
+
+  -- Encrypt with secure session (ECB)
+  local encrypted = secureSession:encrypt(packet)
+
+  log:info("Handshake encrypted: %s", C4:Encode(encrypted, "HEX"))
+
+  -- Send on secure write characteristic
+  local _, _, secureWriteHandle = getHandles()
+  if not secureWriteHandle then
+    log:error("Secure write handle not available")
+    requestDisconnect()
+    return
+  end
+
+  log:info("Sending KEY_EXCHANGE to handle %d (%d bytes)", secureWriteHandle, #encrypted)
+  handshakeState = HANDSHAKE_STATE.AWAITING_KEY_EXCHANGE_RESPONSE
+  gattWrite(secureWriteHandle, encrypted)
+
+  -- Timeout if lock doesn't respond to handshake
+  SetTimer("HandshakeTimeout", HANDSHAKE_TIMEOUT_MS, function()
+    if handshakeState ~= HANDSHAKE_STATE.IDLE and handshakeState ~= HANDSHAKE_STATE.COMPLETE then
+      log:warn("Handshake timeout - no response after %dms", HANDSHAKE_TIMEOUT_MS)
+      abandonAttempt("Error: Handshake timeout")
+    end
+  end)
+end
+
+--- Handle handshake key exchange response
+--- @param data string 18-byte response from secure read
+local function handleKeyExchangeResponse(data)
+  log:info("Received key exchange response")
+
+  if not secureSession or not handshakeKeys then
+    log:error("Handshake state lost")
+    requestDisconnect()
+    return
+  end
+
+  -- Decrypt the response
+  local decrypted = secureSession:decrypt(data)
+  local opcode = string.byte(decrypted, 1)
+
+  if opcode ~= yale_protocol.Opcode.SEC_MOBILE_TO_LOCK_KEY_EXCHANGE_RESP then
+    log:error(
+      "Unexpected handshake response opcode: 0x%02X (expected 0x%02X)",
+      opcode,
+      yale_protocol.Opcode.SEC_MOBILE_TO_LOCK_KEY_EXCHANGE_RESP
+    )
+    local command = pendingCommand
+    abandonAttempt("Error: Key rejected")
+    onKeyRejected(command)
+    return
+  end
+
+  -- Extract lock's 8 bytes from offset 0x04 (bytes 5-12)
+  local lockBytes = decrypted:sub(5, 12)
+
+  -- Derive session key: handshakeKeys[1:8] || lockBytes[1:8]
+  local sessionKey = handshakeKeys:sub(1, 8) .. lockBytes:sub(1, 8)
+
+  -- Re-key both sessions
+  secureSession:setKey(sessionKey)
+  session:setKey(sessionKey)
+
+  -- Step 6: Send SEC_INITIALIZATION_COMMAND
+  local cmd = yale_protocol.buildSecureCommand(yale_protocol.Opcode.SEC_INITIALIZATION_COMMAND, getKeySlot())
+
+  -- Copy handshakeKeys[9:16] to offset 0x04 (bytes 5-12)
+  local cmdBytes = {}
+  for i = 1, 18 do
+    cmdBytes[i] = string.byte(cmd, i)
+  end
+  for i = 1, 8 do
+    cmdBytes[4 + i] = string.byte(handshakeKeys, 8 + i)
+  end
+
+  -- Recompute security checksum (LE u32 sum method)
+  yale_protocol.writeSecurityChecksum(cmdBytes)
+
+  local chars = {}
+  for i = 1, 18 do
+    chars[i] = string.char(cmdBytes[i])
+  end
+  local packet = table.concat(chars)
+
+  -- Encrypt with secure session (now using session key)
+  local encrypted = secureSession:encrypt(packet)
+
+  local _, _, secureWriteHandle = getHandles()
+  if not secureWriteHandle then
+    log:error("Secure write handle not available")
+    requestDisconnect()
+    return
+  end
+
+  handshakeState = HANDSHAKE_STATE.AWAITING_INIT_RESPONSE
+  gattWrite(secureWriteHandle, encrypted)
+end
+
+--- Handle handshake initialization response
+--- @param data string 18-byte response from secure read
+local function handleInitResponse(data)
+  log:info("Received initialization response")
+
+  if not secureSession then
+    log:error("Handshake state lost")
+    requestDisconnect()
+    return
+  end
+
+  local decrypted = secureSession:decrypt(data)
+  local opcode = string.byte(decrypted, 1)
+
+  if opcode ~= yale_protocol.Opcode.SEC_INITIALIZATION_RESP then
+    log:error(
+      "Unexpected init response opcode: 0x%02X (expected 0x%02X)",
+      opcode,
+      yale_protocol.Opcode.SEC_INITIALIZATION_RESP
+    )
+    local command = pendingCommand
+    abandonAttempt("Error: Key rejected")
+    onKeyRejected(command)
+    return
+  end
+
+  log:info("Handshake complete - session established")
+  CancelTimer("HandshakeTimeout")
+  handshakeState = HANDSHAKE_STATE.COMPLETE
+  reconnectAttempts = 0
+  onKeyAccepted()
+  updateStatus("Connected", true)
+  tellOnline(true)
+
+  -- Per yalexs-ble: subscribe regular read AFTER handshake completes
+  local _, readHandle = getHandles()
+  if readHandle and not regularReadSubscribed then
+    subscribeUnderTimeout(readHandle)
+  else
+    -- Already subscribed (shouldn't happen in normal flow)
+    executePendingCommand()
+  end
+end
+
+--------------------------------------------------------------------------------
+-- Response Handling
+--------------------------------------------------------------------------------
+
+--- Handle a command response from the regular read characteristic.
+--- This is called for ALL notifications on the regular read handle (not just
+--- solicited ones) because we must always decrypt to keep the CBC IV chain in sync.
+--- @param data string 18-byte encrypted response
+local function handleCommandResponse(data)
+  if not session or not session:isReady() then
+    log:error("Session not ready for response decryption")
+    return
+  end
+
+  -- Always decrypt to keep CBC IV chain in sync
+  local decrypted = session:decrypt(data)
+  log:info("Decrypted response hex: %s", C4:Encode(decrypted, "HEX"))
+
+  -- Validate simple checksum on decrypted response
+  local expectedChecksum = yale_protocol.simpleChecksum(decrypted)
+  local actualChecksum = string.byte(decrypted, 4)
+  if expectedChecksum ~= actualChecksum then
+    log:warn("Response checksum mismatch: expected=0x%02X, got=0x%02X", expectedChecksum, actualChecksum)
+  end
+
+  local response = yale_protocol.parseResponse(decrypted)
+
+  if not response then
+    log:warn("Failed to parse response (decryption kept IV in sync)")
+    return
+  end
+
+  log:debug("Response: flag=0x%02X, opcode=0x%02X", response.flag, response.opcode)
+
+  -- Determine if this response matches what we're awaiting.
+  -- Only consume awaitingResponse when the response type matches,
+  -- so unsolicited notifications don't steal the solicited flag.
+  local wasSolicited = false
+  if awaitingResponse then
+    if response.flag == 0xAA and (awaitingResponse == "lock" or awaitingResponse == "unlock") then
+      wasSolicited = true
+      awaitingResponse = nil
+    elseif response.flag == 0xBB and response.opcode == yale_protocol.Opcode.GET_STATUS then
+      if awaitingResponse == "status_lock" and response.statusType == yale_protocol.StatusType.LOCK_ONLY then
+        wasSolicited = true
+        awaitingResponse = nil
+      elseif awaitingResponse == "status_door" and response.statusType == yale_protocol.StatusType.DOOR_ONLY then
+        wasSolicited = true
+        awaitingResponse = nil
+      elseif awaitingResponse == "status_battery" and response.statusType == yale_protocol.StatusType.BATTERY then
+        wasSolicited = true
+        awaitingResponse = nil
+      end
+    end
+  end
+
+  log:debug("Response is %s", wasSolicited and "solicited" or "unsolicited")
+
+  -- Status response
+  if response.flag == 0xBB then
+    if response.operationResult then
+      if response.operationResult ~= 0 then
+        log:warn("Lock operation 0x%02X failed with result 0x%02X", response.opcode, response.operationResult)
+        updateLockStatus("fault")
+      end
+      updateLastSeen()
+      if awaitingMotor then
+        awaitingMotor = false
+        queueStatusPoll()
+      end
+      return
+    end
+
+    if response.lockStatus then
+      local c4Status = yale_protocol.toC4LockStatus(response.lockStatus)
+      local statusStr = yale_protocol.parseLockStatus(response.lockStatus)
+      log:info("Lock status: %s (0x%02X) -> C4: %s", statusStr, response.lockStatus, c4Status)
+      updateLockStatus(c4Status)
+    end
+
+    if response.doorStatus then
+      local doorStr = yale_protocol.parseDoorStatus(response.doorStatus)
+      if doorStr ~= "UNKNOWN" then
+        updateDoorStatus(doorStr)
+      else
+        setDoorSenseConfigured(false)
+      end
+    end
+
+    if response.batteryMillivolts then
+      local battery = yale_protocol.parseBattery(response.batteryMillivolts)
+      if battery > 0 then
+        updateBattery(battery)
+      end
+    end
+
+    updateLastSeen()
+
+    -- Only drive the command state machine for solicited responses
+    if wasSolicited then
+      if response.opcode == yale_protocol.Opcode.GET_STATUS then
+        if response.statusType == yale_protocol.StatusType.LOCK_ONLY then
+          queueDoorPoll()
+        elseif response.statusType == yale_protocol.StatusType.DOOR_ONLY then
+          queueBatteryPoll()
+        else
+          -- Status chain complete (battery done)
+          onStatusChainComplete()
+        end
+      else
+        onStatusChainComplete()
+      end
+    end
+    return
+  end
+
+  -- Acknowledgment response (lock/unlock completed)
+  if response.flag == 0xAA then
+    -- ACK means command succeeded: infer status from opcode
+    if response.opcode == yale_protocol.Opcode.LOCK then
+      updateLockStatus("locked")
+    elseif response.opcode == yale_protocol.Opcode.UNLOCK then
+      updateLockStatus("unlocked")
+    end
+    updateLastSeen()
+
+    -- The result frame queues the status read; the jam check below covers a
+    -- lock that sends none
+    if wasSolicited then
+      awaitingMotor = true
+      -- Re-query lock status after 10s to catch late-reported jams
+      SetTimer("JamCheck", JAM_CHECK_DELAY_MS, function()
+        -- Its own read follows, so a lock that sent no result frame no longer holds the keepalive off
+        awaitingMotor = false
+        if handshakeState == HANDSHAKE_STATE.COMPLETE then
+          log:debug("Jam check: re-querying lock status")
+          pendingCommand = "status"
+          executePendingCommand()
+        elseif connectionMode == CONNECTION_MODE.POLL then
+          log:debug("Jam check: connecting to query status")
+          initiateCommand("status")
+        end
+      end)
+    end
+    return
+  end
+
+  -- Unknown response — just log it, don't disconnect
+  log:debug("Unknown response flag: 0x%02X (CBC IV chain kept in sync)", response.flag)
 end
 
 --------------------------------------------------------------------------------
@@ -1973,7 +1969,6 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
       )
       saveHandles(writeHandle, readHandle, secureWriteHandle, secureReadHandle)
 
-      secureReadSubscribed = false
       regularReadSubscribed = false
 
       -- Subscribe to notifications on secure read first, then regular read
@@ -1984,7 +1979,6 @@ function RFP.CONNECTED(idBinding, strCommand, tParams, args)
       local cW, cR, cSW, cSR = getHandles()
       if cW and cR and cSW and cSR then
         log:warn("Using cached handles as fallback")
-        secureReadSubscribed = false
         regularReadSubscribed = false
         subscribeUnderTimeout(cSR)
       else
@@ -2249,7 +2243,6 @@ function RFP.GATT_NOTIFY_SUBSCRIBED(idBinding, strCommand, tParams, args)
 
   if handle == secureReadHandle then
     log:info("Secure read notifications subscribed")
-    secureReadSubscribed = true
     -- Per yalexs-ble: subscribe secure read, then start handshake immediately
     -- Regular read is subscribed AFTER handshake completes
     if isAuthConfigured() then

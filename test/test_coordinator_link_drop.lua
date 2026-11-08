@@ -149,4 +149,50 @@ H.test("after the lock asks to disconnect, the proxy's report adds nothing", fun
   T.eq("and no second one", disconnectedReasons(binding), "Requested")
 end)
 
+H.test("a proxy that loses its ESPHome connection tells the lock, and is used again once it is back", function()
+  local binding = lockConnected()
+  local proxies = require("esphome.ble.coordinator.proxy_registry")
+  H.rfp(PROXY_BINDING, "PROXY_DISCONNECTED", { proxyId = tostring(SCANNER) })
+  T.eq("the lock hears DISCONNECTED", disconnectedReasons(binding), "Bluetooth proxy disconnected")
+  T.falsy("the proxy reads disconnected", proxies:isProxyConnected(SCANNER))
+  T.truthy("its scanner node stays", require("esphome.ble.scanner"):getNode(SCANNER))
+
+  toDevices = {}
+  H.rfp(binding, "CONNECT", {})
+  T.eq("a new connection goes through the other proxy", Select(toDevices, 1, "deviceId"), OTHER_SCANNER)
+
+  H.rfp(PROXY_BINDING, "PROXY_CONNECTED", {
+    proxyId = tostring(SCANNER),
+    roomId = "20",
+    roomName = "Kitchen",
+    connectionSlots = "3",
+    freeSlots = "3",
+    featureFlags = "0",
+  })
+  T.truthy("the proxy reads connected again once it reports back", proxies:isProxyConnected(SCANNER))
+end)
+
+H.test("a passive device's REFRESH_STATE gets what a bind gives it", function()
+  local sensor = "AA:BB:CC:DD:EE:02"
+  H.boot(nil, function()
+    for _, name in ipairs({ "presence_tracker", "proxy_registry", "device_registry", "router" }) do
+      package.loaded["esphome.ble.coordinator." .. name] = nil
+    end
+    persist:set("SelectedDevices", {
+      [sensor] = {
+        mac = sensor,
+        name = "Hallway Sensor",
+        deviceType = "BTHome",
+        bindingClass = "ESPHOME_BTHOME",
+        passive = true,
+        addressType = 0,
+      },
+    })
+  end)
+  local binding = bindings:getDynamicBinding("coordinator", "bt_" .. sensor:gsub(":", "")).bindingId
+  H.clearSent()
+  H.rfp(binding, "REFRESH_STATE", {})
+  T.eq("the sensor hears CONNECTED_PASSIVE", H.count("CONNECTED_PASSIVE", binding), 1)
+end)
+
 T.finish()

@@ -213,7 +213,8 @@ address is removed.
 #### Bind Key
 
 Optional 32-character hex key for encrypted BTHome devices. Enter the bind key
-if your device uses BTHome encryption.
+if your device uses BTHome encryption. Composer hides the key. A key that isn't
+32 hex characters is cleared, and Driver Status says why.
 
 ### Device Info
 

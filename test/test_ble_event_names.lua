@@ -1,7 +1,7 @@
 --- Tests that the events the BTHome and Govee drivers add at runtime put NAME in
 --- their descriptions. Director replaces NAME with the device's name, and Composer
 --- Pro titles a script with the description, so without it the title does not say
---- which device the event is from.
+--- which device the event is from. BTHome must also fire each event it adds.
 ---
 --- Run from the driver root:
 ---   make test
@@ -41,6 +41,35 @@ H.test("BTHome button and dimmer events name the device", function()
   })
   H.rfp(ESPHOME, "BLE_ADVERTISEMENT", { mac = "AA:BB:CC:DD:EE:01", advertisement = advertisement })
   T.eq("declared", descriptions(), {
+    "NAME Button (2) pressed twice",
+    "NAME Button pressed once",
+    "NAME Dimmer rotated counter-clockwise",
+  })
+end)
+
+H.test("BTHome fires each button and dimmer event it adds", function()
+  fresh()
+  H.boot()
+  local fired = {}
+  local fire = C4.FireEventByID
+  C4.FireEventByID = function(_, idEvent)
+    table.insert(fired, idEvent)
+  end
+  local advertisement = SerializeSafe({
+    rssi = -60,
+    serviceData = { { uuid = "FCD2", data = "\64\58\1\58\2\60\1\3" } },
+  })
+  local ok, err =
+    pcall(H.rfp, ESPHOME, "BLE_ADVERTISEMENT", { mac = "AA:BB:CC:DD:EE:01", advertisement = advertisement })
+  C4.FireEventByID = fire
+  assert(ok, err)
+  local firedDescriptions = {}
+  for _, idEvent in ipairs(fired) do
+    local event = ShimEvents()[idEvent]
+    table.insert(firedDescriptions, event and event.description or "an undeclared event")
+  end
+  table.sort(firedDescriptions)
+  T.eq("fired", firedDescriptions, {
     "NAME Button (2) pressed twice",
     "NAME Button pressed once",
     "NAME Dimmer rotated counter-clockwise",

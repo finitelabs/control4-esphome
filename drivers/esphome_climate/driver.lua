@@ -55,11 +55,15 @@ local SENSOR_BINDING = nil
 local USER_SERVICES_DISCOVERED = false
 local IS_SINGLE_SETPOINT = false
 local LAST_WATER_HEATER_MODE = nil -- restored from persist in OnDriverLateInit
---- The proxy's wording for a hold; restored in OnDriverLateInit.
-local HOLD_UNTIL_NEXT
+--- The proxy's "until next" wording, restored in OnDriverLateInit. "Until Next" is the starting
+--- guess, replaced only from HOLD_UNTIL_NEXT_NAMES.
+local HOLD_UNTIL_NEXT = "Until Next"
 
 --- The only wordings learnable as "until next".
 local HOLD_UNTIL_NEXT_NAMES = { ["Until Next"] = true, ["Next Event"] = true }
+
+--- The one hold that outlives a schedule; released only by the user or programming.
+local HOLD_PERMANENT = "Permanent"
 
 --- Read a numeric state field, treating a missing one as zero when the entity
 --- reports that field. Protobuf leaves a zero off the wire, so missing here means
@@ -77,7 +81,6 @@ local function stateNumber(state, name, reported)
   return tofinite(raw)
 end
 
--- Declared above OnDriverLateInit, which restores them; a local below it would make the restore write a global.
 --- Preset schedule from SET_EVENTS; decides whether holds are offered and feeds the same-preset poll.
 --- @type table[] Array of { preset = string, weekday = 0-6, hour = 0-23, minute = 0-59 }
 local SCHEDULE = {}
@@ -103,11 +106,6 @@ local PERSISTED_HOLD = nil
 local function holdSignature()
   return table.concat({ tostring(HOLD_MODE), tostring(USER_HOLD), tostring(HOLD_PRESET) }, "|")
 end
-
-local publishHoldModes
-local scheduleSignature
-local runPendingEvent
-local updateScheduleBoundaryTimer
 
 --- Stable digest of the preset list, for the persist dedupe.
 --- @param presets table<string, table> The preset table.
@@ -557,6 +555,21 @@ local function buildPresetFieldsXml(entity, singleSetpoint)
   return table.concat(parts)
 end
 
+--- Allowed hold modes as last published, to skip identical resends.
+local HOLD_MODES_PUBLISHED = nil
+
+--- Publish the hold modes to offer; only the one released at a boundary needs a schedule.
+--- @param force boolean Publish even if unchanged; a new connection may hold a stale list.
+local function publishHoldModes(force)
+  local modes = #SCHEDULE > 0 and ("Off," .. HOLD_UNTIL_NEXT .. "," .. HOLD_PERMANENT) or ("Off," .. HOLD_PERMANENT)
+  if modes == HOLD_MODES_PUBLISHED and not force then
+    return
+  end
+  HOLD_MODES_PUBLISHED = modes
+  log:info("Publishing allowed hold modes: '%s'", modes)
+  SendToProxy(PROXY_BINDING, "ALLOWED_HOLD_MODES_CHANGED", { MODES = modes }, "NOTIFY")
+end
+
 --- Send capabilities to the thermostat proxy based on entity data.
 --- Works for both climate and water heater entities.
 --- @param entity table The entity data.
@@ -751,187 +764,95 @@ local function sendCapabilities(entity)
   end
 end
 
-function OnDriverInit()
-  --#ifdef DRIVERCENTRAL
-  drivercentral:startClient()
-  --#else
-  C4:AllowExecute(true)
-  --#endif
-  gInitialized = false
-  log:setLogName(C4:GetDeviceData(C4:GetDeviceID(), "name"))
-  log:setLogLevel(Properties["Log Level"])
-  log:setLogMode(Properties["Log Mode"])
-  log:trace("OnDriverInit()")
+---------------------------------------------------------------------------
+-- Remote temperature sensor
+---------------------------------------------------------------------------
 
-  -- Restore persisted state
-  values:restoreValues()
-  bindings:restoreBindings()
+--- Send a remote temperature command via the ESPHome binding.
+--- @param serviceName string The ESPHome service name to call.
+--- @param celsius number|nil Temperature in Celsius, or nil for no-arg services (e.g. use_internal_temperature).
+local function sendRemoteTemperatureCommand(serviceName, celsius)
+  log:trace("sendRemoteTemperatureCommand(%s, %s)", serviceName, celsius)
+  local params = { service_name = serviceName }
+  if celsius ~= nil then
+    params.temperature = tostring(celsius)
+  end
+  SendToProxy(ESPHOME_BINDING, "SET_REMOTE_TEMPERATURE", params)
 end
 
-function OnDriverLateInit()
-  log:trace("OnDriverLateInit()")
-  if not CheckMinimumVersion("Driver Status") then
+--- Revert the climate device to its internal temperature sensor.
+local function revertToInternalTemperature()
+  local internalService = Properties["Internal Temperature Service"]
+  if IsEmpty(internalService) or internalService == NONE_OPTION then
+    log:info("No internal temperature service configured - device will auto-revert")
     return
   end
-
-  -- Fire OnPropertyChanged to set the initial Headers and other Property
-  -- global sets, they'll change if Property is changed.
-  for p, _ in pairs(Properties) do
-    local status, err = pcall(OnPropertyChanged, p)
-    if not status and err then
-      log:error("Error in OnPropertyChanged for property '%s': %s", p, err or "unknown error")
-    end
-  end
-  -- persist:get returns an empty table, never nil, for a missing key.
-  local storedWaterHeaterMode = persist:get("LastWaterHeaterMode")
-  if storedWaterHeaterMode == nil or type(storedWaterHeaterMode) == "table" then
-    LAST_WATER_HEATER_MODE = nil
-  else
-    LAST_WATER_HEATER_MODE = storedWaterHeaterMode
-  end
-  REMOTE_SENSOR_IN_USE = persist:get("RemoteSensorInUse", false) == true
-
-  -- A Navigator scale change reaches the proxy's variable even when SET_SCALE
-  -- does not reach the driver.
-  displayScale.watch(PROXY_BINDING, function()
-    sendDisplayScale()
-  end)
-
-  -- Stored as a table: a bare string does not read back reliably.
-  local storedHoldWording = persist:get("HoldWording")
-  if type(storedHoldWording) == "table" and HOLD_UNTIL_NEXT_NAMES[storedHoldWording.mode] then
-    HOLD_UNTIL_NEXT = storedHoldWording.mode
-  end
-
-  -- Explicit {} defaults: a key that is not stored reads as nil.
-  SCHEDULE = persist:get("Schedule", {})
-  PRESETS = persist:get("Presets", {})
-  -- Seeded so the first resend after a reload does not rewrite unchanged lists.
-  SCHEDULE_SIGNATURE = scheduleSignature()
-  PRESETS_SIGNATURE = presetListSignature(PRESETS)
-  local storedScheduled = persist:get("ScheduledPreset")
-  if type(storedScheduled) == "table" and type(storedScheduled.preset) == "string" then
-    SCHEDULED_PRESET = storedScheduled.preset
-  end
-  PERSISTED_SCHEDULED_PRESET = SCHEDULED_PRESET
-  local storedHold = persist:get("Hold")
-  if type(storedHold) == "table" then
-    if type(storedHold.preset) == "string" then
-      HOLD_PRESET = storedHold.preset
-    end
-    -- Only a user hold is authoritative here; a divergence hold is left for the first report to re-derive.
-    if storedHold.user == true and type(storedHold.mode) == "string" then
-      USER_HOLD = true
-      HOLD_MODE = storedHold.mode
-    end
-  end
-  PERSISTED_HOLD = holdSignature()
-  if #SCHEDULE > 0 then
-    log:info("Restored %d scheduled event(s)", #SCHEDULE)
-  end
-  updateScheduleBoundaryTimer()
-
-  -- Hide remote sensor properties until services are discovered
-  C4:SetPropertyAttribs("Remote Temperature Service", constants.HIDE_PROPERTY)
-  C4:SetPropertyAttribs("Internal Temperature Service", constants.HIDE_PROPERTY)
-
-  -- Restore sensor binding reference if it was persisted
-  local sensorBinding = bindings:getDynamicBinding(REMOTE_BINDING_NAMESPACE, REMOTE_BINDING_KEY)
-  if sensorBinding then
-    SENSOR_BINDING = sensorBinding.bindingId
-    registerSensorBindingHandlers(SENSOR_BINDING)
-  end
-
-  gInitialized = true
-  updateStatus("Disconnected", false)
-  sendConnectionState(false)
-  SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
-
-  --#ifndef DRIVERCENTRAL
-  mainDriverCatchup.schedule()
-  --#endif
+  sendRemoteTemperatureCommand(internalService, nil)
 end
 
---#ifdef DRIVERCENTRAL
-OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
---#endif
-
-function OPC.Driver_Status(propertyValue)
-  log:trace("OPC.Driver_Status('%s')", propertyValue)
-  if not gInitialized then
-    UpdateProperty("Driver Status", "Initializing", false)
+--- Handle a temperature value change from the bound sensor.
+--- @param idBinding integer The binding ID.
+--- @param tParams table The parameters.
+local function handleValueChanged(idBinding, tParams)
+  log:trace("handleValueChanged(%s, %s)", idBinding, tParams)
+  if not REMOTE_SENSOR_IN_USE then
     return
   end
-end
-
-function OPC.Driver_Version(propertyValue)
-  log:trace("OPC.Driver_Version('%s')", propertyValue)
-  C4:UpdateProperty("Driver Version", C4:GetDriverConfigInfo("version"))
-end
-
---#ifdef DRIVERCENTRAL
-function OPC.Automatic_Updates(propertyValue)
-  log:trace("OPC.Automatic_Updates('%s')", propertyValue)
-  if gInitialized then
-    updateSettings:share("Automatic Updates", propertyValue)
-  end
-end
-
---- An update setting changed on another item.
-function EC.SET_UPDATE_SETTING(params)
-  log:trace("EC.SET_UPDATE_SETTING(%s)", params)
-  updateSettings:take(params)
-end
-
---- Not logged: the value is the code.
-function OPC.Support_Code(propertyValue)
-  supportCode:enter(propertyValue)
-end
-
---- Turns Cloud Monitoring on or off.
---- @param propertyValue string
-function OPC.Cloud_Monitoring(propertyValue)
-  diagnostics:setEnabled(propertyValue == "Enabled")
-end
-
---- Prints a diagnostics report, and sends it while Cloud Monitoring is on.
-function EC.DiagnosticsSnapshot()
-  diagnostics:dumpSnapshot()
-end
---#endif
-
-function OPC.Log_Mode(propertyValue)
-  log:trace("OPC.Log_Mode('%s')", propertyValue)
-  log:setLogMode(propertyValue)
-  CancelTimer("LogMode")
-  if not log:isEnabled() then
-    UpdateProperty("Log Level", "3 - Info", true)
+  local celsius = CelsiusFromParams(tParams, "CELSIUS")
+  if celsius == nil then
     return
   end
-  log:warn("Log mode '%s' will expire in 3 hours", propertyValue)
-  SetTimer("LogMode", 3 * ONE_HOUR, function()
-    log:warn("Setting log mode to 'Off' (timer expired)")
-    UpdateProperty("Log Mode", "Off", true)
-  end)
-  OnPropertyChanged("Log Level")
+  local serviceName = Properties["Remote Temperature Service"]
+  if IsEmpty(serviceName) or serviceName == SELECT_OPTION then
+    log:warn("Remote Temperature Service not configured - cannot send remote temperature")
+    return
+  end
+  sendRemoteTemperatureCommand(serviceName, celsius)
 end
 
-function OPC.Log_Level(propertyValue)
-  log:trace("OPC.Log_Level('%s')", propertyValue)
-  log:setLogLevel(propertyValue)
-  if log:getLogLevel() >= 6 and log:isPrintEnabled() then
-    DEBUGPRINT = true
-    DEBUG_TIMER = true
-    DEBUG_RFN = true
-    DEBUG_URL = true
-    DEBUG_WEBSOCKET = true
-  else
-    DEBUGPRINT = false
-    DEBUG_TIMER = false
-    DEBUG_RFN = false
-    DEBUG_URL = false
-    DEBUG_WEBSOCKET = false
+--- Register RFP and OBC handlers for the sensor binding.
+--- @param bindingId integer The sensor binding ID.
+local function registerSensorBindingHandlers(bindingId)
+  RFP[bindingId] = function(idBinding, strCommand, tParams)
+    if strCommand == "VALUE_CHANGED" then
+      handleValueChanged(idBinding, tParams)
+    end
   end
+  OBC[bindingId] = function(idBinding, strClass, isBound)
+    if not isBound and REMOTE_SENSOR_IN_USE then
+      revertToInternalTemperature()
+    end
+  end
+end
+
+--- Dynamically add the TEMPERATURE_VALUE consumer binding and enable remote sensor.
+local function configureRemoteSensor()
+  log:info("Configuring remote temperature sensor")
+  local binding = bindings:getOrAddDynamicBinding(
+    REMOTE_BINDING_NAMESPACE,
+    REMOTE_BINDING_KEY,
+    "CONTROL",
+    false,
+    "Remote Temperature Sensor",
+    "TEMPERATURE_VALUE"
+  )
+  if binding == nil then
+    log:error("Failed to create dynamic binding for remote temperature sensor")
+    return
+  end
+  SENSOR_BINDING = binding.bindingId
+  registerSensorBindingHandlers(SENSOR_BINDING)
+  log:info("Remote temperature sensor configured (binding %d)", SENSOR_BINDING)
+end
+
+--- Remove the TEMPERATURE_VALUE binding and disable remote sensor.
+local function unconfigureRemoteSensor()
+  log:info("Unconfiguring remote temperature sensor")
+  revertToInternalTemperature()
+  REMOTE_SENSOR_IN_USE = false
+  SENSOR_BINDING = nil
+  bindings:deleteBinding(REMOTE_BINDING_NAMESPACE, REMOTE_BINDING_KEY)
+  log:info("Remote temperature sensor unconfigured")
 end
 
 ---------------------------------------------------------------------------
@@ -1206,8 +1127,6 @@ end
 
 --- Hold mode as last reported; nil so the first reconcile after a reload always publishes.
 local HOLD_MODE_PUBLISHED = nil
---- Allowed hold modes as last published, to skip identical resends.
-local HOLD_MODES_PUBLISHED = nil
 --- Preset last reported; a sentinel because nil ("no preset") must itself publish once after a reload.
 local UNREPORTED = {}
 local ACTIVE_PRESET = UNREPORTED
@@ -1215,24 +1134,6 @@ local ACTIVE_PRESET = UNREPORTED
 local LAST_MATCH_SIGNATURE = nil
 --- A scheduled preset was commanded but not confirmed; the next report still describes the old state.
 local AWAITING_SCHEDULED = false
-
---- The proxy's "until next" wording; this is the starting guess, replaced only from HOLD_UNTIL_NEXT_NAMES.
-HOLD_UNTIL_NEXT = "Until Next"
-
---- The one hold that outlives a schedule; released only by the user or programming.
-local HOLD_PERMANENT = "Permanent"
-
---- Publish the hold modes to offer; only the one released at a boundary needs a schedule.
---- @param force boolean Publish even if unchanged; a new connection may hold a stale list.
-publishHoldModes = function(force)
-  local modes = #SCHEDULE > 0 and ("Off," .. HOLD_UNTIL_NEXT .. "," .. HOLD_PERMANENT) or ("Off," .. HOLD_PERMANENT)
-  if modes == HOLD_MODES_PUBLISHED and not force then
-    return
-  end
-  HOLD_MODES_PUBLISHED = modes
-  log:info("Publishing allowed hold modes: '%s'", modes)
-  SendToProxy(PROXY_BINDING, "ALLOWED_HOLD_MODES_CHANGED", { MODES = modes }, "NOTIFY")
-end
 
 --- Parse the preset_fields XML fragment carried as an attribute on a preset node.
 --- @param raw string|nil The preset_fields XML.
@@ -1597,7 +1498,7 @@ local function reconcileHold()
 end
 
 --- Digest of the schedule, for the persist dedupe.
-scheduleSignature = function()
+local function scheduleSignature()
   local parts = {}
   for _, e in ipairs(SCHEDULE) do
     parts[#parts + 1] = string.format("%s|%s|%s|%s", e.weekday, e.hour, e.minute, e.preset)
@@ -1625,119 +1526,6 @@ local function persistScheduledPreset(name)
   -- Cleared with an empty table, never a delete: delete-then-write left the key unreadable.
   persist:set("ScheduledPreset", name ~= nil and { preset = name } or {})
   return true
-end
-
---- Receive the full preset list; the proxy sends every preset each time, so rebuild.
-function RFP.SET_PRESETS(idBinding, strCommand, tParams)
-  log:trace("RFP.SET_PRESETS(%s, %s, %s)", idBinding, strCommand, tParams)
-  if idBinding ~= PROXY_BINDING then
-    return
-  end
-  -- Director's ParseXml raises on nil; "" parses to nil and takes the guard.
-  local xml = C4:ParseXml(Select(tParams, "XML") or "")
-  if xml == nil or xml.ChildNodes == nil then
-    log:warn("SET_PRESETS carried no parsable XML")
-    return
-  end
-
-  -- Snapshot before the rebuild so only a real edit re-applies.
-  local activeBefore = HOLD_PRESET or SCHEDULED_PRESET
-  local signatureBefore = presetSignature(PRESETS[activeBefore])
-
-  local scheduleRenamed = false
-  PRESETS = {}
-  for _, preset in pairs(xml.ChildNodes) do
-    local attrs = preset.Attributes
-    local name = attrs and attrs["name"]
-    if not IsEmpty(name) then
-      -- A preset with no usable fields would match every state; do not store it.
-      local fields = parsePresetFields(attrs["preset_fields"])
-      if next(fields) == nil then
-        log:warn("Preset '%s' defines no usable fields; not stored", name)
-      else
-        PRESETS[name] = fields
-      end
-
-      -- A rename must carry the tracked names across.
-      local previous = attrs["previous_name"]
-      if not IsEmpty(previous) then
-        if SCHEDULED_PRESET == previous then
-          SCHEDULED_PRESET = name
-          -- Or the first announcement after a reload re-commands a preset already in force.
-          if not EVENT_PENDING then
-            persistScheduledPreset(name)
-          end
-        end
-        if HOLD_PRESET == previous then
-          HOLD_PRESET = name
-        end
-        -- The stored schedule names the preset too.
-        for _, e in ipairs(SCHEDULE) do
-          if e.preset == previous then
-            e.preset = name
-            scheduleRenamed = true
-          end
-        end
-      end
-    end
-  end
-
-  if scheduleRenamed then
-    log:info("Rename reached the schedule; re-persisting it")
-    persistSchedule()
-  end
-
-  -- A deleted preset cannot stay held or scheduled; its hold could never clear.
-  local forgot = false
-  if SCHEDULED_PRESET ~= nil and PRESETS[SCHEDULED_PRESET] == nil then
-    log:info("Scheduled preset '%s' no longer exists; forgetting it", SCHEDULED_PRESET)
-    SCHEDULED_PRESET = nil
-    EVENT_PENDING = false
-    AWAITING_SCHEDULED = false
-    persistScheduledPreset(nil)
-    forgot = true
-  end
-  if HOLD_PRESET ~= nil and PRESETS[HOLD_PRESET] == nil then
-    log:info("Held preset '%s' no longer exists; releasing the hold", HOLD_PRESET)
-    HOLD_PRESET = nil
-    USER_HOLD = false
-    forgot = true
-  end
-  -- Only once nothing is scheduled; otherwise reconcileHold owns the hold.
-  if forgot and SCHEDULED_PRESET == nil then
-    setHoldMode("Off")
-  end
-  -- A rename or a deletion moves HOLD_PRESET without touching the mode.
-  persistHold()
-
-  -- Persisted so a reload during an outage can still apply what the proxy announces on reconnect.
-  local presetsSignature = presetListSignature(PRESETS)
-  if presetsSignature ~= PRESETS_SIGNATURE then
-    PRESETS_SIGNATURE = presetsSignature
-    persist:set("Presets", PRESETS)
-  end
-
-  -- A preset the proxy announced before the list arrived is applied now.
-  if runPendingEvent() then
-    return
-  end
-
-  -- Re-apply only when the values of the preset driving the device changed.
-  local activeAfter = HOLD_PRESET or SCHEDULED_PRESET
-  if activeAfter ~= nil and PRESETS[activeAfter] ~= nil and signatureBefore ~= nil then
-    local signatureAfter = presetSignature(PRESETS[activeAfter])
-    if signatureAfter ~= signatureBefore then
-      log:info("Active preset '%s' was edited; re-applying", activeAfter)
-      local applied = applyPreset(activeAfter)
-      if activeAfter == SCHEDULED_PRESET then
-        -- Suppress a report only when a command went out.
-        AWAITING_SCHEDULED = applied
-        if not applied then
-          EVENT_PENDING = true
-        end
-      end
-    end
-  end
 end
 
 --- User selected a preset directly; it holds until the next scheduled event.
@@ -1856,7 +1644,7 @@ local function checkScheduleBoundary()
 end
 
 --- Started on a change only: SET_EVENTS repeats per client connection and SetTimer restarts the interval.
-updateScheduleBoundaryTimer = function()
+local function updateScheduleBoundaryTimer()
   local want = #SCHEDULE > 0 and not (ENTITY ~= nil and ENTITY.is_water_heater)
   if want == SCHEDULE_POLL_RUNNING then
     return
@@ -1871,7 +1659,7 @@ end
 
 --- Apply a pending scheduled preset; either the preset list or the device can arrive last.
 --- @return boolean true if a pending event was applied.
-runPendingEvent = function()
+local function runPendingEvent()
   if not EVENT_PENDING then
     return false
   end
@@ -1881,6 +1669,119 @@ runPendingEvent = function()
     return true
   end
   return false
+end
+
+--- Receive the full preset list; the proxy sends every preset each time, so rebuild.
+function RFP.SET_PRESETS(idBinding, strCommand, tParams)
+  log:trace("RFP.SET_PRESETS(%s, %s, %s)", idBinding, strCommand, tParams)
+  if idBinding ~= PROXY_BINDING then
+    return
+  end
+  -- Director's ParseXml raises on nil; "" parses to nil and takes the guard.
+  local xml = C4:ParseXml(Select(tParams, "XML") or "")
+  if xml == nil or xml.ChildNodes == nil then
+    log:warn("SET_PRESETS carried no parsable XML")
+    return
+  end
+
+  -- Snapshot before the rebuild so only a real edit re-applies.
+  local activeBefore = HOLD_PRESET or SCHEDULED_PRESET
+  local signatureBefore = presetSignature(PRESETS[activeBefore])
+
+  local scheduleRenamed = false
+  PRESETS = {}
+  for _, preset in pairs(xml.ChildNodes) do
+    local attrs = preset.Attributes
+    local name = attrs and attrs["name"]
+    if not IsEmpty(name) then
+      -- A preset with no usable fields would match every state; do not store it.
+      local fields = parsePresetFields(attrs["preset_fields"])
+      if next(fields) == nil then
+        log:warn("Preset '%s' defines no usable fields; not stored", name)
+      else
+        PRESETS[name] = fields
+      end
+
+      -- A rename must carry the tracked names across.
+      local previous = attrs["previous_name"]
+      if not IsEmpty(previous) then
+        if SCHEDULED_PRESET == previous then
+          SCHEDULED_PRESET = name
+          -- Or the first announcement after a reload re-commands a preset already in force.
+          if not EVENT_PENDING then
+            persistScheduledPreset(name)
+          end
+        end
+        if HOLD_PRESET == previous then
+          HOLD_PRESET = name
+        end
+        -- The stored schedule names the preset too.
+        for _, e in ipairs(SCHEDULE) do
+          if e.preset == previous then
+            e.preset = name
+            scheduleRenamed = true
+          end
+        end
+      end
+    end
+  end
+
+  if scheduleRenamed then
+    log:info("Rename reached the schedule; re-persisting it")
+    persistSchedule()
+  end
+
+  -- A deleted preset cannot stay held or scheduled; its hold could never clear.
+  local forgot = false
+  if SCHEDULED_PRESET ~= nil and PRESETS[SCHEDULED_PRESET] == nil then
+    log:info("Scheduled preset '%s' no longer exists; forgetting it", SCHEDULED_PRESET)
+    SCHEDULED_PRESET = nil
+    EVENT_PENDING = false
+    AWAITING_SCHEDULED = false
+    persistScheduledPreset(nil)
+    forgot = true
+  end
+  if HOLD_PRESET ~= nil and PRESETS[HOLD_PRESET] == nil then
+    log:info("Held preset '%s' no longer exists; releasing the hold", HOLD_PRESET)
+    HOLD_PRESET = nil
+    USER_HOLD = false
+    forgot = true
+  end
+  -- Only once nothing is scheduled; otherwise reconcileHold owns the hold.
+  if forgot and SCHEDULED_PRESET == nil then
+    setHoldMode("Off")
+  end
+  -- A rename or a deletion moves HOLD_PRESET without touching the mode.
+  persistHold()
+
+  -- Persisted so a reload during an outage can still apply what the proxy announces on reconnect.
+  local presetsSignature = presetListSignature(PRESETS)
+  if presetsSignature ~= PRESETS_SIGNATURE then
+    PRESETS_SIGNATURE = presetsSignature
+    persist:set("Presets", PRESETS)
+  end
+
+  -- A preset the proxy announced before the list arrived is applied now.
+  if runPendingEvent() then
+    return
+  end
+
+  -- Re-apply only when the values of the preset driving the device changed.
+  local activeAfter = HOLD_PRESET or SCHEDULED_PRESET
+  if activeAfter ~= nil and PRESETS[activeAfter] ~= nil and signatureBefore ~= nil then
+    local signatureAfter = presetSignature(PRESETS[activeAfter])
+    if signatureAfter ~= signatureBefore then
+      log:info("Active preset '%s' was edited; re-applying", activeAfter)
+      local applied = applyPreset(activeAfter)
+      if activeAfter == SCHEDULED_PRESET then
+        -- Suppress a report only when a command went out.
+        AWAITING_SCHEDULED = applied
+        if not applied then
+          EVENT_PENDING = true
+        end
+      end
+    end
+  end
 end
 
 --- The full schedule; the proxy runs it, this copy gates hold modes and feeds the same-preset poll.
@@ -2383,97 +2284,6 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
 end
 
 ---------------------------------------------------------------------------
--- Remote temperature sensor
----------------------------------------------------------------------------
-
---- Send a remote temperature command via the ESPHome binding.
---- @param serviceName string The ESPHome service name to call.
---- @param celsius number|nil Temperature in Celsius, or nil for no-arg services (e.g. use_internal_temperature).
-local function sendRemoteTemperatureCommand(serviceName, celsius)
-  log:trace("sendRemoteTemperatureCommand(%s, %s)", serviceName, celsius)
-  local params = { service_name = serviceName }
-  if celsius ~= nil then
-    params.temperature = tostring(celsius)
-  end
-  SendToProxy(ESPHOME_BINDING, "SET_REMOTE_TEMPERATURE", params)
-end
-
---- Revert the climate device to its internal temperature sensor.
-local function revertToInternalTemperature()
-  local internalService = Properties["Internal Temperature Service"]
-  if IsEmpty(internalService) or internalService == NONE_OPTION then
-    log:info("No internal temperature service configured - device will auto-revert")
-    return
-  end
-  sendRemoteTemperatureCommand(internalService, nil)
-end
-
---- Handle a temperature value change from the bound sensor.
---- @param idBinding integer The binding ID.
---- @param tParams table The parameters.
-local function handleValueChanged(idBinding, tParams)
-  log:trace("handleValueChanged(%s, %s)", idBinding, tParams)
-  if not REMOTE_SENSOR_IN_USE then
-    return
-  end
-  local celsius = CelsiusFromParams(tParams, "CELSIUS")
-  if celsius == nil then
-    return
-  end
-  local serviceName = Properties["Remote Temperature Service"]
-  if IsEmpty(serviceName) or serviceName == SELECT_OPTION then
-    log:warn("Remote Temperature Service not configured - cannot send remote temperature")
-    return
-  end
-  sendRemoteTemperatureCommand(serviceName, celsius)
-end
-
---- Register RFP and OBC handlers for the sensor binding.
---- @param bindingId integer The sensor binding ID.
-function registerSensorBindingHandlers(bindingId)
-  RFP[bindingId] = function(idBinding, strCommand, tParams)
-    if strCommand == "VALUE_CHANGED" then
-      handleValueChanged(idBinding, tParams)
-    end
-  end
-  OBC[bindingId] = function(idBinding, strClass, isBound)
-    if not isBound and REMOTE_SENSOR_IN_USE then
-      revertToInternalTemperature()
-    end
-  end
-end
-
---- Dynamically add the TEMPERATURE_VALUE consumer binding and enable remote sensor.
-local function configureRemoteSensor()
-  log:info("Configuring remote temperature sensor")
-  local binding = bindings:getOrAddDynamicBinding(
-    REMOTE_BINDING_NAMESPACE,
-    REMOTE_BINDING_KEY,
-    "CONTROL",
-    false,
-    "Remote Temperature Sensor",
-    "TEMPERATURE_VALUE"
-  )
-  if binding == nil then
-    log:error("Failed to create dynamic binding for remote temperature sensor")
-    return
-  end
-  SENSOR_BINDING = binding.bindingId
-  registerSensorBindingHandlers(SENSOR_BINDING)
-  log:info("Remote temperature sensor configured (binding %d)", SENSOR_BINDING)
-end
-
---- Remove the TEMPERATURE_VALUE binding and disable remote sensor.
-local function unconfigureRemoteSensor()
-  log:info("Unconfiguring remote temperature sensor")
-  revertToInternalTemperature()
-  REMOTE_SENSOR_IN_USE = false
-  SENSOR_BINDING = nil
-  bindings:deleteBinding(REMOTE_BINDING_NAMESPACE, REMOTE_BINDING_KEY)
-  log:info("Remote temperature sensor unconfigured")
-end
-
----------------------------------------------------------------------------
 -- User-defined ESPHome services (DYNAMIC_LIST)
 ---------------------------------------------------------------------------
 
@@ -2589,5 +2399,192 @@ OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
     -- Otherwise the proxy keeps the last IS_CONNECTED and the UI stays live.
     updateStatus("Disconnected", false)
     sendConnectionState(false)
+  end
+end
+
+---------------------------------------------------------------------------
+-- Driver lifecycle and settings
+---------------------------------------------------------------------------
+
+function OnDriverInit()
+  --#ifdef DRIVERCENTRAL
+  drivercentral:startClient()
+  --#else
+  C4:AllowExecute(true)
+  --#endif
+  gInitialized = false
+  log:setLogName(C4:GetDeviceData(C4:GetDeviceID(), "name"))
+  log:setLogLevel(Properties["Log Level"])
+  log:setLogMode(Properties["Log Mode"])
+  log:trace("OnDriverInit()")
+
+  -- Restore persisted state
+  values:restoreValues()
+  bindings:restoreBindings()
+end
+
+function OnDriverLateInit()
+  log:trace("OnDriverLateInit()")
+  if not CheckMinimumVersion("Driver Status") then
+    return
+  end
+
+  -- Fire OnPropertyChanged to set the initial Headers and other Property
+  -- global sets, they'll change if Property is changed.
+  for p, _ in pairs(Properties) do
+    local status, err = pcall(OnPropertyChanged, p)
+    if not status and err then
+      log:error("Error in OnPropertyChanged for property '%s': %s", p, err or "unknown error")
+    end
+  end
+  -- persist:get returns an empty table, never nil, for a missing key.
+  local storedWaterHeaterMode = persist:get("LastWaterHeaterMode")
+  if storedWaterHeaterMode == nil or type(storedWaterHeaterMode) == "table" then
+    LAST_WATER_HEATER_MODE = nil
+  else
+    LAST_WATER_HEATER_MODE = storedWaterHeaterMode
+  end
+  REMOTE_SENSOR_IN_USE = persist:get("RemoteSensorInUse", false) == true
+
+  -- A Navigator scale change reaches the proxy's variable even when SET_SCALE
+  -- does not reach the driver.
+  displayScale.watch(PROXY_BINDING, function()
+    sendDisplayScale()
+  end)
+
+  -- Stored as a table: a bare string does not read back reliably.
+  local storedHoldWording = persist:get("HoldWording")
+  if type(storedHoldWording) == "table" and HOLD_UNTIL_NEXT_NAMES[storedHoldWording.mode] then
+    HOLD_UNTIL_NEXT = storedHoldWording.mode
+  end
+
+  -- Explicit {} defaults: a key that is not stored reads as nil.
+  SCHEDULE = persist:get("Schedule", {})
+  PRESETS = persist:get("Presets", {})
+  -- Seeded so the first resend after a reload does not rewrite unchanged lists.
+  SCHEDULE_SIGNATURE = scheduleSignature()
+  PRESETS_SIGNATURE = presetListSignature(PRESETS)
+  local storedScheduled = persist:get("ScheduledPreset")
+  if type(storedScheduled) == "table" and type(storedScheduled.preset) == "string" then
+    SCHEDULED_PRESET = storedScheduled.preset
+  end
+  PERSISTED_SCHEDULED_PRESET = SCHEDULED_PRESET
+  local storedHold = persist:get("Hold")
+  if type(storedHold) == "table" then
+    if type(storedHold.preset) == "string" then
+      HOLD_PRESET = storedHold.preset
+    end
+    -- Only a user hold is authoritative here; a divergence hold is left for the first report to re-derive.
+    if storedHold.user == true and type(storedHold.mode) == "string" then
+      USER_HOLD = true
+      HOLD_MODE = storedHold.mode
+    end
+  end
+  PERSISTED_HOLD = holdSignature()
+  if #SCHEDULE > 0 then
+    log:info("Restored %d scheduled event(s)", #SCHEDULE)
+  end
+  updateScheduleBoundaryTimer()
+
+  -- Hide remote sensor properties until services are discovered
+  C4:SetPropertyAttribs("Remote Temperature Service", constants.HIDE_PROPERTY)
+  C4:SetPropertyAttribs("Internal Temperature Service", constants.HIDE_PROPERTY)
+
+  -- Restore sensor binding reference if it was persisted
+  local sensorBinding = bindings:getDynamicBinding(REMOTE_BINDING_NAMESPACE, REMOTE_BINDING_KEY)
+  if sensorBinding then
+    SENSOR_BINDING = sensorBinding.bindingId
+    registerSensorBindingHandlers(SENSOR_BINDING)
+  end
+
+  gInitialized = true
+  updateStatus("Disconnected", false)
+  sendConnectionState(false)
+  SendToProxy(ESPHOME_BINDING, "REFRESH_STATE", {}, "NOTIFY")
+
+  --#ifndef DRIVERCENTRAL
+  mainDriverCatchup.schedule()
+  --#endif
+end
+
+--#ifdef DRIVERCENTRAL
+OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
+--#endif
+
+function OPC.Driver_Status(propertyValue)
+  log:trace("OPC.Driver_Status('%s')", propertyValue)
+  if not gInitialized then
+    UpdateProperty("Driver Status", "Initializing", false)
+    return
+  end
+end
+
+function OPC.Driver_Version(propertyValue)
+  log:trace("OPC.Driver_Version('%s')", propertyValue)
+  C4:UpdateProperty("Driver Version", C4:GetDriverConfigInfo("version"))
+end
+
+--#ifdef DRIVERCENTRAL
+function OPC.Automatic_Updates(propertyValue)
+  log:trace("OPC.Automatic_Updates('%s')", propertyValue)
+  if gInitialized then
+    updateSettings:share("Automatic Updates", propertyValue)
+  end
+end
+
+--- An update setting changed on another item.
+function EC.SET_UPDATE_SETTING(params)
+  log:trace("EC.SET_UPDATE_SETTING(%s)", params)
+  updateSettings:take(params)
+end
+
+--- Not logged: the value is the code.
+function OPC.Support_Code(propertyValue)
+  supportCode:enter(propertyValue)
+end
+
+--- Turns Cloud Monitoring on or off.
+--- @param propertyValue string
+function OPC.Cloud_Monitoring(propertyValue)
+  diagnostics:setEnabled(propertyValue == "Enabled")
+end
+
+--- Prints a diagnostics report, and sends it while Cloud Monitoring is on.
+function EC.DiagnosticsSnapshot()
+  diagnostics:dumpSnapshot()
+end
+--#endif
+
+function OPC.Log_Mode(propertyValue)
+  log:trace("OPC.Log_Mode('%s')", propertyValue)
+  log:setLogMode(propertyValue)
+  CancelTimer("LogMode")
+  if not log:isEnabled() then
+    UpdateProperty("Log Level", "3 - Info", true)
+    return
+  end
+  log:warn("Log mode '%s' will expire in 3 hours", propertyValue)
+  SetTimer("LogMode", 3 * ONE_HOUR, function()
+    log:warn("Setting log mode to 'Off' (timer expired)")
+    UpdateProperty("Log Mode", "Off", true)
+  end)
+  OnPropertyChanged("Log Level")
+end
+
+function OPC.Log_Level(propertyValue)
+  log:trace("OPC.Log_Level('%s')", propertyValue)
+  log:setLogLevel(propertyValue)
+  if log:getLogLevel() >= 6 and log:isPrintEnabled() then
+    DEBUGPRINT = true
+    DEBUG_TIMER = true
+    DEBUG_RFN = true
+    DEBUG_URL = true
+    DEBUG_WEBSOCKET = true
+  else
+    DEBUGPRINT = false
+    DEBUG_TIMER = false
+    DEBUG_RFN = false
+    DEBUG_URL = false
+    DEBUG_WEBSOCKET = false
   end
 end

@@ -43,7 +43,7 @@ function ProxyRegistry:onProxyChange(id, callback)
 end
 
 --- Fire proxy change callbacks
---- @param event string Event type ("connected", "disconnected", "updated")
+--- @param event string Event type ("connected", "disconnected", "lost", "updated")
 --- @param proxyInfo ProxyInfo The proxy that changed
 --- @private
 function ProxyRegistry:_fireProxyChange(event, proxyInfo)
@@ -101,6 +101,17 @@ function ProxyRegistry:onProxyUnbound(deviceId)
   end
 end
 
+--- Handle a bound proxy losing its ESPHome connection. It stays bound and comes back with PROXY_CONNECTED.
+--- @param deviceId integer The device ID
+function ProxyRegistry:onProxyLost(deviceId)
+  local proxy = self._proxies[deviceId]
+  if proxy and proxy.connected then
+    log:info("Proxy lost its ESPHome connection (device %d)", deviceId)
+    proxy.connected = false
+    self:_fireProxyChange("lost", proxy)
+  end
+end
+
 --- Handle PROXY_CONNECTED message from a proxy
 --- @param deviceId integer The device ID
 --- @param params table Message parameters
@@ -111,6 +122,7 @@ function ProxyRegistry:onProxyConnected(deviceId, params)
     return
   end
 
+  proxy.connected = true
   proxy.proxyId = params.proxyId
   proxy.roomId = tointeger(params.roomId) or nil
   proxy.roomName = params.roomName or nil

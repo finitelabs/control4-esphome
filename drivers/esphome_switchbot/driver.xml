@@ -135,12 +135,14 @@
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
+        <password>true</password>
       </property>
       <property>
         <name>Encryption Key</name>
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
+        <password>true</password>
       </property>
       <!-- Device Info -->
       <property>

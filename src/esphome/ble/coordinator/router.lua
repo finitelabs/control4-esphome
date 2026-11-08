@@ -47,6 +47,7 @@ local deviceRegistry = require("esphome.ble.coordinator.device_registry")
 --- @field _pendingRequests table<string, table?> Map of request ID -> pending request info
 --- @field _connectedDevices table<string, integer?> Map of MAC -> connected proxy device ID
 --- @field _requestIdCounter integer Counter for generating unique request IDs
+--- @field _rssiMaxAge number Seconds an RSSI reading counts when picking a proxy
 local Router = {}
 Router.__index = Router
 
@@ -57,19 +58,28 @@ function Router:new()
   instance._pendingRequests = {} -- Track in-flight GATT requests
   instance._connectedDevices = {} -- Track MAC -> proxy for connected devices
   instance._requestIdCounter = 0
+  instance._rssiMaxAge = 60
   return instance
+end
+
+--- Set how long an RSSI reading counts when picking a proxy (RSSI Freshness).
+--- @param seconds number|nil Seconds; anything but a positive number leaves the setting as it is
+function Router:setRssiMaxAge(seconds)
+  if type(seconds) == "number" and seconds > 0 then
+    self._rssiMaxAge = seconds
+  end
 end
 
 --- Select the best proxy for a device based on RSSI
 --- @param mac string MAC address
---- @param rssiMaxAge number? Maximum age of RSSI readings in seconds (default: 60)
+--- @param rssiMaxAge number? Maximum age of RSSI readings in seconds (default: RSSI Freshness)
 --- @param excludeProxies table<integer, boolean?>? Proxy device IDs to exclude
 --- @return ProxyInfo|nil bestProxy The best proxy, or nil if none available
 --- @return number|nil rssi The RSSI value from that proxy
 --- @private
 --- @diagnostic disable-next-line: unused
 function Router:_selectBestProxy(mac, rssiMaxAge, excludeProxies)
-  rssiMaxAge = rssiMaxAge or 60
+  rssiMaxAge = rssiMaxAge or self._rssiMaxAge
   excludeProxies = excludeProxies or {}
 
   local readings = deviceRegistry:getRSSIReadings(mac, rssiMaxAge)
@@ -128,11 +138,11 @@ end
 --- Connect to a device with failover support
 --- @param mac string MAC address
 --- @param maxAttempts integer|nil Maximum connection attempts (default: 3)
---- @param rssiMaxAge number|nil Maximum age of RSSI readings in seconds
+--- @param rssiMaxAge number|nil Maximum age of RSSI readings in seconds (default: RSSI Freshness)
 --- @param callback fun(success: boolean, result: GattConnectResponse|string) Called with connection result or error message
 function Router:connectWithFailover(mac, maxAttempts, rssiMaxAge, callback)
   maxAttempts = maxAttempts or 3
-  rssiMaxAge = rssiMaxAge or 60
+  rssiMaxAge = rssiMaxAge or self._rssiMaxAge
 
   local device = deviceRegistry:getDevice(mac)
   if not device then
@@ -473,11 +483,14 @@ end
 
 --- Handle proxy disconnection - clean up pending requests and tracked devices for that proxy
 --- @param proxyDeviceId integer The disconnected proxy's device ID
+--- @return string[] macs The devices whose link went through that proxy
 function Router:onProxyDisconnected(proxyDeviceId)
   -- Clear all devices connected via this proxy
+  local dropped = {}
   for mac, connectedProxyId in pairs(self._connectedDevices) do
     if connectedProxyId == proxyDeviceId then
       self._connectedDevices[mac] = nil
+      table.insert(dropped, mac)
     end
   end
 
@@ -513,6 +526,7 @@ function Router:onProxyDisconnected(proxyDeviceId)
   if cancelled > 0 then
     log:info("Cancelled %d pending request(s) due to proxy device %d disconnection", cancelled, proxyDeviceId)
   end
+  return dropped
 end
 
 return Router:new()

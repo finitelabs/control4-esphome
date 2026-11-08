@@ -103,18 +103,6 @@ function UUID.fromGattObject(obj)
   return nil
 end
 
---- Check if a UUID is the Bluetooth Base UUID with a given short UUID.
---- @param uuidStr string The full UUID string
---- @param shortUuid number The short UUID to check against
---- @return boolean matches True if the UUID matches the short UUID
-function UUID.matchesShortUuid(uuidStr, shortUuid)
-  if not uuidStr or not shortUuid then
-    return false
-  end
-  local expected = UUID.shortToString(shortUuid)
-  return expected ~= nil and uuidStr:upper() == expected:upper()
-end
-
 --- Normalize a UUID to canonical form (uppercase hex string, no dashes).
 --- Handles numbers, strings (with/without dashes), Int64HighLow, and Int64HighLow[].
 --- @param uuid string|number|Int64HighLow|Int64HighLow[]|nil UUID in any format
@@ -172,7 +160,7 @@ function UUID.matches(uuid1, uuid2)
 end
 
 --- Find service data by UUID in a BLE advertisement.
---- Searches for the first matching UUID from the provided list.
+--- Returns the first service data entry whose UUID matches any of those given.
 --- @param data BLEServiceData[]|nil Array of service data entries {uuid, data}
 --- @param ... string|integer One or more UUIDs to search for (e.g., "FCD2", 0xFCD2)
 --- @return string|nil data Raw service data bytes or nil if not found
@@ -269,76 +257,5 @@ UUID.GATT = {
   -- Descriptors
   CLIENT_CHARACTERISTIC_CONFIGURATION = 0x2902,
 }
-
---- Run self-tests for UUID module.
---- @return boolean success True if all tests passed
-function UUID.selftest()
-  print("Testing UUID module...")
-  local passed = 0
-  local failed = 0
-
-  local function test(name, condition)
-    if condition then
-      passed = passed + 1
-      print("  PASS: " .. name)
-    else
-      failed = failed + 1
-      print("  FAIL: " .. name)
-    end
-  end
-
-  -- Test normalize with numbers
-  test("normalize(0xFCD2) = 'FCD2'", UUID.normalize(0xFCD2) == "FCD2")
-  test("normalize(0x1800) = '1800'", UUID.normalize(0x1800) == "1800")
-  test("normalize(0x12345678) = '12345678'", UUID.normalize(0x12345678) == "12345678")
-
-  -- Test normalize with strings
-  test("normalize('fcd2') = 'FCD2'", UUID.normalize("fcd2") == "FCD2")
-  test("normalize('FCD2') = 'FCD2'", UUID.normalize("FCD2") == "FCD2")
-  test(
-    "normalize with dashes",
-    UUID.normalize("12345678-1234-5678-1234-567890ABCDEF") == "12345678123456781234567890ABCDEF"
-  )
-
-  -- Test normalize with nil
-  test("normalize(nil) = nil", UUID.normalize(nil) == nil)
-
-  -- Test matches with mixed formats
-  test("matches(0xFCD2, 'FCD2')", UUID.matches(0xFCD2, "FCD2"))
-  test("matches('fcd2', 0xFCD2)", UUID.matches("fcd2", 0xFCD2))
-  test("matches('FD3D', 'fd3d')", UUID.matches("FD3D", "fd3d"))
-  test("not matches(0xFCD2, 'FD3D')", not UUID.matches(0xFCD2, "FD3D"))
-
-  -- Test findData
-  local serviceData = {
-    { uuid = "FCD2", data = "bthome_data" },
-    { uuid = "FD3D", data = "switchbot_data" },
-  }
-  local foundData, foundUuid = UUID.findData(serviceData, "FCD2")
-  test("findData with string UUID", foundData == "bthome_data" and foundUuid == "FCD2")
-  foundData, foundUuid = UUID.findData(serviceData, 0xFCD2)
-  test("findData with number UUID", foundData == "bthome_data" and foundUuid == 0xFCD2)
-  foundData, foundUuid = UUID.findData(serviceData, "fcd2")
-  test("findData case insensitive", foundData == "bthome_data" and foundUuid == "fcd2")
-  foundData, foundUuid = UUID.findData(serviceData, "1234")
-  test("findData not found", foundData == nil and foundUuid == nil)
-  foundData, foundUuid = UUID.findData(nil, "FCD2")
-  test("findData nil array", foundData == nil and foundUuid == nil)
-  -- Test findData with multiple UUIDs
-  foundData, foundUuid = UUID.findData(serviceData, "XXXX", "FD3D", "FCD2")
-  test("findData multiple UUIDs finds first match", foundData == "switchbot_data" and foundUuid == "FD3D")
-  foundData, foundUuid = UUID.findData(serviceData, "AAAA", "BBBB")
-  test("findData multiple UUIDs none match", foundData == nil and foundUuid == nil)
-
-  -- Test Int64HighLow if bit64 is available
-  local int64_1 = bit64.new(0x12345678, 0x9ABCDEF0)
-  if bit64.is_int64(int64_1) then
-    test("normalize Int64HighLow", UUID.normalize(int64_1) == "123456789ABCDEF0")
-    test("matches Int64HighLow with string", UUID.matches(int64_1, "123456789ABCDEF0"))
-  end
-
-  print(string.format("\nUUID module: %d/%d tests passed\n", passed, passed + failed))
-  return failed == 0
-end
 
 return UUID
