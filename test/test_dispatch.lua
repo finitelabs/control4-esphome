@@ -1,7 +1,9 @@
 -- How handlers.lua and timer.lua hand a call to a driver's handler, where our copy
 -- differs from Snap One's: OnPropertyChanged's name sanitizer, and the
 -- ON_HANDLER_ERROR and ON_TIMER_ERROR hooks with the traceback. lib.diagnostics
--- installs both hooks, so losing one would turn them off silently.
+-- installs both hooks, so losing one would turn them off silently. A driver's late
+-- init calls OnPropertyChanged for each property without a pcall, which relies on
+-- the router keeping a handler's error to itself.
 --
 -- Run from the driver root:
 --   make test
@@ -68,6 +70,27 @@ for _, case in ipairs(dispatchers) do
   )
 end
 ON_HANDLER_ERROR = nil
+
+T.section("OnPropertyChanged keeps a handler's error, so a late-init replay runs every property")
+do
+  local ran = {}
+  OPC.First = function()
+    ran[#ran + 1] = "First"
+    raise()
+  end
+  OPC.Second = function()
+    ran[#ran + 1] = "Second"
+  end
+  Properties.First, Properties.Second = "", ""
+  local ok, err, out = T.capture(function()
+    for _, p in ipairs({ "First", "Second" }) do
+      OnPropertyChanged(p)
+    end
+  end)
+  T.check("the error isn't raised again", ok, tostring(err))
+  T.eq("the next property still runs", ran, { "First", "Second" })
+  T.contains("and the router prints the error, the hook unset", out, "OnPropertyChanged error")
+end
 
 T.section("A timer callback that raises reaches ON_TIMER_ERROR with its traceback")
 local timerId, timerErr

@@ -16,8 +16,11 @@ require("lib.utils")
 --- @param strClass string Binding class
 --- @return boolean true if binding was created, false if it already existed
 function Bind(idDeviceProvider, idBindingProvider, idDeviceConsumer, idBindingConsumer, strClass)
-  -- Only bind if the binding does not currently exist
-  if Select(C4:GetBoundConsumerDevices(idDeviceProvider, idBindingProvider), idDeviceConsumer) == nil then
+  -- The consumer binding has one provider, so it must name this one: the consumer device being
+  -- on the provider binding is true when any of its bindings is.
+  local bound = tointeger(C4:GetBoundProviderDevice(idDeviceConsumer, idBindingConsumer)) == tointeger(idDeviceProvider)
+    and Select(C4:GetBoundConsumerDevices(idDeviceProvider, idBindingProvider), idDeviceConsumer) ~= nil
+  if not bound then
     log:debug(
       "C4:Bind(%s, %s, %s, %s, %s)",
       idDeviceProvider,

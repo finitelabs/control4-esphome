@@ -46,7 +46,9 @@ then pull the change in with `copier update`.
   license gate (see [The License Gate](#the-license-gate))
 - `events.lua`: event firing and management
 - `http.lua`: HTTP client wrapper
-- `logging.lua`: structured logging with configurable levels
+- `logging.lua`: structured logging with configurable levels, the Log Level
+  property's list and the drivers-common-public dumps (see
+  [Log Level](#log-level))
 - `lru.lua`: LRU cache utility
 - `persist.lua`: persistent storage abstraction
 - `redact.lua`: masks credentials in log lines and diagnostics reports
@@ -613,9 +615,47 @@ end
 ```
 
 The library clears the property at once, keeps its value out of the dispatcher's
-Trace output, and prints its answer to the Lua output whatever Log Mode is. A
-driver that shows more while the window is open (extra properties or log levels)
-passes `supportCode:onChange(function(open) ... end)`.
+Trace output, and prints its answer to the Lua output whatever Log Mode is.
+While the window is open, Log Level also offers Trace and Ultra (see
+[Log Level](#log-level)). A driver that shows more while the window is open
+(extra properties) passes `supportCode:onChange(function(open) ... end)`.
+
+### Log Level
+
+Every driver has the same Log Level property. An OSS build offers `0 - Fatal` to
+`6 - Ultra`; a DriverCentral build stops at `4 - Debug`, and offers `5 - Trace`
+and `6 - Ultra` only while the Support Code has the Lua window open, since they
+show nothing the open window doesn't. The property is a `DYNAMIC_LIST` with no
+items, the same in both builds, and the logger fills its list:
+
+```xml
+<property>
+  <name>Log Level</name>
+  <type>DYNAMIC_LIST</type>
+  <default>3 - Info</default>
+</property>
+```
+
+It can't be a `LIST`: Composer takes no `LIST` value that `driver.xml` doesn't
+list, so a level added at runtime would show and not stick. Its handler hands
+the value to the logger:
+
+```lua
+function OPC.Log_Level(propertyValue)
+  log:trace("OPC.Log_Level('%s')", propertyValue)
+  log:setLogLevel(propertyValue)
+end
+```
+
+`log:setLogLevel` never goes above what the build allows, puts the property back
+to `4 - Debug` when it shows more, and sends the property its list. At Ultra
+with Print on it also turns on drivers-common-public's own dumps (`DEBUGPRINT`,
+`DEBUG_TIMER`, `DEBUG_RFN`, `DEBUG_URL`, `DEBUG_WEBSOCKET`), which print whole
+HTTP requests and websocket frames, logins included, and turns them off
+otherwise. Nothing else sets them. The Support Code calls
+`log:allowTraceAndUltra(allowed)` as the window opens and closes, which widens
+and narrows the list. A page that sets Log Level offers
+`log:getLogLevelNames()`.
 
 ### Cloud Monitoring
 

@@ -19,7 +19,9 @@ The banners' art is `circuit`: traces from the logo to six devices, set on each 
 resources/drivercentral/render.sh
 ```
 
-This needs Google Chrome and a network connection (the pages load Inter from Google Fonts). It renders every page at 2x and overwrites the PNGs. Pass a directory to render somewhere else instead.
+This needs Google Chrome, python3 and a network connection (the pages load Inter from Google Fonts). It renders every page at 2x and overwrites the PNGs. Pass a directory to render somewhere else instead.
+
+Chrome sometimes hangs on a page. After 60 seconds on one page, `render.sh` stops Chrome and fails, naming the page; run it again. `RENDER_TIMEOUT` sets the limit in seconds.
 
 Every page takes its accent, `--accent`, from the repo's `primary_color`. The banners and the photo frame glow in `--glow`, which is the accent unless the page sets a lighter tint for a dark brand color. The facts strip shrinks its type until four longer facts fit.
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Tests for tools/support_code.py's code and for where a build secret is read
-from (tools/preprocess.py's build_secret).
+"""Tests for tools/support_code.py's code, for where a build secret is read
+from (tools/preprocess.py's build_secret), and for the log levels each build
+allows before the Support Code is entered.
 """
 
 import os
@@ -47,6 +48,26 @@ class OnlyDriverCentralBuildsCarryTheSecretTest(unittest.TestCase):
         self,
     ):
         self.assertNotIn("SUPPORT_CODE_SECRET", self._preprocessed({"OSS"}))
+
+
+class OnlyOssBuildsAllowTraceAndUltraAtLoadTest(unittest.TestCase):
+    def _preprocessed(self, conditions):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        lib = Path(tmp.name) / "logging.lua"
+        shutil.copy(Path(__file__).parent.parent / "src" / "lib" / "logging.lua", lib)
+        preprocess.process_file(lib, conditions)
+        return lib.read_text(encoding="utf-8")
+
+    def test_a_drivercentral_build_stops_at_debug(self):
+        src = self._preprocessed({"DRIVERCENTRAL"})
+        self.assertIn("local DEFAULT_MAX_LOG_LEVEL = Log.LogLevel.DEBUG", src)
+        self.assertNotIn("local DEFAULT_MAX_LOG_LEVEL = Log.LogLevel.ULTRA", src)
+
+    def test_an_oss_build_allows_ultra(self):
+        src = self._preprocessed({"OSS"})
+        self.assertIn("local DEFAULT_MAX_LOG_LEVEL = Log.LogLevel.ULTRA", src)
+        self.assertNotIn("local DEFAULT_MAX_LOG_LEVEL = Log.LogLevel.DEBUG", src)
 
 
 class BuildSecretTest(unittest.TestCase):
