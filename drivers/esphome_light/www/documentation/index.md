@@ -262,12 +262,13 @@ The driver provides three button link connections for programming integration:
 | Toggle Button Link | Toggles the light when triggered   |
 | Off Button Link    | Turns the light off when triggered |
 
-A keypad button bound to a button link shows whether the light is on: lit while
-it is on, or for the Off Button Link while it is off. It shows that button's
-colors, set in Composer under the light's **Button and Button Connection Status
-LED Colors** (Top for On, Bottom for Off, Toggle for Toggle). A newly bound
-button is told the light's state and colors at once, and a color change reaches
-it right away.
+A keypad button bound to a button link shows whether the light is on, in that
+button's colors, set in Composer under the light's **Button and Button
+Connection Status LED Colors** (Top for On, Bottom for Off, Toggle for Toggle).
+It shows its on color while the light is on and its off color while it is off.
+With the project's default colors, the On and Toggle buttons are lit while the
+light is on, and the Off button while it is off. A newly bound button is told
+the light's state and colors at once, and a color change reaches it right away.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
