@@ -520,7 +520,7 @@ room. Use this when a room has different size or characteristics than others.
 > the Bluetooth Coordinator when this proxy connects or when the setting
 > changes.
 
-##### Restart Bluetooth Proxy When Stuck \[ default: **_Off_** \]
+##### Restart Bluetooth Proxy When Stuck
 
 > Only visible when the ESPHome device has a `restart` button with its default
 > icon.
