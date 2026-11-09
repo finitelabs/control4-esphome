@@ -1162,6 +1162,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   until its device next reconnected, when the ESPHome driver had connected first
 - Fixed a light briefly showing its earlier color again when a white was set
   right after another color
+- Fixed a keypad button on a light's Off Button Link showing its lit color while
+  the light was on, and keypad buttons on a light's Button Links now show the
+  project's button LED colors in place of defaults
 
 ### Changed
 

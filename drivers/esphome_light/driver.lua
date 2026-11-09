@@ -227,6 +227,53 @@ local lightFade = nil
 local suspended = false
 
 ---------------------------------------------------------------------------
+-- Button colors
+---------------------------------------------------------------------------
+
+-- The project properties that hold each button's LED colors, on and off.
+local PROJECT_LED_COLORS = {
+  [constants.ButtonIds.TOP] = { "TopLEDOn", "TopLEDOff" },
+  [constants.ButtonIds.BOTTOM] = { "BottomLEDOn", "BottomLEDOff" },
+  [constants.ButtonIds.TOGGLE] = { "ToggleLEDOn", "ToggleLEDOff" },
+}
+
+local function buttonIdFromBinding(idBinding)
+  if idBinding == ON_BINDING then
+    return constants.ButtonIds.TOP
+  elseif idBinding == OFF_BINDING then
+    return constants.ButtonIds.BOTTOM
+  elseif idBinding == TOGGLE_BINDING then
+    return constants.ButtonIds.TOGGLE
+  end
+  return nil
+end
+
+--- A button's on and off colors: those the proxy gave it, or else the project's.
+local function getButtonColors(buttonId)
+  local saved = persist:get(PersistKey.BUTTON_COLORS, {})[tostring(buttonId)] or {}
+  local project = PROJECT_LED_COLORS[buttonId] or {}
+  local onColor = saved.on_color or (project[1] and C4:GetProjectProperty(project[1]))
+  local offColor = saved.off_color or (project[2] and C4:GetProjectProperty(project[2]))
+  return onColor, offColor
+end
+
+local function setButtonColors(buttonId, onColor, offColor)
+  local colors = persist:get(PersistKey.BUTTON_COLORS, {})
+  local key = tostring(buttonId)
+  local existing = colors[key] or {}
+  colors[key] = { on_color = onColor or existing.on_color, off_color = offColor or existing.off_color }
+  persist:set(PersistKey.BUTTON_COLORS, colors)
+end
+
+--- Tell the keypad button on each Button Link its button's colors.
+local function tellLinkColors()
+  for _, link in ipairs({ ON_BINDING, OFF_BINDING, TOGGLE_BINDING }) do
+    local onColor, offColor = getButtonColors(buttonIdFromBinding(link))
+    SendToProxy(link, "BUTTON_COLORS", { ON_COLOR = onColor, OFF_COLOR = offColor }, "NOTIFY")
+  end
+end
+
+---------------------------------------------------------------------------
 -- The proxy's setup
 ---------------------------------------------------------------------------
 
@@ -310,6 +357,18 @@ local function readProxySetup()
   rate = tointeger(setup.light_color_rate_default)
   if rate then
     RFP.UPDATE_COLOR_RATE_DEFAULT(PROXY_BINDING, "UPDATE_COLOR_RATE_DEFAULT", { RATE = rate })
+  end
+
+  -- The proxy holds each button's colors from install, but sends them only at the
+  -- install of a light with LED colors, so a light installed without takes them here.
+  local buttons = Select(setup, "BUTTON_LIST_INFO", "BUTTON_INFO") or {}
+  for _, button in ipairs(IsList(buttons) and buttons or { buttons }) do
+    local buttonId = tointeger(button.BUTTON_ID)
+    local onColor = type(button.ON_COLOR) == "string" and button.ON_COLOR ~= "" and button.ON_COLOR or nil
+    local offColor = type(button.OFF_COLOR) == "string" and button.OFF_COLOR ~= "" and button.OFF_COLOR or nil
+    if buttonId and (onColor or offColor) then
+      setButtonColors(buttonId, onColor, offColor)
+    end
   end
 end
 
@@ -597,6 +656,8 @@ local function updateDynamicCapabilities(entity)
       OFF_COLOR = saved.off_color or "",
     }, "NOTIFY")
   end
+  -- A keypad keeps the colors it was last told, which may be from before the proxy's were read.
+  tellLinkColors()
 
   -- Re-emit the persisted preset level so the proxy is seeded after a reload.
   local presetLevel = tointeger(persist:get(PersistKey.PRESET_LEVEL))
@@ -729,26 +790,6 @@ end
 
 local function getHoldRateDown()
   return persist:get(PersistKey.HOLD_RATE_DOWN, DEFAULT_HOLD_RATE)
-end
-
-local function getButtonColors(buttonId)
-  local colors = persist:get(PersistKey.BUTTON_COLORS, {})
-  local key = tostring(buttonId)
-  if colors[key] then
-    return colors[key].on_color or "0000ff", colors[key].off_color or "000000"
-  end
-  return "0000ff", "000000"
-end
-
-local function setButtonColors(buttonId, onColor, offColor)
-  local colors = persist:get(PersistKey.BUTTON_COLORS, {})
-  local key = tostring(buttonId)
-  local existing = colors[key] or {}
-  colors[key] = {
-    on_color = onColor or existing.on_color or "0000ff",
-    off_color = offColor or existing.off_color or "000000",
-  }
-  persist:set(PersistKey.BUTTON_COLORS, colors)
 end
 
 ---------------------------------------------------------------------------
@@ -1418,9 +1459,10 @@ local function matchLedState(on)
   ledState = on
   -- MATCH_LED_STATE goes to each BUTTON_LINK binding (the keypad button
   -- LEDs), not to the LIGHT_V2 proxy binding. STATE is a Lua boolean per
-  -- spec. Bottom is inverted: its LED lights when the light is OFF.
+  -- spec. Each is told the light's state: the Bottom button's colors are what
+  -- light its LED while the light is off.
   SendToProxy(ON_BINDING, "MATCH_LED_STATE", { STATE = on }, "NOTIFY", true)
-  SendToProxy(OFF_BINDING, "MATCH_LED_STATE", { STATE = not on }, "NOTIFY", true)
+  SendToProxy(OFF_BINDING, "MATCH_LED_STATE", { STATE = on }, "NOTIFY", true)
   SendToProxy(TOGGLE_BINDING, "MATCH_LED_STATE", { STATE = on }, "NOTIFY", true)
 end
 
@@ -3308,17 +3350,6 @@ end
 -- RFP: button colors
 ---------------------------------------------------------------------------
 
-local function buttonIdFromBinding(idBinding)
-  if idBinding == ON_BINDING then
-    return constants.ButtonIds.TOP
-  elseif idBinding == OFF_BINDING then
-    return constants.ButtonIds.BOTTOM
-  elseif idBinding == TOGGLE_BINDING then
-    return constants.ButtonIds.TOGGLE
-  end
-  return nil
-end
-
 function RFP.REQUEST_BUTTON_COLORS(idBinding, strCommand, tParams, args)
   log:trace("RFP.REQUEST_BUTTON_COLORS(%s, %s)", idBinding, strCommand)
   if idBinding ~= PROXY_BINDING then
@@ -3329,11 +3360,7 @@ function RFP.REQUEST_BUTTON_COLORS(idBinding, strCommand, tParams, args)
     end
     local onColor, offColor = getButtonColors(buttonId)
     SendToProxy(idBinding, "BUTTON_COLORS", { ON_COLOR = onColor, OFF_COLOR = offColor }, "NOTIFY")
-    local isOn = ledState == true
-    if idBinding == OFF_BINDING then
-      isOn = not isOn
-    end
-    SendToProxy(idBinding, "MATCH_LED_STATE", { STATE = isOn }, "NOTIFY", true)
+    SendToProxy(idBinding, "MATCH_LED_STATE", { STATE = ledState == true }, "NOTIFY", true)
     return
   end
   for _, buttonId in ipairs({ 0, 1, 2 }) do
@@ -3344,11 +3371,10 @@ function RFP.REQUEST_BUTTON_COLORS(idBinding, strCommand, tParams, args)
       OFF_COLOR = offColor,
     }, "NOTIFY")
   end
-  -- The MATCH_LED_STATE last sent, per button binding, with bottom inverted (its
-  -- LED lights when the light is off so the keypad shows the toggle state correctly).
+  -- The MATCH_LED_STATE last sent, per button binding.
   local isOn = ledState == true
   SendToProxy(ON_BINDING, "MATCH_LED_STATE", { STATE = isOn }, "NOTIFY", true)
-  SendToProxy(OFF_BINDING, "MATCH_LED_STATE", { STATE = not isOn }, "NOTIFY", true)
+  SendToProxy(OFF_BINDING, "MATCH_LED_STATE", { STATE = isOn }, "NOTIFY", true)
   SendToProxy(TOGGLE_BINDING, "MATCH_LED_STATE", { STATE = isOn }, "NOTIFY", true)
 end
 

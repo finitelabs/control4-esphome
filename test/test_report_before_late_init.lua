@@ -37,6 +37,9 @@ end
 
 function C4:GetDeviceVariable() end
 
+-- The light reads the project's LED colors, which the shim has no stub for.
+function C4:GetProjectProperty() end
+
 local online, toldEarly
 
 --- Load a companion, hand it `report` before its late init, run late init, then

@@ -98,6 +98,19 @@ function C4:GetDriverConfigInfo(section)
   return config(self, section)
 end
 
+-- The project's LED colors, as dev's project holds them; the shim has none.
+local projectLeds = {
+  TopLEDOn = "0000ff",
+  TopLEDOff = "000000",
+  BottomLEDOn = "000000",
+  BottomLEDOff = "0000ff",
+  ToggleLEDOn = "0000ff",
+  ToggleLEDOff = "000000",
+}
+function C4:GetProjectProperty(name)
+  return projectLeds[name]
+end
+
 -- GET_SETUP answers proxySetup (false for none), or newLightSetup until the
 -- proxy is told the light's capabilities.
 local proxySetup, newLightSetup = "", nil
@@ -1730,9 +1743,9 @@ do
   mark()
   proxy("REQUEST_BUTTON_COLORS")
   T.eq(
-    "Request Button Colors half way up: on, the Bottom's LED inverted",
+    "Request Button Colors half way up: every link is told on",
     { leds(), leds(BOTTOM_LINK), leds(TOGGLE_LINK) },
-    { { { 0, true } }, { { 0, false } }, { { 0, true } } }
+    { { { 0, true } }, { { 0, true } }, { { 0, true } } }
   )
   run(15000)
   mark()
@@ -4848,6 +4861,85 @@ function C4:ColorCCTtoXY(kelvin)
 end
 function C4:ColorXYtoCCT(x)
   return x * 10000
+end
+
+T.section(
+  "a keypad button on a Button Link shows the project's LED colors or the proxy's, and every link the light's state"
+)
+do
+  local BOTTOM_LINK = 302
+  local RGB = ColorMode.COLOR_MODE_RGB
+  --- The light's first report after a load with `setup` as the proxy's setup; returns each link's colors as told then.
+  local function started(setup)
+    persist:delete("button_colors")
+    proxySetup = setup
+    light({ RGB })
+    restart(nil)
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { RGB } }),
+      state = SerializeSafe({ state = true, brightness = 1.0 }),
+    })
+    local out = {}
+    for _, s in ipairs(sent) do
+      if
+        s.command == "BUTTON_COLORS" and (s.binding == TOP_LINK or s.binding == BOTTOM_LINK or s.binding == TOGGLE_LINK)
+      then
+        out[s.binding] = s.params.ON_COLOR .. "/" .. s.params.OFF_COLOR
+      end
+    end
+    return out
+  end
+  --- What the Off link's LED was told since the mark.
+  local function bottomLed()
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.binding == BOTTOM_LINK and s.command == "MATCH_LED_STATE" then
+        out[#out + 1] = s.params.STATE
+      end
+    end
+    return out
+  end
+
+  T.eq("a proxy whose setup lists no buttons: each link is told the project's colors at start", started(""), {
+    [TOP_LINK] = "0000ff/000000",
+    [BOTTOM_LINK] = "000000/0000ff",
+    [TOGGLE_LINK] = "0000ff/000000",
+  })
+  local listed = withTags(setupFile("setup-643.xml"), {
+    BUTTON_LIST_INFO = "<BUTTON_INFO><NAME>Top</NAME><BUTTON_ID>0</BUTTON_ID><ON_COLOR>00ff00</ON_COLOR>"
+      .. "<OFF_COLOR>111111</OFF_COLOR></BUTTON_INFO><BUTTON_INFO><NAME>Bottom</NAME><BUTTON_ID>1</BUTTON_ID>"
+      .. "<ON_COLOR>222222</ON_COLOR><OFF_COLOR>ff0000</OFF_COLOR></BUTTON_INFO>",
+  })
+  T.eq(
+    "a proxy that lists its buttons: their colors over the project's, the project's for one it does not",
+    started(listed),
+    {
+      [TOP_LINK] = "00ff00/111111",
+      [BOTTOM_LINK] = "222222/ff0000",
+      [TOGGLE_LINK] = "0000ff/000000",
+    }
+  )
+  started("")
+  mark()
+  proxy("SET_BUTTON_COLOR", { BUTTON_ID = "1", ON_COLOR = "ff0000" })
+  local told = {}
+  for _, s in ipairs(sent) do
+    if s.binding == BOTTOM_LINK and s.command == "BUTTON_COLORS" then
+      told[#told + 1] = s.params.ON_COLOR .. "/" .. s.params.OFF_COLOR
+    end
+  end
+  T.eq("an on color alone from Composer keeps the project's off color", told, { "ff0000/0000ff" })
+
+  -- The Bottom's colors give its look, so the Off link is told the light's state as every link is.
+  started("")
+  mark()
+  proxy("OFF")
+  run(15000)
+  T.eq("the light off: the Off link is told off", bottomLed(), { false })
+  mark()
+  proxy("ON")
+  run(15000)
+  T.eq("the light on: the Off link is told on", bottomLed(), { true })
 end
 
 T.section("a light the proxy never sent its Color On Mode reads it from the proxy's setup at start")
