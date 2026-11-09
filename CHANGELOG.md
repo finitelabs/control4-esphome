@@ -74,8 +74,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 <!-- #ifdef DRIVERCENTRAL -->
 
-- Changed Log Level in the DriverCentral build to stop at 4 - Debug unless
-  Finite Labs support has opened the Lua tab with a Support Code
+- Changed Log Level to stop at 4 - Debug unless Finite Labs support has opened
+  the Lua tab with a Support Code
   <!-- #endif -->
 - Changed Reset Driver on the ESPHome driver to leave Automatic Updates and
   Update Channel as they are
