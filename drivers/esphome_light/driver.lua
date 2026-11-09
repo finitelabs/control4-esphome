@@ -956,8 +956,12 @@ local function isOwnReport(sent, matches, reported)
 end
 
 --- Whether a state matches a sent color's fields; the tolerance is relative
---- for fields above 1 (mireds).
+--- for fields above 1 (mireds). The light keeps its color temperature in a
+--- color's state, so one sent with no mode needs a state in a mode that shows it.
 local function holdsColor(state, color)
+  if color.color_mode == nil and color.color_temperature and not COLOR_MODES_SUPPORTING_CCT[state.color_mode] then
+    return false
+  end
   for field, value in pairs(color) do
     local tolerance = COLOR_TOLERANCE * math.max(1, math.abs(value))
     if not (math.abs((tofinite(state[field]) or 0) - value) <= tolerance) then

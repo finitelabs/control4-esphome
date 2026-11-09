@@ -8801,8 +8801,9 @@ do
     answered = 0
   end
   --- The light's report of the next command since the mark, which it takes:
-  --- each field as last sent, or the level alone if `levelOnly`.
-  local function answer(levelOnly)
+  --- each field as last sent, or the level alone if `levelOnly`, in `mode` if
+  --- the command named none and the light changes mode for it.
+  local function answer(levelOnly, mode)
     answered = answered + 1
     local n = 0
     for _, s in ipairs(sent) do
@@ -8811,6 +8812,9 @@ do
         local cmd = n == answered and DeserializeSafe(s.params.body)
         for _, field in ipairs(cmd and (levelOnly and { "brightness" } or FIELDS) or {}) do
           state[field] = cmd[field] or state[field]
+        end
+        if cmd and mode and not cmd.has_color_mode then
+          state.color_mode = mode
         end
       end
     end
@@ -8909,6 +8913,28 @@ do
     "green sent 0.9 s after a red the light did not take: 4000 K is not told while green's report is on the way",
     { colorsTold(), told("LIGHT_COLOR_CHANGED", "at") },
     { { 0, 1 / 3 }, { 12, 912 } }
+  )
+
+  -- The light keeps its color temperature in its reports of a color, so a
+  -- white sent as that temperature alone is not taken as reported by red's.
+  inWhite()
+  colorTarget(RED, 0)
+  run(100)
+  proxy("SET_COLOR_TARGET", {
+    LIGHT_COLOR_TARGET_X = 0.4,
+    LIGHT_COLOR_TARGET_Y = 0.4,
+    LIGHT_COLOR_TARGET_MODE = CCT_MODE,
+    LIGHT_COLOR_TARGET_COLOR_RATE = 0,
+  })
+  run(20)
+  answer()
+  run(100)
+  answer(false, CWWW)
+  run(2000)
+  T.eq(
+    "red, then the white it was in 0.1 s later, each reported after both were sent: each told once, in order",
+    { colorsTold(), told("LIGHT_COLOR_CHANGED", "at") },
+    { { 0, 0.4 }, { 0, 100 } }
   )
 
   -- A wait begun before a disconnect tells nothing after it.

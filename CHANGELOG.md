@@ -85,6 +85,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed an ESPHome light or lock showing offline after a controller restart when
   the ESPHome driver had connected first; it stayed offline until its device
   next reconnected
+- Fixed a light showing its earlier color again for a moment when a white was
+  set right after another color; Control4 now sees each color once, in order
 
 ### Changed
 
