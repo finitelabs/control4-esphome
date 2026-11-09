@@ -22,62 +22,47 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
-- Fixed a Yale lock in Persistent mode staying disconnected for good once its
-  reconnect attempts ran out; it now tries again when the lock is heard, at most
-  every five minutes
-- Fixed a Yale lock still showing online in Control4 after its reconnect
-  attempts ran out or its connection to the ESPHome driver or Bluetooth
-  Coordinator was removed
+- Fixed a Yale lock in Persistent mode never reconnecting after its reconnect
+  attempts ran out. It now tries again when the lock is heard, at most every
+  five minutes
+- Fixed a Yale lock still showing online after its reconnect attempts ran out or
+  its connection to the ESPHome driver or Bluetooth Coordinator was removed
 - Fixed a Yale lock in Poll mode with no Offline Key connecting to the lock at
-  every poll; it now waits for a key and shows Error: Offline key required
+  every poll. It now waits for a key and Driver Status says one is required
 - Fixed Bluetooth sub-drivers still showing connected, and the Bluetooth
-  Coordinator still routing through a proxy, after the ESPHome device acting as
-  the Bluetooth proxy went offline; they now show disconnected until it is back
-- Fixed a Bluetooth sub-driver that controls its device losing the device's
-  Bluetooth services, and starting its connection over, whenever another driver
-  bound to the same ESPHome device loaded or asked for its state
+  Coordinator still using a proxy, after the ESPHome device acting as that proxy
+  went offline
+- Fixed a Bluetooth sub-driver that controls its device starting its connection
+  over whenever another driver bound to the same ESPHome device loaded or asked
+  for its state
 - Fixed Bluetooth sub-drivers showing Waiting for data after a driver update
-  until their device next advertised; the ESPHome driver and the Bluetooth
-  Coordinator now answer their request for state
+  until their device next advertised
 - Fixed the Govee, BTHome and SwitchBot drivers hiding their readings in
-  Composer after a driver start until the device next reported them; the last
-  readings now show at once
+  Composer after a driver start until the device next reported them
 - Fixed the SwitchBot driver's Encryption Status putting Lua file and line
   details in front of the reason when fetching its keys from the SwitchBot cloud
-  failed; it now shows the reason alone
-- Fixed the Bluetooth Coordinator's RSSI Freshness setting having no effect:
-  picking a proxy for a device always counted readings up to 60 seconds old; it
-  now counts only readings within the setting
-- Fixed an ESPHome text, select, date, time or datetime variable set from
-  programming before the device first reported its value doing nothing; the
-  variable is there, blank, from the start. A number or switch variable kept
-  from before a driver start now takes a value at once too, instead of only
-  after the device reports again
+  failed
+- Fixed the Bluetooth Coordinator's RSSI Freshness setting having no effect when
+  it picked a proxy for a device
+- Fixed ESPHome entity variables ignoring a value set from programming until the
+  device reported a value of its own
 - Fixed a relay bound to an ESPHome cover's Open, Close or Stop connection
-  showing its state as unconfirmed after a controller restart; it is told again
-  that it reads open, without running its programming
+  showing its state as unconfirmed after a controller restart
 - Fixed Composer showing the Yale Offline Key, the BTHome Bind Key, the ESPHome
   lock driver's Lock Code and the SwitchBot Key ID and Encryption Key in plain
-  text; it now hides them. A BTHome Bind Key that isn't 32 hex characters is
-  cleared and Driver Status says why
-- Fixed the Bluetooth Coordinator firing a device's Entered Room events, and
-  changing its room, room occupancy and Last Presence variables, at every driver
-  update or controller restart when the device had not moved; a device now keeps
-  its room across a restart
-- Fixed the SwitchBot Contact Sensor telling its contact connection Closed while
-  the door was open, and reading a door left open a long time as closed; an item
-  bound to it now shows the door's real state, corrected at its first reading
-  after the update without running its programming
-- Fixed an ESPHome entity whose name matched one of the ESPHome driver's own
-  settings writing its reading into that setting, which could point the driver
-  at the wrong IP address and reconnect it; the entity's variable keeps its name
-  and the setting is left alone
-- Fixed the ESPHome driver logging a Lua error when the start of a message from
-  an unencrypted device arrived split across two network reads; it now waits for
-  the rest
-- Fixed a light going on to the end of its ramp when Control4 stopped it part
-  way; it now stops where it has got to. A light already in a project does this
-  from its next controller restart
+  text. A BTHome Bind Key that isn't 32 hex characters is now cleared and Driver
+  Status says why
+- Fixed the Bluetooth Coordinator firing a device's Entered Room events and
+  changing its room variables at every driver update or controller restart when
+  the device had not moved
+- Fixed the SwitchBot Contact Sensor showing a door as closed while it was open
+- Fixed an ESPHome entity named like one of the ESPHome driver's own settings
+  writing its reading into that setting, which could point the driver at the
+  wrong IP address
+- Fixed the ESPHome driver logging a Lua error when a message from an
+  unencrypted device arrived in pieces
+- Fixed a light running on to the end of its ramp when Control4 stopped it part
+  way. A light already in a project gets this at its next controller restart
 - Fixed a color set on a light while it is off giving way to the light's Color
   On Mode at its next on. The light now comes on in that color, from a Navigator
   as from programming or a scene, and Dim-To-Warm leaves it until the light
@@ -88,10 +73,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Changed
 
-- Changed Log Level in the DriverCentral build to stop at `4 - Debug`:
-  `5 - Trace` and `6 - Ultra` are offered only while a Support Code from Finite
-  Labs support has the Lua tab open, and a driver set to either goes back to
-  `4 - Debug`.
+<!-- #ifdef DRIVERCENTRAL -->
+
+- Changed Log Level in the DriverCentral build to stop at 4 - Debug unless
+  Finite Labs support has opened the Lua tab with a Support Code
+  <!-- #endif -->
 - Changed Reset Driver on the ESPHome driver to leave Automatic Updates and
   Update Channel as they are
 
@@ -99,43 +85,39 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
-- Added a `Restart Bluetooth Proxy When Stuck` property, which presses the
-  ESPHome restart button you choose when a Bluetooth proxy stops answering, at
-  most once every 6 hours. Off by default
+- Added a Restart Bluetooth Proxy When Stuck property, off by default, which
+  presses the restart button you choose when a Bluetooth proxy stops answering,
+  at most once every 6 hours
   <!-- #ifdef DRIVERCENTRAL -->
-- Added a `Support Code` property to the ESPHome driver and its sub-drivers. A
+- Added a Support Code property to the ESPHome driver and its sub-drivers. A
   code from Finite Labs support opens the driver's Lua tab in Composer for an
-  hour; leave it blank otherwise
-- Added a `Cloud Monitoring` property, Enabled by default, and a
-  `Diagnostics Snapshot` action to every driver. Cloud Monitoring sends Finite
-  Labs an hourly report of the driver's memory use and a report of each error it
-  hits; the documentation says what they hold
+  hour
+- Added a Cloud Monitoring property, on by default, and a Diagnostics Snapshot
+  action to every driver. Cloud Monitoring sends Finite Labs an hourly report of
+  the driver's memory use and a report of each error it hits
   <!-- #endif -->
 
 ### Fixed
 
 - Fixed an ESPHome climate device that does not report what it is doing never
-  setting the thermostat's HVAC state; the state now follows the mode (Cool
-  reads as Cooling, Heat/Cool and Auto as Idle). A water heater now reports an
-  HVAC state too: Heating while it is on, Off while it is off
-- Fixed a Bluetooth proxy that still held a device connected but no longer
-  answered it going unreported: `Bluetooth Proxy Status` now asks for a power
-  cycle, and the device shows "Bluetooth proxy needs a restart" instead of "GATT
-  discovery failed"
+  setting the thermostat's HVAC state. The state now follows the mode, and a
+  water heater reads Heating while it is on and Off while it is off
+- Fixed a Bluetooth proxy that held a device connected but no longer answered it
+  going unreported. Bluetooth Proxy Status now asks for a power cycle, and the
+  device shows that the proxy needs a restart
 - Fixed a SwitchBot command sent while the device was still connecting failing,
   and a two-channel SwitchBot relay turning on only one channel when a scene set
   both
-- Fixed a Yale lock or unlock in Persistent mode being dropped when the
-  connection failed; it is now retried, as it is after a dropped connection
-- Fixed relay drivers bound to ESPHome switches and covers: a switch no longer
-  turns off when a relay driver bound to it asks for its state, and a relay
-  driver no longer runs its programming each time the device reconnects or a
-  cover updates
+- Fixed a Yale lock or unlock in Persistent mode being dropped, not retried,
+  when the connection failed
+- Fixed an ESPHome switch turning off when a relay driver bound to it asked for
+  its state, and a relay driver bound to an ESPHome switch or cover running its
+  programming each time the device reconnected or the cover updated
 - Fixed a pulsed ESPHome switch staying on when another switch on the same
   device was pulsed before it finished
 - Fixed a light's color in Navigator and in its variables staying on the old
   color after a color preset was picked, or after the light turned on with Color
-  On Mode set to Previous or to a preset; the light itself changed color
+  On Mode set to Previous or to a preset
 - Fixed a light reporting its capability and color variables as changed each
   time its driver started or its device reconnected, with nothing changed
   <!-- #ifndef DRIVERCENTRAL -->
@@ -144,78 +126,57 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   while the change was copied to them
   <!-- #endif -->
   <!-- #ifdef DRIVERCENTRAL -->
-- Fixed the Bluetooth Coordinator's Driver Status reading Running while the
-  license had lapsed; it now reads No active license
 - Fixed an ESPHome driver logging an error every 30 minutes while Automatic
   Updates was On, and waiting a little longer to reconnect a device each time
   <!-- #endif -->
 - Fixed button link LEDs staying lit when a light was bound to another device
   that reports off
-- Fixed contact sensors and relays running their programming again when nothing
-  had changed: after a driver start or a reconnect, or when a consumer is bound,
-  only a real change now fires it. Bluetooth presence fires its Home and room
-  Occupied events only for a real change too, and a device or room not heard
-  again after a restart now reads away or empty once the Away Timeout passes
+- Fixed contact sensors, relays and Bluetooth presence running their programming
+  again after a driver start, a reconnect or a bind when nothing had changed. A
+  device or room not heard again after a restart now reads away or empty once
+  the Away Timeout passes
 - Fixed passwords, keys and lock codes appearing in a driver's log at the higher
-  log levels; they are now left out or masked at every level
-- Fixed Reset Driver leaving part of a driver's setup behind: it now removes
-  every connection, variable and event the driver made and puts its settings
-  back to their defaults, keeping only what reaches the same device, its address
-  and login. A device's encryption keys no longer go with it
+  log levels
+- Fixed Reset Driver leaving part of a driver's setup behind and clearing a
+  device's encryption keys. It now removes every connection, variable and event
+  the driver made and resets its settings, keeping only the address, login and
+  keys that reach the same device
 - Fixed a Bluetooth Coordinator room deleting its Occupied and Empty events, and
-  the programming on them, along with its connection and variables, when its
-  last Bluetooth proxy was removed or moved to another room; the room now keeps
-  them
-- Fixed the Bluetooth Coordinator starting on a controller below its minimum OS;
-  it now shows that it is disabled, as the other drivers do
+  the programming on them, when its last Bluetooth proxy was removed or moved to
+  another room
+- Fixed the Bluetooth Coordinator starting on a controller below its minimum OS
+  instead of showing that it is disabled, as the other drivers do
 - Fixed locks adding a history line and running their programming for a status
-  that had not changed: at each status check, after a driver start, a reconnect
-  or a bind, and when a lock or unlock was dropped for waiting too long. A fan
-  no longer tells Control4 it turned on or off after a driver start or a
-  reconnect when it had not
+  that had not changed, and a fan telling Control4 it turned on or off after a
+  driver start or a reconnect when it had not
 - Fixed a lock in Persistent mode going back to its old status for a while after
   a lock or unlock, with a history line for it, when its periodic status check
   came while the bolt was still moving
 - Fixed a cover without position control on ESPHome 2025.8 or later reading
-  unknown, with its Open and Closed contacts both closed, and ignoring Open,
-  Close and Stop; its state and commands now use the position ESPHome reports
-  and takes
+  unknown and ignoring Open, Close and Stop
 - Fixed an ESPHome switch, climate device or water heater that had not reported
   a state yet reading as off, or with its default settings, on ESPHome 2026.9 or
-  later; it now waits for the device's first state, as sensors do
+  later
 
 ### Changed
 
-<!-- #ifdef DRIVERCENTRAL -->
-
-- Changed how long the ESPHome driver waits without an active license before it
-  drops its devices, from one minute to five, so a DriverCentral Cloud driver
-  update or a slow controller start no longer drops a licensed system. A license
-  reconnects the devices within 10 seconds
-  <!-- #endif -->
-- Changed how long a color set on a light with Dim-To-Warm lasts: one set while
-  the light is on now stays when the light is dimmed or brightened, until the
-  light turns off, instead of until the next brightness command. The next time
-  the light turns on, Dim-To-Warm applies again
+- Changed a color set on a Dim-To-Warm light while it is on to stay until the
+  light turns off, through dimming and brightening, instead of until the next
+  brightness command
   <!-- #ifdef DRIVERCENTRAL -->
-- Changed Automatic Updates to one setting for the ESPHome driver and its
-  sub-drivers: changing it on any of them now changes it on all of them, so the
-  drivers update together
+- Changed Automatic Updates to one setting shared by the ESPHome driver and its
+  sub-drivers, so changing it on any of them changes it on all of them
   <!-- #endif -->
 - Changed ESPHome Lock and ESPHome Yale to Composer's Locks category, where
   Control4's own lock drivers are listed
-  <!-- #ifdef DRIVERCENTRAL -->
-- Changed where each driver's own settings sit in Composer: Support Code and
-  Cloud Monitoring now close Driver Settings, after the settings for the device
-  <!-- #endif -->
 
 ## v20261027 - 2026-10-27
 
 ### Added
 
-- Added Button LEDs to the ESPHome driver: a button bound to a load lights one
-  of the device's lights in the load's button colors, the way a Control4 keypad
-  lights its buttons
+- Added Button LEDs to the ESPHome driver, which light one of the device's
+  lights in a bound load's button colors, the way a Control4 keypad lights its
+  buttons
 - Added the ESPHome Light driver's button LED colors to Composer, for keypad
   buttons linked to the light
 
@@ -224,7 +185,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a keypad button linked to an ESPHome light showing the wrong LED state
   until the light next changed
 - Fixed a Yale lock or unlock, or a SwitchBot press, running minutes after it
-  was tapped on a slow connection; a command still waiting after 60 seconds is
+  was tapped on a slow connection. A command still waiting after 60 seconds is
   now dropped and reported as failed
 
 <!-- #ifndef DRIVERCENTRAL -->
@@ -233,11 +194,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
-- Fixed automatic updates leaving drivers a version behind. Since v20260922,
-  with two or more drivers from this repository installed, only one or two of
-  them updated and the ESPHome driver stayed on its old version. Each driver now
-  updates in turn, and a system left behind catches up on its own: the first
-  companion driver to update installs the waiting ESPHome driver update
+- Fixed automatic updates leaving drivers a version behind when two or more
+  drivers from this repository were installed. Each driver now updates in turn,
+  and a system left behind catches up on its own
 
 <!-- #endif -->
 
@@ -248,39 +207,29 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Added the ESPHome SereneScent sub-driver for Homedics SereneScent BLE
   diffusers, with power, mist intensity and light color control, keypad button
   links and a power relay
-- Added automatic offline key updates to the Yale driver: after Verify and Fetch
-  Keys it checks the Yale cloud for a new key daily and whenever the lock
-  rejects the key, so a changed key no longer means running the actions again
+- Added automatic offline key updates to the Yale driver, which checks the Yale
+  cloud for a new key daily and whenever the lock rejects its key
 
 ### Fixed
 
-- Fixed a Yale lock bound to the Bluetooth Coordinator failing every connection:
-  the lock dropped the link at the handshake because its notifications were
-  never turned on; devices that answer by notification now work through the
-  coordinator as they do bound to a proxy
+- Fixed a Yale lock bound to the Bluetooth Coordinator failing every connection
 - Fixed a device connected through the Bluetooth Coordinator not noticing when
-  its connection closed: a Yale lock that turned its key down waited out a
-  10-second timeout every time instead of handling it as a closed connection
-- Fixed the SwitchBot and Yale drivers waiting indefinitely when the Bluetooth
-  proxy or coordinator never finished a connection request, as when it restarted
-  mid-connect: a SwitchBot stayed Busy with the command queued, and a Yale lock
-  in Poll mode stopped polling; the proxy now fails a connection after 30
-  seconds and the coordinator tries the next proxy, and the driver still gives
-  up after a little over three minutes if nothing answers
+  its connection closed, which made a Yale lock wait out a 10-second timeout
+  each time
+- Fixed the SwitchBot and Yale drivers waiting forever when a Bluetooth proxy or
+  the coordinator never finished a connection request. The proxy now fails a
+  connection after 30 seconds, the coordinator tries the next proxy, and the
+  driver gives up after about three minutes
 - Fixed a Yale lock in Persistent mode counting a failed or timed-out handshake
   as two failures, using up its reconnect attempts twice as fast and retrying a
   lock or unlock that hit it as a status read instead
-- Fixed the SwitchBot and Yale drivers keeping the proxy's connection slot when
-  a connection came up without the device's Bluetooth characteristics, as can
-  happen on a first connect: a Yale lock stayed on "Error: Missing
-  characteristics" and stopped polling or reconnecting; the driver now
-  disconnects, frees the slot and handles it as a failed connection
-- Fixed a SwitchBot Relay Switch with no encryption key staying Busy and keeping
-  the proxy's connection slot when a connection came up without the device's
-  Bluetooth characteristics; it now disconnects and frees the slot
+- Fixed the SwitchBot and Yale drivers keeping the proxy's connection slot and
+  getting stuck when a connection came up without the device's Bluetooth
+  characteristics. They now disconnect, free the slot and treat it as a failed
+  connection
 - Fixed a SwitchBot Bot holding one of the ESPHome device's Bluetooth connection
   slots after it was bound, or after the device reconnected, until its next
-  press; it now disconnects a few seconds after connecting
+  press
 - Fixed a Yale lock abandoning its connection, and a SwitchBot showing
   Connection Failed for a press that went through, when a connection failure was
   reported after the device had connected
@@ -288,30 +237,24 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   attempts in Persistent mode, and taking a SwitchBot from Connection Failed
   straight to Listening
 - Fixed a Yale lock dropping a lock or unlock tapped while it waited for its
-  first connection after a restart or a change of Connection Mode; it now
-  carries it out once connected
-- Fixed a Yale lock newly bound to the Bluetooth coordinator staying on "Waiting
-  for data" until it was locked or unlocked; it now connects on the lock's next
-  advertisement
+  first connection after a restart or a change of Connection Mode
+- Fixed a Yale lock newly bound to the Bluetooth Coordinator showing Waiting for
+  data until it was locked or unlocked
 - Fixed a Yale lock keeping the proxy's connection slot and stopping polling or
-  reconnecting when a notification subscription failed or went unanswered; the
-  driver now disconnects, frees the slot and handles it as a failed connection
-- Fixed the Bluetooth coordinator trying a proxy with no free connection slot,
-  and a slow connection taking up to 90 seconds on one proxy and four and a half
-  minutes through the coordinator; the coordinator now moves on from a full
-  proxy at once, and one proxy's attempt takes about a minute at most
-- Fixed a Bluetooth connection that failed or gave up leaving the ESPHome
-  proxy's connection slot in use, which could keep other SwitchBot and Yale
-  devices on that proxy from connecting; the proxy now disconnects and frees the
-  slot
-- Fixed Advanced Lighting scenes on an ESPHome light: a flash scene with no
-  delay or ramp time hung the driver, Stop Scene Ramp did not stop the light,
-  and a scene kept moving a light that was sent another command, or showed it
-  ramping after the scene was deactivated; a step now starts where the light is,
-  fades over its own ramp time and takes Color On Mode and Dim-To-Warm
-- Fixed overlapping ramps, fades, scene steps and stops starting from, jumping
-  to or being shown at the wrong level or color, or not stopping the light; a
-  stop now holds the light where it is and lets a fade it did not stop finish
+  reconnecting when a notification subscription failed or went unanswered
+- Fixed the Bluetooth Coordinator trying a proxy with no free connection slot,
+  and a slow connection taking minutes. The coordinator now skips a full proxy,
+  and one proxy's attempt takes about a minute at most
+- Fixed a Bluetooth connection that failed or gave up leaving the proxy's
+  connection slot in use, which could keep other devices on that proxy from
+  connecting
+- Fixed Advanced Lighting Scenes on an ESPHome light, where a flash scene with
+  no delay or ramp hung the driver, Stop Scene Ramp did not stop the light, and
+  a scene kept moving a light that was sent another command. A scene step now
+  starts where the light is and fades over its own ramp time
+- Fixed overlapping ramps, fades, scene steps and stops starting from or showing
+  the wrong level or color, or not stopping the light. A stop now holds the
+  light where it is
 - Fixed a ramped On that changes a light's color starting in the old color,
   which kept some lights dark for most of the ramp, or restarting a moment in,
   and a color sent right after it being dropped
@@ -319,36 +262,31 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   of full, and a button pressed during a ramp acting on the level it began from
 - Fixed a light ignoring its Color On Mode, on level and default ramp rate until
   one was changed in Composer, and Color On Mode not applying a color preset or
-  the right Previous color; a color sent while the light is off or fading off
-  now waits for its next on instead of turning it on or being lost
+  the right Previous color. A color sent while the light is off now waits for
+  its next on
 - Fixed a cold and warm white light coming on dimmer and warmer than asked with
   Dim-To-Warm, a Dim-To-Warm light being shown in two colors at every level
   change, and a light's On or Dim-To-Warm color being undone by a scene's color
   or one set while it was off
-- Fixed ESPHome lights with a white beside their color, such as RGBW and RGBCT
-  lights, keeping the white lit or shown under a color and the color lit under a
-  color temperature, and making whites out of red, green and blue; a color at or
-  near a white, such as a new light's On Color, now lights the white, and a
-  color temperature beyond the light's range is shown as set
-- Fixed Max On Level and Min On Level having no effect; a light's 1 to 100 % now
+- Fixed ESPHome lights with a separate white keeping the white lit under a color
+  and the color lit under a color temperature, and mixing whites from red, green
+  and blue. A color at or near white now lights the white
+- Fixed Max On Level and Min On Level having no effect. A light's 1 to 100 % now
   runs between them, as on a Control4 dimmer
-- Fixed a light's level or color set from elsewhere, such as Home Assistant,
-  being undone when a Control4 ramp ended, or not shown while it was off
-- Fixed a light sent a level and then a color, such as from Programming, being
-  shown for a moment in the color it had before
+- Fixed a light's level or color set outside Control4 being undone when a
+  Control4 ramp ended, or not shown while the light was off
+- Fixed a light sent a level and then a color being shown for a moment in the
+  color it had before
 - Fixed a light turned on over a ramp time being shown as off until the ramp
-  ended; Control4 now shows it on from the start
+  ended
 - Fixed a light asked for its level during a ramp being shown as stopped where
   the ramp began, or as off in a ramp up from off
 - Fixed the keypad LEDs on a light's button links showing it off while it was
   turned on over a ramp time, and staying lit when the light went offline
-- Fixed a light turned on over a ramp time telling Control4 its Color On Mode's
-  color twice, the first time without its color preset
 - Fixed a light stopped or turned off during a ramp up from off saving 1 % as
   its Previous On level instead of the one it had, or the level it had reached
-- Fixed a light sent a level and then another soon after, such as a stop just
-  after a ramp up from off began, being shown for a moment at the first level,
-  which the stop then saved as its Previous On level
+- Fixed a light sent two levels in quick succession being shown for a moment at
+  the first, which a stop could then save as its Previous On level
 - Fixed a light being shown as off, and running its Light Off Programming and
   then its Light On Programming, when Log Level, Log Mode or Device Log
   Forwarding was changed while the device's logs were forwarded, as when Log
@@ -356,117 +294,88 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light asked for its level before its ESPHome device had reported being
   shown as off
 - Fixed a light running its Brightness Changed, Level Change or Color Changed
-  Programming after a controller restart, and a light in a full color running
-  its Color Changed Programming when its driver was updated, its ESPHome Light
-  connection was bound or its device reported again, as Control4 was told its
-  level and color again; it is now told only a level, color or capability that
-  differs from the one it shows. After a controller restart Control4 still
-  reports the color variables of a light with color or color temperature as
-  changed, as it learns the light's capabilities again
-- Fixed an on/off light being shown as off, and running its Light Off
-  Programming and then its Light On Programming, when its driver was updated
-  while it was on
+  Programming after a controller restart, a driver update, a bind or a device
+  report when nothing had changed. Control4 itself still reports a color light's
+  color variables as changed after a controller restart
+- Fixed a light that only turns on and off being shown as off, and running its
+  Light Off Programming and then its Light On Programming, when its driver was
+  updated while it was on
 - Fixed a light sent a command while its ESPHome device was offline, or its
-  ESPHome Light connection was removed, being shown on, off or at the level
-  sent, and running its Light On or Light Off Programming; it now ignores the
-  command and shows only what the device reports
+  ESPHome Light connection was removed, being shown at the level sent and
+  running its Light On or Light Off Programming. It now shows only what the
+  device reports
 - Fixed a thermostat being shown in an HVAC mode, vane position or water heater
   mode sent while its ESPHome device was offline, or its ESPHome Climate
   connection was removed, which the device never took
 - Fixed a light, fan or lock still being shown online after its ESPHome Light,
   ESPHome Fan or ESPHome Lock connection was removed
 - Fixed a switch, number, select, text, date, time or datetime variable keeping
-  a value programming set while the ESPHome device was offline, or a date or
-  time in another format, which the device never took; it now goes back to the
-  device's value
+  a value the device never took, set while it was offline or as a date or time
+  in another format. It now goes back to the device's value
 - Fixed the ESPHome driver's Driver Status reading Refresh failed for a few
   seconds, in place of why it was not connected, when a connection was made or a
   sub-driver loaded while the device was offline
 - Fixed a device selected only under Select Presence Devices on the Bluetooth
-  Coordinator never being placed in a room: it was only ever Home or Away, its
-  room events and room occupancy never changed and its Present binding never
-  closed; every presence device's room now comes from the signal each proxy
-  reports for it, smoothed by the RSSI Smoothing Factor
+  Coordinator never being placed in a room. Every presence device's room now
+  comes from the signal each proxy reports for it, smoothed by the RSSI
+  Smoothing Factor
 - Fixed a presence device on the Bluetooth Coordinator staying in a room whose
   proxy no longer saw it, until it went Away, whenever the proxy that did see it
   was not stronger than its last signal there by the Room Change Hysteresis
 - Fixed a Bluetooth Coordinator presence device's RSSI variable showing a long
-  fraction of a dBm or, for a device selected only for presence, the raw reading
-  from whichever proxy heard it last; it now shows the signal Minimum Room RSSI
-  is checked against, in whole dBm
+  fraction or another proxy's raw reading. It now shows, in whole dBm, the
+  signal that Minimum Room RSSI is checked against
 - Fixed a presence device on the Bluetooth Coordinator moving to another room on
-  one weak signal from that room's proxy when the proxy had last heard it close
-  by, more than 30 seconds before; that proxy's signal now starts again from
-  what it hears
+  one weak signal from a proxy that had last heard it close by, more than 30
+  seconds before
 - Fixed a Bluetooth Coordinator presence device's Present binding staying open
-  while the device was home but in no room, as below Minimum Room RSSI; it now
-  closes when the device comes home
+  while the device was home but in no room
 - Fixed the Bluetooth Coordinator's Last Presence variables still describing the
   previous event when Left Room and Any Device Left Room fired for a device
   whose signal dropped below Minimum Room RSSI
 - Fixed a presence device on the Bluetooth Coordinator staying in a room after
-  that room's proxy was disconnected from the coordinator, so the room showed
-  empty with the device in it once the proxy was connected again; the device now
-  leaves the room, stays Home and is placed again by its next signal
-- Fixed a room on the Bluetooth Coordinator staying Occupied, with the device
-  still counted, after a presence device in it was removed from Select Presence
-  Devices, so later occupants never fired its Occupied or Empty events; the room
-  now empties when its last device is removed
-  <!-- #ifdef DRIVERCENTRAL -->
-- Fixed a light being shown as off, and running its Light Off Programming, when
-  the DriverCentral license lapsed; it now shows offline at the level it had,
-  and a command sent meanwhile does not change it, until the license is active
-  again and the light reports its level, while a light whose ESPHome device
-  drops off the network is still shown as off
-- Fixed the Bluetooth Coordinator marking its presence devices Away, and running
-  their Away, Left Room and Room Empty Programming, when the DriverCentral
-  license lapsed
-- Fixed the ESPHome driver disconnecting its device at a controller start,
-  before the DriverCentral Cloud driver had answered, which showed a light that
-  was on as off and ran its Light Off and then its Light On Programming; it now
-  stops only once a minute passes without an active license, and connects again
-  as soon as one is active
-  <!-- #endif -->
+  that room's proxy was disconnected from the coordinator. The device now leaves
+  the room, stays Home and is placed again by its next signal
+- Fixed a room on the Bluetooth Coordinator staying Occupied after its last
+  presence device was removed from Select Presence Devices, which kept later
+  occupants from firing its Occupied or Empty events
 - Fixed Yale locks failing almost every connection since v20260802, so Poll mode
   never read the lock and Persistent mode gave up after its retries
 - Fixed a Yale lock showing an unknown state for a moment after every lock and
-  unlock; a lock or unlock that jams now shows a fault
+  unlock. A lock or unlock that jams now shows a fault
 - Fixed a Yale lock showing as unlocked for a moment just after it locked, and
   as locked just after it unlocked
 - Fixed Verify and Fetch Keys taking another lock's key in a Yale account with
   several locks when this lock's MAC address was not known yet
-- Fixed Yale cloud errors showing in Yale Cloud Status as "Error: table" instead
-  of the error
+- Fixed Yale Cloud Status showing a meaningless word in place of a Yale cloud
+  error
 - Fixed the Yale driver writing the lock's offline key to the log at Debug level
   when fetching keys
 - Fixed a SwitchBot Relay Switch ignoring the device's reply to every command,
   so a command it refused, as with an incorrect encryption key, went unreported
-- Fixed the Programming events of an ESPHome event entity, a BTHome button or
+- Fixed the programming events of an ESPHome event entity, a BTHome button or
   dimmer and a Govee probe or sensor error leaving the device's name out of
-  their script title in Composer Pro, as in "Button pressed once"; the title now
-  names the device
+  their title in Composer Pro
 - Fixed a Yale lock or unlock sent while the driver was still connecting being
-  lost, with "Connection failed: Superseded by a newer request" in the log, and
-  a lock or unlock retried after a failed connection undoing one sent since
+  lost, and a lock or unlock retried after a failed connection undoing one sent
+  since
 
 ### Changed
 
-- Changed how long a color set on a light with Dim-To-Warm lasts: it now lasts
-  until the next brightness command, even one for the level the light is already
-  at, instead of until the light is turned off
+- Changed a color set on a Dim-To-Warm light to last until the next brightness
+  command, even one for the level the light is already at, instead of until the
+  light is turned off
 
 ## v20260926 - 2026-09-26
 
 ### Fixed
 
 - Fixed event, BTHome and SwitchBot button links not activating Advanced
-  Lighting scenes; loads bound to them already worked
-- Fixed entities with no name of their own, such as a relay configured with
-  `name: None`, being left out or given a blank name; they now take their
-  device's name
-- Fixed entities that share an ESPHome key, such as a sensor and a text sensor
-  with the same name, being set up as one entity; each now gets its own
-  variables and connections
+  Lighting scenes
+- Fixed entities with no name of their own being left out or given a blank name
+  instead of their device's name
+- Fixed entities that share an ESPHome key being set up as one entity instead of
+  each getting its own variables and connections
 - Fixed commands to entities on an ESPHome sub-device being ignored on ESPHome
   2025.8 and newer
 - Fixed an event entity's Programming events disappearing after a controller
@@ -478,13 +387,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 - Added presets to the climate driver, each storing a setpoint, HVAC mode, fan
   mode and vane position, and applicable from Navigator or from Programming
-- Added preset scheduling by weekday and time; the schedule is kept by Control4
-  and the driver applies each preset as it falls due
-- Added holds, so changing the thermostat or choosing a preset by hand holds
-  that setting until the next scheduled event releases it; clearing a held
-  preset sooner returns to the preset the schedule has in force, and a Permanent
-  hold, offered with or without a schedule and released by no scheduled event,
-  stays until cleared by hand or from Programming
+- Added preset scheduling by weekday and time, kept by Control4, with the driver
+  applying each preset as it falls due
+- Added holds, so a setting or preset chosen by hand holds until the next
+  scheduled event, and a Permanent hold, with or without a schedule, stays until
+  it is cleared by hand or from Programming
 - Added vane control in the Extras tab for climate devices that report swing
   modes
 - Added a button connection for each event type an ESPHome event entity
@@ -497,50 +404,40 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ### Fixed
 
 - Fixed lights, thermostats, water heaters, fans and locks still showing as
-  connected when they were not: after the driver's IP address, port or
-  credentials were changed or cleared, and, for thermostats and water heaters,
-  after the ESPHome device itself went offline; they now go offline with the
-  device until it reconnects
-- Fixed thermostats and water heaters always showing Fahrenheit; they now follow
-  the project's temperature scale and pick up a change made in Navigator
-  straight away, with the Celsius/Fahrenheit setting in Composer available to
-  override it for an individual thermostat
+  connected after the driver's IP address, port or credentials were changed or
+  cleared, and thermostats and water heaters after the ESPHome device went
+  offline
+- Fixed thermostats and water heaters always showing Fahrenheit. They now follow
+  the project's temperature scale, and a setting in Composer can override it for
+  one thermostat
 - Fixed a thermostat staying on its last mode after the unit was turned off
-  outside Control4, for example with its own remote; it now shows Off, a unit
-  that reports whether it is heating or cooling shows when that stops, and
-  switching the fan to On is now shown too
+  outside Control4. It now shows Off, shows when heating or cooling stops, and
+  shows the fan switched to On
 - Fixed a thermostat never showing whether it is heating, cooling, idle, drying
   or running the fan only
 - Fixed Heat never engaging on a water heater that had not yet stored an
   operating mode
 - Fixed a temperature of exactly 0°C, or a humidity of 0%, not being shown
-- Fixed a temperature, setpoint or humidity the device has not measured yet
-  being shown as a number near 5.1e38, which a setpoint nudge then clamped to
-  the maximum; such a reading is now left blank until a real one arrives, and
-  sensor values are handled the same way
+- Fixed a temperature, setpoint, humidity or sensor value the device had not
+  measured yet showing as a huge number, which a setpoint nudge then clamped to
+  the maximum. It is now blank until a real reading arrives
 - Fixed a newly installed climate driver forwarding a bound temperature sensor's
   readings to the device before the thermostat had enabled the remote sensor
 - Fixed the climate driver's temperature and humidity outputs appearing as audio
-  connections in Composer instead of control connections; the humidity output
-  moves to a different connection as a result, but nothing needs reconnecting
-  because the audio one could not be connected to anything
+  connections in Composer instead of control connections. Nothing needs
+  reconnecting, since the audio ones could not be connected to anything
 - Fixed an "Error setting default color rate from driver" message in Composer
   when opening the properties of an ESPHome light
 - Fixed Composer's test panel graying out the dimming controls for ESPHome
-  lights that do support brightness; dimming from Navigator was never affected
-- Fixed a BTHome or SwitchBot button doing nothing to a dimmer it was linked to,
-  where sending the press, click and release together meant the release stopped
-  the dim the click had just started; a button now reports a press followed by a
-  click, the same as a Control4 keypad, so linked dimmers, switches and other
-  loads all respond
+  lights that support brightness
+- Fixed a BTHome or SwitchBot button doing nothing to a dimmer it was linked to.
+  A button now reports a press and then a click, as a Control4 keypad does, so
+  every linked load responds
 - Fixed a SwitchBot Bot running its action twice for a single press of a linked
   keypad button, which turned a toggle back to where it started
-- Fixed Bluetooth proxy recovery looking for a button with "restart" in its name
-  to clear a stalled scanner, so a proxy that names its button differently or
-  exposes none at all had no recovery, and where a button was found the whole
-  device was rebooted, dropping every Bluetooth connection it held; recovery now
-  restarts the scanner itself on any proxy that reports its scanner state,
-  leaving those connections up
+- Fixed Bluetooth proxy recovery needing a button with restart in its name and
+  rebooting the whole device. It now restarts the scanner itself on any proxy
+  that reports its scanner state, keeping its Bluetooth connections up
   <!-- #ifndef DRIVERCENTRAL -->
 - Fixed an automatic update sometimes leaving companion drivers on the previous
   version until the next update, which could make them stop responding in the
@@ -549,12 +446,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Changed
 
-- Changed the setpoint display for climate devices that report a single target:
-  they now show one setpoint instead of a heat and cool pair, since most heat
-  pumps and mini splits hold one target and decide internally whether to heat or
-  cool toward it, so the pair could never be honored; Auto is unaffected
-- Changed the documentation to cover the `Connected` variable that every driver
-  publishes, so it can be used in Programming to show whether a device is online
+- Changed climate devices that report a single target to show one setpoint
+  instead of a heat and cool pair, which they could never honor. Auto is
+  unaffected
+- Changed the documentation to cover the Connected variable every driver
+  publishes, which programming can use to show whether a device is online
 
 ## v20260816 - 2026-08-16
 
@@ -568,49 +464,42 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 - Fixed Bluetooth proxies logging a spurious "Property 'Select Bluetooth
   Devices' not registered" warning at every driver startup
-- Fixed the Bluetooth device selection being permanently erased when a proxy was
-  bound to a Bluetooth Coordinator; it is now kept and restored if the proxy is
-  later unbound
+- Fixed a proxy's Bluetooth device selection being erased when it was bound to a
+  Bluetooth Coordinator, instead of kept for when it is unbound
 - Fixed Bluetooth proxies in Coordinator Mode reporting their connection slots
-  as "(Oversubscribed)"
+  as oversubscribed
 
 ## v20260802 - 2026-08-02
 
 ### Added
 
-- Added a `Connected` (BOOL) variable to the main driver and every sub-driver
-  with a Driver Status so Programming can react to connect/disconnect
-- Added an "Open Latch" action to the ESPHome Lock driver for locks that support
-  the open command (`supports_open`)
+- Added a Connected variable to the main driver and every sub-driver with a
+  Driver Status, so programming can react when a device connects or disconnects
+- Added an Open Latch action to the ESPHome Lock driver for locks that support
+  opening the latch
 
 ### Fixed
 
-- Fixed a slow TCP connect interfering with the connection attempt that replaced
-  it, which could run the handshake on the wrong socket and tear down a healthy
-  connection when the stale socket closed
-- Fixed the HVAC state freezing on the previous value during a heat pump's
-  defrost cycle; defrosting now reports as Heating, and unmapped climate
-  modes/actions log a warning instead of being silently dropped
-- Fixed latch-style ESPHome locks (`supports_open`) reading as "unknown" in
-  Control4 while reporting the open or opening state; both now map to unlocked
-- Fixed overlapping status refreshes silently racing each other for the same
-  response callbacks; refreshes are now serialized
+- Fixed a slow connection attempt tearing down the healthy connection that
+  replaced it
+- Fixed the HVAC state freezing during a heat pump's defrost cycle, which now
+  reads as Heating. An unknown climate mode or action now logs a warning instead
+  of being dropped
+- Fixed latch-style ESPHome locks reading as unknown in Control4 while open or
+  opening. Both now read as unlocked
 - Fixed cover contacts and Yale DoorSense sending nothing to a newly bound
-  consumer (or after a DoorSense drop and re-detect) until the state changed;
-  consumers are now seeded with the last known state on bind
-- Fixed the Reset Driver action leaving bound consumers stale until the next
-  state change (sensor values, cover contacts, BTHome bindings, Yale DoorSense)
-- Fixed pending requests (refresh, Bluetooth GATT operations) hanging forever
-  when the connection dropped mid-request; they now fail immediately with a
-  "Disconnected" error
-- Fixed SwitchBot channel relays and contact sensors (motion, contact, leak,
-  tamper) leaving bound consumers stale after a driver restart until the next
-  state change
-- Fixed a pending request hanging forever when a second request for the same
-  response type started before it finished; the older request now fails with a
-  "Superseded by a newer request" error instead of stalling, and the newer
-  request is no longer left without its callbacks (which could make entity
-  discovery or Bluetooth GATT service discovery return an empty result)
+  consumer until the state changed. A consumer now gets the last known state
+  when it is bound
+- Fixed Reset Driver leaving bound sensors, cover contacts, BTHome bindings and
+  Yale DoorSense stale until the next state change
+- Fixed a refresh or Bluetooth request hanging forever when the connection
+  dropped mid-request. It now fails at once with a Disconnected error
+- Fixed SwitchBot channel relays and motion, contact, leak and tamper sensors
+  leaving bound consumers stale after a driver restart until the next state
+  change
+- Fixed a request hanging forever when a second request for the same response
+  started before it finished, which could leave entity or Bluetooth service
+  discovery empty
 - Fixed a superseded status refresh being reported as "Refresh failed" and
   dropping the device connection out from under the refresh that replaced it
 
@@ -618,46 +507,33 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
-- Added `TEMPERATURE_VALUE` and `HUMIDITY_VALUE` connections for sensors with a
-  `temperature` or `humidity` device class, so they can be bound to thermostats
-  and other value consumers; the reported scale honors the sensor's declared
-  unit of measurement
+- Added temperature and humidity value connections for temperature and humidity
+  sensors, in the sensor's own unit, so they can be bound to thermostats and
+  other drivers
 
 ### Fixed
 
 - Fixed cover contacts, Yale DoorSense, BTHome bindings, and the SwitchBot Bot
   relay leaving bound consumers stale after a driver restart or update until the
   next state change
-- Fixed all entity states appearing frozen in Control4 (covers stuck on
-  "Unknown", sensor variables never updating) on ESPHome 2026.7+ firmware, which
-  no longer sends the deprecated `object_id` field; the driver no longer reads
-  `object_id`, and log messages now identify entities as `type 'Name' (key=N)`
-- Fixed devices logging `using outdated API 1.0, update to 1.14+` on every
-  connection; the ESPHome native API version advertised in `HelloRequest` is now
-  1.14 rather than 1.0
+- Fixed every entity's state appearing frozen in Control4 on ESPHome 2026.7 and
+  later, with covers stuck on Unknown and sensor variables never updating
+- Fixed devices logging an outdated API warning on every connection
 
 ## v20260711 - 2026-07-11
 
 ### Fixed
 
-- Fixed Bluetooth Coordinator connections to ESPHome proxies (and other
-  dynamically created connections) disappearing after a controller reboot or
-  Director restart; dynamic bindings are now restored early enough in driver
-  startup for Director to reconnect them
-- Fixed an on/off-only ESPHome light advertising brightness and color to
-  capability consumers that read the static declaration instead of the
-  runtime-narrowed set; hardware capabilities (dimming, color, color
-  temperature) are now declared conservatively in the static baseline and
-  enabled at runtime from the entity's discovered color modes
-- Fixed BOOL variables (`<Entity> State` for binary_sensor and switch, plus all
-  BTHome boolean sensors) staying as `False` in the Variables Agent even when
-  the underlying state was changing; variables now serialize as `"0"`/`"1"`
-  matching what Control4 expects
-- Fixed ESPHome fan `Designate Preset` command: the handler now reads the
-  correct `PRESET` param (was `SPEED`), clamps to the driver's speed count,
-  persists the value across driver restarts, notifies the proxy so Composer and
-  Navigator reflect the designated preset, and applies the preset when the fan
-  is turned on so `Turn On Fan` runs at the designated speed
+- Fixed Bluetooth Coordinator connections to ESPHome proxies, and other
+  connections the driver creates, disappearing after a controller reboot or
+  Director restart
+- Fixed an ESPHome light that only turns on and off advertising brightness and
+  color to drivers that read its declared capabilities
+- Fixed true or false variables for binary sensors, switches and BTHome sensors
+  staying False in the Variables Agent while the state changed
+- Fixed the ESPHome fan's Designate Preset command, which now keeps the preset
+  across driver restarts, shows it in Composer and Navigator, and turns the fan
+  on at that speed
 
 ## v20260512 - 2026-05-12
 
@@ -665,9 +541,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 - Added brightness and dimming support to ESPHome lights with smooth ramping,
   preset management, and hold-to-dim button control
-- Added color and color-temperature support to ESPHome lights for every ESPHome
-  color mode (white, color-temperature, cold/warm white, RGB, RGBW, and combined
-  RGB + white modes)
+- Added color and color temperature support to ESPHome lights in every ESPHome
+  color mode
 - Added Advanced Lighting Scenes support to ESPHome lights so they can
   participate in lighting scenes alongside other Control4 dimmers
 
@@ -675,19 +550,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
-- Added Event entity support: stateless triggers (button presses, gestures,
-  doorbell rings) now create Control4 events for programming and track the last
-  event type in a variable
-- Added Date, Time, and Datetime entity support: configurable date/time values
-  on the device are exposed as writable string variables (YYYY-MM-DD, HH:MM:SS,
-  YYYY-MM-DD HH:MM:SS)
-- Added Climate entity support: ESPHome climate devices are exposed as
-  thermostatV2 sub-drivers with HVAC mode, setpoints, fan mode, presets, and
-  humidity control
-- Added Select entity support: STRING variable with the current option, writable
-  via programming or variable writes
-- Added "Set Select" programming command with dynamic Select and Option
-  dropdowns
+- Added event entities, which create Control4 events for programming and keep
+  the last event type in a variable
+- Added date, time and datetime entities as writable string variables
+- Added climate entities as Control4 thermostats with HVAC mode, setpoints, fan
+  mode, presets and humidity control
+- Added select entities as a writable string variable that holds the current
+  option
+- Added a Set Select programming command
 
 <!-- #ifndef DRIVERCENTRAL -->
 
@@ -704,8 +574,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
-- Fixed cover contact sensors sending duplicate notifications during open/close
-  operations
+- Fixed cover contact sensors sending duplicate notifications while opening or
+  closing
 - Fixed Yale DoorSense contact sensor sending duplicate "Closed" notifications
   on every poll cycle by tracking the last known door status and only reporting
   on actual state changes
@@ -721,29 +591,27 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
-- Fixed Bluetooth Coordinator failing to connect to active BLE devices
-  (SwitchBot, Yale locks) through proxies
+- Fixed the Bluetooth Coordinator failing to connect through proxies to the
+  Bluetooth devices it controls
 
 ## v20260314 - 2026-03-14
 
 ### Added
 
-- Added fan support with on/off, speed control (1-6 speed variants), direction,
-  and oscillation
-- Added ESPHome Yale sub-driver for Yale/August BLE smart locks with lock/unlock
-  control, door sense, and battery monitoring
+- Added fan support with on and off, speed control, direction and oscillation
+- Added the ESPHome Yale sub-driver for Yale and August Bluetooth smart locks,
+  with lock and unlock, door sense and battery monitoring
 
 ## v20260217 - 2026-02-17
 
 ### Added
 
-- Added Bluetooth proxy support with scanner infrastructure, advertisement
-  parsing, and GATT connection management
-- Added ESPHome Bluetooth Coordinator driver for multi-proxy aggregation with
-  RSSI-based routing and connection failover
-- Added room presence tracking with RSSI-based detection, anti-flapping, and
-  contact sensor bindings
-- Added ESPHome BTHome sub-driver for Shelly BLU and BTHome v1/v2 sensors
+- Added Bluetooth proxy support
+- Added the ESPHome Bluetooth Coordinator driver, which uses several Bluetooth
+  proxies together and moves a device to another proxy when one fails
+- Added room presence tracking by Bluetooth signal strength, with contact sensor
+  bindings
+- Added ESPHome BTHome sub-driver for Shelly BLU and BTHome v1 and v2 sensors
 - Added ESPHome Govee sub-driver for temperature, humidity, and meat thermometer
   sensors
 - Added ESPHome SwitchBot sub-driver for Bot, Plug Mini, Meter, Motion, and
@@ -762,14 +630,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
-- Fixed an issue with parsing unknown fields in protobuf messages
+- Fixed the driver failing to read messages that carry fields it does not know
 
 ## v20251019 - 2025-10-19
 
 ### Added
 
-- Added support for OpenSSL with "Encryption Key" authentication mode across all
-  applicable algorithms
+- Added OpenSSL support for the Encryption Key authentication mode
 
 ### Fixed
 
