@@ -75,6 +75,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed the ESPHome driver logging a Lua error when the start of a message from
   an unencrypted device arrived split across two network reads; it now waits for
   the rest
+- Fixed a light going on to the end of its ramp when Control4 stopped it part
+  way; it now stops where it has got to. A light already in a project does this
+  from its next controller restart
 
 ### Changed
 

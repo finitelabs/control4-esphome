@@ -236,6 +236,10 @@ and provides the light functionality to Control4.
 > follows Dim-To-Warm again the next time it turns on, and from its first level
 > change after a controller restart or a driver update.
 
+> **Note:** A ramp that Control4 stops part way stops where the light has got
+> to. A light added before this driver version does this from its next
+> controller restart.
+
 ### ESPHome Light (consumer)
 
 Bind this connection to the light entity exposed by the main ESPHome driver.

@@ -942,6 +942,41 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+T.section("a light that dims lists a color stop, which the proxy needs before it passes a brightness stop on")
+do
+  --- The color stop a start whose first report lists `modes` tells the proxy, if it tells it the capabilities.
+  local function toldAtStart(modes)
+    restart(nil)
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = modes }),
+      state = SerializeSafe({ state = true, brightness = 1.0 }),
+    })
+    return told("DYNAMIC_CAPABILITIES_CHANGED", "supports_color_stop")
+  end
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  T.eq("driver.xml lists it", proxyCapabilities.supports_color_stop, "True")
+  light(nil)
+  T.eq("an on/off light is told it has none", toldAtStart({ ColorMode.COLOR_MODE_ON_OFF }), { false })
+  T.eq("and once it dims, that it has one", toldAtStart({ ColorMode.COLOR_MODE_BRIGHTNESS }), { true })
+  -- A color stop on a light with no color leaves a level ramp in flight to run.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("RAMP_TO_LEVEL", { LEVEL = 10, TIME = 4000 })
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  local toldProxy = 0
+  for _, sent_ in ipairs(sent) do
+    toldProxy = toldProxy + (sent_.binding == PROXY and 1 or 0)
+  end
+  T.eq("a color stop on a light with no color: nothing is sent or told", { commands(), toldProxy }, { 0, 0 })
+  run(15000)
+  T.eq(
+    "and the ramp runs to its own end",
+    { told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), told("LIGHT_BRIGHTNESS_CHANGED", "at") },
+    { { 10 }, { 3000 } }
+  )
+end
+
 T.section("a stop of the level leaves a color ramp in flight its color, not the one the level would carry")
 do
   local green = { 0.3, 0.6 }
@@ -9382,7 +9417,7 @@ do
   -- Any stop flag or brightness rate 6661 lists, as a tell can leave it, tells none.
   for _, lag in ipairs({
     { "supports_brightness_stop", "False" },
-    { "supports_color_stop", "True" },
+    { "supports_color_stop", "False" },
     { "brightness_rate_min", "1" },
     { "brightness_rate_max", "65534" },
   }) do

@@ -162,7 +162,7 @@
     <hold_rate_max>86400000</hold_rate_max>
     <supports_color>False</supports_color>
     <supports_color_correlated_temperature>False</supports_color_correlated_temperature>
-    <supports_color_stop>False</supports_color_stop>
+    <supports_color_stop>True</supports_color_stop>
     <color_correlated_temperature_min>2000</color_correlated_temperature_min>
     <color_correlated_temperature_max>6500</color_correlated_temperature_max>
     <color_rate_behavior>1</color_rate_behavior>

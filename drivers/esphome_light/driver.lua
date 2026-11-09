@@ -522,7 +522,8 @@ local function updateDynamicCapabilities(entity)
     brightness_rate_max = 65535,
     supports_color = supportsColor,
     supports_color_correlated_temperature = supportsCCT,
-    supports_color_stop = supportsColor or supportsCCT,
+    -- The proxy passes SET_BRIGHTNESS_STOP on only to a light that declares a color stop (measured on OS 4.3).
+    supports_color_stop = supportsDimming or supportsColor or supportsCCT,
     color_rate_behavior = 1, -- ESPHome's transition_length applies to all aspects equally
     color_rate_min = 0,
     color_rate_max = 65535,
