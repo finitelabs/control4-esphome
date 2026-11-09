@@ -423,8 +423,8 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     return
   end
 
-  -- Late init tells the proxy offline and asks for the state again: a push taken before it
-  -- would leave the proxy offline.
+  -- Late init asks for the state again, so a push before it is dropped rather than told
+  -- to the proxy early.
   if not gInitialized then
     return
   end
