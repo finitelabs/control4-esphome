@@ -171,7 +171,7 @@ Sets the logging level. Default is `3 - Info`.
 Sets the logging mode. Default is `Off`. Automatically reverts to `Off` after 3
 hours to prevent excessive logging.
 
-#### Remote Temperature Service \[ **_(Select)_** | *discovered services...* \]
+#### Remote Temperature Service
 
 > Only visible when the ESPHome device exposes user-defined services. Used for
 > the [Remote Temperature Sensor](#remote-temperature-sensor) feature.
@@ -183,7 +183,7 @@ driver for connecting an external Control4 temperature sensor.
 
 Set to `(Select)` to disable the remote sensor feature and remove the binding.
 
-#### Internal Temperature Service \[ **_None_** | *discovered services...* \]
+#### Internal Temperature Service
 
 > Only visible when the ESPHome device exposes user-defined services. Used for
 > the [Remote Temperature Sensor](#remote-temperature-sensor) feature.
