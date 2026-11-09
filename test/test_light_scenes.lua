@@ -9266,7 +9266,7 @@ do
     )
     T.eq(how .. " with the proxy in a ramp: which ends it", proxyTarget, proxyColor)
   end
-  -- Before late init the proxy is not read, so a report then is told, even of the white a load starts in.
+  -- A report before late init is dropped: late init asks for the state again.
   local toXY = C4.ColorCCTtoXY
   function C4:ColorCCTtoXY()
     return 0.3127, 0.329
@@ -9281,11 +9281,7 @@ do
   })
   gInitialized = true
   C4.ColorCCTtoXY = toXY
-  T.check(
-    "a first report before late init is told, of the white a load starts in too",
-    #xs() == 1 and math.abs(xs()[1] - 0.3127) < 5e-3,
-    T.show(xs())
-  )
+  T.eq("a report before late init is dropped: no color is told", xs(), {})
   for _, c in ipairs({
     { "a proxy that shows no color", nil },
     { "one whose value is no color", "" },
@@ -9496,7 +9492,7 @@ do
     T.eq(c[1] .. ": an update, and it is told the device's level once", levels(), { 60 })
     T.eq(c[1] .. ": which it then shows, with no ramp left", { proxyLevel, proxyLevelTarget }, { "60", "60" })
   end
-  -- Before late init the proxy is not read, so a first report then is told.
+  -- A report before late init is dropped: late init asks for the state again.
   light(dimmer)
   answer(true, 0.6)
   run(15000)
@@ -9504,7 +9500,7 @@ do
   gInitialized = false
   answer(true, 0.6)
   gInitialized = true
-  T.eq("a first report before late init tells the proxy the level", levels(), { 60 })
+  T.eq("a report before late init is dropped: no level is told", levels(), {})
   -- Found off where the proxy shows it on, as after a power cut, it keeps the color it last went off in for Previous.
   light({ RGB }, false)
   onMode(PREVIOUS_ON)
@@ -9621,7 +9617,7 @@ do
     dimmerStarts()
     T.eq(("a dimmer whose proxy lists %s %s is told none"):format(lag[1], lag[2]), capabilities(), 0)
   end
-  -- Before late init the proxy is not read, so a first report then tells them.
+  -- A report before late init is dropped: late init asks for the state again.
   light({ RGBCT })
   restart(nil)
   gInitialized = false
@@ -9630,7 +9626,7 @@ do
     state = SerializeSafe({ state = true, brightness = 1.0 }),
   })
   gInitialized = true
-  T.eq("a first report before late init tells the proxy its capabilities", capabilities(), 1)
+  T.eq("a report before late init is dropped: no capabilities are told", capabilities(), 0)
 end
 
 T.finish()

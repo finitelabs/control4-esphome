@@ -423,6 +423,12 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
     return
   end
 
+  -- Late init asks for the state again, so a push before it is dropped rather than told
+  -- to the proxy early.
+  if not gInitialized then
+    return
+  end
+
   local entity = DeserializeSafe(Select(tParams, "entity"))
   local state = DeserializeSafe(Select(tParams, "state"))
   if IsEmpty(entity) or IsEmpty(state) then
