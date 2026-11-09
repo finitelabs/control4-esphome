@@ -68,6 +68,9 @@ local function compileHandler(source)
     log = newLog(),
     ESPHOME_BINDING = ESPHOME_BINDING,
     PROXY_BINDING = PROXY_BINDING,
+    -- As late init leaves it.
+    gInitialized = true,
+    diagnostics = { captureError = function() end },
     ENTITY = nil,
     STATE = nil,
     updateStatus = function() end,

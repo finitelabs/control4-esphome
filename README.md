@@ -1173,6 +1173,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   On Mode at its next on. The light now comes on in that color, from a Navigator
   as from programming or a scene, and Dim-To-Warm leaves it until the light
   turns off
+- Fixed an ESPHome light or lock showing offline after a controller restart when
+  the ESPHome driver had connected first; it stayed offline until its device
+  next reconnected
 
 ### Changed
 

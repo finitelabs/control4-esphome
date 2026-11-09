@@ -539,9 +539,9 @@ local function updateDynamicCapabilities(entity)
   end
   -- Told only where the proxy's Navigator Dynamic Capabilities (6661) list
   -- another: after a controller start it fires its color variables' events for
-  -- any it is told. Before late init the proxy is not read.
+  -- any it is told.
   local ok, xml = pcall(function()
-    return gInitialized and ParseXml(C4:GetDeviceVariable(C4:GetProxyDevices(), 6661))
+    return ParseXml(C4:GetDeviceVariable(C4:GetProxyDevices(), 6661))
   end)
   --#ifdef DRIVERCENTRAL
   if not ok then
@@ -3534,15 +3534,12 @@ end
 -- A `first` report since a load, bind or disconnect is held against the
 -- proxy's Current Color Chromaticity ("x,y,mode") instead, unless its target
 -- (a ramp's) is another: it fires Color Changed for any other color it is told.
--- One before late init, when the proxy is not read, is told.
 local function tellShownColor(fields, force, first)
   local newX, newY, newColorMode = shownColor(fields)
   if first and newX and newY and newColorMode and not force then
     local ok, value, target = pcall(function()
-      if gInitialized then
-        local proxy = C4:GetProxyDevices()
-        return C4:GetDeviceVariable(proxy, 1200), C4:GetDeviceVariable(proxy, 1210)
-      end
+      local proxy = C4:GetProxyDevices()
+      return C4:GetDeviceVariable(proxy, 1200), C4:GetDeviceVariable(proxy, 1210)
     end)
     --#ifdef DRIVERCENTRAL
     if not ok then
@@ -3630,6 +3627,12 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   log:trace("RFP.UPDATE_STATE(%s, %s, %s)", idBinding, strCommand, tParams)
   if idBinding ~= ESPHOME_BINDING then
     log:error("RFP.UPDATE_STATE called with idBinding %s, expected %s", idBinding, ESPHOME_BINDING)
+    return
+  end
+
+  -- Late init tells the proxy offline and asks for the state again: a push taken before it
+  -- would leave the proxy offline.
+  if not gInitialized then
     return
   end
 
@@ -3735,10 +3738,8 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   local shownLevel
   if isFirstUpdate then
     local ok, level, target = pcall(function()
-      if gInitialized then
-        local proxy = C4:GetProxyDevices()
-        return C4:GetDeviceVariable(proxy, 1001), C4:GetDeviceVariable(proxy, 1110)
-      end
+      local proxy = C4:GetProxyDevices()
+      return C4:GetDeviceVariable(proxy, 1001), C4:GetDeviceVariable(proxy, 1110)
     end)
     --#ifdef DRIVERCENTRAL
     if not ok then
