@@ -1160,6 +1160,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   turns off.
 - Fixed an ESPHome light or lock showing offline after a controller restart,
   until its device next reconnected, when the ESPHome driver had connected first
+- Fixed a light briefly showing its earlier color again when a white was set
+  right after another color
 
 ### Changed
 
