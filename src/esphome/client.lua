@@ -2328,6 +2328,19 @@ function ESPHomeClient:_invokeCallbackByKey(key, ...)
   return false
 end
 
+--- The position just past the varint that starts at `pos`, or nil if `buffer` ends before it does.
+--- @param buffer string The bytes received so far.
+--- @param pos integer Where the varint starts.
+--- @return integer|nil endPos
+local function varintEnd(buffer, pos)
+  for i = pos, #buffer do
+    if string.byte(buffer, i) < 128 then
+      return i + 1
+    end
+  end
+  return nil
+end
+
 --- Process the current data buffer and decodes any valid packets recursively.
 --- Currently only plaintext packets are supported.
 --- @private
@@ -2364,6 +2377,13 @@ function ESPHomeClient:_processBuffer()
       log:error("Check that the ESPHome device has 'api: encryption: key:' configured in its YAML")
       self._fatalError = "Encryption mismatch: device not configured for encryption"
       self:disconnect()
+      return
+    end
+
+    -- A header split across reads holds a varint that has not arrived whole yet
+    local sizeEnd = varintEnd(self._buffer, indicatorEndPos)
+    if sizeEnd == nil or varintEnd(self._buffer, sizeEnd) == nil then
+      log:trace("Incomplete plaintext frame header (%d bytes received)", #self._buffer)
       return
     end
 

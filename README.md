@@ -1163,6 +1163,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   settings writing its reading into that setting, which could point the driver
   at the wrong IP address and reconnect it; the entity's variable keeps its name
   and the setting is left alone
+- Fixed the ESPHome driver logging a Lua error when the start of a message from
+  an unencrypted device arrived split across two network reads; it now waits for
+  the rest
 
 ### Changed
 
