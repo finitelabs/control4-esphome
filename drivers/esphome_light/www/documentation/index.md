@@ -240,8 +240,9 @@ and provides the light functionality to Control4.
 > over its **Color On Mode**, whether it is turned on from a Navigator,
 > programming or an Advanced Lighting Scene. Control4 shows it as the light's
 > color at once. With Dim-To-Warm it then stays when the light is dimmed or
-> brightened, until the light turns off. A controller restart or a driver update
-> before the light turns on returns it to its Color On Mode.
+> brightened, until the light turns off. A controller restart, a driver update
+> or a change to the light's connection before it turns on returns it to its
+> Color On Mode.
 
 > **Note:** A ramp that Control4 stops part way stops where the light has got
 > to. A light added before this driver version does this from its next

@@ -1474,6 +1474,32 @@ do
   run(15000)
   T.eq("a scene step's level in a fade to off after a color: the level alone", colors(), {})
   proxy("CLEAR_ALL_SCENES")
+  -- A scene step's color alone on an off light is the next on's color, as a color command is.
+  offInBlue()
+  activate(colorStep(nil, green, 0))
+  run(15000)
+  proxy("CLEAR_ALL_SCENES")
+  mark()
+  proxy("ON")
+  T.eq("a scene step's color while off, then On: the light comes on in it", colors(), { sentGreen })
+  -- A rated scene step from off comes on in it too, its pre-on and its fade.
+  offSetGreen()
+  mark()
+  activate(levelStep(60, 2000))
+  run(15000)
+  T.eq("a scene step's level over 2 s from off: its pre-on and its fade carry it", colors(), { sentGreen, sentGreen })
+  proxy("CLEAR_ALL_SCENES")
+  -- A rebind ends it: the light may be another one now.
+  local onColor = offSetGreen()
+  OBC[ESPHOME](ESPHOME, "ESPHOME", false)
+  OBC[ESPHOME](ESPHOME, "ESPHOME", true)
+  RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { ColorMode.COLOR_MODE_RGB } }),
+    state = SerializeSafe({ state = false, brightness = 1.0 }),
+  })
+  mark()
+  proxy("ON")
+  T.eq("a color set while off, then a rebind and On: the On color", colors(), { onColor })
 
   -- A tap's on is followed by the Color On Mode's preset, which would replace the color set.
   offSetGreen()
@@ -2549,8 +2575,8 @@ do
   )
   mixed("a fade to off sent on again as it reaches off")
 
-  -- A color set while the light is off or fading to off is the one it next comes on in, over the On color, and a
-  -- pick.
+  -- A color set while the light is off is the one it next comes on in, over the On color, and a pick. One set in a
+  -- fade to off goes out over what the fade has left, and is neither.
   lit(true)
   setColor(green)
   mark()
@@ -2567,13 +2593,11 @@ do
   mark()
   proxy("ON")
   T.eq(
-    "a color set in a fade to off, then On: that color",
+    "a color set in a fade to off, then On: the On color",
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { green[1] }
+    { ON[1] }
   )
-  mark()
-  proxy("SET_LEVEL", { LEVEL = 50 })
-  kept("a color set in a fade to off, then On, then a level")
+  mixed("a color set in a fade to off, then On")
   -- Another client's color is no Control4 command, so no pick.
   lit()
   report(ELSEWHERE, 1.0)
