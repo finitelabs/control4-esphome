@@ -1375,8 +1375,8 @@ end
 -- counting as a pick. Kept here, as an instant cmd has no ramp to carry it.
 local mergedColorSent = nil
 
--- A color Control4 set while the light was off, or on its way off, { x, y, mode, preset }: the next on comes on in
--- it, over the Color On Mode's color, and it is picked from that on. Not persisted, so a reload or a restart ends it.
+-- A color Control4 set while the light was off, { x, y, mode, preset }: the next on comes on in it, over the Color
+-- On Mode's color, and it is picked from that on. A rebind ends it; not persisted, so a reload or a restart does too.
 local nextOnColor = nil
 
 ---------------------------------------------------------------------------
@@ -1650,7 +1650,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor, at)
   -- A color picked in a rated on from off also holds for a level that replaces the on before the light is lit.
   if not keepColor and not colorPicked then
     if level > 0 and nextOnColor then
-      -- Picked from this on. An on from off is sent it with the level; a light in a fade to off has it on its way.
+      -- Picked from this on, which is sent it with the level.
       if goingOn then
         mergedColor, held = nextOnColor, true
       end
@@ -2228,12 +2228,14 @@ local function rampToColor(targetX, targetY, targetMode, rate)
     brightnessRamp.colorSet = true
   end
 
-  -- Off or fading to off, this is the color for the next on: send it over
-  -- what the fade to off has left, and hold it for that on.
+  -- Off or fading to off, it goes out over what the fade has left. Set with the light off (its LEDs off, which a
+  -- fade to off keeps on to its end), it is the next on's color.
   local off = not isLogicallyOn()
   if off then
     rate = rampingBrightness and remaining(brightnessRamp) or 0
-    nextOnColor = { x = targetX, y = targetY, mode = targetMode, preset = currentColorPreset }
+    if not ledState then
+      nextOnColor = { x = targetX, y = targetY, mode = targetMode, preset = currentColorPreset }
+    end
   end
 
   if rate == 0 or off then
@@ -2763,7 +2765,7 @@ local function applySceneStep(step)
   -- A step that sets a level alone takes the color a level command would, and none while a picked color holds.
   if not color and (level or 0) > 0 and not colorPicked then
     if nextOnColor then
-      -- As for a level command: an on from off comes on in it, and a light in a fade to off has it on its way.
+      -- As for a level command: an on from off comes on in it.
       color = goingOn and nextOnColor or nil
       nextOnColor, colorPicked = nil, true
     elseif getColorOnModeKind() == COLOR_ON_MODE_FADE then
@@ -3832,6 +3834,7 @@ OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
     SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   end
   colorPicked = false
+  nextOnColor = nil
   currentColorX = DEFAULT_COLOR_X
   currentColorY = DEFAULT_COLOR_Y
   currentColorMode = LIGHT_COLOR_MODE_CCT
