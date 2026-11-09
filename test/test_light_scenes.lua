@@ -429,10 +429,12 @@ end
 --- A color light that is off, left in blue, with the On color as its mode.
 --- Returns the red, green and blue the On color is sent as.
 local function offInBlue()
-  light({ ColorMode.COLOR_MODE_RGB }, false)
+  light({ ColorMode.COLOR_MODE_RGB })
   onMode(ON)
   local onColor = setColor(ON)
   setColor(BLUE)
+  proxy("OFF")
+  run(15000)
   return onColor
 end
 
@@ -464,9 +466,9 @@ do
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ID"),
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ORIGIN"),
   }, { 2, { ON[1] }, { ON.id }, { 1 } })
-  offInBlue()
+  light({ ColorMode.COLOR_MODE_RGB })
   local asked = setColor({ 0.2, 0.5 })
-  setColor(BLUE)
+  offInBlue()
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
   colorTarget({ 0.2, 0.5 }, 1000)
@@ -539,21 +541,23 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
-T.section("an on after a color set over a rate while the light was off: the light ends in the On color")
+T.section("an on after a color set over a rate while the light was off: the light comes on in that color")
 do
-  -- An off light's color is its own at once; the On color then replaces it.
-  local onColor = offInBlue()
+  -- An off light's color is its own at once, and the color its next on comes up in over the On color.
+  light({ ColorMode.COLOR_MODE_RGB })
+  local green = setColor({ 0.3, 0.6 })
+  offInBlue()
   mark()
   colorTarget({ 0.3, 0.6 }, 3000)
   run(500)
   proxy("ON")
   run(15000)
   local out = colors()
-  T.eq("the On color is the last the light is sent", out[#out], onColor)
+  T.eq("the color set is the last the light is sent", out[#out], green)
   T.eq(
-    "the proxy is told the color as it is set, and the On color last",
+    "the proxy is told the color as it is set, and again as the on brings the light up in it",
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { 0.3, ON[1] }
+    { 0.3, 0.3 }
   )
   offInBlue()
   colorTarget({ 0.3, 0.6 }, 1000)
@@ -562,9 +566,9 @@ do
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   run(15000)
   T.eq(
-    "a rated on: the proxy is then told the On color and nothing else",
+    "a rated on: the proxy is then told the color set and nothing else",
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { ON[1] }
+    { 0.3 }
   )
   T.eq("at once, as its pre-on brings the light up in it", told("LIGHT_COLOR_CHANGED", "at"), { 0 })
   -- With Dim-To-Warm a color picked while the light is on stays: a level set in its ramp keeps it, and at once
@@ -672,10 +676,12 @@ do
   for _, case in ipairs({ { 4000, 500 }, { 500, 500 }, { 0, 500 }, { 1000, 100 } }) do
     local rate, at = case[1], case[2]
     local name = ("over %d ms, %d ms into the on"):format(rate, at)
-    light({ ColorMode.COLOR_MODE_RGB }, false)
+    light({ ColorMode.COLOR_MODE_RGB })
     onMode(ON, DIM)
     local asked = setColor({ 0.2, 0.5 })
     setColor(BLUE)
+    proxy("OFF")
+    run(15000)
     mark()
     proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
     run(at)
@@ -940,6 +946,41 @@ do
     { 80 }
   )
   proxy("CLEAR_ALL_SCENES")
+end
+
+T.section("a light that dims lists a color stop, which the proxy needs before it passes a brightness stop on")
+do
+  --- The color stop a start whose first report lists `modes` tells the proxy, if it tells it the capabilities.
+  local function toldAtStart(modes)
+    restart(nil)
+    RFP.UPDATE_STATE(ESPHOME, "UPDATE_STATE", {
+      entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = modes }),
+      state = SerializeSafe({ state = true, brightness = 1.0 }),
+    })
+    return told("DYNAMIC_CAPABILITIES_CHANGED", "supports_color_stop")
+  end
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  T.eq("driver.xml lists it", proxyCapabilities.supports_color_stop, "True")
+  light(nil)
+  T.eq("an on/off light is told it has none", toldAtStart({ ColorMode.COLOR_MODE_ON_OFF }), { false })
+  T.eq("and once it dims, that it has one", toldAtStart({ ColorMode.COLOR_MODE_BRIGHTNESS }), { true })
+  -- A color stop on a light with no color leaves a level ramp in flight to run.
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  proxy("RAMP_TO_LEVEL", { LEVEL = 10, TIME = 4000 })
+  run(1000)
+  mark()
+  proxy("SET_COLOR_STOP")
+  local toldProxy = 0
+  for _, sent_ in ipairs(sent) do
+    toldProxy = toldProxy + (sent_.binding == PROXY and 1 or 0)
+  end
+  T.eq("a color stop on a light with no color: nothing is sent or told", { commands(), toldProxy }, { 0, 0 })
+  run(15000)
+  T.eq(
+    "and the ramp runs to its own end",
+    { told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), told("LIGHT_BRIGHTNESS_CHANGED", "at") },
+    { { 10 }, { 3000 } }
+  )
 end
 
 T.section("a stop of the level leaves a color ramp in flight its color, not the one the level would carry")
@@ -1333,6 +1374,164 @@ do
   proxy("ON")
   colorTarget(ON, 2000)
   T.eq("and the ramp starts from it", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), { x })
+end
+
+T.section("a color set while the light is off is the one its next on comes up in, over the Color On Mode's")
+do
+  local green, other = { 0.3, 0.6 }, { 0.2, 0.5 }
+  light({ ColorMode.COLOR_MODE_RGB })
+  local sentGreen, sentOther = setColor(green), setColor(other)
+  --- A light off in blue, with the On color as its mode, then set green. Returns the On color as sent.
+  local function offSetGreen()
+    local onColor = offInBlue()
+    mark()
+    colorTarget(green, 0)
+    return onColor
+  end
+  --- Each command the device was sent since the mark, as sent.
+  local function sentCommands()
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.binding == ESPHOME and s.command == "ENTITY_COMMAND" then
+        out[#out + 1] = DeserializeSafe(s.params.body)
+      end
+    end
+    return out
+  end
+  --- The proxy's Color On Mode preset, as it follows an on with it.
+  local function onPreset()
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = ON[1],
+      LIGHT_COLOR_TARGET_Y = ON[2],
+      LIGHT_COLOR_TARGET_COLOR_RATE = 750,
+      LIGHT_COLOR_TARGET_PRESET_ID = ON.id,
+      LIGHT_COLOR_TARGET_PRESET_ORIGIN = 1,
+    })
+  end
+  --- A tap's on: a brightness preset at 100 %.
+  local function tap()
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, LIGHT_BRIGHTNESS_TARGET_PRESET_ID = 1, RATE = 750 })
+  end
+
+  offSetGreen()
+  T.eq(
+    "the proxy is told the color at once, the light still off",
+    { told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), told("LIGHT_COLOR_CHANGED", "at"), proxyLevel },
+    { { green[1] }, { 0 }, "0" }
+  )
+  mark()
+  proxy("ON")
+  local out = sentCommands()
+  T.eq(
+    "On: one command, the level and the color together",
+    { #out, out[1].state, out[1].has_brightness, out[1].has_rgb, { out[1].red, out[1].green, out[1].blue } },
+    { 1, true, true, true, sentGreen }
+  )
+  T.eq("and the proxy is told it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { green[1] })
+  offSetGreen()
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  run(15000)
+  T.eq("a rated on: its pre-on and its on carry it", colors(), { sentGreen, sentGreen })
+
+  -- That on spends it, as does the light coming on another way.
+  local onColor = offSetGreen()
+  proxy("ON")
+  proxy("OFF")
+  run(15000)
+  mark()
+  proxy("ON")
+  T.eq("the on after the one in it is in the On color", colors(), { onColor })
+  offSetGreen()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  run(500)
+  proxy("OFF")
+  run(15000)
+  mark()
+  proxy("ON")
+  T.eq("as is the on after one in it that an Off cut short", colors(), { onColor })
+  offSetGreen()
+  report(sentGreen, 0.5)
+  proxy("OFF")
+  run(15000)
+  mark()
+  proxy("ON")
+  T.eq("and so is the on after another client turned the light on", colors(), { onColor })
+  -- A scene step that sets a level alone comes on in it, which the proxy shows already.
+  offSetGreen()
+  activate(levelStep(60))
+  T.eq("a scene step's level: the light comes on in it", colors(), { sentGreen })
+  T.eq("and the proxy is told no color again", told("LIGHT_COLOR_CHANGED", "at"), {})
+  proxy("CLEAR_ALL_SCENES")
+  -- A light in a fade to off has the color set on its way, so a scene step's level then sends none.
+  light({ ColorMode.COLOR_MODE_RGB })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  run(1000)
+  colorTarget(green, 0)
+  run(1000)
+  mark()
+  activate(levelStep(60, 1000))
+  run(15000)
+  T.eq("a scene step's level in a fade to off after a color: the level alone", colors(), {})
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A tap's on is followed by the Color On Mode's preset, which would replace the color set.
+  offSetGreen()
+  mark()
+  tap()
+  run(5)
+  onPreset()
+  run(15000)
+  T.eq("a tap's on, then the On color's preset: the light is sent the color set alone", colors(), {
+    sentGreen,
+    sentGreen,
+  })
+  T.eq("and the proxy is told it alone", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { green[1] })
+  -- Any other on followed by the preset is a pick of it.
+  for _, c in ipairs({
+    {
+      "On",
+      function()
+        proxy("ON")
+      end,
+    },
+    {
+      "Toggle",
+      function()
+        proxy("TOGGLE")
+      end,
+    },
+    {
+      "a level with no preset",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
+      end,
+    },
+  }) do
+    offSetGreen()
+    mark()
+    c[2]()
+    run(5)
+    onPreset()
+    run(15000)
+    out = colors()
+    T.eq(c[1] .. ", then the On color's preset: the light ends in the On color", out[#out], onColor)
+  end
+  -- After a tap, another color, or the preset once the moment has passed, is a pick.
+  offSetGreen()
+  tap()
+  run(5)
+  colorTarget(other, 750)
+  run(15000)
+  out = colors()
+  T.eq("a tap's on, then another color: the light ends in it", out[#out], sentOther)
+  offSetGreen()
+  tap()
+  run(300)
+  onPreset()
+  run(15000)
+  out = colors()
+  T.eq("a tap's on, then the On color's preset 300 ms on: the light ends in the On color", out[#out], onColor)
 end
 
 T.section("Ramp Scene Up and Down in a ramp start from the level the light has got to")
@@ -2350,14 +2549,16 @@ do
   )
   mixed("a fade to off sent on again as it reaches off")
 
-  -- None of these is a pick: a color set while the light is off or fading to off is the one it next comes on in,
-  -- which the Color On Mode replaces, and another client's is no Control4 command.
+  -- A color set while the light is off or fading to off is the one it next comes on in, over the On color, and a
+  -- pick.
   lit(true)
   setColor(green)
   mark()
   proxy("ON")
-  T.eq("a color set while off, then On: the On color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
-  mixed("a color set while off, then On")
+  T.eq("a color set while off, then On: that color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { green[1] })
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  kept("a color set while off, then On, then a level")
   lit()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
   run(1000)
@@ -2366,11 +2567,14 @@ do
   mark()
   proxy("ON")
   T.eq(
-    "a color set in a fade to off, then On: the On color",
+    "a color set in a fade to off, then On: that color",
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { ON[1] }
+    { green[1] }
   )
-  mixed("a color set in a fade to off, then On")
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  kept("a color set in a fade to off, then On, then a level")
+  -- Another client's color is no Control4 command, so no pick.
   lit()
   report(ELSEWHERE, 1.0)
   mixed("another client's color")
@@ -3901,7 +4105,7 @@ do
   level(100, 4000)
   run(15000)
   T.eq("an on over 4 s, 2 s later: nothing is sent when the color's 5 s are up", lengths(), { 0, 4000 })
-  T.eq("and the proxy is told no color again", told("LIGHT_COLOR_CHANGED", "at"), {})
+  T.eq("and the proxy is told the color again only as the on begins in it", told("LIGHT_COLOR_CHANGED", "at"), { 0 })
 
   -- A fade up is on: its color fades with it.
   light({ ColorMode.COLOR_MODE_RGB }, false)
@@ -6713,7 +6917,7 @@ do
     { places({ left, 1 - left }), { blue }, { 0.3, CCT_MODE } }
   )
   -- A rated on brings the light up in the color it carries, with its pre-on.
-  light({ RGBCT, CT }, false)
+  light({ RGBCT, CT })
   proxy("UPDATE_COLOR_ON_MODE", {
     COLOR_PRESET_ID = 1,
     COLOR_PRESET_ORIGIN = 1,
@@ -6724,6 +6928,8 @@ do
     COLOR_FADE_PRESET_ORIGIN = 0,
   })
   setColor(BLUE)
+  proxy("OFF")
+  run(15000)
   mark()
   level(100, 6000)
   T.eq(
@@ -9382,7 +9588,7 @@ do
   -- Any stop flag or brightness rate 6661 lists, as a tell can leave it, tells none.
   for _, lag in ipairs({
     { "supports_brightness_stop", "False" },
-    { "supports_color_stop", "True" },
+    { "supports_color_stop", "False" },
     { "brightness_rate_min", "1" },
     { "brightness_rate_max", "65534" },
   }) do

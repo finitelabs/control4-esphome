@@ -95,6 +95,10 @@ local function compileHandler(source)
     end,
     brightnessPushes = {},
     proxySends = {},
+    nextOn = {},
+    isLogicallyOn = function()
+      return false
+    end,
   }
   env.notifyBrightnessChanged = function(level)
     env.brightnessPushes[#env.brightnessPushes + 1] = level
