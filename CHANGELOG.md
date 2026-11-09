@@ -78,6 +78,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a light going on to the end of its ramp when Control4 stopped it part
   way; it now stops where it has got to. A light already in a project does this
   from its next controller restart
+- Fixed a color set on a light while it is off giving way to the light's Color
+  On Mode at its next on. The light now comes on in that color, from a Navigator
+  as from programming or a scene, and Dim-To-Warm leaves it until the light
+  turns off
 
 ### Changed
 
