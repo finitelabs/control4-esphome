@@ -1243,6 +1243,21 @@ function ShimResetTemperatureScale()
 end
 
 ---------------------------------------------------------------------------
+-- Project properties
+-- A controller answers every name with a string: a keypad LED color as "0000ff",
+-- and "" for a name the project doesn't have, never nil. The shim answers "" for
+-- every name but TemperatureScale, which reads the scale above. A suite that
+-- needs real values, keypad LED colors among them, defines its own.
+---------------------------------------------------------------------------
+
+function C4:GetProjectProperty(name)
+  if name == "TemperatureScale" then
+    return temperature_scale
+  end
+  return ""
+end
+
+---------------------------------------------------------------------------
 -- Driver events
 -- C4:AddEvent declares an event a driver can fire and Programming can bind to.
 -- Declaration is the half worth recording: firing is one-way on a controller,

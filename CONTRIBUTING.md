@@ -108,6 +108,11 @@ then pull the change in with `copier update`.
 - `drivers/*/www/`: documentation and icons
 - `CHANGELOG.md`, seeded by the template on first render and left alone after
   that
+- `resources/drivercentral/`: the DriverCentral listing, seeded once. Besides
+  the banners and photos it holds `description.md`, the listing's description.
+  It starts from the docs' Overview and Features, written to sell the driver
+  rather than document it. Its first image is the facts strip, uploaded through
+  DriverCentral's description editor, which gives the URL for its `src`
 - Any additional `src/` modules specific to this driver
 - Any additional `vendor/` libraries specific to this driver
 - `test/` suites written for this driver, and the local support files they
@@ -250,7 +255,8 @@ on a clean tree until something has populated `build/`.
 1. **Preprocess**: resolve `#ifdef`/`#ifndef` directives per distribution
 1. **Generate squishy**: create squish manifests from .c4zproj files
 1. **Update driver.xml**: stamp version date and modified timestamp
-1. **Generate docs**: Markdown -> HTML -> PDF, plus README
+1. **Generate docs**: Markdown -> HTML -> PDF, plus README and DriverCentral's
+   Revisions
 1. **Package**: run driverpackager to create .c4z files
 1. **Zip**: bundle the c4z and docs folders per distribution
 
@@ -266,6 +272,13 @@ Each distribution's outputs are grouped by type under `dist/<distribution>/`:
 per-driver Lua). `<repo>.zip` sits alongside them and contains `c4z/` and
 `docs/` only: `source/` is the driver's unencrypted Lua, which an encrypted
 driver must not ship.
+
+`dist/drivercentral/` also holds the DriverCentral listing's text, pasted over
+the listing's own at each upload. `revisions.html` is the Revisions tab: every
+released `CHANGELOG.md` section as the DriverCentral build shows it.
+`description.html` is the description, made from `description.md` in
+`resources/drivercentral/`. Both come with the drivercentral CI artifact,
+outside the zip.
 
 Step 1 rewrites tracked files in place. Formatting covers `tools/*.py`, all Lua
 under `drivers/`, `src/`, `test/`, `tools/` and `vendor/`, and every Markdown

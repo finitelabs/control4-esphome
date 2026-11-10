@@ -105,7 +105,7 @@ fmt-py: $(VENV_STAMP)
 
 # docs.py fmt is mdformat, keeping a GitHub alert's marker on its own line.
 fmt-md: $(VENV_STAMP)
-	@files=""; for g in ./drivers/*/www/documentation/*.md documentation/*.md *.md; do \
+	@files=""; for g in ./drivers/*/www/documentation/*.md documentation/*.md *.md resources/drivercentral/description.md; do \
 		[ -e "$$g" ] && files="$$files $$g"; \
 	done; \
 	[ -z "$$files" ] || $(VENV_PY) tools/docs.py fmt --wrap 80 $$files
@@ -127,7 +127,7 @@ check-py: $(VENV_STAMP)
 	$(VENV_BLACK) --check tools/*.py
 
 check-md: $(VENV_STAMP)
-	@files=""; for g in ./drivers/*/www/documentation/*.md documentation/*.md *.md; do \
+	@files=""; for g in ./drivers/*/www/documentation/*.md documentation/*.md *.md resources/drivercentral/description.md; do \
 		[ -e "$$g" ] && files="$$files $$g"; \
 	done; \
 	[ -z "$$files" ] || $(VENV_PY) tools/docs.py fmt --check --wrap 80 $$files
@@ -180,8 +180,8 @@ update-xml-modified: $(VENV_STAMP)
 
 # ─── Docs ─────────────────────────────────────────────────────────────────────
 
-.PHONY: docs docs-html docs-pdf docs-readme
-docs: docs-readme docs-html docs-pdf ## Generate all documentation
+.PHONY: docs docs-html docs-pdf docs-readme docs-drivercentral
+docs: docs-readme docs-html docs-pdf docs-drivercentral ## Generate all documentation
 
 
 docs-readme: preprocess $(VENV_STAMP)
@@ -190,6 +190,18 @@ docs-readme: preprocess $(VENV_STAMP)
 	$(VENV_PY) tools/docs.py readme \
 		build/$(README_BUILD)/drivers/$(README_DRIVER)/www/documentation/index.md README.md
 
+
+# The DriverCentral listing's Revisions tab and description, pasted at each
+# upload. They sit beside the zip integrators download, not in it.
+docs-drivercentral: preprocess $(VENV_STAMP)
+	@mkdir -p dist/drivercentral
+	$(VENV_PY) tools/docs.py revisions \
+		build/drivercentral/drivers/$(README_DRIVER)/www/documentation/index.md \
+		dist/drivercentral/revisions.html
+	@if [ -f resources/drivercentral/description.md ]; then \
+		$(VENV_PY) tools/docs.py description \
+			resources/drivercentral/description.md dist/drivercentral/description.html; \
+	fi
 
 docs-html: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
