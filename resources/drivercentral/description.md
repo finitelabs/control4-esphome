@@ -6,18 +6,25 @@
 Control4 or ESPHome.*
 
 Integrate [ESPHome-based devices](https://devices.esphome.io/) into Control4.
-ESPHome is an open-source system that transforms common microcontrollers, like
-ESP8266 and ESP32, into smart home devices through simple YAML configuration.
-ESPHome devices can be set up, monitored, and controlled using a web browser,
-Home Assistant, or other compatible platforms. This driver monitors and controls
-ESPHome devices directly from your Control4 system.
+ESPHome is an open-source system that turns common microcontrollers into smart
+home devices through simple YAML configuration. ESPHome devices can be set up,
+monitored, and controlled using a web browser, Home Assistant, or other
+compatible platforms. This driver monitors and controls ESPHome devices directly
+from your Control4 system.
 
 ## Features
 
 - Local network communication requiring no cloud services
-- Real-time updates from all supported entities exposed by the device
-- Supports encrypted connections using the device encryption key
-- Variable Programming Support
+- Real-time updates from every supported entity on the device, encrypted when
+  the device has an encryption key
+- Lights, fans, locks, climate and water heaters as native Control4 devices
+  through the included sub-drivers
+- Switches and covers as Control4 relays, and binary sensors as contact sensors
+- Device events as keypad buttons that drive loads, with a light on the device
+  as the button's LED
+- Bluetooth proxy support for SwitchBot, BTHome, Govee, Yale and August, and
+  SereneScent devices, with the Bluetooth Coordinator to combine several proxies
+- Sensors and other readings as variables for Control4 programming
 
 ## System requirements
 
@@ -84,6 +91,5 @@ See the individual sub-driver documentation for device-specific details.
 | Voice Assistant     | ❌\*      |
 | Water Heater        | ✅        |
 
-*\* Voice Assistant requires a speech-to-text and intent processing pipeline
-(e.g. Home Assistant Assist). Control4 does not natively provide voice intent
-handling, so this entity type is not supported.*
+*\* Voice Assistant requires a speech-to-text and intent processing pipeline,
+which Control4 does not provide, so this entity type is not supported.*
