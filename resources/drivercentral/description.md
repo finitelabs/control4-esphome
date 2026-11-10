@@ -2,21 +2,22 @@
 
 ## Overview
 
-*Disclaimer: This software is neither affiliated with nor endorsed by either
-Control4 or ESPHome.*
+*This software is neither affiliated with nor endorsed by either Control4 or
+ESPHome.*
 
 Integrate [ESPHome-based devices](https://devices.esphome.io/) into Control4.
 ESPHome is an open-source system that turns common microcontrollers into smart
-home devices through simple YAML configuration. ESPHome devices can be set up,
-monitored, and controlled using a web browser, Home Assistant, or other
-compatible platforms. This driver monitors and controls ESPHome devices directly
-from your Control4 system.
+home devices through simple YAML configuration. This driver connects to each
+ESPHome device on your local network and brings its lights, fans, locks, climate
+controls, switches, sensors and buttons into Control4, with no cloud service in
+between. An ESPHome device can also serve as a Bluetooth proxy, so Bluetooth
+devices near it join the project too.
 
 ## Features
 
-- Local network communication requiring no cloud services
-- Real-time updates from every supported entity on the device, encrypted when
-  the device has an encryption key
+- Local control over your network, with no cloud service, encrypted when the
+  device has an encryption key
+- Real-time updates from every supported entity on the device
 - Lights, fans, locks, climate and water heaters as native Control4 devices
   through the included sub-drivers
 - Switches and covers as Control4 relays, and binary sensors as contact sensors
@@ -26,16 +27,41 @@ from your Control4 system.
   SereneScent devices, with the Bluetooth Coordinator to combine several proxies
 - Sensors and other readings as variables for Control4 programming
 
+## Included drivers
+
+### ESPHome
+
+Add one for each ESPHome device. It connects to the device and brings in its
+switches, covers, sensors, buttons and events, and its light, fan, lock and
+climate entities bind to the drivers below.
+
+### ESPHome Light, Fan, Lock and Climate
+
+A native Control4 light, fan, lock or thermostat for one of the device's
+entities, bound to the ESPHome driver. ESPHome Climate also covers water
+heaters.
+
+### ESPHome Bluetooth Coordinator
+
+Combines several ESPHome Bluetooth proxies, and reaches each Bluetooth device
+through the proxy that hears it best.
+
+### ESPHome SwitchBot, BTHome, Govee, Yale and SereneScent
+
+A Control4 driver for each kind of Bluetooth device, reached through an ESPHome
+Bluetooth proxy. The tables below list what each covers.
+
 ## System requirements
 
 - Control4 OS 3.3+
+- ESPHome devices on the controller's local network
 
 ## Compatibility
 
-### Verified Devices
+### Verified devices
 
-This driver will generically work with any ESPHome device, but we have tested
-extensively with the following devices:
+The driver works with any ESPHome device, and we have tested it extensively with
+the ones below.
 
 - [ratgdo](https://ratcloud.llc)
 - konnected Smart Garage Door Opener
@@ -44,10 +70,10 @@ extensively with the following devices:
 Both are relay-based garage door controllers; the Garage Door Configuration
 Guide in the documentation covers their setup.
 
-### Supported Bluetooth Devices
+### Supported Bluetooth devices
 
-When used as a Bluetooth proxy, this driver supports the following BLE device
-types through sub-drivers:
+As a Bluetooth proxy, an ESPHome device brings in the Bluetooth devices below
+through their sub-drivers.
 
 | Protocol    | Sub-Driver          | Example Devices                                      |
 | ----------- | ------------------- | ---------------------------------------------------- |
@@ -59,7 +85,7 @@ types through sub-drivers:
 
 See the individual sub-driver documentation for device-specific details.
 
-### Supported ESPHome Entities
+### Supported ESPHome entities
 
 | Entity Type         | Supported |
 | ------------------- | --------- |
