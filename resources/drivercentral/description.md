@@ -49,7 +49,7 @@ through the proxy that hears it best.
 ### ESPHome SwitchBot, BTHome, Govee, Yale and SereneScent
 
 A Control4 driver for each kind of Bluetooth device, reached through an ESPHome
-Bluetooth proxy. The tables below list what each covers.
+Bluetooth proxy. The table below lists what each covers.
 
 ## System requirements
 
