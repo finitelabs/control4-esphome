@@ -273,12 +273,14 @@ per-driver Lua). `<repo>.zip` sits alongside them and contains `c4z/` and
 `docs/` only: `source/` is the driver's unencrypted Lua, which an encrypted
 driver must not ship.
 
-`dist/drivercentral/` also holds the DriverCentral listing's text, pasted over
-the listing's own at each upload. `revisions.html` is the Revisions tab: every
-released `CHANGELOG.md` section as the DriverCentral build shows it.
-`description.html` is the description, made from `description.md` in
-`resources/drivercentral/`. Both come with the drivercentral CI artifact,
-outside the zip.
+`dist/drivercentral/listing/` holds what a DriverCentral upload needs beyond the
+zip and the PDFs. `description.html` is the listing's description, made from
+`description.md` in `resources/drivercentral/`. `revisions.html` is the
+Revisions tab, every released `CHANGELOG.md` section as the DriverCentral build
+shows it. The product card, the banners and the listing photos are copied from
+`resources/drivercentral/`. A tag build's drivercentral CI artifact is the whole
+upload. When it has expired, run the Build workflow on the tag again from the
+Actions tab.
 
 Step 1 rewrites tracked files in place. Formatting covers `tools/*.py`, all Lua
 under `drivers/`, `src/`, `test/`, `tools/` and `vendor/`, and every Markdown

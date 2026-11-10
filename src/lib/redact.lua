@@ -147,6 +147,9 @@ local function redactSerialized(text)
       return key .. separator .. '"' .. REDACTED .. '"'
     end
   end)
+  -- A URL's login: rtsp://user:pass@host. As a browser reads it, the login runs to the last "@" before the
+  -- host ends at "/", "?" or "#", so a raw "@" in a password is masked whole and one in a query is left alone.
+  text = text:gsub('(://)[^/?#%s"]+@', "%1" .. REDACTED .. "@")
   return redactPairs(text)
 end
 

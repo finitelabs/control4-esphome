@@ -191,17 +191,24 @@ docs-readme: preprocess $(VENV_STAMP)
 		build/$(README_BUILD)/drivers/$(README_DRIVER)/www/documentation/index.md README.md
 
 
-# The DriverCentral listing's Revisions tab and description, pasted at each
-# upload. They sit beside the zip integrators download, not in it.
+# What a DriverCentral upload needs beyond the zip and the PDFs: the listing's
+# description, Revisions tab and images. It sits beside the zip integrators
+# download, not in it.
 docs-drivercentral: preprocess $(VENV_STAMP)
-	@mkdir -p dist/drivercentral
+	@rm -rf dist/drivercentral/listing && mkdir -p dist/drivercentral/listing
 	$(VENV_PY) tools/docs.py revisions \
 		build/drivercentral/drivers/$(README_DRIVER)/www/documentation/index.md \
-		dist/drivercentral/revisions.html
+		dist/drivercentral/listing/revisions.html
 	@if [ -f resources/drivercentral/description.md ]; then \
 		$(VENV_PY) tools/docs.py description \
-			resources/drivercentral/description.md dist/drivercentral/description.html; \
+			resources/drivercentral/description.md dist/drivercentral/listing/description.html; \
 	fi
+	@cd resources/drivercentral 2>/dev/null || exit 0; \
+	for f in product-card-300x300.png banners/*.png photos/*.png; do \
+		[ -f "$$f" ] || continue; \
+		mkdir -p "$(CURDIR)/dist/drivercentral/listing/$$(dirname "$$f")"; \
+		cp "$$f" "$(CURDIR)/dist/drivercentral/listing/$$f"; \
+	done
 
 docs-html: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \

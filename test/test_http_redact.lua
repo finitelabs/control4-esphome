@@ -275,4 +275,57 @@ do
   T.check("form value masked through its slash", out == "password=" .. REDACTED .. "&next=/home", out)
 end
 
+--------------------------------------------------------------------------------
+T.section("A URL's login is masked")
+--------------------------------------------------------------------------------
+do
+  local out = redact("rtsp://viewer:CAM_PASS_LEAK@192.0.2.20:554/stream1")
+  T.check("user and password masked", out == "rtsp://" .. REDACTED .. "@192.0.2.20:554/stream1", out)
+
+  out = redact("https://USER_LEAK@example.com/api")
+  T.check("a bare user masked", out == "https://" .. REDACTED .. "@example.com/api", out)
+
+  out = R.text("rtsp://viewer:CAM_PASS_LEAK@192.0.2.20")
+  T.check("masked by redact.text, with no path", out == "rtsp://" .. REDACTED .. "@192.0.2.20", out)
+
+  out = redact("rtsp://viewer:p@ss_LEAK@192.0.2.20/live")
+  T.check("a raw @ in the password masked whole", out == "rtsp://" .. REDACTED .. "@192.0.2.20/live", out)
+
+  -- "'" and "," may stand raw in a login, so stopping at either would print this password whole.
+  out = redact("rtsp://viewer:it's,ok_LEAK@192.0.2.20/live")
+  T.check("a raw ' or , in the password masked whole", out == "rtsp://" .. REDACTED .. "@192.0.2.20/live", out)
+
+  out = redact("rtsp://viewer:CAM_PASS_LEAK@192.0.2.20/live?token=QUERY_TOKEN_LEAK&channel=1")
+  T.check(
+    "a query token still masked beside the login",
+    out == "rtsp://" .. REDACTED .. "@192.0.2.20/live?token=" .. REDACTED .. "&channel=1",
+    out
+  )
+
+  out = redact('{"name":"Front Camera","stream":"rtsp://viewer:CAM_PASS_LEAK@192.0.2.20/live"}')
+  T.excludes("a login in JSON text masked", out, "CAM_PASS_LEAK")
+  T.contains("the JSON text's URL keeps its host", out, "rtsp://" .. REDACTED .. "@192.0.2.20/live")
+  T.contains("the JSON text's other members kept", out, "Front Camera")
+
+  out = encoded(redact({ name = "Front Camera", streams = { "rtsp://viewer:CAM_PASS_LEAK@192.0.2.20/live" } }))
+  T.excludes("a login in a table leaf masked", out, "CAM_PASS_LEAK")
+  T.contains("the table leaf keeps its host", out, "rtsp://" .. REDACTED .. "@192.0.2.20/live")
+end
+
+--------------------------------------------------------------------------------
+T.section("An @ that is not a login stays readable")
+--------------------------------------------------------------------------------
+do
+  for _, text in ipairs({
+    "https://example.com?email=user@example.com",
+    "https://example.com#user@example.com",
+    "https://example.com/users/user@example.com",
+    "GET https://example.com for user@example.com",
+    '{"url":"https://example.com","email":"user@example.com"}',
+  }) do
+    local out = R.text(text)
+    T.check("left alone: " .. text, out == text, out)
+  end
+end
+
 T.finish()
