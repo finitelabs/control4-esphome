@@ -6,6 +6,8 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main, master]
+  # Run on a tag again from the Actions tab once its artifacts have expired.
+  workflow_dispatch:
 
 permissions:
   contents: read
