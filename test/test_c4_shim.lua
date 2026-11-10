@@ -930,6 +930,19 @@ ShimResetTemperatureScale()
 T.eq("and resets back to the default", C4:GetTemperatureScale(), "CELSIUS")
 
 --------------------------------------------------------------------------------
+T.section("C4:GetProjectProperty")
+--------------------------------------------------------------------------------
+
+-- Measured on a dev controller: TopLEDOn read "0000ff", TemperatureScale
+-- "FAHRENHEIT", and an unknown name "", a string every time.
+T.eq("a name the project doesn't have reads as an empty string", C4:GetProjectProperty("NoSuchProperty"), "")
+T.eq("so does a keypad LED color, which a suite sets itself", C4:GetProjectProperty("TopLEDOn"), "")
+ShimSetTemperatureScale("FAHRENHEIT")
+T.eq("TemperatureScale reads the shim's scale", C4:GetProjectProperty("TemperatureScale"), "FAHRENHEIT")
+ShimResetTemperatureScale()
+T.eq("and its default", C4:GetProjectProperty("TemperatureScale"), "CELSIUS")
+
+--------------------------------------------------------------------------------
 T.section("C4:AddEvent / C4:DeleteEvent / C4:FireEventByID")
 --------------------------------------------------------------------------------
 
