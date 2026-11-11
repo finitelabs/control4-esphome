@@ -17,7 +17,6 @@ local drivercentral = require("lib.drivercentral")
 local supportCode = require("lib.support-code")
 local diagnostics = require("lib.diagnostics")
 --#endif
-local persist = require("lib.persist")
 local bindings = require("lib.bindings")
 local events = require("lib.events")
 local values = require("lib.values")
@@ -433,24 +432,6 @@ end
 -- Initialization
 --------------------------------------------------------------------------------
 
-local function restoreState()
-  log:trace("restoreState()")
-  -- Restore registered devices
-  local savedDevices = persist:get(PERSIST_SELECTED_DEVICES) or {}
-  for mac, deviceInfo in pairs(savedDevices) do
-    -- Re-register device
-    local device = deviceRegistry:registerDevice(deviceInfo)
-    device.bindingId = createDeviceBinding(device)
-    selectedDevices[mac] = device
-  end
-
-  -- Restore presence devices
-  local presenceDevices = persist:get(PERSIST_PRESENCE_DEVICES) or {}
-  for mac, config in pairs(presenceDevices) do
-    presenceTracker:trackDevice(mac, config)
-  end
-end
-
 --- Create a ProxyScannerNode for a proxy and add it to the scanner.
 --- @param proxyDeviceId integer The proxy's Control4 device ID
 local function addProxyScannerNode(proxyDeviceId)
@@ -723,9 +704,6 @@ function OnDriverLateInit()
 
   -- Set up presence tracking
   setupPresenceTracker()
-
-  -- Restore saved state
-  restoreState()
 
   -- Update status
   updateStatusProperties()

@@ -18,6 +18,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed the Bluetooth Coordinator staying at Initializing after a restart when a
+  selected presence device advertises no name
+
 ## v20261109 - 2026-11-09
 
 ### Fixed
