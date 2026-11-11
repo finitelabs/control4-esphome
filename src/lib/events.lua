@@ -28,6 +28,22 @@ local EVENT_ID_END = 999
 --- @field name string
 --- @field description string
 
+--- Calls `fn` with each saved event that has its ID, and `skipped` with the namespace and key of any other entry.
+--- @param saved table<string, table<string, Event>> The saved events.
+--- @param fn fun(event: Event)
+--- @param skipped? fun(namespace: any, key: any)
+local function eachEvent(saved, fn, skipped)
+  for namespace, keys in pairs(saved) do
+    for key, event in pairs(type(keys) == "table" and keys or {}) do
+      if Select(event, "eventId") ~= nil then
+        fn(event)
+      elseif skipped then
+        skipped(namespace, key)
+      end
+    end
+  end
+end
+
 --- Creates a new `Events` instance.
 --- @return Events events A new `Events` instance.
 function Events:new()
@@ -48,24 +64,26 @@ function Events:getOrAddEvent(namespace, key, name, description)
   local events = self:getEvents()
   --- @type Event|nil
   local event = Select(events, namespace, key)
-  if event == nil then
+  if Select(event, "eventId") == nil then
     local eventId = self:_getNextEventId()
+    -- Declared before it is saved: a declaration C4 refuses must not leave a record that every restart replays.
+    C4:AddEvent(eventId, name, description)
     event = {
       eventId = eventId,
       name = name,
       description = description,
     }
 
-    events[namespace] = events[namespace] or {}
+    events[namespace] = type(events[namespace]) == "table" and events[namespace] or {}
     events[namespace][key] = event
     self:_saveEvents(events)
-    C4:AddEvent(eventId, name, description)
   elseif event.name ~= name or event.description ~= description then
+    --- @cast event Event
     -- Programming binds to the ID, so changed text keeps it; AddEvent on a known ID updates it.
+    C4:AddEvent(event.eventId, name, description)
     event.name = name
     event.description = description
     self:_saveEvents(events)
-    C4:AddEvent(event.eventId, name, description)
   end
   return event
 end
@@ -117,12 +135,12 @@ function Events:restoreEvents()
   log:trace("Events:restoreEvents()")
   --- @type table<number, boolean>
   local usedEventIds = {}
-  for _, keys in pairs(self:getEvents()) do
-    for _, event in pairs(keys) do
-      usedEventIds[event.eventId] = true
-      C4:AddEvent(event.eventId, event.name, event.description)
-    end
-  end
+  eachEvent(self:getEvents(), function(event)
+    usedEventIds[event.eventId] = true
+    C4:AddEvent(event.eventId, event.name, event.description)
+  end, function(namespace, key)
+    log:warn("Skipping saved event %s/%s: it has no event ID", namespace, key)
+  end)
   for id = EVENT_ID_START, EVENT_ID_END do
     if usedEventIds[id] == nil then
       log:trace("Deleting non-configured event %s, if it exists", id)
@@ -138,11 +156,9 @@ function Events:_getNextEventId()
   log:trace("Events:_getNextEventId()")
   --- @type table<number, boolean>
   local currentEvents = {}
-  for _, keys in pairs(self:getEvents()) do
-    for _, event in pairs(keys) do
-      currentEvents[event.eventId] = true
-    end
-  end
+  eachEvent(self:getEvents(), function(event)
+    currentEvents[event.eventId] = true
+  end)
   local nextId = EVENT_ID_START
   while currentEvents[nextId] ~= nil do
     nextId = nextId + 1
@@ -170,12 +186,10 @@ end
 --- Resets all dynamic events, removing them from the system and clearing persisted storage.
 function Events:reset()
   log:trace("Events:reset()")
-  for _, nsEvents in pairs(self:getEvents()) do
-    for _, event in pairs(nsEvents) do
-      log:debug("Removing event '%s' (id=%s)", event.name, event.eventId)
-      C4:DeleteEvent(event.eventId)
-    end
-  end
+  eachEvent(self:getEvents(), function(event)
+    log:debug("Removing event '%s' (id=%s)", event.name, event.eventId)
+    C4:DeleteEvent(event.eventId)
+  end)
   self:_saveEvents(nil)
 end
 

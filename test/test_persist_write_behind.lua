@@ -166,6 +166,16 @@ T.raises("an error in fn is rethrown", function()
 end, "boom")
 p:set("Hot", { n = 2 })
 T.eq("and the scope is closed after it", calls, { "set Hot" })
+local _, err = pcall(p.defer, p, function()
+  p:defer(function()
+    error("deep")
+  end)
+end)
+T.contains("with the stack where it was raised", err, "deep\nstack traceback:\n")
+T.eq("named once, however many scopes it passes", select(2, tostring(err):gsub("stack traceback:", "")), 1)
+local rejection = { error = "a table" }
+_, err = pcall(p.defer, p, error, rejection)
+T.eq("an error that is not a string is rethrown as it is", err, rejection)
 
 -- ── lib/values.lua ───────────────────────────────────────────────────────────
 

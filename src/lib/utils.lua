@@ -124,7 +124,7 @@ end
 local REDACTED = "***REDACTED***"
 
 --- Logs and invokes a C4 method, trimming trailing nil arguments. The argument at place `secret` is traced as
---- REDACTED.
+--- REDACTED. A nil before the last argument given is refused with an error, as the controller refuses it.
 --- @param methodName string The C4 method name
 --- @param secret integer|nil The place of an argument that holds a secret
 --- @param ... any Arguments to pass
@@ -145,6 +145,11 @@ local function C4CallHiding(methodName, secret, ...)
   end
 
   log:trace("C4:" .. methodName .. "(" .. table.concat(fmtParts, ", ") .. ")", unpack(shown, 1, numArgs))
+  for i = 1, lastNonNil do
+    if args[i] == nil then
+      error(string.format("C4:%s refused: argument %d is nil before argument %d", methodName, i, lastNonNil), 0)
+    end
+  end
   return C4[methodName](C4, unpack(args, 1, lastNonNil))
 end
 
@@ -163,6 +168,12 @@ end
 --- @param allowEmptyValues? boolean Allows empty strings as parameter values (optional). Defaults to false.
 --- @param logCommand? boolean If false, prevents logging of the command's content (optional). Defaults to true.
 function SendToDevice(deviceId, strCommand, tParams, allowEmptyValues, logCommand)
+  if allowEmptyValues ~= nil or logCommand ~= nil then
+    allowEmptyValues = allowEmptyValues == true
+  end
+  if logCommand ~= nil then
+    logCommand = logCommand == true
+  end
   return C4Call("SendToDevice", deviceId, strCommand, tParams, allowEmptyValues, logCommand)
 end
 
@@ -173,6 +184,10 @@ end
 --- @param strMessage? string Overrides message type ("COMMAND" or "NOTIFY") (optional). Defaults to "COMMAND".
 --- @param allowEmptyValues? boolean Allows empty values in message parameters (optional).
 function SendToProxy(idBinding, strCommand, tParams, strMessage, allowEmptyValues)
+  if allowEmptyValues ~= nil then
+    strMessage = strMessage or "COMMAND"
+    allowEmptyValues = allowEmptyValues == true
+  end
   return C4Call("SendToProxy", idBinding, strCommand, tParams, strMessage, allowEmptyValues)
 end
 
@@ -184,7 +199,7 @@ end
 --- @param allowEmptyValues? boolean Allows empty strings as parameter values (optional). Defaults to false.
 --- @param logCommand? boolean If true, lets C4 log the command's content (optional). Defaults to false.
 function SendSecretToDevice(deviceId, strCommand, tParams, allowEmptyValues, logCommand)
-  return C4CallHiding("SendToDevice", 3, deviceId, strCommand, tParams, allowEmptyValues, logCommand == true)
+  return C4CallHiding("SendToDevice", 3, deviceId, strCommand, tParams, allowEmptyValues == true, logCommand == true)
 end
 
 --- SendToProxy for a message whose parameters hold a secret, such as a user code: its trace names the binding
@@ -195,6 +210,10 @@ end
 --- @param strMessage? string Overrides message type ("COMMAND" or "NOTIFY") (optional). Defaults to "COMMAND".
 --- @param allowEmptyValues? boolean Allows empty values in message parameters (optional).
 function SendSecretToProxy(idBinding, strCommand, tParams, strMessage, allowEmptyValues)
+  if allowEmptyValues ~= nil then
+    strMessage = strMessage or "COMMAND"
+    allowEmptyValues = allowEmptyValues == true
+  end
   return C4CallHiding("SendToProxy", 3, idBinding, strCommand, tParams, strMessage, allowEmptyValues)
 end
 

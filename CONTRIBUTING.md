@@ -282,6 +282,11 @@ shows it. The product card, the banners and the listing photos are copied from
 upload. When it has expired, run the Build workflow on the tag again from the
 Actions tab.
 
+While `description.md` still has `FACTS-STRIP-URL` for the facts strip,
+`description.html` leaves the strip out and the build prints a warning. Upload
+`banners/facts-strip-2400x136.png` through DriverCentral's description editor
+and put the URL it gives in its place.
+
 Step 1 rewrites tracked files in place. Formatting covers `tools/*.py`, all Lua
 under `drivers/`, `src/`, `test/`, `tools/` and `vendor/`, and every Markdown
 file at the repo root, under `documentation/`, and under
@@ -632,8 +637,10 @@ end
 The library clears the property at once, keeps its value out of the dispatcher's
 Trace output, and prints its answer to the Lua output whatever Log Mode is.
 While the window is open, Log Level also offers Trace and Ultra (see
-[Log Level](#log-level)). A driver that shows more while the window is open
-(extra properties) passes `supportCode:onChange(function(open) ... end)`.
+[Log Level](#log-level)). A web tab's properties card follows the window by
+itself, once the driver calls `lib.ui.tab-properties`' `serve()`. A driver that
+shows more elsewhere while the window is open passes
+`supportCode:onChange(function(open) ... end)`.
 
 ### Log Level
 
