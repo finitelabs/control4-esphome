@@ -140,6 +140,29 @@ T.eq("and when the hour does", told, { true, false, true, false })
 enter(sc, "nonsense")
 T.eq("but not for a wrong code", told, { true, false, true, false })
 
+T.section("A library can follow it too, alongside the driver")
+do
+  local lib = getmetatable(supportCode):new(SECRET)
+  local driverTold, libTold = {}, {}
+  lib:onChange(function(open)
+    driverTold[#driverTold + 1] = open
+  end)
+  lib:follow(function(open)
+    libTold[#libTold + 1] = open
+  end)
+  lib:follow(function()
+    error("the library's hook broke")
+  end)
+  local traced = enter(lib, "VEAFA-RSBWM")
+  T.eq("a follower is told when the code opens it", libTold, { true })
+  T.eq("and so is the driver", driverTold, { true })
+  T.contains("a follower that raises is reported", traced, "the library's hook broke")
+  T.excludes("without the typed value", traced, "VEAFA")
+  enter(lib, "VEAFA-RSBWM")
+  T.eq("and the follower is told when it closes", libTold, { true, false })
+  lib:close()
+end
+
 T.section("The code never reaches the Lua output")
 -- The driver's handler, as CONTRIBUTING.md shows it.
 function OPC.Support_Code(propertyValue)

@@ -4,6 +4,9 @@
 ---
 --- While enabled it owns ON_HANDLER_ERROR, ON_TIMER_ERROR and ON_UNHANDLED_REJECTION, the hooks the vendored
 --- dispatchers, timers and deferred call on an error. A driver adds its own points to each report with onReport.
+---
+--- An error's message and traceback are stored with each newline, tab and carriage return written as a literal \n,
+--- \t and \r, which keeps the point on one line, so whatever reads them back unescapes them.
 
 local log = require("lib.logging")
 local http = require("lib.http")
@@ -209,7 +212,26 @@ function Diagnostics:onReport(callback)
   self._onReport = callback
 end
 
---- Captures an error and writes it directly to the logs database.
+--- Splits an error into its message and traceback. An HTTP rejection from lib.http is a table whose `error` is
+--- already redacted.
+--- @param err any What the dispatcher, timer or rejection passed.
+--- @return string message
+--- @return string traceback
+local function splitError(err)
+  if type(err) == "table" then
+    err = type(err.error) == "string" and err.error or type(err.message) == "string" and err.message or "a table"
+  end
+  local text = tostring(err)
+  local marker = "\nstack traceback:\n"
+  local at = text:find(marker, 1, true)
+  if at then
+    return text:sub(1, at - 1), text:sub(at + #marker)
+  end
+  return text, ""
+end
+
+--- Captures an error and writes it directly to the logs database. A message given with no traceback is split, so
+--- one that is a whole debug.traceback() is stored as its message and its traceback.
 --- Rate-limited to ERROR_RATE_LIMIT writes per ERROR_RATE_WINDOW seconds.
 --- @param message string
 --- @param traceback string|nil
@@ -219,8 +241,11 @@ function Diagnostics:captureError(message, traceback, source)
     return
   end
 
-  message = tostring(message or "unknown error")
-  traceback = tostring(traceback or "")
+  if traceback == nil or traceback == "" then
+    message, traceback = splitError(message or "unknown error")
+  end
+  message = tostring(message)
+  traceback = tostring(traceback)
   source = tostring(source or "unknown")
 
   local now = os.time()
@@ -245,24 +270,6 @@ function Diagnostics:captureError(message, traceback, source)
   self._intervalErrorsReported = self._intervalErrorsReported + 1
 
   self:_writeErrorLog(message, traceback, source, now)
-end
-
---- Splits an error into its message and traceback. An HTTP rejection from lib.http is a table whose `error` is
---- already redacted.
---- @param err any What the dispatcher, timer or rejection passed.
---- @return string message
---- @return string traceback
-local function splitError(err)
-  if type(err) == "table" then
-    err = type(err.error) == "string" and err.error or type(err.message) == "string" and err.message or "a table"
-  end
-  local text = tostring(err)
-  local marker = "\nstack traceback:\n"
-  local at = text:find(marker, 1, true)
-  if at then
-    return text:sub(1, at - 1), text:sub(at + #marker)
-  end
-  return text, ""
 end
 
 --- Packs every value, nils included.

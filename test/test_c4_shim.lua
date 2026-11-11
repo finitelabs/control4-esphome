@@ -1374,6 +1374,72 @@ T.eq("a hidden device is not listed", listed({ DeviceIds = "20" }), {})
 ShimResetDevices()
 
 --------------------------------------------------------------------------------
+T.section("C4:SendToDevice and C4:SendToProxy")
+--------------------------------------------------------------------------------
+do
+  --- The message a call is refused with, or nil if it is accepted.
+  local function refusal(fn)
+    local ok, err = pcall(fn)
+    return not ok and err or nil
+  end
+
+  local DEVICE_FOURTH = "Error: 4th parameter must be a boolean value"
+  local FIFTH = "Error: 5th parameter must be a boolean value"
+  local CALL_TYPE = "strCallType should be a string"
+  local TOO_FEW = "Error: Not Enough Parameters Passed (expected 3)"
+
+  -- Each case: what it is, how many arguments follow the command, those arguments, the refusal or nil.
+  local deviceCalls = {
+    { "a table of parameters", 1, { {} }, nil },
+    { "both flags", 3, { {}, false, false }, nil },
+    { "both flags set", 3, { {}, true, true }, nil },
+    { "a nil 4th before a 5th", 3, { {}, nil, false }, DEVICE_FOURTH },
+    { "a nil 4th passed on", 2, { {}, nil }, DEVICE_FOURTH },
+    { "a string 4th", 3, { {}, "x", false }, DEVICE_FOURTH },
+    { "a nil 5th passed on", 3, { {}, false, nil }, FIFTH },
+    { "two nils passed on", 3, { {}, nil, nil }, DEVICE_FOURTH },
+    { "no parameters", 2, { nil, false }, "tParams should be a table" },
+    { "a string of parameters", 1, { "<x/>" }, "tParams should be a table" },
+    { "too few arguments", 0, {}, TOO_FEW },
+  }
+  for _, case in ipairs(deviceCalls) do
+    local label, count, args, want = unpack(case, 1, 4)
+    T.eq(
+      "SendToDevice with " .. label,
+      refusal(function()
+        C4:SendToDevice(999999, "PROBE", unpack(args, 1, count))
+      end),
+      want
+    )
+  end
+
+  local proxyCalls = {
+    { "a message type and a flag", 3, { {}, "COMMAND", true }, nil },
+    { "a notify and a flag", 3, { {}, "NOTIFY", false }, nil },
+    { "a string of parameters", 2, { "<x/>", "NOTIFY" }, nil },
+    { "a nil message type before a flag", 3, { {}, nil, true }, CALL_TYPE },
+    { "a flag in the message type's place", 2, { {}, true }, CALL_TYPE },
+    { "a nil message type before a false flag", 3, { {}, nil, false }, CALL_TYPE },
+    { "a nil message type passed on", 2, { {}, nil }, CALL_TYPE },
+    { "a nil 5th passed on", 3, { {}, "COMMAND", nil }, FIFTH },
+    { "a string 5th", 3, { {}, "COMMAND", "x" }, FIFTH },
+    { "no parameters", 2, { nil, "NOTIFY" }, "Error: 3rd parameter must be a string (strValue) or table (tParams)" },
+    { "no parameters passed on", 1, { nil }, "Error: 3rd parameter must be a string (strValue) or table (tParams)" },
+    { "too few arguments", 0, {}, TOO_FEW },
+  }
+  for _, case in ipairs(proxyCalls) do
+    local label, count, args, want = unpack(case, 1, 4)
+    T.eq(
+      "SendToProxy with " .. label,
+      refusal(function()
+        C4:SendToProxy(9999, "PROBE", unpack(args, 1, count))
+      end),
+      want
+    )
+  end
+end
+
+--------------------------------------------------------------------------------
 T.section("Lua 5.1 library")
 --------------------------------------------------------------------------------
 

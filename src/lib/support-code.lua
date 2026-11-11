@@ -15,6 +15,7 @@ OPC.suppressDebug["Support Code"] = true
 --- @field _secret string The build secret the day's code comes from.
 --- @field _open boolean Whether this code opened the Lua window.
 --- @field _onChange? fun(open: boolean) Called as the code opens and closes the window.
+--- @field _followers fun(open: boolean)[] The libraries told the same, after the driver.
 local SupportCode = {}
 SupportCode.__index = SupportCode
 
@@ -40,6 +41,7 @@ function SupportCode:new(secret)
   local instance = setmetatable({}, self)
   instance._secret = secret or SECRET
   instance._open = false
+  instance._followers = {}
   return instance
 end
 
@@ -81,14 +83,20 @@ function SupportCode:accepts(value)
   return false
 end
 
---- Tells the driver's `onChange` callback, if any. A raise there would reach the dispatcher's error print, which shows
---- the typed value, so it is caught and reported without it.
+--- Tells the driver's `onChange` callback, if any, then each follower. A raise there would reach the dispatcher's
+--- error print, which shows the typed value, so it is caught and reported without it.
 --- @param open boolean Whether the window is now open.
 function SupportCode:_tell(open)
   if self._onChange then
     local ok, err = pcall(self._onChange, open)
     if not ok then
       print("The Support Code's onChange failed: " .. tostring(err))
+    end
+  end
+  for _, follower in ipairs(self._followers) do
+    local ok, err = pcall(follower, open)
+    if not ok then
+      print("A Support Code follower failed: " .. tostring(err))
     end
   end
 end
@@ -108,6 +116,13 @@ end
 --- @param callback fun(open: boolean)
 function SupportCode:onChange(callback)
   self._onChange = callback
+end
+
+--- Calls `callback(open)` as the window opens and closes, alongside the driver's `onChange`, for a library whose view
+--- changes with the window.
+--- @param callback fun(open: boolean)
+function SupportCode:follow(callback)
+  table.insert(self._followers, callback)
 end
 
 --- Takes what was typed into the Support Code property. The property is cleared at once, so the code is never left

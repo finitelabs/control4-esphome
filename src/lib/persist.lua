@@ -253,7 +253,7 @@ function Persist:setWriteBehind(key, ms)
   self._writeBehind[key] = ms
 end
 
---- Closes a `defer()` scope, then returns or rethrows what pcall gave it.
+--- Closes a `defer()` scope, then returns or rethrows what xpcall gave it.
 --- @private
 local function leaveDefer(self, ok, ...)
   self._deferDepth = self._deferDepth - 1
@@ -263,15 +263,31 @@ local function leaveDefer(self, ok, ...)
   return ...
 end
 
+--- Adds the stack to an error raised inside `defer()`, unless an inner scope already did.
+--- @param err any
+--- @return any
+local function withTraceback(err)
+  if type(err) == "string" and not err:find("\nstack traceback:\n", 1, true) then
+    return debug.traceback(err, 2)
+  end
+  return err
+end
+
 --- Calls `fn(...)` with sets of write-behind keys held for their next flush.
---- Scopes nest; an error from `fn` is rethrown after the scope closes.
+--- Scopes nest; an error from `fn` is rethrown after the scope closes, with the stack where it was raised.
 --- @param fn function The function to call.
 --- @param ... any Arguments for `fn`.
 --- @return any ... What `fn` returns.
 function Persist:defer(fn, ...)
   log:trace("Persist:defer(%s)", fn)
   self._deferDepth = self._deferDepth + 1
-  return leaveDefer(self, pcall(fn, ...))
+  local args = { n = select("#", ...), ... }
+  return leaveDefer(
+    self,
+    xpcall(function()
+      return fn(unpack(args, 1, args.n))
+    end, withTraceback)
+  )
 end
 
 --- Writes pending write-behind values to storage now.

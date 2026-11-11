@@ -418,9 +418,16 @@ def revisions(input_path: Path, output_path: Path) -> None:
     output_path.write_text(html, encoding="utf-8")
 
 
+_STRIP_PLACEHOLDER_RE = re.compile(
+    r'(?:<p>)?<img[^>]*src="FACTS-STRIP-URL"[^>]*>(?:</p>)?\n?'
+)
+
+
 def description(input_path: Path, output_path: Path) -> None:
     md = input_path.read_text(encoding="utf-8")
-    output_path.write_text(_drivercentral_html(md), encoding="utf-8")
+    # Until the strip is uploaded, a paste shows no image rather than a broken one.
+    html = _STRIP_PLACEHOLDER_RE.sub("", _drivercentral_html(md))
+    output_path.write_text(html, encoding="utf-8")
 
 
 def fmt(args: list[str]) -> int:

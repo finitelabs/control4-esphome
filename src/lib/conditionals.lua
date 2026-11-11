@@ -28,6 +28,19 @@ local CONDITIONAL_ID_START = 10
 --- @field conditionalId number
 --- @field name string
 
+--- Calls `fn` with each saved conditional that has its ID, skipping any other saved entry.
+--- @param saved table<string, table<string, Conditional>> The saved conditionals.
+--- @param fn fun(conditional: Conditional)
+local function eachConditional(saved, fn)
+  for _, keys in pairs(saved) do
+    for _, conditional in pairs(type(keys) == "table" and keys or {}) do
+      if Select(conditional, "conditionalId") ~= nil then
+        fn(conditional)
+      end
+    end
+  end
+end
+
 --- Creates a new instance of the `Conditionals` class.
 --- @return Conditionals conditionals A new instance of the `Conditionals` class.
 function Conditionals:new()
@@ -54,7 +67,7 @@ function Conditionals:upsertConditional(namespace, key, conditional, testFunctio
   conditional.conditionalId = conditionalId
   conditional.name = "CONDITIONAL_" .. conditionalId
 
-  conditionals[namespace] = conditionals[namespace] or {}
+  conditionals[namespace] = type(conditionals[namespace]) == "table" and conditionals[namespace] or {}
   conditionals[namespace][key] = conditional
 
   TC[conditional.name] = testFunction
@@ -96,11 +109,9 @@ end
 function Conditionals:_getNextConditionalId()
   log:trace("Conditionals:_getNextConditionalId()")
   local currentConditionals = {}
-  for _, keys in pairs(self:getConditionals()) do
-    for _, conditional in pairs(keys) do
-      currentConditionals[conditional.conditionalId] = true
-    end
-  end
+  eachConditional(self:getConditionals(), function(conditional)
+    currentConditionals[conditional.conditionalId] = true
+  end)
   local nextId = CONDITIONAL_ID_START
   while currentConditionals[nextId] ~= nil do
     nextId = nextId + 1
@@ -128,12 +139,10 @@ end
 --- Resets all conditionals, removing them from the system and clearing persisted storage.
 function Conditionals:reset()
   log:trace("Conditionals:reset()")
-  for _, nsConditionals in pairs(self:getConditionals()) do
-    for _, conditional in pairs(nsConditionals) do
-      log:debug("Removing conditional '%s' (id=%s)", conditional.name, conditional.conditionalId)
-      TC[conditional.name] = nil
-    end
-  end
+  eachConditional(self:getConditionals(), function(conditional)
+    log:debug("Removing conditional '%s' (id=%s)", conditional.name, conditional.conditionalId)
+    TC[conditional.name] = nil
+  end)
   self:_saveConditionals(nil)
 end
 
@@ -144,11 +153,9 @@ local conditionals = Conditionals:new()
 function GetConditionals()
   log:trace("GetConditionals()")
   local progConditionals = {}
-  for _, keys in pairs(conditionals:getConditionals()) do
-    for _, conditional in pairs(keys) do
-      progConditionals[tostring(conditional.conditionalId)] = conditional
-    end
-  end
+  eachConditional(conditionals:getConditionals(), function(conditional)
+    progConditionals[tostring(conditional.conditionalId)] = conditional
+  end)
   return progConditionals
 end
 
