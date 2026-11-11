@@ -18,7 +18,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
-## Unreleased
+## v20261111 - 2026-11-11
 
 ### Fixed
 
