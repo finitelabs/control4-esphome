@@ -1111,6 +1111,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+## v20261111 - 2026-11-11
+
 ### Fixed
 
 - Fixed the Bluetooth Coordinator staying at Initializing after a restart when a
