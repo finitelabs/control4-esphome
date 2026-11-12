@@ -1357,6 +1357,8 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+local shimHSVtoXY = C4.ColorHSVtoXY
+
 -- Hue and saturation back to xy, the inverse of the stub above.
 function C4:ColorHSVtoXY(h, s)
   return h / 360, s / 100
@@ -5238,6 +5240,14 @@ local function pushed(modes, state, range)
   })
 end
 
+--- A report pushed with hue and saturation turned to xy as a controller does, so a mix's color part is a color.
+local function pushedAsController(...)
+  local stub = C4.ColorHSVtoXY
+  C4.ColorHSVtoXY = shimHSVtoXY
+  pushed(...)
+  C4.ColorHSVtoXY = stub
+end
+
 -- 6500 to 2700 K.
 local RANGE = { 153.8, 370.4 }
 
@@ -6465,7 +6475,7 @@ do
       end
       run(1900)
       state[case[3]] = case[4]
-      pushed(modes, state)
+      pushedAsController(modes, state)
       local check = name
         .. " set elsewhere in the fade"
         .. (reported and "" or ", ahead of the fade's own report")
@@ -7057,7 +7067,7 @@ do
   run(2000)
   state = taken()
   state.color_brightness, state.white = 1, 0.5
-  pushed({ RGBCT, CT }, state)
+  pushedAsController({ RGBCT, CT }, state)
   kelvin(3000, 4000)
   run(2000)
   mark()
