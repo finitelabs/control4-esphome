@@ -316,10 +316,25 @@ do
   adapter:send(command({ setsLevel = true, setsColor = true, color = white, transitionMs = 2000 }))
   lastBody()
   now = now + 1500
-  T.eq(
-    "a stop past the midpoint, with the light in the white, says nothing of where it rests",
-    adapter:send(command({ kind = "stop", setsColor = true, color = white })),
-    nil
+  rest = adapter:send(command({ kind = "stop", setsColor = true, color = { x = 0.1, y = 0.5, mode = "xy" } }))
+  body = lastBody()
+  T.eq("a stop past the midpoint holds the white the light has changed to", body.color_mode, nil)
+  T.truthy("at its color temperature", near(body.color_temperature, 1e6 / 2700))
+  T.truthy(
+    "and says it rests in that white",
+    rest and rest.color and rest.color.mode == "cct" and rest.color.kelvin == 2700
+  )
+  T.truthy(
+    "a report of that hold reads back as where it rests",
+    near(
+      adapter:report(entity, {
+        state = true,
+        brightness = 1,
+        color_mode = ColorMode.COLOR_MODE_COLOR_TEMPERATURE,
+        color_temperature = 1e6 / 2700,
+      }).color.x,
+      rest.color.x
+    )
   )
 end
 

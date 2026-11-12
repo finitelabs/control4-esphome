@@ -200,14 +200,28 @@ local function rewriteCapabilities()
     end
   end
 end
---- Tell the modeled proxy capabilities, or put it on driver.xml's with none.
+-- The light capabilities the build writes into driver.xml, from the profile the driver's chunk makes its light with.
+local built
+local function builtCapabilities()
+  if not built then
+    local made = require("lib.light").made
+    if #made == 0 then
+      dofile(DRIVER)
+    end
+    built = {}
+    for _, cap in ipairs(require("lib.light.caps").static(made[#made].profile)) do
+      local value = cap.value
+      built[cap.key] = type(value) == "boolean" and (value and "True" or "False") or tostring(value)
+    end
+  end
+  return built
+end
+
+--- Tell the modeled proxy capabilities, or put it on the built driver.xml's with none.
 local function showCapabilities(caps)
   if caps == nil then
-    local f = assert(io.open(HERE .. "/../drivers/esphome_light/driver.xml", "rb"))
-    local static = f:read("*a"):match("<capabilities>(.-)</capabilities>")
-    f:close()
     for _, key in ipairs(CAPABILITY_KEYS) do
-      proxyHeld[key] = static:match("<" .. key .. ">([^<]*)</" .. key .. ">") or "False"
+      proxyHeld[key] = builtCapabilities()[key] or "False"
     end
     rewriteCapabilities()
   end

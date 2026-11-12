@@ -81,7 +81,7 @@ local function device(h, modes, mireds, values)
   end
   -- ESPHome reports a color light's color_brightness as 1 until a command sets it.
   s.color_brightness = 1
-  local fade = nil -- { from = brightness, start = ms, ms = length } of the level
+  local fade = nil -- { from, to, start, ms } of the light's output, 0 when dark
   local connected = true
 
   local function report()
@@ -95,20 +95,20 @@ local function device(h, modes, mireds, values)
     ReceivedFromProxy(ESPHOME, "UPDATE_STATE", { entity = SerializeSafe(entity), state = SerializeSafe(state) })
   end
 
-  local function level()
-    if not fade then
-      return s.brightness
-    end
-    local p = (h.clock.now() - fade.start) / fade.ms
-    if p >= 1 then
+  -- The light's output now: a fade to off keeps it lit until the fade ends.
+  local function output()
+    if fade then
+      local p = (h.clock.now() - fade.start) / fade.ms
+      if p < 1 then
+        return fade.from + (fade.to - fade.from) * eased(math.max(0, p))
+      end
       fade = nil
-      return s.brightness
     end
-    return fade.from + (s.brightness - fade.from) * eased(math.max(0, p))
+    return s.state and s.brightness or 0
   end
 
   local function take(cmd)
-    local was = s.state and level() or 0
+    local was = output()
     if cmd.has_state then
       s.state = cmd.state
     end
@@ -134,8 +134,8 @@ local function device(h, modes, mireds, values)
       end
     end
     local ms = tonumber(cmd.transition_length) or 0
-    local now = s.state and s.brightness or 0
-    fade = ms > 0 and was ~= now and { from = was, start = h.clock.now(), ms = ms } or nil
+    local to = s.state and s.brightness or 0
+    fade = ms > 0 and was ~= to and { from = was, to = to, start = h.clock.now(), ms = ms } or nil
     h.clock.at(ANSWER_MS, report)
   end
 
@@ -158,7 +158,15 @@ local function device(h, modes, mireds, values)
   local fake = {}
 
   function fake.state()
-    return { on = s.state, level = dims and level() or (s.state and 1 or 0), color = shown(s) }
+    if not dims then
+      return { on = s.state, level = s.state and 1 or 0 }
+    end
+    local out = output()
+    if fade then
+      return { on = out > 0, level = out, color = shown(s) }
+    end
+    -- Off, it keeps the level it had.
+    return { on = s.state, level = s.brightness, color = shown(s) }
   end
 
   function fake.set(state, _quiet)
@@ -234,19 +242,17 @@ local function environment(folder)
 end
 
 local function rig(name, modes, mireds, rest)
-  return {
-    name = name,
-    load = function(self, h, state)
-      local folder = self.folder:match("[^/]+$")
-      environment(folder)
-      local fake = device(h, modes, mireds, state)
-      gInitialized = false
-      dofile(ROOT .. "/drivers/" .. folder .. "/driver.lua")
-      ShimLateInit()
-      return fake
-    end,
-    rest = rest,
-  }
+  local r = { name = name, rest = rest }
+  function r.load(h, state)
+    local folder = r.folder:match("[^/]+$")
+    environment(folder)
+    local fake = device(h, modes, mireds, state)
+    gInitialized = false
+    dofile(ROOT .. "/drivers/" .. folder .. "/driver.lua")
+    ShimLateInit()
+    return fake
+  end
+  return r
 end
 
 local RANGE = { min_mireds = 153, max_mireds = 500 }
