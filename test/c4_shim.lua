@@ -429,10 +429,10 @@ function C4:GetBindingsByDevice(deviceId)
   return { bindings = bindings }
 end
 
---- @return table|nil devices The bound consumers as { [deviceId] = name }. Nil,
---- not an empty table, when unbound.
+--- @return table|nil devices The bound consumers as { [deviceId] = name }. No
+--- value at all, not nil or an empty table, when unbound, as on 4.3.0.
 function C4:GetBoundConsumerDevices(deviceId, bindingId)
-  deviceId = resolveDeviceId(deviceId)
+  deviceId, bindingId = resolveDeviceId(deviceId), tonumber(bindingId)
   local devices, found = {}, false
   for _, c in ipairs(connections) do
     if c.provider == deviceId and c.providerBinding == bindingId then
@@ -440,10 +440,9 @@ function C4:GetBoundConsumerDevices(deviceId, bindingId)
       found = true
     end
   end
-  if not found then
-    return nil
+  if found then
+    return devices
   end
-  return devices
 end
 
 --- @return integer deviceId The providing device, 0 when unbound. A device id,
@@ -523,7 +522,19 @@ function ShimResetDynamicBindings()
   clear(connections)
 end
 
-function C4:SendUIRequest()
+--- @type (fun(id: any, request: string, params: table): string|nil)|nil
+local ui_request
+
+--- Harness, not a controller API: answer C4:SendUIRequest with `fn(id, request, params)`, or with ""
+--- again when `fn` is nil. The light kit answers a proxy's GET_SETUP through it.
+function ShimSetUIRequest(fn)
+  ui_request = fn
+end
+
+function C4:SendUIRequest(id, request, params)
+  if ui_request then
+    return ui_request(id, request, params)
+  end
   return ""
 end
 function C4:RegisterVariableListener() end
@@ -714,38 +725,136 @@ function C4:Base64Decode(...)
 end
 
 ---------------------------------------------------------------------------
--- Color conversions (C4:ColorHSVtoRGB, C4:ColorRGBtoHSV)
--- Pure-Lua ports matching the on-controller behavior, verified against a
--- CA-1 running OS 3.4: RGB is on the 0-255 scale (float, unrounded), HSV is
--- h 0-360 / s 0-100 / v 0-100. E.g. ColorHSVtoRGB(120, 75, 100) returns
--- (63.75, 255, 63.75); ColorRGBtoHSV(64, 255, 64) returns (120, 74.902, 100).
+-- Color conversions
+-- As OS 4.3.0 answers them, measured on a dev controller. Unless a gamut is
+-- named, RGB and HSV are Rec. 2020 primaries over a D65 white with the sRGB
+-- transfer curve. RGB is 0-255 unless a scale is given, HSV is h 0-360 /
+-- s 0-100 / v 0-100, and neither is clamped. A kelvin is taken in 10 K steps
+-- from 1000 to 20000 K, on Krystek's fit of the Planckian locus, which lies
+-- within 0.001 of the controller's. A missing argument raises, and a numeric
+-- string passes as its number.
 ---------------------------------------------------------------------------
 
-function C4:ColorHSVtoRGB(h, s, v)
-  local sf, vf = (s or 0) / 100, (v or 0) / 100
-  local c = vf * sf
-  local hh = ((h or 0) / 60) % 6
-  local x = c * (1 - math.abs((hh % 2) - 1))
-  local m = vf - c
-  local r, g, b = 0, 0, 0
-  if hh < 1 then
-    r, g, b = c, x, 0
-  elseif hh < 2 then
-    r, g, b = x, c, 0
-  elseif hh < 3 then
-    r, g, b = 0, c, x
-  elseif hh < 4 then
-    r, g, b = 0, x, c
-  elseif hh < 5 then
-    r, g, b = x, 0, c
-  else
-    r, g, b = c, 0, x
+local GAMUT_PRIMARIES = {
+  rec2020 = { 0.708, 0.292, 0.170, 0.797, 0.131, 0.046 },
+  srgb = { 0.64, 0.33, 0.30, 0.60, 0.15, 0.06 },
+}
+local D65 = { 0.31271, 0.32902 }
+-- What a controller answers for black, in every gamut.
+local BLACK_XY = { 0.31363058811039002, 0.32889966390724001 }
+local STRING_ARGS = { gamut = true, primaries = true, whitepoints = true }
+
+--- Check a conversion's arguments as Director does, and return them as numbers and strings.
+--- `names` lists every parameter in order; the first `required` must be passed.
+local function color_args(self, names, required, usage, ...)
+  if self ~= C4 then
+    error("An unknown error occurred", 3)
   end
-  return (r + m) * 255, (g + m) * 255, (b + m) * 255
+  local argc = select("#", ...)
+  if argc < required then
+    error(string.format("Not enough arguments passed (expected %d: %s)", required, usage), 3)
+  end
+  local args = { ... }
+  for i = 1, math.min(argc, #names) do
+    local name, v = names[i], args[i]
+    if STRING_ARGS[name] then
+      if type(v) ~= "string" and type(v) ~= "number" then
+        error(name .. " should be a string", 3)
+      end
+      args[i] = tostring(v)
+    else
+      args[i] = tonumber(v)
+      if args[i] == nil or (type(v) ~= "number" and type(v) ~= "string") then
+        error(name .. " should be a number", 3)
+      end
+    end
+  end
+  return unpack(args, 1, #names)
 end
 
-function C4:ColorRGBtoHSV(r, g, b)
-  r, g, b = (r or 0) / 255, (g or 0) / 255, (b or 0) / 255
+--- The numbers in a comma-separated list, or nil unless there are `count` of them.
+local function number_list(text, count)
+  local out = {}
+  for item in tostring(text or ""):gmatch("[^,]+") do
+    out[#out + 1] = tonumber(item)
+    if out[#out] == nil then
+      return nil
+    end
+  end
+  return #out == count and out or nil
+end
+
+--- The primaries and white point a call names. An unknown name, or custom primaries
+--- that are not six numbers, falls back to Rec. 2020, as on a controller.
+local function gamut_of(gamut, primaries, whitepoints)
+  if gamut == "custom" then
+    local custom = number_list(primaries, 6)
+    if custom then
+      return custom, number_list(whitepoints, 2) or D65
+    end
+  end
+  return GAMUT_PRIMARIES[gamut] or GAMUT_PRIMARIES.rec2020, D65
+end
+
+local function det3(a, b, c)
+  return a[1] * (b[2] * c[3] - b[3] * c[2]) - b[1] * (a[2] * c[3] - a[3] * c[2]) + c[1] * (a[2] * b[3] - a[3] * b[2])
+end
+
+--- The matrix taking linear RGB to XYZ for primaries { xr, yr, xg, yg, xb, yb }.
+local function rgb_to_xyz_matrix(p, white)
+  local cols = {}
+  for i = 0, 2 do
+    local x, y = p[2 * i + 1], p[2 * i + 2]
+    cols[i + 1] = { x / y, 1, (1 - x - y) / y }
+  end
+  -- Scale each primary so the three add up to the white, by Cramer's rule.
+  local w = { white[1] / white[2], 1, (1 - white[1] - white[2]) / white[2] }
+  local d = det3(cols[1], cols[2], cols[3])
+  local scale = { det3(w, cols[2], cols[3]) / d, det3(cols[1], w, cols[3]) / d, det3(cols[1], cols[2], w) / d }
+  local m = {}
+  for r = 1, 3 do
+    m[r] = { cols[1][r] * scale[1], cols[2][r] * scale[2], cols[3][r] * scale[3] }
+  end
+  return m
+end
+
+local function invert3(m)
+  local a, b, c = m[1][1], m[1][2], m[1][3]
+  local d, e, f = m[2][1], m[2][2], m[2][3]
+  local g, h, i = m[3][1], m[3][2], m[3][3]
+  local A, B, C = e * i - f * h, f * g - d * i, d * h - e * g
+  local det = a * A + b * B + c * C
+  return {
+    { A / det, (c * h - b * i) / det, (b * f - c * e) / det },
+    { B / det, (a * i - c * g) / det, (c * d - a * f) / det },
+    { C / det, (b * g - a * h) / det, (a * e - b * d) / det },
+  }
+end
+
+local function srgb_decode(c)
+  return c <= 0.04045 and c / 12.92 or ((c + 0.055) / 1.055) ^ 2.4
+end
+
+local function srgb_encode(c)
+  return c <= 0.0031308 and c * 12.92 or 1.055 * c ^ (1 / 2.4) - 0.055
+end
+
+--- RGB on 0-1 to xy.
+local function rgb_to_xy(r, g, b, primaries, white)
+  local m = rgb_to_xyz_matrix(primaries, white)
+  local lr, lg, lb = srgb_decode(r), srgb_decode(g), srgb_decode(b)
+  local X = m[1][1] * lr + m[1][2] * lg + m[1][3] * lb
+  local Y = m[2][1] * lr + m[2][2] * lg + m[2][3] * lb
+  local Z = m[3][1] * lr + m[3][2] * lg + m[3][3] * lb
+  local sum = X + Y + Z
+  if sum == 0 then
+    return BLACK_XY[1], BLACK_XY[2]
+  end
+  return X / sum, Y / sum
+end
+
+--- RGB on 0-1 to HSV, unrounded.
+local function rgb_to_hsv(r, g, b)
   local mx = math.max(r, g, b)
   local mn = math.min(r, g, b)
   local d = mx - mn
@@ -764,6 +873,144 @@ function C4:ColorRGBtoHSV(r, g, b)
   end
   local s = mx > 0 and (d / mx) * 100 or 0
   return h, s, mx * 100
+end
+
+--- HSV to RGB on 0-`scale`. A hue outside 0-360 is not wrapped: below 0 or from 360 it
+--- falls in the last sector, and fmod keeps its sign, as on 4.3.0.
+local function hsv_to_rgb(h, s, v, scale)
+  local sf, vf = s / 100, v / 100
+  local c = vf * sf
+  local hh = h / 60
+  local x = c * (1 - math.abs(math.fmod(hh, 2) - 1))
+  local m = vf - c
+  local r, g, b
+  if hh >= 0 and hh < 1 then
+    r, g, b = c, x, 0
+  elseif hh >= 1 and hh < 2 then
+    r, g, b = x, c, 0
+  elseif hh >= 2 and hh < 3 then
+    r, g, b = 0, c, x
+  elseif hh >= 3 and hh < 4 then
+    r, g, b = 0, x, c
+  elseif hh >= 4 and hh < 5 then
+    r, g, b = x, 0, c
+  else
+    r, g, b = c, 0, x
+  end
+  return (r + m) * scale, (g + m) * scale, (b + m) * scale
+end
+
+local function cross(ax, ay, bx, by, px, py)
+  return (bx - ax) * (py - ay) - (by - ay) * (px - ax)
+end
+
+--- xy moved onto the gamut's triangle when it lies outside: the nearest point of the nearest edge.
+local function clip_to_gamut(x, y, p)
+  local d1 = cross(p[1], p[2], p[3], p[4], x, y)
+  local d2 = cross(p[3], p[4], p[5], p[6], x, y)
+  local d3 = cross(p[5], p[6], p[1], p[2], x, y)
+  if (d1 >= 0 and d2 >= 0 and d3 >= 0) or (d1 <= 0 and d2 <= 0 and d3 <= 0) then
+    return x, y
+  end
+  local bestX, bestY, best
+  for i = 0, 2 do
+    local ax, ay = p[2 * i + 1], p[2 * i + 2]
+    local bx, by = p[(2 * i + 2) % 6 + 1], p[(2 * i + 3) % 6 + 1]
+    local ex, ey = bx - ax, by - ay
+    local t = math.max(0, math.min(1, ((x - ax) * ex + (y - ay) * ey) / (ex * ex + ey * ey)))
+    local cx, cy = ax + t * ex, ay + t * ey
+    local dist = (cx - x) ^ 2 + (cy - y) ^ 2
+    if not best or dist < best then
+      bestX, bestY, best = cx, cy, dist
+    end
+  end
+  return bestX, bestY
+end
+
+--- xy to HSV in whole numbers, at full value: the color is clipped to the gamut and
+--- scaled to its brightest channel first.
+local function xy_to_hsv(x, y, primaries, white)
+  x, y = clip_to_gamut(x, y, primaries)
+  local m = invert3(rgb_to_xyz_matrix(primaries, white))
+  local X, Y, Z = x / y, 1, (1 - x - y) / y
+  local lin = {}
+  for r = 1, 3 do
+    lin[r] = math.max(0, m[r][1] * X + m[r][2] * Y + m[r][3] * Z)
+  end
+  local top = math.max(lin[1], lin[2], lin[3])
+  local h, s, v = rgb_to_hsv(srgb_encode(lin[1] / top), srgb_encode(lin[2] / top), srgb_encode(lin[3] / top))
+  s = math.floor(s + 0.5)
+  -- A white that rounds to no saturation has no hue either.
+  return s == 0 and 0 or math.floor(h + 0.5) % 360, s, math.floor(v + 0.5)
+end
+
+--- Krystek's rational fit of the Planckian locus in CIE 1960 uv, taken to xy.
+local function locus_xy(kelvin)
+  local t = kelvin
+  local u = (0.860117757 + 1.54118254e-4 * t + 1.28641212e-7 * t * t) / (1 + 8.42420235e-4 * t + 7.08145163e-7 * t * t)
+  local v = (0.317398726 + 4.22806245e-5 * t + 4.20481691e-8 * t * t) / (1 - 2.89741816e-5 * t + 1.61456053e-7 * t * t)
+  local d = 2 * u - 8 * v + 4
+  return 3 * u / d, 2 * v / d
+end
+
+--- The locus at every 10 K step, built on first use.
+local locus_steps
+
+function C4:ColorCCTtoXY(...)
+  local kelvin = color_args(self, { "kelvin" }, 1, "kelvin", ...)
+  return locus_xy(math.max(1000, math.min(20000, math.floor(kelvin / 10) * 10)))
+end
+
+--- The 10 K step nearest the point in xy. A controller answers the same for a point near the
+--- locus; for one far off it, such as a saturated color, its kelvin can differ.
+function C4:ColorXYtoCCT(...)
+  local x, y = color_args(self, { "x", "y" }, 2, "x, y", ...)
+  if not locus_steps then
+    locus_steps = {}
+    for kelvin = 1000, 20000, 10 do
+      local lx, ly = locus_xy(kelvin)
+      locus_steps[#locus_steps + 1] = { kelvin, lx, ly }
+    end
+  end
+  local nearest, best
+  for _, step in ipairs(locus_steps) do
+    local dist = (step[2] - x) ^ 2 + (step[3] - y) ^ 2
+    if not best or dist < best then
+      nearest, best = step[1], dist
+    end
+  end
+  return nearest
+end
+
+function C4:ColorHSVtoRGB(...)
+  local h, s, v, scale = color_args(self, { "H", "S", "V", "scale" }, 3, "H, S, V[, scale]", ...)
+  return hsv_to_rgb(h, s, v, scale or 255)
+end
+
+function C4:ColorRGBtoHSV(...)
+  local r, g, b, scale = color_args(self, { "R", "G", "B", "scale" }, 3, "R, G, B[, scale]", ...)
+  scale = scale or 255
+  return rgb_to_hsv(r / scale, g / scale, b / scale)
+end
+
+function C4:ColorHSVtoXY(...)
+  local h, s, v, gamut, primaries, whitepoints = color_args(
+    self,
+    { "H", "S", "V", "gamut", "primaries", "whitepoints" },
+    3,
+    "H, S, V[, gamut, primaries, whitepoints]",
+    ...
+  )
+  local r, g, b = hsv_to_rgb(h, s, v, 1)
+  return rgb_to_xy(r, g, b, gamut_of(gamut, primaries, whitepoints))
+end
+
+--- Whole numbers, and the value is always 100. A saturation just under a half can round one
+--- higher on a controller.
+function C4:ColorXYtoHSV(...)
+  local x, y, gamut, primaries, whitepoints =
+    color_args(self, { "x", "y", "gamut", "primaries", "whitepoints" }, 2, "x, y[, gamut, primaries, whitepoints]", ...)
+  return xy_to_hsv(x, y, gamut_of(gamut, primaries, whitepoints))
 end
 
 --- Minimal XML parser returning what C4:ParseXml returns, measured on a
@@ -1011,6 +1258,15 @@ local time_units = {
   dec = 315569520000,
 }
 
+--- @type (fun(): number)|nil milliseconds since the epoch in place of the wall clock
+local clock_ms
+
+--- Harness, not a controller API: read C4:GetTime from `fn` in milliseconds, or from the
+--- wall clock again when `fn` is nil. F.virtualClock uses it.
+function ShimSetClock(fn)
+  clock_ms = fn
+end
+
 --- The time since the epoch: milliseconds, or the units named in any case, whole unless
 --- `fractional`. Read off the wall clock where luasocket has one, else os.time, which a test may pin.
 --- As on Director, a call without the C4 receiver or with a nil argument raises, and an unknown
@@ -1026,7 +1282,7 @@ function C4:GetTime(...)
   if argc > 1 and type(fractional) ~= "boolean" then
     error("fractional should be a boolean", 2)
   end
-  local ms = has_socket and socket.gettime() * 1000 or os.time() * 1000
+  local ms = clock_ms and clock_ms() or (has_socket and socket.gettime() * 1000 or os.time() * 1000)
   local v = ms / (time_units[argc > 0 and tostring(units):lower()] or 1)
   return fractional and v or math.floor(v)
 end
@@ -1327,12 +1583,12 @@ end
 
 ---------------------------------------------------------------------------
 -- Project devices
--- C4:GetDevices / GetDeviceDisplayName / GetDeviceVariables read a registry a
--- test populates with ShimSetDevices. An id absent from it is the nameless,
--- unresolvable case: GetDeviceDisplayName returns no value (arity 0, not nil),
--- which is what the controller does and what a driver must tolerate. A device
--- whose driverFileName is roomdevice.c4i is a room: it has a display name, but
--- C4:GetDevices never lists it.
+-- C4:GetDevices / GetDeviceDisplayName / GetDeviceVariables / GetProxyDevices
+-- read a registry a test populates with ShimSetDevices. An id absent from it is
+-- the nameless, unresolvable case: GetDeviceDisplayName returns no value (arity
+-- 0, not nil), which is what the controller does and what a driver must
+-- tolerate. A device whose driverFileName is roomdevice.c4i is a room: it has a
+-- display name, but C4:GetDevices never lists it.
 ---------------------------------------------------------------------------
 
 local ROOM_C4I_NAME = "roomdevice.c4i"
@@ -1387,6 +1643,46 @@ function C4:GetDevices(filter)
     end
   end
   return devices
+end
+
+--- @return integer ... The proxies of a device in the registry, ascending, as separate values. A proxy
+--- answers itself, and a device with no proxy, or one the registry lacks, answers no value. Device 0 is
+--- this driver, as on 4.3.0.
+function C4:GetProxyDevicesById(...)
+  local argc, deviceId = select("#", ...), ...
+  if argc < 1 then
+    error("Not enough arguments passed (expected 1: devId)", 2)
+  end
+  deviceId = tonumber(deviceId)
+  if deviceId == nil then
+    error("devId should be a number", 2)
+  end
+  deviceId = deviceId == 0 and tonumber(C4:GetDeviceID()) or deviceId
+  local device = shim_devices[deviceId]
+  if device and device.hidden then
+    return
+  end
+  local ids = {}
+  for proxyId in pairs(device and device.proxies or {}) do
+    ids[#ids + 1] = proxyId
+  end
+  table.sort(ids)
+  if #ids > 0 then
+    return unpack(ids)
+  end
+  if device and device.protocol then
+    return deviceId
+  end
+  for _, other in pairs(shim_devices) do
+    if other.proxies and other.proxies[deviceId] then
+      return deviceId
+    end
+  end
+end
+
+--- This driver's proxies. Any argument is ignored, as on 4.3.0.
+function C4:GetProxyDevices()
+  return C4:GetProxyDevicesById(0)
 end
 
 function C4:GetDeviceDisplayName(deviceId)

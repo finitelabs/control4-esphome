@@ -188,4 +188,110 @@ function F.dofileBuild(path, build)
   return assert(load(table.concat(lines, "\n"), "@" .. path))()
 end
 
+--- Run C4:SetTimer and C4:GetTime on a virtual clock, so a test plays minutes of timers
+--- instantly and in a fixed order. Timers due together fire in the order they were set,
+--- and a repeating one is set again before its callback runs. The clock starts at
+--- `opts.start` milliseconds, 1000000 by default.
+---
+--- drivers-common-public and deferred swallow an error in a SetTimer callback or a promise
+--- unless ON_TIMER_ERROR and ON_UNHANDLED_REJECTION are set, so the clock sets both and keeps
+--- what they get in `errors`. An error in a bare C4:SetTimer callback is raised out of `run`.
+---
+--- Returns a clock: `now()` in milliseconds, `run(ms)` fires whatever falls due in the next
+--- `ms` and ends there, `at(ms, fn)` calls fn that far ahead, `errors`, and `restore()`.
+function F.virtualClock(opts)
+  opts = opts or {}
+  local now = opts.start or 1000000
+  local queue, order = {}, 0
+  local saved = {
+    setTimer = C4.SetTimer,
+    onTimerError = ON_TIMER_ERROR,
+    onRejection = ON_UNHANDLED_REJECTION,
+  }
+  local clock = { errors = {} }
+
+  local function schedule(ms, fn)
+    order = order + 1
+    local entry = { at = now + math.max(0, ms), order = order, fn = fn }
+    queue[#queue + 1] = entry
+    return entry
+  end
+
+  ShimSetClock(function()
+    return now
+  end)
+
+  function C4:SetTimer(delayMs, callback, repeating)
+    local handle = newproxy(true)
+    local entry
+    local function arm()
+      entry = schedule(delayMs, function()
+        if repeating then
+          arm()
+        end
+        callback(handle, 0)
+      end)
+    end
+    arm()
+    local mt = getmetatable(handle)
+    mt.__index = {
+      Cancel = function()
+        entry.cancelled = true
+        -- nil, so global/timer.lua clears its slot
+        return nil
+      end,
+    }
+    mt.__tostring = function()
+      return "C4LuaTimer (virtual)"
+    end
+    return handle
+  end
+
+  ON_TIMER_ERROR = function(_, err)
+    clock.errors[#clock.errors + 1] = tostring(err)
+  end
+  ON_UNHANDLED_REJECTION = function(err)
+    clock.errors[#clock.errors + 1] = tostring(err)
+  end
+
+  function clock.now()
+    return now
+  end
+
+  function clock.at(ms, fn)
+    schedule(ms, fn)
+  end
+
+  function clock.run(ms)
+    local stop = now + ms
+    while true do
+      local best, index
+      for i, entry in ipairs(queue) do
+        if
+          not entry.cancelled
+          and entry.at <= stop
+          and (not best or entry.at < best.at or (entry.at == best.at and entry.order < best.order))
+        then
+          best, index = entry, i
+        end
+      end
+      if not best then
+        break
+      end
+      table.remove(queue, index)
+      now = best.at
+      best.fn()
+    end
+    now = stop
+  end
+
+  function clock.restore()
+    ShimSetClock(nil)
+    C4.SetTimer = saved.setTimer
+    ON_TIMER_ERROR, ON_UNHANDLED_REJECTION = saved.onTimerError, saved.onRejection
+  end
+
+  return clock
+end
+
 return F

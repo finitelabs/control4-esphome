@@ -104,7 +104,8 @@ Types.API = 1
 --- @field colorWhileOff LightColorWhileOff|nil Default "send". "hold": the device drops a color sent while off, so
 ---   such a color is told, not sent, and the next on carries it.
 --- @field levelSteps integer|nil The device's brightness steps from off to full. Default 255.
---- @field fade LightFade|nil Default: a "device" fade with every default.
+--- @field fade LightFade|nil Default: a "device" fade with every default, or an "own" fade of 0/0/0 under a
+---   profile without fades, where any other fade is dropped with an error.
 --- @field feedback LightFeedback|nil Default: every default.
 
 -----------------------------------------------------------------------------------------------------
@@ -127,9 +128,11 @@ Types.API = 1
 --- @field level number Device brightness 0-1 on the Min/Max On line; while off, the level kept; 1 on a light
 ---   that does not dim.
 --- @field color LightColor|nil Nil only on a device with neither color nor CCT.
---- @field setsLevel boolean This command changes the level. Otherwise `level` is carried for a wire that couples
----   level and color.
---- @field setsColor boolean Likewise for color. On a "hold" device, always true when fromOff.
+--- @field setsLevel boolean This command changes the light's output: its power or its level. Every off has it,
+---   with `level` the level kept, and so does every command with fromOff. Without it `level` is only carried
+---   for a wire that couples level and color, and `on` is unchanged: on false, the light stays off.
+--- @field setsColor boolean This command changes the color. On a "hold" device, always true when fromOff. An off
+---   with it fades to that color as it goes dark (Dim-To-Warm).
 --- @field transitionMs integer "device" fades only, else 0. 0 on a preOn. On a stop, the color's time left when a
 ---   color ramp of its own continues.
 --- @field from LightFrom
@@ -259,11 +262,21 @@ Types.API = 1
 --- @field presetOrigin integer|nil The preset's origin, told with its id.
 --- @field source LightSource Light skips the cancel of the part it came from.
 
---- OnColor.choose's answer for an on.
+--- OnColor.choose's answer for an intent that lights the light, or for the proxy's follow-up of one.
 --- @class LightOnChoice
---- @field level integer C4 level.
---- @field color LightColor|nil
---- @field unchosen boolean
+--- @field level integer C4 level the on goes to.
+--- @field color LightColor|nil The on's color.
+--- @field unchosen boolean The color only follows an on mode.
+--- @field followUp boolean A color intent that is the proxy's follow-up of an on that already chose its color:
+---   Motion keeps the on's color and moves nothing.
+
+--- What OnColor.choose reads, as plain values from the parts that hold them. lib.light.oncolor declares
+--- LightOnSettings and LightOnPicks.
+--- @class LightOnInputs
+--- @field now LightNow
+--- @field device LightDevice
+--- @field settings LightOnSettings
+--- @field picks LightOnPicks
 
 --- Motion's model of one aspect changing over time.
 --- @class LightRamp
@@ -282,7 +295,8 @@ Types.API = 1
 --- @field levelRamping boolean
 --- @field colorRamping boolean
 
---- What LightProxy tells from. It sends only what differs from what it told.
+--- What LightProxy tells from. It sends only what differs from what it told. Levels are device brightness
+--- 0-1, as everywhere in the library; LightProxy maps them to C4 levels on the Min/Max On line.
 --- @class LightView
 --- @field on boolean
 --- @field level number Where the light is now: the estimate while a ramp runs.
@@ -309,6 +323,11 @@ Types.API = 1
 --- @field asked boolean A refresh was asked in this window.
 --- @field extended boolean The deadline was extended once.
 --- @field deadline integer
+
+--- What start read from the proxy, which Motion starts from and the first report is weighed against.
+--- @class LightSeed
+--- @field level number|nil Device brightness 0-1 from 1001, when 1110 equals it; else nil.
+--- @field color LightColor|nil From 1200, when 1210 equals it; else nil.
 
 --- Ledger's answer to a report or a deadline.
 --- @class LightHeard

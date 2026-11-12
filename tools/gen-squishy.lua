@@ -77,6 +77,17 @@ if OnDriverLateInit then
   pcall(OnDriverLateInit)
 end
 
+-- A Light V2 driver's light capabilities are written into the build's driver.xml from the profile its
+-- chunk gave Light.new, so its source driver.xml carries none of them.
+local light = package.loaded["lib.light"]
+if type(light) == "table" and type(light.made) == "table" and #light.made > 0 then
+  if #light.made > 1 then
+    io.stderr:write(string.format("Error: %s makes %d lights; a driver makes one\n", driver_name, #light.made))
+    os.exit(1)
+  end
+  dofile("../../../../tools/light-caps.lua")(light.made[1], "driver.xml")
+end
+
 -- Discover newly loaded modules and resolve their file paths using
 -- package.searchpath, which applies the same dot-to-separator conversion
 -- that require uses, so "some.module" finds "../../src/some/module.lua"
