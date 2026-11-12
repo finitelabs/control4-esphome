@@ -1013,8 +1013,7 @@ function C4:ColorXYtoHSV(...)
   return xy_to_hsv(x, y, gamut_of(gamut, primaries, whitepoints))
 end
 
---- RGB at full value, each 0 to 255, through the HSV a controller works in. Not measured on a controller:
---- drivers call it on 4.x, and their tests need it.
+--- RGB at full value, each 0 to 255, through the HSV a controller works in. Not measured on a controller.
 function C4:ColorXYtoRGB(...)
   local x, y, gamut, primaries, whitepoints =
     color_args(self, { "x", "y", "gamut", "primaries", "whitepoints" }, 2, "x, y[, gamut, primaries, whitepoints]", ...)

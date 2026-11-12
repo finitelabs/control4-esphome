@@ -95,7 +95,6 @@ function D.answerConfig(xml)
     end
     return prior(self, section)
   end
-  -- The driver runs on the OS its driver.xml asks for.
   local priorVersion = C4.GetVersionInfo
   local minimum = xml:match("<minimum_os_version>([^<]*)</minimum_os_version>")
   if minimum and minimum ~= "" then

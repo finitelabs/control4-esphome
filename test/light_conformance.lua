@@ -256,11 +256,16 @@ function C.run(T, rig)
   end
 
   -- The facts the sections are chosen by, from one load.
+  --- @type { profile: LightProfile, device: LightDevice, suspends: boolean }|nil
   local probe
   C.case(T, name, function()
     local h = fresh(rig)
     if h.light and h.light.device then
-      probe = { profile = h.light.profile, device = h.light.device }
+      probe = {
+        profile = h.light.profile,
+        device = h.light.device,
+        suspends = h.device.suspend ~= nil and h.device.resume ~= nil,
+      }
     end
     h.done()
   end)
@@ -666,10 +671,7 @@ function C.run(T, rig)
     finish(h)
   end)
 
-  local probe = fresh(rig)
-  local suspends = probe.device.suspend ~= nil and probe.device.resume ~= nil
-  finish(probe)
-  if suspends then
+  if probe.suspends then
     T.section(name .. ": a connection stopped on purpose reads offline and keeps its level")
     C.case(T, name, function()
       local h = fresh(rig)
@@ -804,7 +806,7 @@ function C.run(T, rig)
       T.eq(name .. ": at the level the device rests at", p.level, percent(h))
       local rested = xyOf(h.device.state().color)
       if rested then
-        T.check(name .. ": in the color the device rests in", sameXY(p.color, rested), T.show(p.color))
+        T.check(name .. ": in the color the device rests in", sameXY(shownXY(p.color), rested), T.show(p.color))
       end
       finish(h)
     end)

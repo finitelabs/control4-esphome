@@ -672,6 +672,12 @@ do
   local gx, gy = C4:ColorRGBtoXY(0, 128, 0)
   local gr, gg, gb = C4:ColorXYtoRGB(gx, gy)
   T.check("a dim green comes back at full value", gr == 0 and gg == 255 and gb == 0, { gr, gg, gb })
+  local mx, my = C4:ColorRGBtoXY(255, 128, 0)
+  T.check(
+    "a mixed color takes its channels on the scale",
+    near(mx, 0.6168, 1e-3) and near(my, 0.3776, 1e-3),
+    { mx, my }
+  )
   T.eq("HSV red is the Rec. 2020 primary", { C4:ColorHSVtoXY(0, 100, 100) }, { 0.708, 0.292 })
   T.check(
     "or the sRGB one when named",

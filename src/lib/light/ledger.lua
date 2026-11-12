@@ -61,9 +61,6 @@ function Ledger:sent(cmd, landings)
   end
   if cmd.setsLevel and cmd.on then
     self:_open("level", cmd.level, cmd.from.level, landings.level)
-  elseif cmd.setsLevel then
-    -- An off makes the level before it moot: its window ends, so its deadline can't light the light.
-    self:_close("level")
   end
   if cmd.setsLevel then
     self.libraryOn = cmd.on
@@ -72,11 +69,12 @@ function Ledger:sent(cmd, landings)
   if cmd.setsColor and cmd.color then
     self:_open("color", cmd.color, cmd.from.color, landings.color)
   end
-  -- On a device that re-times, a command for one aspect moves the other's landing: its open window waits for it.
+  -- On a device that re-times, a command for one aspect moves the other's landing, and an off moves the level's:
+  -- an open window of ours, asked or not, waits for it.
   for _, aspect in ipairs(ASPECTS) do
     local window = self.windows[aspect]
     local landing = landings[aspect]
-    if window and window.kind == "command" and landing then
+    if window and window.kind ~= "learning" and landing then
       local deadline = landing + self.device.feedback.waitMs
       if deadline > window.deadline then
         self:_arm(aspect, window, deadline)
@@ -151,14 +149,23 @@ function Ledger:due(aspect, now)
   end
   local feedback = self.device.feedback
   local newest = window.sent[#window.sent]
-  if
+  local walking = aspect == "level" and now.levelRamping or aspect == "color" and now.colorRamping
+  if self.device.fade.kind == "walk" and walking and window.kind == "command" then
+    -- A walk under way sends its next step within a step, and this window waits for it: what it holds came
+    -- before the walk.
+    self:_arm(aspect, window, C4:GetTime() + feedback.waitMs)
+  elseif aspect == "level" and window.kind ~= "learning" and self.libraryOn == false then
+    -- An off made the level before it moot: its deadline neither adopts nor asks.
+    self:_close(aspect)
+  elseif
     window.held ~= nil
-    and feedback.shows == "position"
     and feedback.refresh
     and not window.asked
     and not (newest and self:_same(aspect, window.held, newest.value))
+    and (feedback.shows == "position" or (newest ~= nil and window.kind == "command"))
   then
-    -- A position held on its way may lag the light: one read tells where it ended.
+    -- What was held isn't the newest command's: a position on its way, or a report from before the command,
+    -- which a command that landed unheard would leave stale. One read tells where the light is.
     window.kind, window.asked, window.extended = "asked", true, true
     out.ask = true
     self:_arm(aspect, window, C4:GetTime() + feedback.waitMs)
@@ -366,7 +373,9 @@ function Ledger:_inWindow(aspect, window, value, report, now, out)
   -- history. Under "target" one that comes while the aspect's ramp runs says nothing of where the light is,
   -- and is dropped, so the deadline can't revert the ramp.
   if not window.echoed and (self:_older(aspect, window, value) or self:_same(aspect, value, window.before)) then
-    if feedback.shows == "target" and ramping then
+    -- An off light's level is only the level kept, so an earlier command's level, late, is dropped and its
+    -- deadline can't light the light.
+    if (feedback.shows == "target" and ramping) or (aspect == "level" and self.libraryOn == false) then
       window.heard = true
       return "history"
     end
@@ -477,17 +486,20 @@ end
 
 --- Whether a report shows the light as it stood before a running level ramp got to move its on: lit while a
 --- ramp to off runs, or off while a ramp from off has lit nothing yet. A light that walks steps there and
---- reports where its steps have got to.
+--- reports where its steps have got to, so an off report while its walk from off has lit nothing is from
+--- before the walk too.
 --- @private
 --- @param report LightReport
 --- @param now LightNow
 --- @return boolean
 function Ledger:_beforeRamp(report, now)
-  return now.levelRamping == true
-    and report.on ~= nil
-    and report.on ~= now.on
-    and report.on == self.reportedOn
-    and self.windows.on == nil
+  if now.levelRamping ~= true or report.on == nil or self.windows.on ~= nil then
+    return false
+  end
+  if self.device.fade.kind == "walk" and report.on == false and now.on == false then
+    return true
+  end
+  return report.on ~= now.on and report.on == self.reportedOn
 end
 
 --- An on answered alone while the library holds the light off, by a device that answers a read one

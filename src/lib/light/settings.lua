@@ -114,6 +114,18 @@ function Settings:presetLevel()
   return math.min(v, 100)
 end
 
+--- The level a Top click ramps to: the brightness on mode's, where the profile takes on modes and one is set,
+--- else the Default On level.
+--- @return integer level 1-100.
+function Settings:clickLevel()
+  local onMode = self.profile.onModes and persist:get(Settings.P_ON_MODE)
+  local level = onMode and tointeger(onMode.level)
+  if level and level >= 1 then
+    return math.min(level, 100)
+  end
+  return self:presetLevel()
+end
+
 --- @return integer ms
 function Settings:defaultRate()
   return tointeger(persist:get(Settings.P_RATE_DEFAULT, DEFAULT_RATE)) or DEFAULT_RATE

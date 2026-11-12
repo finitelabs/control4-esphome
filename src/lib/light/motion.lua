@@ -757,16 +757,27 @@ function Motion:_stopColor(out)
     end
     self:_armRamps(fade)
   end
+  -- A level set at once while the color walked waits on the walk's next step: ending the walk, the color holds
+  -- in a change to that level.
+  local walked = self.walked
+  local owed = fade.kind == "walk"
+    and lr == nil
+    and walked ~= nil
+    and ((shown > 0) ~= (walked.level > 0) or not self:_sameLevel(shown, walked.level))
+  local on, level, fromLevel = self.wireOn, self:_kept(shown), shown
+  if owed then
+    on, level, fromLevel = shown > 0, shown > 0 and shown or self:_kept(walked.level), walked.level
+  end
   self:_stopWalkIfDone()
   self:_push(out, {
-    kind = "stop",
-    on = self.wireOn,
-    level = self:_kept(shown),
+    kind = owed and "change" or "stop",
+    on = on,
+    level = level,
     color = color,
-    setsLevel = false,
+    setsLevel = owed,
     setsColor = true,
     transitionMs = levelMs,
-    from = { level = shown, color = color },
+    from = { level = fromLevel, color = color },
     colorUnchosen = cr.unchosen == true,
   })
 end

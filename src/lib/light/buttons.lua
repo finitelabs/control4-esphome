@@ -1,13 +1,13 @@
 --- The light's three buttons, from BUTTON_ACTION and from the Button Links: presses, holds and clicks as
 --- intents for Motion.
 ---
---- On a light that dims, a press waits 250 ms before its hold ramp starts. Only that button's click or release,
---- or another press, ends the wait; a command meanwhile leaves it, as the button is still down. A click is the
---- click action: Top ramps to the Default On level over the click rate up, Bottom to off over the click rate
---- down, and Toggle does Bottom's if lit, else Top's. A release stops a hold or a scene ramp still running,
---- whoever started it, and leaves any other fade. A hold's time is the hold rate scaled by the distance left.
---- Toggle's hold goes down at full and up at off, and otherwise the other way from the last ramp of any source.
---- A light that doesn't dim acts at the press (On, Off, Toggle), and the click or release after it asks
+--- On a light that dims, a press waits 250 ms before its hold ramp starts. Only that button's click or release, or
+--- another press, ends the wait; a command meanwhile leaves it, as the button is still down. A click is the click
+--- action: Top ramps to the on mode's level, else the Default On level, over the click rate up, Bottom to off over
+--- the click rate down, and Toggle does Bottom's if lit, else Top's. A release stops a hold or a scene ramp still
+--- running, whoever started it, and leaves any other fade. A hold's time is the hold rate scaled by the distance
+--- left. Toggle's hold goes down at full and up at off, and otherwise the other way from the last ramp of any
+--- source. A light that doesn't dim acts at the press (On, Off, Toggle), and the click or release after it asks
 --- nothing.
 
 local Range = require("lib.light.range")
@@ -158,9 +158,9 @@ function Buttons:_direction(button, level)
   return self.nextRamp or "down"
 end
 
---- The click action. On a light that dims: Top ramps to the Default On level over the click rate up, Bottom
---- to off over the click rate down, and Toggle does Bottom's if lit, else Top's. On one that doesn't: On, Off
---- and Toggle.
+--- The click action. On a light that dims: Top ramps to the on mode's level, else the Default On level, over
+--- the click rate up, Bottom to off over the click rate down, and Toggle does Bottom's if lit, else Top's. On
+--- one that doesn't: On, Off and Toggle.
 --- @private
 --- @param button integer
 --- @param level integer The C4 level the light is at.
@@ -173,7 +173,7 @@ function Buttons:_click(button, level)
   local up = button == Buttons.TOP or (button == Buttons.TOGGLE and level <= 0)
   return {
     kind = "level",
-    level = up and self.settings:presetLevel() or 0,
+    level = up and self.settings:clickLevel() or 0,
     rateMs = self.settings:clickRate(up),
     source = "button",
   }
