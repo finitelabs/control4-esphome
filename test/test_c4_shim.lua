@@ -664,6 +664,14 @@ do
   local negH = C4:ColorRGBtoHSV(255, 0, 128)
   T.check("hue below the red sector wraps to 0-360", near(negH, 329.88235294117646, 1e-9), negH)
 
+  -- XY to RGB at full value, and back, through the HSV a controller works in.
+  local red = { C4:ColorXYtoRGB(0.708, 0.292) }
+  T.eq("the Rec. 2020 red primary is full red", red, { 255, 0, 0 })
+  local rx, ry = C4:ColorRGBtoXY(255, 0, 0)
+  T.check("and full red is that primary", near(rx, 0.708, 1e-3) and near(ry, 0.292, 1e-3), { rx, ry })
+  local gx, gy = C4:ColorRGBtoXY(0, 128, 0)
+  local gr, gg, gb = C4:ColorXYtoRGB(gx, gy)
+  T.check("a dim green comes back at full value", gr == 0 and gg == 255 and gb == 0, { gr, gg, gb })
   T.eq("HSV red is the Rec. 2020 primary", { C4:ColorHSVtoXY(0, 100, 100) }, { 0.708, 0.292 })
   T.check(
     "or the sRGB one when named",

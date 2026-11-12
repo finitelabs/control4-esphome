@@ -1013,6 +1013,22 @@ function C4:ColorXYtoHSV(...)
   return xy_to_hsv(x, y, gamut_of(gamut, primaries, whitepoints))
 end
 
+--- RGB at full value, each 0 to 255, through the HSV a controller works in. Not measured on a controller:
+--- drivers call it on 4.x, and their tests need it.
+function C4:ColorXYtoRGB(...)
+  local x, y, gamut, primaries, whitepoints =
+    color_args(self, { "x", "y", "gamut", "primaries", "whitepoints" }, 2, "x, y[, gamut, primaries, whitepoints]", ...)
+  local h, s = xy_to_hsv(x, y, gamut_of(gamut, primaries, whitepoints))
+  return hsv_to_rgb(h, s, 100, 255)
+end
+
+--- The xy of an RGB, each channel 0 to scale (default 255). Not measured on a controller.
+function C4:ColorRGBtoXY(...)
+  local r, g, b, scale = color_args(self, { "R", "G", "B", "scale" }, 3, "R, G, B[, scale]", ...)
+  scale = scale or 255
+  return rgb_to_xy(r / scale, g / scale, b / scale, gamut_of())
+end
+
 --- Minimal XML parser returning what C4:ParseXml returns, measured on a
 --- controller: a node with Name, Attributes (name -> value), ChildNodes
 --- (ordered) and Value, the node's first non-blank text run or first CDATA

@@ -1,5 +1,5 @@
 --- A fake Light V2 proxy for tests of a light driver. It records every notify to the proxy and the Button
---- Links, and models what the real proxy derives from them (measured on 4.3.0):
+--- Links, and models what the real proxy derives from them, as measured on dev (tests/light/test_proxy_fake.lua):
 --- - LIGHT_STATE follows CHANGING's CURRENT, and Brightness Percent steps along the line once a second.
 --- - Previous On is written from the last level told above 0 when the light goes off, and pushed back to
 ---   the driver as UPDATE_BRIGHTNESS_PRESET.
@@ -10,8 +10,6 @@
 --- - A light that does not dim is asked GET_LIGHT_LEVEL inside the ONLINE_CHANGED that brings it online.
 --- - A LIGHT_COLOR_CHANGED naming a preset id without its origin is dropped whole.
 --- - GET_SETUP is answered from `setup`, or from `newLight` until the proxy is told the light has color.
---- Each is measured on dev: control4-zigbee3 4cbbee10 test/test_light_feedback.lua 463-523 and 676-685, and
---- control4-tplink f9b0d1b test/test_light_direct.lua 321-435.
 ---
 --- It is the driver's library-independent view of the proxy: it knows no lib.light internals.
 
@@ -169,6 +167,16 @@ function P.install(clock, opts)
   p:reset()
   for id, value in pairs(opts.variables or {}) do
     p.vars[tostring(id)] = { value = value }
+  end
+  -- After a restart the proxy shows what its variables hold.
+  local level = tonumber(p.vars["1001"] and p.vars["1001"].value)
+  if level then
+    p.level, p.lit = level, level > 0
+    p.lastLit = p.lit and level or nil
+  end
+  local x, y, mode = tostring(p.vars["1200"] and p.vars["1200"].value or ""):match("^([^,]+),([^,]+),([^,]+)$")
+  if x then
+    p.color = { x = x, y = y, mode = mode }
   end
   p.held = {}
   for key, value in pairs(opts.capabilities or {}) do

@@ -16,56 +16,8 @@ local C = require("light_conformance")
 local D = require("light_drivers")
 local Light = require("lib.light")
 
--- The commands lib.light handles on the proxy and link bindings. A driver's command-keyed RFP for one would
--- run before the library's binding handler and take the command from it. This list must match
--- src/lib/light/handlers.lua.
-local LIBRARY_COMMANDS = {
-  "SET_BRIGHTNESS_TARGET",
-  "ON",
-  "OFF",
-  "TOGGLE",
-  "DYNAMIC_ON",
-  "DYNAMIC_OFF",
-  "SET_LEVEL",
-  "RAMP_TO_LEVEL",
-  "SET_COLOR_TARGET",
-  "SET_BRIGHTNESS_STOP",
-  "SET_COLOR_STOP",
-  "SET_MAX_ON_LEVEL",
-  "SET_MIN_ON_LEVEL",
-  "GET_CONNECTED_STATE",
-  "GET_LIGHT_LEVEL",
-  "PUSH_SCENE",
-  "REMOVE_SCENE",
-  "CLEAR_ALL_SCENES",
-  "ALL_SCENES_PUSHED",
-  "ACTIVATE_SCENE",
-  "DEACTIVATE_SCENE",
-  "RAMP_SCENE_UP",
-  "RAMP_SCENE_DOWN",
-  "STOP_SCENE_RAMP",
-  "STOP_RAMP_SCENE",
-  "TOGGLE_SCENE",
-  "SET_PRESET_LEVEL",
-  "UPDATE_BRIGHTNESS_ON_MODE",
-  "SET_BRIGHTNESS_ON_MODE",
-  "UPDATE_BRIGHTNESS_PRESET",
-  "UPDATE_BRIGHTNESS_RATE_DEFAULT",
-  "UPDATE_COLOR_RATE_DEFAULT",
-  "UPDATE_COLOR_PRESET",
-  "UPDATE_COLOR_ON_MODE",
-  "SET_COLOR_ON_MODE",
-  "SET_CLICK_RATE_UP",
-  "SET_CLICK_RATE_DOWN",
-  "SET_HOLD_RATE_UP",
-  "SET_HOLD_RATE_DOWN",
-  "REQUEST_BUTTON_COLORS",
-  "SET_BUTTON_COLOR",
-  "BUTTON_ACTION",
-  "DO_PUSH",
-  "DO_CLICK",
-  "DO_RELEASE",
-}
+-- The commands lib.light handles on the proxy and link bindings, as its handlers list them.
+local LIBRARY_COMMANDS = require("lib.light.handlers").COMMANDS
 
 local root = D.root()
 local lights = D.lights(root)

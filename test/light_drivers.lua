@@ -84,7 +84,7 @@ function D.load(root, folder)
 end
 
 --- Answer the driver config reads the shim leaves out, minimum_os_version and version, from a
---- driver.xml, as Director answers them from the driver's own.
+--- driver.xml, as Director answers them from the driver's own, and run the driver on the OS it asks for.
 --- @param xml string
 --- @return fun() restore Puts the shim's answer back.
 function D.answerConfig(xml)
@@ -95,8 +95,22 @@ function D.answerConfig(xml)
     end
     return prior(self, section)
   end
+  -- The driver runs on the OS its driver.xml asks for.
+  local priorVersion = C4.GetVersionInfo
+  local minimum = xml:match("<minimum_os_version>([^<]*)</minimum_os_version>")
+  if minimum and minimum ~= "" then
+    function C4:GetVersionInfo()
+      local info = {}
+      for k, v in pairs(priorVersion(self)) do
+        info[k] = v
+      end
+      info.version = minimum
+      return info
+    end
+  end
   return function()
     C4.GetDriverConfigInfo = prior
+    C4.GetVersionInfo = priorVersion
   end
 end
 

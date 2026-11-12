@@ -22,28 +22,6 @@ C.RIG_VERSION = Rig.VERSION
 -- What the cases running installed and have not put back.
 local open = {}
 
---- A value for a failed check's detail: a table's keys sorted, one level deep in each nested table.
---- @param value any
---- @return string
-local function show(value)
-  if type(value) ~= "table" then
-    return tostring(value)
-  end
-  local keys = {}
-  for k in pairs(value) do
-    keys[#keys + 1] = k
-  end
-  table.sort(keys, function(a, b)
-    return tostring(a) < tostring(b)
-  end)
-  local parts = {}
-  for _, k in ipairs(keys) do
-    local v = value[k]
-    parts[#parts + 1] = tostring(k) .. "=" .. (type(v) == "table" and show(v) or tostring(v))
-  end
-  return "{" .. table.concat(parts, ", ") .. "}"
-end
-
 --- @param a {x: number, y: number}|nil
 --- @param b {x: number, y: number}|nil
 --- @return boolean
@@ -291,7 +269,7 @@ function C.run(T, rig)
     local h = fresh(rig)
     T.check(name .. ": the driver made a light", h.light ~= nil)
     T.check(name .. ": and declared its device", h.light ~= nil and h.light.device ~= nil)
-    T.check(name .. ": the proxy is told it is online", on(h.proxy.online), show(h.proxy.online))
+    T.check(name .. ": the proxy is told it is online", on(h.proxy.online), T.show(h.proxy.online))
     T.eq(name .. ": the capabilities are told once", h.proxy:count("DYNAMIC_CAPABILITIES_CHANGED"), 1)
     if h.light and h.light.device then
       T.eq(
@@ -360,7 +338,7 @@ function C.run(T, rig)
       T.check(
         name .. ": where the proxy shows",
         math.abs((p.level or -9) - at) <= 1,
-        show({ shown = p.level, device = at })
+        T.show({ shown = p.level, device = at })
       )
       p:send("SET_LEVEL", { LEVEL = 80 })
       h.clock.run(ms)
@@ -410,8 +388,8 @@ function C.run(T, rig)
       p:send("SET_COLOR_TARGET", colorParams(a, 0))
       h.clock.run(ms)
       local color = xyOf(h.device.state().color)
-      T.check(name .. ": a color reaches the device", sameXY(color, a), show(color))
-      T.check(name .. ": and the proxy shows it", sameXY(shownXY(p.color), a), show(p.color))
+      T.check(name .. ": a color reaches the device", sameXY(color, a), T.show(color))
+      T.check(name .. ": and the proxy shows it", sameXY(shownXY(p.color), a), T.show(p.color))
       p:send("OFF")
       h.clock.run(ms)
       p:mark()
@@ -422,8 +400,8 @@ function C.run(T, rig)
       p:send("ON")
       h.clock.run(ms)
       color = xyOf(h.device.state().color)
-      T.check(name .. ": the next On comes on in it", sameXY(color, b), show(color))
-      T.check(name .. ": as the proxy shows", sameXY(shownXY(p.color), b), show(p.color))
+      T.check(name .. ": the next On comes on in it", sameXY(color, b), T.show(color))
+      T.check(name .. ": as the proxy shows", sameXY(shownXY(p.color), b), T.show(p.color))
       finish(h)
     end)
   end
@@ -446,8 +424,8 @@ function C.run(T, rig)
       p:send("SET_COLOR_TARGET", colorParams(second, 0))
       h.clock.run(ms)
       local color = xyOf(h.device.state().color)
-      T.check(name .. ": the device ends on the second", sameXY(color, second), show(color))
-      T.check(name .. ": as the proxy shows", sameXY(shownXY(p.color), second), show(p.color))
+      T.check(name .. ": the device ends on the second", sameXY(color, second), T.show(color))
+      T.check(name .. ": as the proxy shows", sameXY(shownXY(p.color), second), T.show(p.color))
       local afterSecond, back = false, false
       for _, n in ipairs(p.notes) do
         if n.binding == P.PROXY and n.cmd == "LIGHT_COLOR_CHANGED" then
@@ -484,10 +462,10 @@ function C.run(T, rig)
         name .. ": the On color",
         first ~= nil
           and sameXY({ x = tonumber(first.LIGHT_COLOR_CURRENT_X), y = tonumber(first.LIGHT_COLOR_CURRENT_Y) }, onColor),
-        show(first)
+        T.show(first)
       )
       local color = xyOf(h.device.state().color)
-      T.check(name .. ": and the device is in it", sameXY(color, onColor), show(color))
+      T.check(name .. ": and the device is in it", sameXY(color, onColor), T.show(color))
       colorOnMode(p, nil)
       finish(h)
     end)
@@ -536,7 +514,7 @@ function C.run(T, rig)
         T.check(
           name .. ": with an on and an off color",
           colors[1] ~= nil and colors[1].ON_COLOR ~= nil and colors[1].OFF_COLOR ~= nil,
-          show(colors[1])
+          T.show(colors[1])
         )
         T.eq(name .. ": and nothing on the proxy binding", p:count("BUTTON_COLORS"), 0)
       end
@@ -559,7 +537,7 @@ function C.run(T, rig)
         T.check(
           name .. ": where the proxy shows",
           math.abs((p.level or -9) - at) <= 1,
-          show({ shown = p.level, device = at })
+          T.show({ shown = p.level, device = at })
         )
         finish(h)
       end)
@@ -583,7 +561,7 @@ function C.run(T, rig)
       T.eq(name .. ": as the proxy shows", p.level, last)
       if hasColor then
         local color = xyOf(h.device.state().color)
-        T.check(name .. ": in its color", sameXY(color, steps[2].color), show(color))
+        T.check(name .. ": in its color", sameXY(color, steps[2].color), T.show(color))
       end
       finish(h)
     end)
@@ -600,7 +578,7 @@ function C.run(T, rig)
           h.clock.run(100)
           seen[h.device.state().on == true] = true
         end
-        T.check(name .. ": the device was on and off while it ran", seen[true] and seen[false], show(seen))
+        T.check(name .. ": the device was on and off while it ran", seen[true] and seen[false], T.show(seen))
         p:send("DEACTIVATE_SCENE", { SCENE_ID = 8 })
         h.clock.run(ms)
         local held = h.device.state().on
@@ -623,7 +601,7 @@ function C.run(T, rig)
       T.check(
         name .. ": 100 is the device at 80 %",
         math.abs(h.device.state().level - 0.8) <= 0.01,
-        show(h.device.state())
+        T.show(h.device.state())
       )
       T.eq(name .. ": and the proxy shows 100", p.level, 100)
       p:send("SET_LEVEL", { LEVEL = 1 })
@@ -631,7 +609,7 @@ function C.run(T, rig)
       T.check(
         name .. ": 1 is the device at 20 %",
         math.abs(h.device.state().level - 0.2) <= 0.01,
-        show(h.device.state())
+        T.show(h.device.state())
       )
       p:send("SET_MIN_ON_LEVEL", { LEVEL = 1 })
       p:send("SET_MAX_ON_LEVEL", { LEVEL = 100 })
@@ -682,11 +660,14 @@ function C.run(T, rig)
     finish(h)
   end)
 
-  T.section(name .. ": a connection stopped on purpose reads offline and keeps its level")
-  C.case(T, name, function()
-    local h = fresh(rig)
-    local p = h.proxy
-    if h.device.suspend and h.device.resume then
+  local probe = fresh(rig)
+  local suspends = probe.device.suspend ~= nil and probe.device.resume ~= nil
+  finish(probe)
+  if suspends then
+    T.section(name .. ": a connection stopped on purpose reads offline and keeps its level")
+    C.case(T, name, function()
+      local h = fresh(rig)
+      local p = h.proxy
       p:send("ON")
       h.clock.run(ms)
       local level = p.level
@@ -698,9 +679,9 @@ function C.run(T, rig)
       h.clock.run(ms)
       T.eq(name .. ": back online", on(p.online), true)
       T.eq(name .. ": the proxy shows the device", p.level, percent(h))
-    end
-    finish(h)
-  end)
+      finish(h)
+    end)
+  end
 
   T.section(name .. ": another hand's change shows, during a ramp and outside one")
   C.case(T, name, function()
@@ -751,7 +732,7 @@ function C.run(T, rig)
       for _, level in ipairs(told) do
         shown = shown or level == stale
       end
-      T.check(name .. ": and never at the level it went off at", not shown, show({ stale = stale, told = told }))
+      T.check(name .. ": and never at the level it went off at", not shown, T.show({ stale = stale, told = told }))
     end
     finish(h)
   end)
@@ -791,8 +772,8 @@ function C.run(T, rig)
       p:send("ON")
       h.clock.run(ms)
       local color = xyOf(h.device.state().color)
-      T.check(name .. ": the next On comes on in the held color", sameXY(color, held), show(color))
-      T.check(name .. ": as the proxy shows", sameXY(shownXY(p.color), held), show(p.color))
+      T.check(name .. ": the next On comes on in the held color", sameXY(color, held), T.show(color))
+      T.check(name .. ": as the proxy shows", sameXY(shownXY(p.color), held), T.show(p.color))
       finish(h)
     end)
   end
@@ -805,8 +786,16 @@ function C.run(T, rig)
       p:mark()
       rig.rest(h)
       h.clock.run(ms)
-      T.eq(name .. ": one Brightness Changed", p:count("LIGHT_BRIGHTNESS_CHANGED"), 1)
+      local levels, colors = p:count("LIGHT_BRIGHTNESS_CHANGED"), p:count("LIGHT_COLOR_CHANGED")
+      T.check(name .. ": the rest is told, each aspect once", levels <= 1 and colors <= 1 and levels + colors >= 1, {
+        levels = levels,
+        colors = colors,
+      })
       T.eq(name .. ": at the level the device rests at", p.level, percent(h))
+      local rested = xyOf(h.device.state().color)
+      if rested then
+        T.check(name .. ": in the color the device rests in", sameXY(p.color, rested), T.show(p.color))
+      end
       finish(h)
     end)
   end

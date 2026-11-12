@@ -220,33 +220,12 @@ end
 --- A rig for one family, by the modes its entity lists. OnDriverInit is not called: its --#ifdef
 --- DRIVERCENTRAL arms are plain comments in unpreprocessed source, so both would run and need the cloud
 --- client. The rig leaves gInitialized as OnDriverInit would, as the repo's other driver harnesses do.
-local minimumOS
-
--- What the shim lacks and late init reads: the minimum OS version from driver.xml, and the two
--- properties late init updates.
-local function environment(folder)
-  if not minimumOS then
-    local f = assert(io.open(ROOT .. "/drivers/" .. folder .. "/driver.xml", "rb"))
-    minimumOS = f:read("*a"):match("<minimum_os_version>([^<]+)</minimum_os_version>")
-    f:close()
-    local config = C4.GetDriverConfigInfo
-    function C4:GetDriverConfigInfo(section)
-      if section == "minimum_os_version" then
-        return minimumOS
-      end
-      return config(self, section)
-    end
-  end
-  Properties["Driver Status"] = Properties["Driver Status"] or ""
-  Properties["Driver Version"] = Properties["Driver Version"] or ""
-end
-
-local function rig(name, modes, mireds, rest)
+--- @param start LightValues|nil Where the rig's light starts when a case gives no state.
+local function rig(name, modes, mireds, rest, start)
   local r = { name = name, rest = rest }
   function r.load(h, state)
     local folder = r.folder:match("[^/]+$")
-    environment(folder)
-    local fake = device(h, modes, mireds, state)
+    local fake = device(h, modes, mireds, state or start)
     gInitialized = false
     dofile(ROOT .. "/drivers/" .. folder .. "/driver.lua")
     ShimLateInit()
@@ -257,13 +236,9 @@ end
 
 local RANGE = { min_mireds = 153, max_mireds = 500 }
 
--- A color fade into a white of another mode, stopped part way: the light rests where its own fade has it.
+-- A color fade into a white of another mode, stopped part way, from the rig's start in red: the light rests
+-- where its own fade has it.
 local function stopMidModeChange(h)
-  h.proxy:send(
-    "SET_COLOR_TARGET",
-    { LIGHT_COLOR_TARGET_X = 0.64, LIGHT_COLOR_TARGET_Y = 0.33, LIGHT_COLOR_TARGET_MODE = 0 }
-  )
-  h.clock.run(1000)
   local x, y = Color.kelvinToXY(4000)
   h.proxy:send("SET_COLOR_TARGET", {
     LIGHT_COLOR_TARGET_X = x,
@@ -275,6 +250,8 @@ local function stopMidModeChange(h)
   h.proxy:send("SET_COLOR_STOP", {})
 end
 
+local RED = { on = true, level = 1, color = { x = 0.64, y = 0.33 } }
+
 return {
   version = Rig.VERSION,
   rigs = {
@@ -285,7 +262,8 @@ return {
         "RGBCT with separate modes",
         { ColorMode.COLOR_MODE_RGB, ColorMode.COLOR_MODE_COLOR_TEMPERATURE },
         RANGE,
-        stopMidModeChange
+        stopMidModeChange,
+        RED
       ),
       rig("RGBW with separate modes", { ColorMode.COLOR_MODE_RGB, ColorMode.COLOR_MODE_WHITE }),
       rig("RGB", { ColorMode.COLOR_MODE_RGB }),

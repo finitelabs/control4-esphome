@@ -109,6 +109,23 @@ local LINK_ACTIONS = { DO_PUSH = 1, DO_CLICK = 2, DO_RELEASE = 0 }
 --- @class LightHandlers
 local Handlers = {}
 
+--- Every command the library handles on the proxy and link bindings, sorted. A driver's command-keyed RFP for
+--- one would run before the library's binding handler and take the command from it.
+--- @type string[]
+Handlers.COMMANDS = {}
+do
+  local seen = {}
+  for _, set in ipairs({ DEVICE, FAMILY, SCENE_OPS, SETTINGS, ASKS, IGNORED, LINK_ACTIONS }) do
+    for command in pairs(set) do
+      if not seen[command] then
+        seen[command] = true
+        Handlers.COMMANDS[#Handlers.COMMANDS + 1] = command
+      end
+    end
+  end
+  table.sort(Handlers.COMMANDS)
+end
+
 --- A C4 level param, rounded and held to 0-100.
 --- @param value string|number|nil
 --- @return integer
