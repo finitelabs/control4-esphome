@@ -83,7 +83,6 @@ local BENIGN = {
   OFFLINE_ONCE = "benign: offline is told once per outage",
   LANDING = "benign: a stop's 500 ms ease on the wire lands inside the wait",
   SAME_XY = "benign: another client's change that leaves the xy the same is unseen",
-  STUB_NO_CCT = "harness: the suite's color temperature stub gives none, so a light with no color known has no start to ramp from",
   PRECISION = "benign: a level estimated a few ms apart is told one level off",
   SCENEDTW = "benign: Stop Scene Ramp in a Dim-To-Warm step sends one command where the released driver sent two; the end state is the same",
   FOLLOWUP_PRESET = "benign: a follow-up naming another preset is sent again",
@@ -474,6 +473,8 @@ end
 function C4:ColorXYtoHSV(x, y)
   return x * 360, y * 100
 end
+
+local locusCCT = C4.ColorXYtoCCT
 
 -- No xy is a color temperature's point until a section gives the two a form.
 function C4:ColorXYtoCCT()
@@ -3982,12 +3983,15 @@ do
   mark()
   colorTarget(ON, 0)
   T.eq("a color for a light that is off: it names the mode that holds a color", modes(), { RGBCT })
+  local noCCT = C4.ColorXYtoCCT
+  C4.ColorXYtoCCT = locusCCT
   light({ RGBCT, CT })
   mark()
   colorTarget(ON, 2000)
   run(1000)
   proxy("SET_COLOR_STOP")
-  T.differs("a color ramp, and its stop", BENIGN.STUB_NO_CCT)
+  T.eq("a color ramp, and its stop", modes(), { RGBCT, RGBCT })
+  C4.ColorXYtoCCT = noCCT
   activate(colorStep(nil, BLUE, 0))
   T.eq("a scene step's color", modes(), { RGBCT })
   activate(colorStep(50, ON, 2000))
