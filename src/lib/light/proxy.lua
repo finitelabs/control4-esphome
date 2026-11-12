@@ -76,6 +76,11 @@ local BUTTON_NAMES = { [TOP] = "Top", [BOTTOM] = "Bottom", [TOGGLE] = "Toggle" }
 --- @field settings LightSettings
 --- @field device LightDevice|nil The facts the capabilities were last worked out from.
 --- @field toldOnline boolean|nil nil before the first ONLINE_CHANGED of this load.
+--- @field suspended boolean The connection was stopped on purpose (lost(true)); it ends at the next online.
+--- @field ledsDue boolean The connection's first sync tells the link LEDs, after a load or a suspend.
+--- @field ledsSent boolean The link LEDs were told in the sync running now.
+--- @field asked integer|nil The C4 level the last level command asked: with Min On at Max On or above, it is told.
+--- @field presetNamed boolean A proxy color command named a preset: told even while the light is off.
 --- @field readOff boolean A loss read the light off in this outage.
 --- @field shownDue boolean The connection's first LightShown is still owed.
 --- @field level LightToldLevel
@@ -98,6 +103,10 @@ function LightProxy.new(profile, settings)
     profile = profile,
     settings = settings,
     readOff = false,
+    suspended = false,
+    ledsDue = false,
+    ledsSent = false,
+    presetNamed = false,
     shownDue = false,
     setupDue = false,
     level = { preOn = false },
@@ -155,8 +164,9 @@ local function parseColor(text)
   return color
 end
 
---- What the proxy shows at start. Its values are what it was told, so none is told again; each goes into
---- the seed only when its target equals it, since a target that differs is a ramp of an earlier load.
+--- What the proxy shows, read at start and at each connection's first report. A value whose target equals it
+--- is what the proxy was told, and goes into the seed; one whose target differs is a ramp the proxy still
+--- shows, so it counts as untold, and the first report's value is told, ending that ramp.
 --- @return LightSeed
 function LightProxy:read()
   local seed = {}
@@ -172,24 +182,23 @@ function LightProxy:read()
     return seed
   end
   level = tointeger(level)
-  if level and level >= 0 and level <= 100 then
+  self.level.target, self.level.endsAt = nil, nil
+  -- An On/Off light's proxy has no target: it is told no ramp.
+  if level and level >= 0 and level <= 100 and (levelTarget == nil or tointeger(levelTarget) == level) then
     self.level.level = level
-    -- An On/Off light's proxy has no target: it is told no ramp.
-    if levelTarget == nil or tointeger(levelTarget) == level then
-      local lo, hi = self.settings:onRange()
-      seed.level = Range.toDevice(level, lo, hi)
-    end
+    local lo, hi = self.settings:onRange()
+    seed.level = Range.toDevice(level, lo, hi)
+  else
+    self.level.level = nil
   end
   local shown = parseColor(color)
-  if shown then
+  self.color.target, self.color.endsAt, self.color.changing = nil, nil, false
+  if shown and colorTarget == color then
     self.color.color = shown
-    if colorTarget == color then
-      seed.color = shown
-    end
+    seed.color = shown
+  else
+    self.color.color = nil
   end
-  -- Start reads the setup just before this: what it gave the settings, the proxy holds.
-  self.setupDue = false
-  self:_holdSettings()
   return seed
 end
 
@@ -207,6 +216,7 @@ end
 --- Tell offline, once per outage.
 function LightProxy:offline()
   self.shownDue = false
+  self.suspended = false
   if self.toldOnline ~= false then
     self:_tellOnline(false)
   end
@@ -219,6 +229,9 @@ end
 function LightProxy:online(device)
   self.readOff = false
   self.shownDue = true
+  -- After a load, a bind or a suspend a keypad shows the LEDs it was last told, maybe from before.
+  self.ledsDue = self.leds == nil or self.suspended
+  self.suspended = false
   self:_tellOnline(true)
   local told = self:capabilities(device)
   local proxy, links = self.profile.proxy, self.profile.links
@@ -248,7 +261,11 @@ end
 --- @param suspended boolean
 function LightProxy:lost(suspended)
   self:offline()
-  if suspended or self.readOff then
+  if suspended then
+    self.suspended = true
+    return
+  end
+  if self.readOff then
     return
   end
   self.readOff = true
@@ -354,6 +371,7 @@ function LightProxy:_leds(on, again)
     return
   end
   self.leds = on
+  self.ledsSent = true
   local links = self.profile.links
   if not links then
     return
@@ -508,10 +526,12 @@ function LightProxy:_syncColor(view, now, endsOff)
     if same then
       return
     end
-    self:_colorChanging(target, view.colorMs, endsAt, preset, origin, told.color or current)
+    -- From where the color has got to: a re-timed or replacing ramp starts there, not at the last told.
+    self:_colorChanging(target, view.colorMs, endsAt, preset, origin, current)
     return
   end
-  local presetMoved = lit and preset ~= nil and (preset ~= told.preset or origin ~= told.origin)
+  -- A preset named while the light is off is told at once: Navigator shows that preset as the light's.
+  local presetMoved = (lit or self.presetNamed) and preset ~= nil and (preset ~= told.preset or origin ~= told.origin)
   if told.changing or not Color.alike(current, told.color) or presetMoved then
     self:_colorChanged(current, preset, origin)
   end
@@ -526,8 +546,10 @@ end
 function LightProxy:_syncLevel(view, now, lo, hi)
   local told = self.level
   local preset = view.levelPreset
+  -- With Min On at Max On or above every level sits at one brightness: the level asked is the one told.
+  local asked = lo >= hi and self.asked or nil
   if view.levelTarget ~= nil and view.levelMs > 0 then
-    local target = view.on and shownLevel(view.levelTarget, lo, hi) or 0
+    local target = view.on and (asked or shownLevel(view.levelTarget, lo, hi)) or 0
     local endsAt = now + view.levelMs
     if told.target == target and sameEnd(told.endsAt, endsAt) then
       return
@@ -535,7 +557,7 @@ function LightProxy:_syncLevel(view, now, lo, hi)
     self:_levelChanging(shownLevel(view.level, lo, hi), target, view.levelMs, endsAt, preset)
     return
   end
-  local level = view.on and math.max(1, shownLevel(view.level, lo, hi)) or 0
+  local level = view.on and math.max(1, asked or shownLevel(view.level, lo, hi)) or 0
   local presetMoved = level > 0 and preset ~= nil and preset ~= told.preset
   if told.target ~= nil or level ~= told.level or presetMoved then
     self:_levelChanged(level, preset)
@@ -550,8 +572,16 @@ function LightProxy:sync(view)
   local lo, hi = self.settings:onRange()
   local ramping = view.levelTarget ~= nil and view.levelMs > 0
   local endsOff = not ramping and not view.on and (self.level.level or 0) > 0
+  self.ledsSent = false
   self:_syncColor(view, now, endsOff)
   self:_syncLevel(view, now, lo, hi)
+  if self.ledsDue then
+    self.ledsDue = false
+    if not self.ledsSent then
+      self:_leds(view.on or (ramping and (self.level.target or 0) > 0), true)
+    end
+  end
+  self.presetNamed = false
   -- Echoed after the ramp it starts: echoed first, the proxy snaps its UI to the on or off target and
   -- the CHANGING after it rewinds, a visible jump.
   local presses = self.presses
@@ -661,6 +691,20 @@ function LightProxy:_tellLinkColors(button)
   end
 end
 
+--- A proxy motion command, for what its tell carries that Motion's view does not: the C4 level a level command
+--- asked, which a range with no width tells, and the preset a color command named.
+--- @param intent LightIntent
+function LightProxy:taken(intent)
+  local kind = intent.kind
+  if kind == "color" then
+    self.presetNamed = intent.presetId ~= nil
+  elseif kind == "level" then
+    self.asked = intent.level
+  elseif kind == "on" or kind == "off" or kind == "toggle" then
+    self.asked = nil
+  end
+end
+
 --- A button press to echo as BUTTON_ACTION at the next sync, after the CHANGING it starts. A link's own
 --- DO_* is never echoed: the proxy sent it, so it already knows the button fired.
 --- @param button integer
@@ -698,32 +742,18 @@ end
 --- A read the proxy, or a keypad over a Button Link, asks.
 --- @param strCommand string
 --- @param _tParams table<string, string>|nil
---- @param view LightView
+--- @param _view LightView
 --- @param idBinding integer|nil The binding it came on.
-function LightProxy:answer(strCommand, _tParams, view, idBinding)
+function LightProxy:answer(strCommand, _tParams, _view, idBinding)
   local proxy = self.profile.proxy
   if strCommand == "GET_CONNECTED_STATE" then
     self:_tellOnline(self.toldOnline == true)
   elseif strCommand == "GET_LIGHT_LEVEL" then
-    local lo, hi = self.settings:onRange()
-    if view.levelTarget ~= nil and view.levelMs > 0 then
-      -- A CHANGED level is one the light has stopped at: a ramp answers where it has got to.
-      SendToProxy(proxy, "LIGHT_BRIGHTNESS_CHANGING", {
-        LIGHT_BRIGHTNESS_CURRENT = shownLevel(view.level, lo, hi),
-        LIGHT_BRIGHTNESS_TARGET = view.on and shownLevel(view.levelTarget, lo, hi) or 0,
-        RATE = view.levelMs,
-        LIGHT_BRIGHTNESS_TARGET_PRESET_ID = self.level.preset,
-      }, "NOTIFY", true)
-      return
+    -- The level the light holds, online or not: what the proxy was told last or showed at start, so it is
+    -- what the proxy shows. With none held there is nothing to answer.
+    if self.level.level ~= nil then
+      SendToProxy(proxy, "LIGHT_LEVEL", tostring(self.level.level), "NOTIFY")
     end
-    if self.level.level == nil then
-      -- Nothing read at start and nothing told since: there is no level to answer.
-      return
-    end
-    SendToProxy(proxy, "LIGHT_BRIGHTNESS_CHANGED", {
-      LIGHT_BRIGHTNESS_CURRENT = self.level.level,
-      LIGHT_BRIGHTNESS_CURRENT_PRESET_ID = self.level.preset,
-    }, "NOTIFY")
   elseif strCommand == "REQUEST_BUTTON_COLORS" then
     local asking = self:_button(idBinding)
     if asking ~= nil then

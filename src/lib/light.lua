@@ -47,6 +47,7 @@ local MOVES = {
   stopLevel = { "level" },
   color = { "color" },
   stopColor = { "color" },
+  stop = { "level", "color" },
 }
 
 --- A Light V2 light over one adapter.
@@ -147,6 +148,7 @@ function Light:declare(device)
   self.device = checked
   self.motion:declare(checked)
   self.ledger:declare(checked)
+  self.buttons:declare(checked)
   if before and not Caps.same(before.fade, checked.fade) then
     self.motion:finishAll()
     self.ledger:closeAll()
@@ -207,6 +209,9 @@ function Light:report(report)
   end
   if not self.online then
     self.online = true
+    -- What the proxy shows now is what the connection's first report is weighed against: a ramp the proxy
+    -- still runs from before the loss ends there.
+    self.motion:seed(self.proxy:read())
     self.proxy:online(self.device)
     -- A new light's setup lists no colors until the proxy has heard its capabilities.
     self.settings:readSetup(self.proxy:readSetup())
@@ -234,9 +239,10 @@ end
 -- The handlers' entry points
 -----------------------------------------------------------------------------------------------------
 
---- A motion command from the proxy.
+--- A motion command from the proxy. The proxy hears an answer for what it asked, even when nothing changes.
 --- @param intent LightIntent
 function Light:command(intent)
+  self.proxy:taken(intent)
   self:_followUp(self:_move(intent))
 end
 
@@ -249,7 +255,7 @@ function Light:button(button, action, echo)
   if action == Buttons.PRESS then
     self.scenes:stopSteps()
   end
-  local intent = self.buttons:action(button, action, self.motion:now())
+  local intent = self.buttons:action(button, action, self.motion:now(), self.motion:view())
   self:_followUp(intent and self:_move(intent) or {})
 end
 
@@ -327,6 +333,7 @@ function Light:_move(intent)
     self.scenes:foreign(MOVES[intent.kind])
   end
   self.picks:noted(intent, self.motion:now(), self.settings:forOn())
+  self.buttons:noted(intent, self.motion:now())
   return self.motion:command(intent, OnColor.choose(intent, self:_onInputs()), self.settings:forMotion())
 end
 
@@ -361,6 +368,10 @@ end
 --- @param heard LightHeard
 function Light:_heard(heard)
   local before = self.motion:now()
+  if #heard.foreign > 0 and self.device.fade.retimes then
+    -- Another client's command restarts every channel of a device that re-times, so no ramp of ours runs on.
+    self.motion:haltAll()
+  end
   self.motion:settle(heard.settle)
   if #heard.foreign > 0 then
     self.scenes:foreign(rampsEnded(before, heard.foreign))

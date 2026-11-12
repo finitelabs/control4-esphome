@@ -521,7 +521,8 @@ function Caps.static(profile)
     -- on_off, ramp_level and supports_default_on are deprecated in OS 3.3.2, but Composer's test panel still
     -- shows the On and Off buttons, the Ramp button and the Default On preset editor by them.
     row("on_off", "True"),
-    row("ramp_level", bool(dims)),
+    -- A light that does not fade offers no Ramp: it does nothing with a ramp's rate.
+    row("ramp_level", bool(dims and fades)),
     row("supports_default_on", bool(profile.defaultOn)),
     row("supports_brightness_stop", bool(dims and fades)),
     row("click_rates", bool(dims and fades)),
@@ -585,7 +586,8 @@ function Caps.dynamic(device, profile)
     dimmer = dims,
     set_level = dims,
     supports_target = dims,
-    ramp_level = dims,
+    -- As driver.xml declares it: a profile without fades offers no Ramp.
+    ramp_level = dims and profile.fades == true,
     supports_brightness_stop = dims and stops,
     has_fixed_ramp_rate = fixed ~= nil,
     fixed_ramp_rate = fixed or 0,

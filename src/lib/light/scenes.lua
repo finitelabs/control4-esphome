@@ -344,7 +344,8 @@ function Scenes:deactivate(_tParams, _now)
   return nil
 end
 
---- RAMP_SCENE_UP or RAMP_SCENE_DOWN, unless the scene ignores ramps: up heads for full, down for off.
+--- RAMP_SCENE_UP or RAMP_SCENE_DOWN, unless the scene ignores ramps: the steps stop, and the light ramps to
+--- full or off over the asked time, in the color of the scene's last element.
 --- @private
 --- @param tParams table<string, string>
 --- @param up boolean
@@ -356,11 +357,15 @@ function Scenes:_ramp(tParams, up)
     return nil
   end
   self:stopSteps()
+  local last = scene and scene.elements[#scene.elements]
+  local step = last and stepIntent(last)
   return {
     kind = "level",
     level = up and 100 or 0,
+    color = step and step.color or nil,
     rateMs = math.max(0, tointeger(Select(tParams, "RATE")) or 0),
     source = "scene",
+    ramp = true,
   }
 end
 
@@ -391,7 +396,8 @@ function Scenes:stopRamp(tParams, _now)
     return nil
   end
   self:stopSteps()
-  return { kind = "stopLevel", source = "scene" }
+  -- A scene's ramp stops the color with the level, each where it has got to.
+  return { kind = "stop", source = "scene" }
 end
 
 --- TOGGLE_SCENE: the light keeps no scene's active state, so it activates; the agent tracks the toggle.

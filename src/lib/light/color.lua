@@ -153,6 +153,10 @@ end
 --- @type number
 Color.WHITE_BAND = 0.012
 
+--- The white range a light with color and no CCT range shows its whites in, in Kelvin.
+--- @type integer
+Color.WHITE_MIN_K, Color.WHITE_MAX_K = 2000, 6500
+
 --- The white-locus test: whether a CIE xy point lies within Color.WHITE_BAND of the black-body locus
 --- between two color temperatures.
 --- @param x number CIE 1931 x.
@@ -196,8 +200,8 @@ function Color.alike(a, b, tolerance)
 end
 
 --- A color as a light takes it, by whether it has color and CCT, and so as its reports read. A white goes
---- out at its color temperature's own point on a light with CCT, and as a full color on one with color
---- and no CCT.
+--- out at its color temperature's own point on a light with CCT, and on one with color and no CCT as a full
+--- color on the locus, its Kelvin held to Color.WHITE_MIN_K and WHITE_MAX_K.
 --- @param x number
 --- @param y number
 --- @param mode LightColorMode
@@ -209,7 +213,14 @@ function Color.taken(x, y, mode, hasColor, hasCct)
     return x, y, mode
   end
   if not hasCct then
-    return x, y, hasColor and Color.FULL or mode
+    if not hasColor then
+      return x, y, mode
+    end
+    local k = Color.kelvin(x, y)
+    if k then
+      x, y = Color.kelvinToXY(math.max(Color.WHITE_MIN_K, math.min(Color.WHITE_MAX_K, k)))
+    end
+    return x, y, Color.FULL
   end
   local k = Color.kelvin(x, y)
   if k then
@@ -219,14 +230,19 @@ function Color.taken(x, y, mode, hasColor, hasCct)
 end
 
 --- A color in the form a device takes it: Color.taken by its capabilities, and a white given its Kelvin,
---- clamped to the device's range, with x and y on the locus at that Kelvin. Nil for a full color on a
---- device without color, and for any color on a device with neither color nor CCT.
+--- clamped to the device's range, with x and y on the locus at that Kelvin. A full color on a device with CCT
+--- alone is its nearest white. Nil for any color on a device with neither color nor CCT.
 --- @param color LightColor
 --- @param device LightDevice
+--- @param unclamped boolean|nil Keep a Kelvin past the range as given: a color told for the next on, not shown yet.
 --- @return LightColor|nil
-function Color.forDevice(color, device)
+function Color.forDevice(color, device, unclamped)
   local hasCct = device.cct ~= nil
-  local x, y, mode = Color.taken(color.x, color.y, color.mode, device.color, hasCct)
+  local asked = color.mode
+  if not device.color and hasCct then
+    asked = Color.CCT
+  end
+  local x, y, mode = Color.taken(color.x, color.y, asked, device.color, hasCct)
   if mode ~= Color.CCT then
     if not device.color then
       return nil
@@ -236,11 +252,12 @@ function Color.forDevice(color, device)
   if not hasCct then
     return nil
   end
-  local kelvin = color.kelvin or Color.kelvin(x, y)
+  local kelvin = (asked == color.mode and color.kelvin) or Color.kelvin(x, y)
   if not kelvin then
     return nil
   end
-  local clamped = math.floor(math.max(device.cct.minK, math.min(device.cct.maxK, kelvin)) + 0.5)
+  local clamped =
+    math.floor((unclamped and kelvin or math.max(device.cct.minK, math.min(device.cct.maxK, kelvin))) + 0.5)
   if clamped ~= kelvin or not color.kelvin then
     x, y = Color.kelvinToXY(clamped)
   end
@@ -248,7 +265,7 @@ function Color.forDevice(color, device)
 end
 
 --- The Dim-To-Warm color at a level (Light V2 _7.2): the Dim color at 0 to the On color at 100, straight
---- across xy, in the On color's mode. Color.forDevice gives the form a device takes.
+--- across xy for any pair, whites too, in the On color's mode. Color.forDevice gives the form a device takes.
 --- @param dim LightColor
 --- @param on LightColor
 --- @param level number A C4 level.

@@ -25,7 +25,6 @@ local DEVICE = {
   SET_COLOR_TARGET = true,
   SET_BRIGHTNESS_STOP = true,
   SET_COLOR_STOP = true,
-  GET_LIGHT_LEVEL = true,
   ACTIVATE_SCENE = true,
   DEACTIVATE_SCENE = true,
   RAMP_SCENE_UP = true,
@@ -94,7 +93,7 @@ local SETTINGS = {
   SET_BUTTON_COLOR = true,
 }
 
--- The reads the proxy asks.
+-- The reads the proxy asks. GET_LIGHT_LEVEL passes the device gate: a suspended light answers the level it keeps.
 local ASKS = { GET_CONNECTED_STATE = true, GET_LIGHT_LEVEL = true, REQUEST_BUTTON_COLORS = true }
 
 -- Commands the light takes and does nothing with: the proxy's mark that it has pushed its scenes, and

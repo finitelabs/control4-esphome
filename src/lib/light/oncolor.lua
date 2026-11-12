@@ -67,10 +67,10 @@ function OnColor.darkens(intent, now)
   return kind == "off" or (kind == "toggle" and now.on == true) or (kind == "level" and (intent.level or 0) <= 0)
 end
 
---- Whether a color intent is the proxy's follow-up of the on or level just before it, or the color the light
---- already heads for. After a Navigator On that took the held color, the follow-up names a preset: on a
---- profile with on modes the Color On Mode's own (zb:2020-2027), as any other is a color someone chose;
---- without on modes any preset, as Hatch's app sends.
+--- Whether a color intent is the proxy's follow-up of the on or level just before it, or the color the light already
+--- heads for, sent back bare or in the Color On Mode's preset. After a Navigator On that took the held color, the
+--- follow-up names a preset: on a profile with on modes the Color On Mode's own (zb:2020-2027), as any other is a color
+--- someone chose; without on modes any preset, as Hatch's app sends.
 --- @param intent LightIntent
 --- @param now LightNow
 --- @param picks LightOnPicks
@@ -88,6 +88,14 @@ function OnColor.followUp(intent, now, picks, settings)
     if intent.presetId == settings.onPresetId and intent.presetOrigin == settings.onPresetOrigin then
       return true
     end
+  end
+  -- The color the light heads for, sent back bare or in the Color On Mode's own preset, is the proxy's echo; one
+  -- naming another preset is a choice, told in that preset.
+  local onModePreset = settings ~= nil
+    and intent.presetId == settings.onPresetId
+    and intent.presetOrigin == settings.onPresetOrigin
+  if intent.presetId ~= nil and not onModePreset then
+    return false
   end
   return now.on == true and now.color ~= nil and Color.alike(intent.color, now.color)
 end
@@ -168,6 +176,13 @@ function OnColor.choose(intent, inputs)
     level = intent.level
   elseif intent.kind == "on" or (lights and intent.kind == "toggle") then
     level = OnColor.onLevel(now, settings)
+  elseif OnColor.darkens(intent, now) and now.on then
+    -- An off under Dim-To-Warm fades to the Dim color, the formula's color at level 0, unless a pick holds.
+    local dim = not picks.picked and device ~= nil and OnColor.dimToWarm(0, device, settings) or nil
+    if not dim then
+      return nil
+    end
+    return { level = 0, color = dim, unchosen = true, followUp = false }
   else
     return nil
   end

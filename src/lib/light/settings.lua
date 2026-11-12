@@ -79,8 +79,9 @@ Settings.PRESET_ORIGIN_DEVICE = 1
 Settings.PREVIOUS_ON_PRESET_ID = 10
 
 local DEFAULT_PRESET_LEVEL = 100
-local DEFAULT_CLICK_RATE = 500
-local DEFAULT_HOLD_RATE = 3000
+-- The click and hold rates a light starts with, up and down, as Control4's own lights have them.
+local DEFAULT_CLICK_RATE_UP, DEFAULT_CLICK_RATE_DOWN = 250, 750
+local DEFAULT_HOLD_RATE_UP, DEFAULT_HOLD_RATE_DOWN = 5000, 5000
 local DEFAULT_RATE = 500
 
 --- @param profile LightProfile The checked profile: an on mode counts only where it offers onModes.
@@ -127,27 +128,37 @@ end
 --- @return integer ms
 function Settings:clickRate(up)
   local key = up and Settings.P_CLICK_RATE_UP or Settings.P_CLICK_RATE_DOWN
-  return tointeger(persist:get(key, DEFAULT_CLICK_RATE)) or DEFAULT_CLICK_RATE
+  local default = up and DEFAULT_CLICK_RATE_UP or DEFAULT_CLICK_RATE_DOWN
+  return tointeger(persist:get(key, default)) or default
 end
 
 --- @param up boolean
 --- @return integer ms
 function Settings:holdRate(up)
   local key = up and Settings.P_HOLD_RATE_UP or Settings.P_HOLD_RATE_DOWN
-  return tointeger(persist:get(key, DEFAULT_HOLD_RATE)) or DEFAULT_HOLD_RATE
+  local default = up and DEFAULT_HOLD_RATE_UP or DEFAULT_HOLD_RATE_DOWN
+  return tointeger(persist:get(key, default)) or default
 end
 
---- A button's on and off LED colors: saved by SET_BUTTON_COLOR, else the proxy's setup, else empty.
+-- Each button's LED colors, on and off, when neither a SET_BUTTON_COLOR nor the setup gave any: the Bottom
+-- button's carry the Off look.
+--- @type table<integer, string[]>
+local DEFAULT_BUTTON_COLORS = {
+  [0] = { "0000ff", "000000" },
+  [1] = { "000000", "0000ff" },
+  [2] = { "0000ff", "000000" },
+}
+
+--- A button's on and off LED colors: saved by SET_BUTTON_COLOR, else the proxy's setup (which holds the
+--- project's), else the defaults.
 --- @param button integer 0 top, 1 bottom, 2 toggle.
 --- @return string onHex
 --- @return string offHex
 function Settings:buttonColors(button)
-  local saved = persist:get(Settings.P_BUTTON_COLORS, {})[tostring(button)]
-  local setup = self.setupColors[button]
-  -- None invented: a button with neither saved nor setup colors has empty ones, as the copies send.
-  local on = saved and saved.on_color or setup and setup.on or ""
-  local off = saved and saved.off_color or setup and setup.off or ""
-  return on, off
+  local saved = persist:get(Settings.P_BUTTON_COLORS, {})[tostring(button)] or {}
+  local setup = self.setupColors[button] or {}
+  local default = DEFAULT_BUTTON_COLORS[button] or DEFAULT_BUTTON_COLORS[0]
+  return saved.on_color or setup.on or default[1], saved.off_color or setup.off or default[2]
 end
 
 --- The level the proxy's Previous On preset holds, as it last sent it.
@@ -327,6 +338,21 @@ function Settings:readSetup(xml)
       if id and type(info.ON_COLOR) == "string" and type(info.OFF_COLOR) == "string" then
         self.setupColors[id] = { on = info.ON_COLOR, off = info.OFF_COLOR }
       end
+    end
+  end
+
+  -- The rates and the range the proxy holds, which an install that never stored them still has.
+  for key, name in pairs({
+    [Settings.P_CLICK_RATE_UP] = "CLICK_RATE_UP",
+    [Settings.P_CLICK_RATE_DOWN] = "CLICK_RATE_DOWN",
+    [Settings.P_HOLD_RATE_UP] = "HOLD_RATE_UP",
+    [Settings.P_HOLD_RATE_DOWN] = "HOLD_RATE_DOWN",
+    [Settings.P_MIN_ON_LEVEL] = "MIN_ON_LEVEL",
+    [Settings.P_MAX_ON_LEVEL] = "MAX_ON_LEVEL",
+  }) do
+    local value = tointeger(setup[name])
+    if value and persist:get(key) == nil then
+      persist:set(key, value)
     end
   end
 
@@ -536,13 +562,13 @@ function Settings:apply(strCommand, tParams)
   elseif strCommand == "UPDATE_COLOR_ON_MODE" then
     self:_updateColorOnMode(tParams)
   elseif strCommand == "SET_CLICK_RATE_UP" then
-    self:_setRate(Settings.P_CLICK_RATE_UP, DEFAULT_CLICK_RATE, tParams)
+    self:_setRate(Settings.P_CLICK_RATE_UP, DEFAULT_CLICK_RATE_UP, tParams)
   elseif strCommand == "SET_CLICK_RATE_DOWN" then
-    self:_setRate(Settings.P_CLICK_RATE_DOWN, DEFAULT_CLICK_RATE, tParams)
+    self:_setRate(Settings.P_CLICK_RATE_DOWN, DEFAULT_CLICK_RATE_DOWN, tParams)
   elseif strCommand == "SET_HOLD_RATE_UP" then
-    self:_setRate(Settings.P_HOLD_RATE_UP, DEFAULT_HOLD_RATE, tParams)
+    self:_setRate(Settings.P_HOLD_RATE_UP, DEFAULT_HOLD_RATE_UP, tParams)
   elseif strCommand == "SET_HOLD_RATE_DOWN" then
-    self:_setRate(Settings.P_HOLD_RATE_DOWN, DEFAULT_HOLD_RATE, tParams)
+    self:_setRate(Settings.P_HOLD_RATE_DOWN, DEFAULT_HOLD_RATE_DOWN, tParams)
   elseif strCommand == "SET_MAX_ON_LEVEL" then
     self:_setOnLevel(Settings.P_MAX_ON_LEVEL, 100, tParams)
   elseif strCommand == "SET_MIN_ON_LEVEL" then

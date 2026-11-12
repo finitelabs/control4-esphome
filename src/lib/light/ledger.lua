@@ -59,6 +59,9 @@ function Ledger:sent(cmd, landings)
   end
   if cmd.setsLevel and cmd.on then
     self:_open("level", cmd.level, cmd.from.level, landings.level)
+  elseif cmd.setsLevel then
+    -- An off makes the level before it moot: its window ends, so its deadline can't light the light.
+    self:_close("level")
   end
   if cmd.setsLevel then
     self.libraryOn = cmd.on
@@ -75,10 +78,21 @@ end
 function Ledger:heard(report, now)
   local out = { settle = {}, foreign = {}, ask = false }
   self.libraryOn = self:_onHeld(now.on)
+  --- @type LightAspect[]
+  local history = {}
   for _, aspect in ipairs(ASPECTS) do
     local value = report[aspect]
-    if value ~= nil then
-      self:_weigh(aspect, value, report, now, out)
+    if aspect == "level" and value ~= nil and history[1] == "on" and report.on == false then
+      -- An off held as history carries the level that stale state kept: history too, never a lit level.
+      history[#history + 1] = aspect
+    elseif value ~= nil and self:_weigh(aspect, value, report, now, out) == "history" then
+      history[#history + 1] = aspect
+    end
+  end
+  -- A report another hand made is that hand's state whole: what it held as history is the hand's too.
+  if #out.foreign > 0 then
+    for _, aspect in ipairs(history) do
+      self:_foreign(aspect, report[aspect], out)
     end
   end
   if out.settle.on ~= nil then
@@ -141,6 +155,7 @@ end
 --- @param report LightReport
 --- @param now LightNow
 --- @param out LightHeard
+--- @return "history"|nil history The value was held as history (J5d).
 function Ledger:_weigh(aspect, value, report, now, out)
   -- J1: while a "hold" device is off with a color told but not sent, a report that doesn't say on carries no
   -- color news: the color the proxy shows stands for the next on.
@@ -202,12 +217,22 @@ end
 --- @param report LightReport
 --- @param now LightNow
 --- @param out LightHeard
+--- @return "history"|nil history The value was held as history (d).
 function Ledger:_inWindow(aspect, window, value, report, now, out)
   local kind = report.kind
   local feedback = self.device.feedback
-  -- f: a learning window settles on the first report carrying the aspect.
+  -- f: a learning window settles on the first report carrying the aspect. Another hand's on waits for its
+  -- level, as a device may answer the read one attribute at a time: the on is told with the level, or at the
+  -- deadline. An off instead ends the wait.
   if window.kind == "learning" then
+    if aspect == "on" and value == true then
+      return
+    end
     self:_settle(aspect, value, out)
+    if aspect == "on" then
+      self:_close("level")
+      return
+    end
     return self:_learned(aspect, out)
   end
   -- g: after J6's ask, the first push or final settles.
@@ -223,28 +248,34 @@ function Ledger:_inWindow(aspect, window, value, report, now, out)
   if kind == "moving" then
     return self:_hold(window, value)
   end
+  local ramping = (aspect == "level" and now.levelRamping) or (aspect == "color" and now.colorRamping)
   -- c: an echo of the newest command is the light's own.
   local newest = window.sent[#window.sent]
   if self:_same(aspect, value, newest.value) then
-    window.held, window.heard = nil, true
+    window.held, window.heard, window.echoed = nil, true, true
     if feedback.shows == "position" then
       -- The light is at the change's end: where the command sent it, not the report's rounding of it.
       return self:_settle(aspect, newest.value, out)
     end
-    local ramping = (aspect == "level" and now.levelRamping) or (aspect == "color" and now.colorRamping)
     if not ramping then
       self:_close(aspect)
     end
     return
   end
-  -- d: an older command's value, or the value before the window, is history.
-  if self:_older(aspect, window, value) or self:_same(aspect, value, window.before) then
+  -- d: until the newest command's echo comes, an older command's value, or the value before the window, is
+  -- history. Under "target" one that comes while the aspect's ramp runs says nothing of where the light is,
+  -- and is dropped, so the deadline can't revert the ramp.
+  if not window.echoed and (self:_older(aspect, window, value) or self:_same(aspect, value, window.before)) then
+    if feedback.shows == "target" and ramping then
+      window.heard = true
+      return "history"
+    end
     self:_hold(window, value)
     if aspect == "on" and value == false and newest.value == true and feedback.refresh and not window.asked then
       window.asked = true
       out.ask = true
     end
-    return
+    return "history"
   end
   -- e: a value no command sent.
   if feedback.shows == "target" then
@@ -272,6 +303,7 @@ function Ledger:_open(aspect, value, before, landing)
       sent = {},
       before = before,
       heard = false,
+      echoed = false,
       asked = false,
       extended = false,
       deadline = 0,
@@ -282,8 +314,8 @@ function Ledger:_open(aspect, value, before, landing)
   window.kind = "command"
   local at = landing or C4:GetTime()
   window.sent[#window.sent + 1] = { value = value, landing = at }
-  -- What was held came before this command.
-  window.held = nil
+  -- What was held came before this command, whose echo is still to come.
+  window.held, window.echoed = nil, false
   self:_arm(aspect, window, at + self.device.feedback.waitMs)
 end
 
@@ -300,6 +332,7 @@ function Ledger:_learn(aspect, before, deadline)
     sent = {},
     before = before,
     heard = false,
+    echoed = false,
     asked = true,
     extended = false,
     deadline = 0,
@@ -365,6 +398,12 @@ end
 --- @param value LightAspectValue
 --- @param out LightHeard
 function Ledger:_settle(aspect, value, out)
+  -- A value that matches the newest sent, in device units, is that command's: not the report's rounding of it.
+  local window = self.windows[aspect]
+  local newest = window and window.sent[#window.sent]
+  if newest and self:_same(aspect, value, newest.value) then
+    value = newest.value
+  end
   out.settle[aspect] = value
   self:_close(aspect)
 end
@@ -384,8 +423,8 @@ end
 -- Matching, in device units
 -----------------------------------------------------------------------------------------------------
 
---- Whether two values of an aspect are one: an on exactly, a level at the device's steps, a color within
---- Color.TOLERANCE in xy.
+--- Whether two values of an aspect are one: an on exactly, a level at the device's steps, a color in the same
+--- mode and within Color.TOLERANCE in xy (a white and a full color at one xy are two).
 --- @private
 --- @param aspect LightAspect
 --- @param a LightAspectValue|nil
@@ -406,7 +445,7 @@ function Ledger:_same(aspect, a, b)
   end
   --- @cast a LightColor
   --- @cast b LightColor
-  return math.abs(a.x - b.x) <= Color.TOLERANCE and math.abs(a.y - b.y) <= Color.TOLERANCE
+  return a.mode == b.mode and math.abs(a.x - b.x) <= Color.TOLERANCE and math.abs(a.y - b.y) <= Color.TOLERANCE
 end
 
 --- Whether a value matches a command older than the window's newest.

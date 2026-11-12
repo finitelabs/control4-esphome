@@ -1,10 +1,11 @@
 --- The light's three buttons, from BUTTON_ACTION and from the Button Links: presses, holds and clicks as
 --- intents for Motion.
 ---
---- A press waits 250 ms before its hold ramp starts. Only that button's click or release, or another press,
---- ends the wait; a command meanwhile leaves it, as the button is still down. So a click tells one CHANGING
---- and sends the device one level. A hold's time is the hold rate scaled by the distance left, and a Toggle
---- hold alternates direction.
+--- On a light that dims, a press waits 250 ms before its hold ramp starts. Only that button's click or release,
+--- or another press, ends the wait; a command meanwhile leaves it, as the button is still down. So a click
+--- tells one CHANGING and sends the device one level. A hold's time is the hold rate scaled by the distance
+--- left. Toggle's hold goes down at full and up at off, and otherwise the other way from the last ramp of any
+--- source. A light that doesn't dim acts at the press, and the click or release after it asks nothing.
 
 local Range = require("lib.light.range")
 
@@ -19,7 +20,9 @@ local GATE_MS = 250
 --- @field light Light
 --- @field settings LightSettings
 --- @field press LightPress|nil The press in hand, from its PRESS to its release.
---- @field toggleLast LightHoldDirection|nil The direction of the last Toggle hold.
+--- @field dims boolean The device dims: presses wait for the gate.
+--- @field nextRamp LightHoldDirection|nil Where Toggle's next hold goes between full and off: up after a ramp to
+---   off, else down; nil until the first event, which takes it from the light: down if lit, up if off.
 local Buttons = {}
 Buttons.__index = Buttons
 
@@ -42,12 +45,37 @@ Buttons.RELEASE_CLICK = 2
 --- @field direction LightHoldDirection Where a hold goes.
 --- @field waiting boolean The 250 ms gate runs.
 --- @field holding boolean The hold ramp runs, and is this press's.
+--- @field acted boolean A light that doesn't dim took the click action at the press: the release asks nothing.
 
 --- @param light Light
 --- @param settings LightSettings
 --- @return LightButtons
 function Buttons.new(light, settings)
-  return setmetatable({ light = light, settings = settings, press = nil, toggleLast = nil }, Buttons)
+  return setmetatable({ light = light, settings = settings, press = nil, dims = true, nextRamp = nil }, Buttons)
+end
+
+--- The device's facts: whether presses wait for the gate.
+--- @param device LightDevice
+function Buttons:declare(device)
+  self.dims = device.dims
+end
+
+--- Every intent, from any source: a ramp sets where Toggle's next hold goes.
+--- @param intent LightIntent
+--- @param now LightNow
+function Buttons:noted(intent, now)
+  if intent.ramp then
+    self.nextRamp = (intent.level or 0) <= 0 and "up" or "down"
+  end
+end
+
+--- Take Toggle's first hold direction from the light, at the first press no ramp has set it before.
+--- @private
+--- @param now LightNow
+function Buttons:_start(now)
+  if self.nextRamp == nil then
+    self.nextRamp = now.on == true and "down" or "up"
+  end
 end
 
 --- The button a Button Link binding drives.
@@ -67,20 +95,33 @@ function Buttons.forLink(links, idBinding)
   return nil
 end
 
---- The C4 level the light is at or heading to: 0 while off.
+--- The C4 level a press or a click finds the light at: 0 while off. With the view, where the light has got to,
+--- and a light on its way to or from off counts as off until half a level above it, as released ESPHome reads
+--- a Toggle (es:1797-1818); without it, where the light heads.
 --- @private
 --- @param now LightNow
+--- @param view LightView|nil
 --- @return integer
-function Buttons:_level(now)
+function Buttons:_level(now, view)
+  local lo, hi = self.settings:onRange()
+  if view then
+    if view.level <= 0 then
+      return 0
+    end
+    local at, off = Range.linePlace(view.level, lo, hi), Range.linePlace(0, lo, hi)
+    if at and off and at < off + 0.5 then
+      return 0
+    end
+    return math.max(1, Range.toLevel(view.level, lo, hi))
+  end
   if now.on ~= true then
     return 0
   end
-  local lo, hi = self.settings:onRange()
   return Range.toLevel(now.level, lo, hi)
 end
 
 --- Where a hold of this button goes from this level. Toggle goes down from full and up from off, and
---- otherwise the other way from its last hold; its first goes down from a lit light.
+--- otherwise the other way from the last ramp.
 --- @private
 --- @param button integer
 --- @param level integer
@@ -94,10 +135,18 @@ function Buttons:_direction(button, level)
     return "down"
   elseif level <= 0 then
     return "up"
-  elseif self.toggleLast then
-    return self.toggleLast == "down" and "up" or "down"
   end
-  return "down"
+  return self.nextRamp or "down"
+end
+
+--- The click action: Top on, Bottom off, Toggle off if lit and on if not.
+--- @private
+--- @param button integer
+--- @param level integer The C4 level the light is at.
+--- @return LightIntent
+function Buttons:_click(button, level)
+  local up = button == Buttons.TOP or (button == Buttons.TOGGLE and level <= 0)
+  return { kind = up and "on" or "off", rateMs = self.settings:clickRate(up), source = "button" }
 end
 
 --- End the press in hand and its gate.
@@ -114,20 +163,28 @@ end
 --- @param button integer 0 top, 1 bottom, 2 toggle.
 --- @param action integer 0 release after a hold, 1 press, 2 release after a click.
 --- @param now LightNow
+--- @param view LightView|nil Where the light has got to, which a press and a click read.
 --- @return LightIntent|nil
-function Buttons:action(button, action, now)
+function Buttons:action(button, action, now, view)
   if button ~= Buttons.TOP and button ~= Buttons.BOTTOM and button ~= Buttons.TOGGLE then
     return nil
   end
+  self:_start(now)
   if action == Buttons.PRESS then
     self:_endPress()
-    local level = self:_level(now)
+    local level = self:_level(now, view)
+    if not self.dims then
+      self.press =
+        { button = button, prePress = level, direction = "up", waiting = false, holding = false, acted = true }
+      return self:_click(button, level)
+    end
     self.press = {
       button = button,
       prePress = level,
       direction = self:_direction(button, level),
       waiting = true,
       holding = false,
+      acted = false,
     }
     local light = self.light
     SetTimer(GATE_TIMER, GATE_MS, function()
@@ -143,11 +200,10 @@ function Buttons:action(button, action, now)
     return nil
   elseif action == Buttons.RELEASE_CLICK then
     local press = self:_endPress()
-    local up = button == Buttons.TOP
-    if button == Buttons.TOGGLE then
-      up = (press and press.prePress or self:_level(now)) <= 0
+    if press and press.acted then
+      return nil
     end
-    return { kind = up and "on" or "off", rateMs = self.settings:clickRate(up), source = "button" }
+    return self:_click(button, press and press.prePress or self:_level(now, view))
   end
   return nil
 end
@@ -162,18 +218,18 @@ function Buttons:gateEnded(now)
     return nil
   end
   press.waiting, press.holding = false, true
-  if press.button == Buttons.TOGGLE then
-    self.toggleLast = press.direction
-  end
   local up = press.direction == "up"
   local level = self:_level(now)
   local distance = up and (100 - level) or level
-  return {
+  local hold = {
     kind = "level",
     level = up and 100 or 0,
     rateMs = math.floor(self.settings:holdRate(up) * math.max(0, distance) / 100 + 0.5),
     source = "button",
+    ramp = true,
   }
+  self:noted(hold, now)
+  return hold
 end
 
 --- Another source moved the light: a running hold ramp is no longer this press's, so its release stops
@@ -187,7 +243,7 @@ end
 --- The run is replaced: the light was lost or reset.
 function Buttons:reset()
   self:_endPress()
-  self.toggleLast = nil
+  self.nextRamp = nil
 end
 
 return Buttons

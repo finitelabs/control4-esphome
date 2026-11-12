@@ -140,7 +140,7 @@ Types.API = 1
 ---   setsLevel and setsColor name the aspects stopped.
 --- @field setsColor boolean This command changes the color. With fromOff, only when a held color or an on mode's
 ---   color goes with the on; otherwise the light comes on in the color it kept, and `color` is carried. An off
----   never has it: Dim-To-Warm follows levels above 0 only.
+---   with it fades to that color as it goes dark (Dim-To-Warm's Dim color).
 --- @field transitionMs integer "device" fades only, else 0. 0 on a preOn. On a stop, the other aspect's time left
 ---   when a ramp of its own continues.
 --- @field from LightFrom
@@ -262,7 +262,7 @@ Types.API = 1
 -- The library's own shapes
 -----------------------------------------------------------------------------------------------------
 
---- @alias LightIntentKind "on"|"off"|"toggle"|"level"|"color"|"stopLevel"|"stopColor"
+--- @alias LightIntentKind "on"|"off"|"toggle"|"level"|"color"|"stopLevel"|"stopColor"|"stop"
 --- @alias LightSource "proxy"|"button"|"scene"
 
 --- What a proxy command, a link press or a scene step asks of the light.
@@ -274,6 +274,7 @@ Types.API = 1
 --- @field presetId integer|nil Told back to the proxy as the preset that set it.
 --- @field presetOrigin integer|nil The preset's origin, told with its id.
 --- @field source LightSource Light skips the cancel of the part it came from.
+--- @field ramp boolean|nil A hold or a scene ramp, which sets Toggle's next hold direction.
 
 --- OnColor.choose's answer for an intent that lights the light, or for the proxy's follow-up of one.
 --- @class LightOnChoice
@@ -358,6 +359,7 @@ Types.API = 1
 --- @field before boolean|number|LightColor|nil What the library held when the window opened.
 --- @field held boolean|number|LightColor|nil The latest report held.
 --- @field heard boolean A report carrying the aspect arrived.
+--- @field echoed boolean The newest command's echo has come.
 --- @field asked boolean A refresh was asked in this window.
 --- @field extended boolean The deadline was extended once.
 --- @field deadline integer

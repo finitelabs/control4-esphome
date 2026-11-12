@@ -1,8 +1,8 @@
 --- The colors Control4 chose that outlast the command that chose them (DRV-163), and the window in which
 --- the proxy's own follow-up of an on is no choice:
---- - the next-on color: one set while the light is off, or fading to off, that the next on comes on in;
+--- - the next-on color: one set while the light is off, that the next on comes on in;
 --- - the pick: the on cycle's chosen color, which levels keep, with no on mode's color, until the light
----   goes off;
+---   reaches off. A scene's color-only step is one; a step that sets level and color together is not;
 --- - the follow-up window: 250 ms after an on or a level, in which the proxy may send the color it set.
 --- None of it persists: a reload ends it, as a loss or Reset Driver does.
 
@@ -44,13 +44,19 @@ end
 --- @param now LightNow
 --- @param settings LightOnSettings|nil Whose on modes decide the proxy's follow-up; nil reads it by Hatch's rule.
 function Picks:noted(intent, now, settings)
+  -- A light off and still has reached off since the last intent: the cycle's pick ended there, when the proxy
+  -- was told level 0, not at the command that darkened it, so a hold down or a fade that stays lit keeps it.
+  if not now.on and not now.levelRamping then
+    self.picked = nil
+  end
   local kind = intent.kind
   if kind == "color" then
     if not intent.color or OnColor.followUp(intent, now, self:forOn(), settings) then
       return
     end
     local pick = { color = intent.color, presetId = intent.presetId, presetOrigin = intent.presetOrigin }
-    if now.on then
+    -- A light still lit on its way to off takes it as this cycle's pick, which ends at that off (#298).
+    if now.on or now.levelRamping then
       self.picked = pick
     else
       self.nextOn = pick
@@ -65,13 +71,9 @@ function Picks:noted(intent, now, settings)
     end
     self:_follow(took ~= nil and intent.presetId ~= nil)
   elseif OnColor.darkens(intent, now) then
-    self.picked = nil
     self.followUntil = nil
   elseif kind == "on" or kind == "level" then
     self:_follow(false)
-  elseif kind == "stopLevel" and now.levelRamping and not now.on and self.nextOn then
-    -- A stop in a fade to off leaves the light lit, and a color held from the fade is that cycle's pick.
-    self.picked, self.nextOn = self.nextOn, nil
   end
 end
 
