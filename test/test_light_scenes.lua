@@ -30,6 +30,36 @@ local function deliver(idBinding, command, params)
   return handler(idBinding, command, params or {}, {})
 end
 
+-- What the light library changes for this light, as the design's section 6 rows and Derek's rulings say, and what
+-- differs without anyone seeing it. A check the released driver passed and the library is meant to fail names
+-- its row with T.differs.
+local ROW = {
+  GATE = "section 6: a dimming light's hold starts 250 ms after the press",
+  PICK_KEPT = "section 6: another client's color keeps the white pick",
+  HOLD_SCALED = "section 6: a hold takes its rate over the distance left",
+  TOGGLE_HOLD = "section 6: a Toggle hold's direction follows Control4's",
+  SCENE_RAMP = "section 6: Ramp Scene Up and Down go to full in the last element's color, and skip a scene that ignores ramps",
+  REBIND = "section 6: a rebind reads offline until the new device reports",
+  SWITCH = "section 6: an on and off light switches and is told at once",
+  MIX_WHITE = "section 6: a Dim-To-Warm mix near a white lights the white",
+  CLAMP = "section 6: a color temperature beyond the range is told as the lit light shows it",
+  DIFF = "section 6: a command for the level the proxy shows tells nothing",
+  DTW_LINEAR = "section 6: Dim-To-Warm mixes straight across xy, and an off fades to the Dim color",
+  STEP_PICK = "section 6: a scene step that sets level and color is not a pick",
+  RATES = "section 6: click and hold rates default to 250, 750 and 5000 ms",
+  START_TELL = "section 6: every start and reconnect tells the level and color",
+}
+local BENIGN = {
+  STEP_TIMER = "benign: a scene step with nothing to wait on goes out on the step timer",
+  ORDER = "benign: tells in one ms come in another order",
+  PREON = "benign: the pre-on carries the color and the change after it none",
+  RETELL = "benign: a color the proxy already shows is told again or not",
+  ESTIMATE = "benign: CHANGING starts from the library's estimate mid mode change",
+  OFFLINE_ONCE = "benign: offline is told once per outage",
+  LANDING = "benign: a stop's 500 ms ease on the wire lands inside the wait",
+  SAME_XY = "benign: another client's white-channel change with the same xy is unseen",
+}
+
 ---------------------------------------------------------------------------
 -- Virtual clock: the shim's timers have no clock to order by, and a scene's
 -- step and a command's ramp end at different times.
