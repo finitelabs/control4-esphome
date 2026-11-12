@@ -158,7 +158,6 @@ local sentLevelUntil, sentColorUntil = 0, 0
 -- Device brightness (0-1) the light is at or heading to; nil before a report.
 local lightBrightness = nil
 
--- The light's wire: its modes, the fields each command takes, and the fade ESPHome runs.
 local adapter = LightAdapter.new(ESPHOME_BINDING)
 
 -- The main driver dropped the connection itself (UPDATE_DISCONNECT suspended) and the
@@ -1036,11 +1035,6 @@ local function retimeColor(ms, held, now)
   end
 end
 
--- Two-phase fade-up workaround. ESPHome's light_call short-circuits on
--- state=false: brightness=0 in the same command is dropped, so the bulb's
--- stored brightness stays at whatever it was last set to (often 1.0).
--- When we then send state=true brightness=target with transition_length,
--- ESPHome sees no brightness diff and the LED snaps on instead of fading.
 -- Caller contract: only invoked when supportsDimming is true (lightOn/Off,
 -- rampToBrightness, scene apply, etc. all gate on it). On/off-only entities
 -- get a different code path that doesn't touch brightness.

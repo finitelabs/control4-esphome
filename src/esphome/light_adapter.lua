@@ -593,6 +593,11 @@ function LightAdapter:colorFields(x, y, mode, merged, on)
   return nil
 end
 
+--- Two-phase fade-up workaround. ESPHome's light_call short-circuits on
+--- state=false: brightness=0 in the same command is dropped, so the bulb's
+--- stored brightness stays at whatever it was last set to (often 1.0).
+--- When we then send state=true brightness=target with transition_length,
+--- ESPHome sees no brightness diff and the LED snaps on instead of fading.
 --- Pre-pushing a state=true brightness=ε with transition=0 sets the stored
 --- brightness to ~0 so the real ramp has a real diff to interpolate across.
 --- 0.0039 = 1/256, the smallest 8-bit PWM step, visually indistinguishable
@@ -746,7 +751,6 @@ function LightAdapter:aim(opts, dark)
   return color, named
 end
 
---- Put a command on the wire.
 function LightAdapter:put(opts)
   SendToProxy(self.binding, "ENTITY_COMMAND", {
     body = SerializeSafe(opts),
