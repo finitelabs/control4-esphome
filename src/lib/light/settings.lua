@@ -1,7 +1,8 @@
 --- The proxy's settings a light keeps: presets, on modes, rates, the Min and Max On Level, the Dim-To-Warm
 --- presets and the button colors, and the read of the proxy's setup that rebuilds them. Every setting is
 --- read through lib.persist at each use, never kept on the instance, so a key deleted under a live light
---- reads as its default next time. Settings sends nothing: LightProxy tells from these getters.
+--- reads as its default next time; only the setup's button colors, read again at every start, live on it.
+--- Settings sends nothing: LightProxy tells from these getters.
 
 local log = require("lib.logging")
 local persist = require("lib.persist")
@@ -49,6 +50,8 @@ require("drivers-common-public.global.lib")
 
 --- @class LightSettings
 --- @field profile LightProfile
+--- @field setupColors table<integer, LightButtonColors> Each button's colors in the proxy's setup, by button id,
+---   for a button with none saved.
 local Settings = {}
 Settings.__index = Settings
 
@@ -79,13 +82,11 @@ local DEFAULT_PRESET_LEVEL = 100
 local DEFAULT_CLICK_RATE = 500
 local DEFAULT_HOLD_RATE = 3000
 local DEFAULT_RATE = 500
-local DEFAULT_ON_COLOR = "0000ff"
-local DEFAULT_OFF_COLOR = "000000"
 
 --- @param profile LightProfile The checked profile: an on mode counts only where it offers onModes.
 --- @return LightSettings
 function Settings.new(profile)
-  return setmetatable({ profile = profile }, Settings)
+  return setmetatable({ profile = profile, setupColors = {} }, Settings)
 end
 
 -----------------------------------------------------------------------------------------------------
@@ -136,17 +137,17 @@ function Settings:holdRate(up)
   return tointeger(persist:get(key, DEFAULT_HOLD_RATE)) or DEFAULT_HOLD_RATE
 end
 
---- A button's saved on and off LED colors, or blue and black.
+--- A button's on and off LED colors: saved by SET_BUTTON_COLOR, else the proxy's setup, else empty.
 --- @param button integer 0 top, 1 bottom, 2 toggle.
 --- @return string onHex
 --- @return string offHex
 function Settings:buttonColors(button)
-  local colors = persist:get(Settings.P_BUTTON_COLORS, {})
-  local saved = colors[tostring(button)]
-  if saved then
-    return saved.on_color or DEFAULT_ON_COLOR, saved.off_color or DEFAULT_OFF_COLOR
-  end
-  return DEFAULT_ON_COLOR, DEFAULT_OFF_COLOR
+  local saved = persist:get(Settings.P_BUTTON_COLORS, {})[tostring(button)]
+  local setup = self.setupColors[button]
+  -- None invented: a button with neither saved nor setup colors has empty ones, as the copies send.
+  local on = saved and saved.on_color or setup and setup.on or ""
+  local off = saved and saved.off_color or setup and setup.off or ""
+  return on, off
 end
 
 --- The level the proxy's Previous On preset holds, as it last sent it.
@@ -315,6 +316,17 @@ function Settings:readSetup(xml)
     local attr = element._attr or {}
     if tointeger(attr.id) and tonumber(attr.level) then
       self:_updateBrightnessPreset({ ID = attr.id, NAME = attr.name, LEVEL = attr.level })
+    end
+  end
+
+  -- Each button's colors as the proxy holds them, which a button with none saved shows.
+  local buttons = Select(setup, "BUTTON_LIST_INFO", "BUTTON_INFO")
+  if type(buttons) == "table" then
+    for _, info in ipairs(IsList(buttons) and buttons or { buttons }) do
+      local id = tointeger(info.BUTTON_ID)
+      if id and type(info.ON_COLOR) == "string" and type(info.OFF_COLOR) == "string" then
+        self.setupColors[id] = { on = info.ON_COLOR, off = info.OFF_COLOR }
+      end
     end
   end
 
@@ -493,10 +505,10 @@ function Settings:_setButtonColor(tParams)
   end
   local colors = persist:get(Settings.P_BUTTON_COLORS, {})
   local key = tostring(button)
-  local existing = colors[key] or {}
+  local on, off = self:buttonColors(button)
   colors[key] = {
-    on_color = Select(tParams, "ON_COLOR") or existing.on_color or DEFAULT_ON_COLOR,
-    off_color = Select(tParams, "OFF_COLOR") or existing.off_color or DEFAULT_OFF_COLOR,
+    on_color = Select(tParams, "ON_COLOR") or on,
+    off_color = Select(tParams, "OFF_COLOR") or off,
   }
   persist:set(Settings.P_BUTTON_COLORS, colors)
 end

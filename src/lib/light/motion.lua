@@ -375,7 +375,7 @@ function Motion:_toLevel(out, intent, choice, ms)
   self.level = toOn and target or kept
 
   self:_endLevelRamp()
-  if length > 0 then
+  if length > 0 and levelMoves then
     self.levelRamp = {
       from = fromShown,
       to = toOn and target or 0,
@@ -417,6 +417,9 @@ function Motion:_toLevel(out, intent, choice, ms)
     return
   end
 
+  -- An on from off sets the color a held color or an on mode gives it, even one equal to the color kept, and
+  -- a pre-on and its change both carry it.
+  local carries = toOn and not self.wireOn and (merged ~= nil or (device.colorWhileOff == "hold" and self.held))
   local transition = Fade.transition(fade, length)
   if fade.kind == "device" and fade.preOn and transition > 0 and toOn and fromShown <= 0 then
     local bottom = 1 / self:_steps()
@@ -426,7 +429,7 @@ function Motion:_toLevel(out, intent, choice, ms)
       level = bottom,
       color = self.color,
       setsLevel = true,
-      setsColor = colorMoves,
+      setsColor = colorMoves or carries,
       transitionMs = 0,
       from = from,
       colorUnchosen = unchosen,
@@ -440,7 +443,7 @@ function Motion:_toLevel(out, intent, choice, ms)
     level = self.level,
     color = self.color,
     setsLevel = levelMoves,
-    setsColor = colorMoves,
+    setsColor = colorMoves or carries,
     transitionMs = transition,
     from = from,
     colorUnchosen = unchosen,
@@ -546,6 +549,10 @@ function Motion:_stopLevel(out, ms)
     if shown < minOn then
       shown = shown < minOn / 2 and 0 or minOn
     end
+  end
+  -- A stop lands on a whole C4 level, so the device and the proxy agree on it exactly.
+  if shown > 0 then
+    shown = Range.toDevice(Range.toLevel(shown, ms.lo, ms.hi), ms.lo, ms.hi)
   end
   local cr = self.colorRamp
   -- A color of its own, or one set since the ramp began, runs on; the color the level carried stops with it.

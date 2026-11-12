@@ -228,8 +228,8 @@ function Ledger:_inWindow(aspect, window, value, report, now, out)
   if self:_same(aspect, value, newest.value) then
     window.held, window.heard = nil, true
     if feedback.shows == "position" then
-      -- The light is at the change's end.
-      return self:_settle(aspect, value, out)
+      -- The light is at the change's end: where the command sent it, not the report's rounding of it.
+      return self:_settle(aspect, newest.value, out)
     end
     local ramping = (aspect == "level" and now.levelRamping) or (aspect == "color" and now.colorRamping)
     if not ramping then

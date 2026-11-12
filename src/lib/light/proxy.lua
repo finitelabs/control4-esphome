@@ -85,6 +85,7 @@ local BUTTON_NAMES = { [TOP] = "Top", [BOTTOM] = "Bottom", [TOGGLE] = "Toggle" }
 --- @field shownTold LightShown|nil
 --- @field presses LightPress[]
 --- @field echoes table<string, integer> Each setting echo's value as told, by its notify, from the load on.
+--- @field setupDue boolean The setup was read and Settings has parsed it since: the next sync takes it as held.
 --- @field buttons table<integer, LightButtonColors> Each button's colors as told, from the load on.
 local LightProxy = {}
 LightProxy.__index = LightProxy
@@ -98,21 +99,28 @@ function LightProxy.new(profile, settings)
     settings = settings,
     readOff = false,
     shownDue = false,
+    setupDue = false,
     level = { preOn = false },
     color = { changing = false },
     presses = {},
     echoes = {},
     buttons = {},
   }, LightProxy)
-  -- The proxy holds the settings this load starts with: only a change is echoed.
+  self:_holdSettings()
+  return self
+end
+
+--- The proxy holds the settings this load starts with and those its setup gave: an echo answers a setting
+--- command, so only a change after this is echoed.
+--- @private
+function LightProxy:_holdSettings()
   for _, echo in ipairs(self:_echoValues()) do
     self.echoes[echo.notify] = echo.value
   end
   for _, button in ipairs({ TOP, BOTTOM, TOGGLE }) do
-    local on, off = settings:buttonColors(button)
+    local on, off = self.settings:buttonColors(button)
     self.buttons[button] = { on = on, off = off }
   end
-  return self
 end
 
 -----------------------------------------------------------------------------------------------------
@@ -122,6 +130,7 @@ end
 --- The proxy's setup, GET_SETUP's answer, for Settings to parse.
 --- @return string|nil
 function LightProxy:readSetup()
+  self.setupDue = true
   local ok, setup = pcall(SendUIRequest, C4:GetProxyDevices(), "GET_SETUP", {})
   if not ok or type(setup) ~= "string" or setup == "" then
     log:warn("The proxy's setup could not be read: %s", ok and "no answer" or tostring(setup))
@@ -178,6 +187,9 @@ function LightProxy:read()
       seed.color = shown
     end
   end
+  -- Start reads the setup just before this: what it gave the settings, the proxy holds.
+  self.setupDue = false
+  self:_holdSettings()
   return seed
 end
 
@@ -200,8 +212,8 @@ function LightProxy:offline()
   end
 end
 
---- The connection's first report: online, the capabilities, and the buttons and preset level the proxy
---- is seeded with after a reload.
+--- The connection's first report: online, the capabilities, and the buttons the proxy is seeded with after a
+--- reload.
 --- @param device LightDevice
 --- @return boolean told The capabilities were told, so the proxy's setup may now list more.
 function LightProxy:online(device)
@@ -227,11 +239,6 @@ function LightProxy:online(device)
     for _, button in ipairs({ TOP, BOTTOM, TOGGLE }) do
       self:_tellLinkColors(button)
     end
-  end
-  local presetLevel = self.settings:presetLevel()
-  self.echoes.PRESET_LEVEL = presetLevel
-  if presetLevel and presetLevel > 0 then
-    SendToProxy(proxy, "PRESET_LEVEL", tostring(presetLevel), "NOTIFY")
   end
   return told
 end
@@ -270,9 +277,13 @@ function LightProxy:_holds(caps)
   if type(shown) ~= "table" then
     return false
   end
+  -- With none stored, the proxy holds driver.xml's static values, which the build wrote from this profile.
   local rates = persist:get(P_RATE_CAPS)
   if type(rates) ~= "table" then
-    return false
+    rates = {}
+    for _, row in ipairs(Caps.static(self.profile)) do
+      rates[row.key] = row.value
+    end
   end
   local compared = false
   for key, want in pairs(caps) do
@@ -574,6 +585,12 @@ end
 
 --- Echo each setting that changed since it was told, and the colors of each button that changed.
 function LightProxy:_syncSettings()
+  if self.setupDue then
+    -- The setup re-read at the first report: what it gave the settings is the proxy's own.
+    self.setupDue = false
+    self:_holdSettings()
+    return
+  end
   local proxy = self.profile.proxy
   for _, echo in ipairs(self:_echoValues()) do
     if echo.value ~= self.echoes[echo.notify] then
