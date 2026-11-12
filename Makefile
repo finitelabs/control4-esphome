@@ -333,6 +333,20 @@ test: ## Run the Lua test suite (test/test_*.lua) and the tools' tests (tools/te
 support-code: ## Print today's Support Code, which opens a DriverCentral build's Lua window
 	@python3 tools/support_code.py
 
+.PHONY: dc-release
+dc-release: ## Download a release's DriverCentral upload into dist/release/<tag> (newest, or TAG=v...)
+	@tag="$(TAG)"; \
+	[ -n "$$tag" ] || tag=$$(gh release list --limit 1 --exclude-drafts --json tagName --jq '.[0].tagName // empty'); \
+	[ -n "$$tag" ] || { echo "Error: no release found; pass TAG=v<date>" >&2; exit 1; }; \
+	run=$$(gh run list --workflow build.yml --branch "$$tag" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty'); \
+	[ -n "$$run" ] || { echo "Error: $$tag has no successful Build run yet" >&2; exit 1; }; \
+	out="dist/release/$$tag"; rm -rf "$$out"; mkdir -p "$$out"; \
+	gh run download "$$run" --name drivercentral --dir "$$out" || { \
+		echo "Error: no drivercentral artifact in Build run $$run. If it expired, run the Build workflow on $$tag again from the Actions tab." >&2; exit 1; }; \
+	python3 tools/package.py check-encrypted drivercentral "$$out/c4z" || { echo "Error: don't upload $$out" >&2; exit 1; }; \
+	echo "$$tag, Build run $$run: the DriverCentral upload is in $$out"; \
+	ls "$$out"
+
 # ─── Icons ────────────────────────────────────────────────────────────────────
 
 # Control4's icon artboard to export, from the icon_style answer: shaped or square.

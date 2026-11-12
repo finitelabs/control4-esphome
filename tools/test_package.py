@@ -102,6 +102,26 @@ class CheckEncryptedTest(InTempDir):
         self._package("oss", {"driver.xml": PLAIN_XML, "driver.lua": "print(1)"})
         self.assertEqual(self._check("oss"), (0, ""))
 
+    def test_a_folder_given_is_checked_in_place_of_dist(self):
+        self._package(
+            "drivercentral", {"driver.xml": ENCRYPTED_XML, "driver.lua.encrypted": "x"}
+        )
+        release = Path("release") / "c4z"
+        release.mkdir(parents=True)
+        with zipfile.ZipFile(release / "probe.c4z", "w") as zf:
+            zf.writestr("driver.xml", ENCRYPTED_XML)
+            zf.writestr("driver.lua.encrypted", "x")
+            zf.writestr("driver.lua", "print(1)")
+        code, _, err = self._run(check_encrypted, "drivercentral", str(release))
+        self.assertEqual(code, 1)
+        self.assertIn("holds driver.lua in plain text", err)
+
+    def test_an_empty_folder_given_fails(self):
+        Path("release").mkdir()
+        code, _, err = self._run(check_encrypted, "drivercentral", "release")
+        self.assertEqual(code, 1)
+        self.assertIn("release has no package to check", err)
+
 
 class TagVersionTest(InTempDir):
     def test_a_date_tag_gives_its_date(self):
