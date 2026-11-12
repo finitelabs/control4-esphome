@@ -24,6 +24,12 @@ return function(light, path)
   local f = assert(io.open(path, "rb"))
   local xml = f:read("*a")
   f:close()
+  -- An empty <capabilities/>, as the template's driver.xml starts, opens to take the keys.
+  local emptyStart, emptyEnd = xml:find("<capabilities%s*/>")
+  if emptyStart then
+    local lineIndent = xml:sub(1, emptyStart - 1):match("([ \t]*)$") or ""
+    xml = xml:sub(1, emptyStart - 1) .. "<capabilities>\n" .. lineIndent .. "</capabilities>" .. xml:sub(emptyEnd + 1)
+  end
   local open = select(2, xml:find("<capabilities>", 1, true))
   local close = xml:find("</capabilities>", 1, true)
   if not open or not close then

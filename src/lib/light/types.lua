@@ -4,8 +4,12 @@
 --- (LightAdapter), declares the facts of each device it connects to (LightDevice) and hands the light
 --- every device state (LightReport). The library owns everything the proxy and the links are told.
 ---
---- Everything above "The library's own shapes" is the contract. A change there bumps Types.API, and
---- every light driver's adapter follows it. The shapes below that line are the library's own.
+--- Everything above "The library's own shapes" is the contract. A change of meaning there bumps Types.API,
+--- and every light driver's adapter follows it; an added optional fact keeps it. tests/light/test_contract.lua
+--- holds a hash of that text, so no edit to it goes unnoticed. The shapes below that line are the library's own.
+---
+--- How the contract grows: every fact states its default, so no field's absence selects a behavior; a new
+--- fact names the parts that read it, and the fuzzer covers it.
 
 local Types = {}
 
@@ -83,6 +87,8 @@ Types.API = 1
 --- @field curve LightCurve|nil "device" only. Default "linear".
 --- @field preOn boolean|nil "device" only, default false. A rated on from off starts from the level the device
 ---   kept, so the library opens it with a 0-time on at the bottom step.
+--- @field retimes boolean|nil "device" only, default false. A command restarts every channel over its own time,
+---   named or not, so a command for one aspect re-times the other's running ramp. False: each aspect keeps its own.
 --- @field maxMs integer|nil The longest rate the proxy may offer. Default 65535.
 --- @field own LightOwnFade|nil Required for "own", nil otherwise.
 --- @field stepMs integer|nil "walk" only: the time between steps. Default 100.
@@ -130,18 +136,21 @@ Types.API = 1
 --- @field color LightColor|nil Nil only on a device with neither color nor CCT.
 --- @field setsLevel boolean This command changes the light's output: its power or its level. Every off has it,
 ---   with `level` the level kept, and so does every command with fromOff. Without it `level` is only carried
----   for a wire that couples level and color, and `on` is unchanged: on false, the light stays off.
---- @field setsColor boolean This command changes the color. On a "hold" device, always true when fromOff. An off
+---   for a wire that couples level and color, and `on` is unchanged: on false, the light stays off. On a stop,
+---   setsLevel and setsColor name the aspects stopped.
+--- @field setsColor boolean This command changes the color. With fromOff, only when a held color or an on mode's
+---   color goes with the on; otherwise the light comes on in the color it kept, and `color` is carried. An off
 ---   with it fades to that color as it goes dark (Dim-To-Warm).
---- @field transitionMs integer "device" fades only, else 0. 0 on a preOn. On a stop, the color's time left when a
----   color ramp of its own continues.
+--- @field transitionMs integer "device" fades only, else 0. 0 on a preOn. On a stop, the other aspect's time left
+---   when a ramp of its own continues.
 --- @field from LightFrom
 --- @field colorUnchosen boolean The color only follows an on mode (Previous On's, the proxy's follow-up of it,
 ---   Dim-To-Warm's). A device that shows its own list of colors keeps them.
 
 --- What send returns when the device rests where the command did not say, by its own doing: a favorite that
 --- sets its own volume, or a stop the adapter held where its own wire fade had got to. Never for rounding.
---- The library writes it into the command before anything else sees the command.
+--- The library writes it into the command before anything else sees the command. A rest says where the aspect
+--- rests; the library still decides whether its ramp ends.
 --- @class LightRest
 --- @field level number|nil
 --- @field color LightColor|nil
@@ -176,12 +185,14 @@ Types.API = 1
 --- The driver's adapter: a plain class (Adapter.__index = Adapter) with all three methods. Light.new raises
 --- if one is missing and never branches on which an adapter has.
 ---
---- An adapter holds transport state only: queues, the request in flight, the wire form it last sent (whole or
---- per leg), its own wire fade, and memos it persists under keys of its own. It may make one judgement: a
---- reported value that is the wire form of what it sent for the latest command, within the wire's rounding,
---- is reported per aspect as that command's value. It may stop the rest of its own multi-part send when a
---- report is not that wire form. It never decides whose a report is, never ends a ramp, and keeps no level,
---- color or on that the library keeps. It may use the pure modules lib.light.color and lib.light.range.
+--- An adapter holds transport state only: queues, the request in flight, the wire form it last sent (whole or per leg),
+--- its own wire fade, the wire form the device last reported, and memos it persists under keys of its own. A wire-form
+--- memo lives for one connection: lost and reset end it; a memo persisted under its own keys keeps the lifetime its
+--- driver gives it. It may make one judgement: a reported value that is the wire form of a command it sent and has not
+--- yet seen answered, within the wire's rounding, is reported per aspect as that command's value. It may stop the rest
+--- of its own multi-part send when a report is not that wire form. It never decides whose a report is, never ends a
+--- ramp, and keeps no level, color or on that the library keeps. It may use the pure modules lib.light.color and
+--- lib.light.range.
 --- @class LightAdapter
 --- @field send fun(self: LightAdapter, cmd: LightCommand): LightRest|nil Put one command on the wire. It must not
 ---   raise: one it cannot deliver is logged and dropped. The library calls it once per command, in order (a
@@ -211,7 +222,9 @@ Types.API = 1
 --   and closes the windows. Stored while offline.
 --
 -- light:report(report)
---   Every device state, of any kind. Returns nothing: the library alone decides whose a report is.
+--   Every device state, of any kind. Returns nothing: the library alone decides whose a report is. A report
+--   made inside send or refresh waits until the library's follow-up ends. One with a non-finite or out-of-range
+--   value, or an unknown kind, is dropped whole with an error logged.
 --
 -- light:lost(suspended)
 --   The connection is gone, and the run ends: no send until the next report. true (stopped on purpose: an
@@ -267,6 +280,8 @@ Types.API = 1
 --- @field level integer C4 level the on goes to.
 --- @field color LightColor|nil The on's color.
 --- @field unchosen boolean The color only follows an on mode.
+--- @field presetId integer|nil The preset the color is, told back with it.
+--- @field presetOrigin integer|nil That preset's origin.
 --- @field followUp boolean A color intent that is the proxy's follow-up of an on that already chose its color:
 ---   Motion keeps the on's color and moves nothing.
 
@@ -278,22 +293,40 @@ Types.API = 1
 --- @field settings LightOnSettings
 --- @field picks LightOnPicks
 
---- Motion's model of one aspect changing over time.
---- @class LightRamp
---- @field from number|LightColor
---- @field to number|LightColor
+--- Motion's model of the level changing over time.
+--- @class LightLevelRamp
+--- @field from number
+--- @field to number
 --- @field startMs integer
 --- @field ms integer
---- @field carried boolean A color carried from a replaced ramp; it belongs to the level.
---- @field set boolean The level ramp set a color of its own.
---- @field merged LightColor|nil The color a level ramp carries (Dim-To-Warm or an on color).
+--- @field set boolean The ramp set a color of its own.
+--- @field merged LightColor|nil The color the ramp carries (Dim-To-Warm or an on color).
 --- @field unchosen boolean A stop of this ramp sends colorUnchosen.
---- @field stepSent number|LightColor|nil "walk" only: the last step sent.
+--- @field stepSent number|nil "walk" only: the last step sent.
+
+--- Motion's model of the color changing over time.
+--- @class LightColorRamp
+--- @field from LightColor
+--- @field to LightColor
+--- @field startMs integer
+--- @field ms integer
+--- @field carried boolean A color carried from a replaced level ramp; it belongs to the level.
+--- @field unchosen boolean A stop of this ramp sends colorUnchosen.
+--- @field stepSent LightColor|nil "walk" only: the last step sent.
+
+--- What Motion reads from Settings, passed in with each call that needs it, so Motion holds no other part.
+--- @class LightMotionSettings
+--- @field lo integer Min On Level, 1-100.
+--- @field hi integer Max On Level, 1-100.
+--- @field rate integer The brightness rate default, ms.
+--- @field colorRate integer The color rate default, ms.
+--- @field on LightOnSettings For Dim-To-Warm at each walk step.
 
 --- What Ledger compares a report with: Motion's value per aspect, a ramp's end while one runs.
 --- @class LightNow : LightValues
 --- @field levelRamping boolean
 --- @field colorRamping boolean
+--- @field colorHeld boolean A "hold" device is off with a color told but not sent: the next on carries it (J1).
 
 --- What LightProxy tells from. It sends only what differs from what it told. Levels are device brightness
 --- 0-1, as everywhere in the library; LightProxy maps them to C4 levels on the Min/Max On line.
@@ -314,8 +347,13 @@ Types.API = 1
 --- @field value boolean|number|LightColor
 --- @field landing integer C4:GetTime() ms when the change it belongs to ends.
 
+--- "command": opened by a command. "learning": an on another hand made, waiting for its level (J4). "asked":
+--- a refresh is out, and the first push or final settles (J5g).
+--- @alias LightWindowKind "command"|"learning"|"asked"
+
 --- Ledger's record of one aspect from a command to its deadline.
 --- @class LightWindow
+--- @field kind LightWindowKind
 --- @field sent LightSent[] Newest last; empty for a learning window.
 --- @field before boolean|number|LightColor|nil What the library held when the window opened.
 --- @field held boolean|number|LightColor|nil The latest report held.

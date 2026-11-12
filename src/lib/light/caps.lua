@@ -47,7 +47,6 @@ Caps.REFLECTED = {
 --- @class LightCapRow
 --- @field key string
 --- @field value string
---- @field comment string|nil Written as an XML comment above the key.
 
 --- @alias LightDynamicCaps table<string, boolean|number>
 
@@ -75,7 +74,7 @@ local DEVICE_FIELDS = {
   feedback = true,
 }
 
-local FADE_FIELDS = { kind = true, curve = true, preOn = true, maxMs = true, own = true, stepMs = true }
+local FADE_FIELDS = { kind = true, curve = true, preOn = true, retimes = true, maxMs = true, own = true, stepMs = true }
 local FEEDBACK_FIELDS = { shows = true, waitMs = true, refresh = true }
 local FADE_KINDS = { device = true, own = true, walk = true }
 local CURVES = { linear = true, smootherstep = true }
@@ -285,11 +284,10 @@ local function fade(errors, f, profile, dims)
     f = nil
   end
   if f == nil then
-    -- A profile with no fades leaves a device nothing to fade with: it runs its own, at once.
     if not profile.fades then
       return { kind = "own", maxMs = Caps.RATE_MAX, own = { onMs = 0, offMs = 0, changeMs = 0 } }
     end
-    return { kind = "device", curve = "linear", preOn = false, maxMs = Caps.RATE_MAX }
+    return { kind = "device", curve = "linear", preOn = false, retimes = false, maxMs = Caps.RATE_MAX }
   end
   unknown(errors, "fade.", f, FADE_FIELDS)
   local kind = "device"
@@ -314,7 +312,7 @@ local function fade(errors, f, profile, dims)
     end
   end
   if kind == "device" then
-    out.curve, out.preOn = "linear", false
+    out.curve, out.preOn, out.retimes = "linear", false, false
     if f.curve ~= nil then
       if CURVES[f.curve] then
         out.curve = f.curve
@@ -332,12 +330,22 @@ local function fade(errors, f, profile, dims)
         out.preOn = f.preOn
       end
     end
+    if f.retimes ~= nil then
+      if type(f.retimes) == "boolean" then
+        out.retimes = f.retimes
+      else
+        errors[#errors + 1] = "fade.retimes must be true or false; ignored"
+      end
+    end
   else
     if f.curve ~= nil then
       errors[#errors + 1] = 'fade.curve is for a "device" fade; ignored'
     end
     if f.preOn ~= nil then
       errors[#errors + 1] = 'fade.preOn is for a "device" fade; ignored'
+    end
+    if f.retimes ~= nil then
+      errors[#errors + 1] = 'fade.retimes is for a "device" fade; ignored'
     end
   end
   if kind == "own" then
@@ -502,42 +510,31 @@ function Caps.static(profile)
   local range = type(profile.cct) == "table" and profile.cct or { minK = Caps.CCT_MIN, maxK = Caps.CCT_MAX }
   --- @param key string
   --- @param value string
-  --- @param comment string|nil
   --- @return LightCapRow
-  local function row(key, value, comment)
-    return { key = key, value = value, comment = comment }
+  local function row(key, value)
+    return { key = key, value = value }
   end
   return {
     row("dimmer", bool(dims)),
     row("set_level", bool(dims)),
     row("supports_target", bool(dims)),
-    row(
-      "on_off",
-      "True",
-      "on_off, ramp_level and supports_default_on are deprecated in OS 3.3.2, but Composer's test panel "
-        .. "still shows the On and Off buttons, the Ramp button and the Default On preset editor by them."
-    ),
+    -- on_off, ramp_level and supports_default_on are deprecated in OS 3.3.2, but Composer's test panel still
+    -- shows the On and Off buttons, the Ramp button and the Default On preset editor by them.
+    row("on_off", "True"),
     row("ramp_level", bool(dims)),
     row("supports_default_on", bool(profile.defaultOn)),
     row("supports_brightness_stop", bool(dims and fades)),
     row("click_rates", bool(dims and fades)),
     row("hold_rates", bool(dims and fades)),
-    row(
-      "has_fixed_ramp_rate",
-      "False",
-      "Declared rather than left out, as Composer's test panel can treat a missing capability apart from "
-        .. "its default."
-    ),
+    -- Declared rather than left out, as Composer's test panel can treat a missing capability apart from its default.
+    row("has_fixed_ramp_rate", "False"),
     row("fixed_ramp_rate", "0"),
     row("brightness_rate_min", "0"),
     row("brightness_rate_max", tostring(Caps.RATE_MAX)),
-    row(
-      "brightness_rate_default",
-      "0",
-      "The proxy reads no rate default from either list, so this and color_rate_default are inert."
-    ),
+    -- The proxy reads no rate default from either list, so this and color_rate_default are inert.
+    row("brightness_rate_default", "0"),
     row("click_rate_min", "0"),
-    row("click_rate_max", "65535"),
+    row("click_rate_max", tostring(Caps.RATE_MAX)),
     row("hold_rate_min", "1000"),
     row("hold_rate_max", "86400000"),
     row("supports_color", bool(known and color)),

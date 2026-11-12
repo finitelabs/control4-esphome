@@ -148,7 +148,12 @@ function Color.kelvinToXY(kelvin)
   return C4:ColorCCTtoXY(kelvin)
 end
 
---- The white-locus test: whether a CIE xy point lies within Color.TOLERANCE of the black-body locus
+--- How far from the black-body locus a color still goes to a light's white channels: ESPHome's released
+--- white-channel test, Euclidean in xy.
+--- @type number
+Color.WHITE_BAND = 0.012
+
+--- The white-locus test: whether a CIE xy point lies within Color.WHITE_BAND of the black-body locus
 --- between two color temperatures.
 --- @param x number CIE 1931 x.
 --- @param y number CIE 1931 y.
@@ -161,7 +166,7 @@ function Color.onLocus(x, y, minK, maxK)
     return false
   end
   local lx, ly = Color.kelvinToXY(math.max(minK, math.min(maxK, k)))
-  return math.abs(lx - x) <= Color.TOLERANCE and math.abs(ly - y) <= Color.TOLERANCE
+  return math.sqrt((lx - x) ^ 2 + (ly - y) ^ 2) <= Color.WHITE_BAND
 end
 
 --- Whether two colors read as one: the same mode, and each coordinate within the tolerance.
