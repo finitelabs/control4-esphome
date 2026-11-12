@@ -14,11 +14,12 @@ Subcommands:
       directories are added recursively, preserving their relative paths.
       (replaces: the `zip` CLI)
 
-  package.py check-encrypted <build>
-      Exit 1 unless every .c4z in dist/<build>/c4z holds its Lua encrypted:
-      driver.lua.encrypted and no driver.lua, with a driver.xml that asks for
-      encryption="2". Checks a DriverCentral build, or any build preprocess.py
-      encrypted (build/<build>/.encrypted); passes any other build unchecked.
+  package.py check-encrypted <build> [<c4z folder>]
+      Exit 1 unless every .c4z in dist/<build>/c4z, or the folder given, holds
+      its Lua encrypted: driver.lua.encrypted and no driver.lua, with a
+      driver.xml that asks for encryption="2". Checks a DriverCentral build, or
+      any build preprocess.py encrypted (build/<build>/.encrypted); passes any
+      other build unchecked.
 
   package.py tag-version <tag>
       Print DRIVER_VERSION=YYYYMMDD from a vYYYYMMDD or vYYYYMMDD-suffix tag,
@@ -88,12 +89,13 @@ def must_be_encrypted(build: str) -> bool:
     return build == "drivercentral" or (Path("build") / build / ".encrypted").exists()
 
 
-def check_encrypted(build: str) -> int:
+def check_encrypted(build: str, folder: str = "") -> int:
     if not must_be_encrypted(build):
         return 0
-    packages = sorted((Path("dist") / build / "c4z").glob("*.c4z"))
+    c4z_dir = Path(folder) if folder else Path("dist") / build / "c4z"
+    packages = sorted(c4z_dir.glob("*.c4z"))
     if not packages:
-        print(f"Error: dist/{build}/c4z has no package to check", file=sys.stderr)
+        print(f"Error: {c4z_dir} has no package to check", file=sys.stderr)
         return 1
     problems = []
     for c4z in packages:
@@ -178,8 +180,8 @@ def main() -> int:
         xml_set(Path(rest[0]).resolve(), rest[1], rest[2])
     elif cmd == "zip" and len(rest) >= 2:
         make_zip(Path(rest[0]).resolve(), rest[1:])
-    elif cmd == "check-encrypted" and len(rest) == 1:
-        return check_encrypted(rest[0])
+    elif cmd == "check-encrypted" and len(rest) in (1, 2):
+        return check_encrypted(*rest)
     elif cmd == "tag-version" and len(rest) == 1:
         return tag_version(rest[0])
     elif cmd == "check-pdfs" and len(rest) == 1:

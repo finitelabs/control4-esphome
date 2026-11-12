@@ -1,5 +1,7 @@
 --- Masks credentials in values bound for a log line or a diagnostics report.
 
+local log = require("lib.logging")
+
 -- JSON, which bodies are decoded with.
 require("drivers-common-public.global.lib")
 
@@ -38,6 +40,22 @@ local SENSITIVE_LAST_WORDS = {
   "cookie",
   "sig",
   "stok", -- TP-Link's session token, sent in the URL path as "/stok=<token>/".
+  "pin", -- a HomeKit setup code or a lock PIN.
+}
+
+--- Compound credential names, matched against the end of the key with every non-alphanumeric character stripped,
+--- so "setupCode", "USER_CODES", "TP_SESSIONID" and "Encryption_Key" match while "passcode_type", "MaxPINCodeLength"
+--- and "error_code" stay readable. A plural matches too.
+--- @type string[]
+local SENSITIVE_SUFFIXES = {
+  "passcode",
+  "pincode",
+  "setupcode",
+  "accesscode",
+  "usercode",
+  "lockcode",
+  "sessionid",
+  "encryptionkey",
 }
 
 --- Nouns that turn a generic fragment anywhere in the key into a credential.
@@ -73,6 +91,11 @@ local function isSensitiveKey(key)
   local normalized = tostring(key):lower():gsub("[^%a%d]", "")
   for _, fragment in ipairs(SENSITIVE_SUBSTRINGS) do
     if normalized:find(fragment, 1, true) then
+      return true
+    end
+  end
+  for _, suffix in ipairs(SENSITIVE_SUFFIXES) do
+    if normalized:sub(-#suffix) == suffix or normalized:sub(-#suffix - 1) == suffix .. "s" then
       return true
     end
   end
@@ -223,9 +246,21 @@ local function redact(value, depth, seen)
   return copy
 end
 
+--- What a log line shows of a value: masked as `value` masks it, except at Ultra, which prints everything as it is.
+--- Anything that leaves the controller, such as a Cloud Monitoring report, uses `value`.
+--- @param value any
+--- @return any
+local function forLog(value)
+  if log:getLogLevel() >= log.LogLevel.ULTRA then
+    return value
+  end
+  return redact(value)
+end
+
 return {
   REDACTED = REDACTED,
   value = redact,
+  forLog = forLog,
   text = redactSerialized,
   isSensitiveKey = isSensitiveKey,
 }

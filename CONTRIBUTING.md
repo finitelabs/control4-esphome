@@ -51,7 +51,8 @@ then pull the change in with `copier update`.
   [Log Level](#log-level))
 - `lru.lua`: LRU cache utility
 - `persist.lua`: persistent storage abstraction
-- `redact.lua`: masks credentials in log lines and diagnostics reports
+- `redact.lua`: masks credentials in log lines below Ultra and in diagnostics
+  reports
 - `support-code.lua`: the Support Code that opens a DriverCentral build's Lua
   window (see [The Support Code](#the-support-code))
 - `update-settings.lua`: keeps Automatic Updates and Update Channel the same on
@@ -233,6 +234,7 @@ make build-nodocs  # Build without generating docs
 make verify        # After a build, check what CI checks after one
 make test          # Run the Lua test suite (test/test_*.lua) and tools/test_*.py
 make support-code  # Print today's Support Code (see The Support Code)
+make dc-release    # Download the newest release's DriverCentral upload (TAG=v... for another)
 make fmt           # Format all code (Lua, Python, Markdown)
 make check         # Assert formatting and build secrets without rewriting, as CI does
 make clean         # Remove build artifacts and dist/ (including driverpackager)
@@ -279,8 +281,11 @@ zip and the PDFs. `description.html` is the listing's description, made from
 Revisions tab, every released `CHANGELOG.md` section as the DriverCentral build
 shows it. The product card, the banners and the listing photos are copied from
 `resources/drivercentral/`. A tag build's drivercentral CI artifact is the whole
-upload. When it has expired, run the Build workflow on the tag again from the
-Actions tab.
+upload. `make dc-release` downloads the newest release's into
+`dist/release/<tag>/`, or another's with `TAG=v20261111`, and stops if any
+`.c4z` in it is not encrypted. It needs the GitHub CLI, signed in. When the
+artifact has expired, run the Build workflow on the tag again from the Actions
+tab.
 
 While `description.md` still has `FACTS-STRIP-URL` for the facts strip,
 `description.html` leaves the strip out and the build prints a warning. Upload
@@ -678,6 +683,13 @@ otherwise. Nothing else sets them. The Support Code calls
 `log:allowTraceAndUltra(allowed)` as the window opens and closes, which widens
 and narrows the list. A page that sets Log Level offers
 `log:getLogLevelNames()`.
+
+Below Ultra, a log line of ours masks credentials through `redact.forLog`, as
+`lib.http`'s request line does. At Ultra it prints them as they are, as the
+dumps do. Anything that leaves the controller, a Cloud Monitoring report among
+them, masks through `redact.value` at every level. The Support Code and what
+`SendSecretToDevice` and `SendSecretToProxy` send stay out of the log at every
+level.
 
 ### Cloud Monitoring
 

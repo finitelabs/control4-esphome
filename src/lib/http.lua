@@ -333,10 +333,10 @@ function Http:request(method, url, data, headers, options)
     log:trace(
       "Http:request(%s, %s, %s, %s, %s)",
       method,
-      private and "<private URL>" or redact.value(url),
-      redact.value(data),
-      redact.value(headers),
-      redact.value(traced)
+      private and "<private URL>" or redact.forLog(url),
+      redact.forLog(data),
+      redact.forLog(headers),
+      redact.forLog(traced)
     )
   end
   local d = deferred.new()

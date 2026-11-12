@@ -464,6 +464,26 @@ do
   T.truthy("and timedOut", r.value.timedOut)
 end
 
+T.section("a request's trace masks a secret below Ultra and shows it at Ultra")
+do
+  log:setLogMode("Print")
+  --- The request's own trace line, at `level`.
+  local function traced(level)
+    log:setLogLevel(level)
+    serve({ { code = 200, chunks = { "ok" } } })
+    local _, _, printed = T.capture(function()
+      send("PUT", URL, { pin = "031-45-154", name = "Living Room Bridge" }, {})
+    end)
+    return printed:match("[^\n]*Http:request%(PUT[^\n]*") or ""
+  end
+  local line = traced(log.LogLevel.TRACE)
+  T.contains("the line is traced", line, "Living Room Bridge")
+  T.excludes("without the setup code at Trace", line, "031-45-154")
+  T.contains("and with it at Ultra", traced(log.LogLevel.ULTRA), "031-45-154")
+  log:setLogMode("")
+  log:setLogLevel(log.LogLevel.INFO)
+end
+
 T.section("tracing a request whose options hold a function doesn't raise")
 do
   log:setLogMode("Print")
