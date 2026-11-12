@@ -34,21 +34,30 @@ end
 -- differs without anyone seeing it. A check the released driver passed and the library is meant to fail names
 -- its row with T.differs.
 local ROW = {
-  GATE = "section 6: a dimming light's hold starts 250 ms after the press",
-  PICK_KEPT = "section 6: another client's color keeps the white pick",
-  HOLD_SCALED = "section 6: a hold takes its rate over the distance left",
-  TOGGLE_HOLD = "section 6: a Toggle hold's direction follows Control4's",
-  SCENE_RAMP = "section 6: Ramp Scene Up and Down go to full in the last element's color, and skip a scene that ignores ramps",
-  REBIND = "section 6: a rebind reads offline until the new device reports",
-  SWITCH = "section 6: an on and off light switches and is told at once",
-  MIX_WHITE = "section 6: a Dim-To-Warm mix near a white lights the white",
-  CLAMP = "section 6: a color temperature beyond the range is told as the lit light shows it",
-  DIFF = "section 6: a command for the level the proxy shows tells nothing",
-  DTW_LINEAR = "section 6: Dim-To-Warm mixes straight across xy, and an off fades to the Dim color",
-  STEP_PICK = "section 6: a scene step that sets level and color is not a pick",
-  RATES = "section 6: click and hold rates default to 250, 750 and 5000 ms",
-  START_TELL = "section 6: every start and reconnect tells the level and color",
-  GETLEVEL = "section 6: Get Light Level answers the level last told, during a ramp and a lapse too",
+  START_TELL = "At each start and reconnect the light tells its capabilities, brightness and color, even unchanged.",
+  DIFF = "A command for the level or color the proxy shows tells nothing.",
+  GETLEVEL = "Get Light Level answers the level last told, during a ramp and a lapse too.",
+  BUTTON_COLORS = "A button with no saved colors takes the setup's colors, then the standard defaults.",
+  ON_FADE = "An on from off fades the color from the one the light kept to its on color, over the on's time.",
+  OFF_DIM = "An off under Dim-To-Warm fades the color all the way to the Dim color.",
+  DTW_WHITE = "A Dim-To-Warm white is told at the point on the line of whites the light shows.",
+  RAMP_FROM = "A ramp starts from where the light has got to.",
+  STEP_PICK = "A scene step that sets level and color together is not a picked color.",
+  HELD_PICK = "A color held for the next on stays the pick when another client turns the light on.",
+  PRESS_WAIT = "A command during a keypad's 250 ms press wait leaves it; the hold starts if the button stays down.",
+  HOLD_LETGO = "A keypad hold let go inside the hold delay leaves a fade the light was already in running; it stops only a hold or a scene ramp.",
+  LINK_SCENE = "A link press leaves a running scene until the hold starts or the click acts.",
+  RAMP_UP_FULL = "Ramp Scene Up goes to full, not the on level.",
+  HOLD_SCALED = "A hold's time is scaled to the distance left.",
+  TOGGLE_HOLD = "Toggle's hold direction follows the last ramp: up after a ramp to off, otherwise down.",
+  REBIND = "A rebind to another device shows the light offline until the new device reports.",
+  CLAMP = "esphome: a color temperature outside the light's range is told as the light shows it, clamped.",
+  DTW_LINEAR = "esphome: Dim-To-Warm mixes in a straight line between its two colors, whites included.",
+  SWITCH = "esphome: the on/off light switches and is told at once.",
+  MIX_WHITE = "esphome: a Dim-To-Warm mix of two colors that passes near white lights the white channels.",
+  SCENE_STOP = "esphome: Stop Scene Ramp lets a scene step's fade finish; it stops a Ramp Scene Up or Down where it has got to.",
+  TOGGLE_CLICK = "esphome: a Toggle click on a light still fading up from off turns it on to its Default On level.",
+  RATES = "esphome: the click and hold rate defaults are 250 ms, 750 ms and 5 s.",
 }
 local BENIGN = {
   STEP_TIMER = "benign: a scene step with nothing to wait on goes out on the step timer",
@@ -7895,7 +7904,8 @@ do
   --- The last color told since the mark: its x and its color mode.
   local function lastTold()
     local xs, modes = colorsTold(), modesTold()
-    return { math.floor(xs[#xs] * 1e6 + 0.5) / 1e6, modes[#modes] }
+    -- None told is a failed check, not a stopped run.
+    return { xs[#xs] and math.floor(xs[#xs] * 1e6 + 0.5) / 1e6 or false, modes[#modes] or false }
   end
   local function level(target, rate)
     proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = target, RATE = rate })
