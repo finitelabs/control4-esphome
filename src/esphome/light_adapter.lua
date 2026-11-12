@@ -916,9 +916,9 @@ function LightAdapter:device()
     cct = self.cct and { minK = miredsToKelvin(self.maxMireds), maxK = miredsToKelvin(self.minMireds) } or nil,
     colorWhileOff = "send",
     levelSteps = 255,
-    -- ESPHome fades each command over its transition_length, eased, and a fade up from off starts from the level it
-    -- kept, so a rated on opens with a pre-on.
-    fade = { kind = "device", curve = "smootherstep", preOn = true },
+    -- ESPHome fades each command over its transition_length, eased, restarting every channel; a fade up from off
+    -- starts from the level it kept, so a rated on opens with a pre-on.
+    fade = { kind = "device", curve = "smootherstep", preOn = true, retimes = true },
     -- It answers each command with a report of its own, seen within 250 ms, and a refresh re-enumerates it.
     feedback = { shows = "target", waitMs = 1000, refresh = false },
   }

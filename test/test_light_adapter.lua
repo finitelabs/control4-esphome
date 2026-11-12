@@ -108,7 +108,7 @@ do
   T.eq(
     "it fades as ESPHome eases, with a pre-on",
     device.fade,
-    { kind = "device", curve = "smootherstep", preOn = true }
+    { kind = "device", curve = "smootherstep", preOn = true, retimes = true }
   )
   T.eq(
     "its reports show the target, are seen within a second, and a refresh re-enumerates it",
