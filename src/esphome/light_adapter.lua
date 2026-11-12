@@ -1049,12 +1049,12 @@ end
 function LightAdapter:show(_shown) end
 
 -- Whether a report matches a value on the wire: the last report's, or one sent since. Drops the entries before the
--- match and repeats of it right after, and keeps `reported` as the first entry. Also returns a sent value it matched.
+-- match and repeats of it right after, and keeps `reported` as the first entry. Also returns the value it matched.
 local function onWire(sent, matches, reported)
   local own, matched = false, nil
   for i, value in ipairs(sent) do
     if matches(value) then
-      matched = i > 1 and value or nil
+      matched = value
       for _ = 2, i do
         table.remove(sent, 1)
       end
@@ -1085,11 +1085,13 @@ function LightAdapter:report(entity, state)
   if not (levelOnWire and colorOnWire) then
     self:dropFade()
   end
-  -- The wire form of a command not yet answered is reported as that command's color.
+  -- The wire form of a command not yet answered is reported as that command's color, and a report of the wire
+  -- form last reported as the color it was reported as, so the light's rounding is no new color.
   local color = sent and self.sentFor[sent]
   if not color and (self.color or self.cct) then
     color = lightColor(self, self:shownColor(fields))
   end
+  self.sentFor[fields] = color
   return { kind = "push", on = on, level = on and brightness or nil, color = color }
 end
 
