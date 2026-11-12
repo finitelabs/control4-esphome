@@ -484,12 +484,15 @@ function Proxy:link(binding, cmd)
   return dispatch(binding, cmd, {})
 end
 
---- The Control4 app's On: SET_BRIGHTNESS_TARGET at the on level over 750 ms, then the on color about
---- 18 ms later as SET_COLOR_TARGET, with its preset id and origin.
+--- The Control4 app's On: SET_BRIGHTNESS_TARGET at the on level over 750 ms naming brightness preset 1, then the
+--- on color about 18 ms later as SET_COLOR_TARGET, with its preset id and origin.
 --- @param level integer
 --- @param color {x: number, y: number, mode: integer|nil, preset: integer|nil, origin: integer|nil}|nil
 function Proxy:appOn(level, color)
-  self:send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = level, RATE = 750 })
+  self:send(
+    "SET_BRIGHTNESS_TARGET",
+    { LIGHT_BRIGHTNESS_TARGET = level, LIGHT_BRIGHTNESS_TARGET_PRESET_ID = 1, RATE = 750 }
+  )
   if color then
     self.clock.at(18, function()
       self:send("SET_COLOR_TARGET", {

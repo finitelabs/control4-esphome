@@ -37,6 +37,10 @@ Buttons.TOP = 0
 Buttons.BOTTOM = 1
 Buttons.TOGGLE = 2
 
+--- The three, in the order the proxy numbers them.
+--- @type integer[]
+Buttons.ALL = { Buttons.TOP, Buttons.BOTTOM, Buttons.TOGGLE }
+
 --- The actions BUTTON_ACTION and the links report.
 Buttons.RELEASE_HOLD = 0
 Buttons.PRESS = 1
@@ -88,6 +92,23 @@ function Buttons:_start(now)
   if self.nextRamp == nil then
     self.nextRamp = now.on == true and "down" or "up"
   end
+end
+
+--- The Button Link binding that drives a button.
+--- @param links LightLinks|nil
+--- @param button integer
+--- @return integer|nil idBinding
+function Buttons.link(links, button)
+  if not links then
+    return nil
+  elseif button == Buttons.TOP then
+    return links.top
+  elseif button == Buttons.BOTTOM then
+    return links.bottom
+  elseif button == Buttons.TOGGLE then
+    return links.toggle
+  end
+  return nil
 end
 
 --- The button a Button Link binding drives.

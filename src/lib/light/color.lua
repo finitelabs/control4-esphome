@@ -148,8 +148,26 @@ function Color.kelvinToXY(kelvin)
   return C4:ColorCCTtoXY(kelvin)
 end
 
---- How far from the black-body locus a color still goes to a light's white channels: ESPHome's released
---- white-channel test, Euclidean in xy.
+--- A light's parts added together: a strip that mixes its RGB channels with white LEDs shows their sum. Each part
+--- is its own CIE xy and its luminance Y, every Y on one scale the caller picks.
+--- @param parts {x: number, y: number, Y: number}[]
+--- @return number|nil x, number|nil y CIE 1931 xy; nil when no part gives light.
+function Color.mixXY(parts)
+  local X, Y, Z = 0, 0, 0
+  for _, part in ipairs(parts) do
+    if part.Y > 0 and part.y > 0 then
+      local scale = part.Y / part.y
+      X, Y, Z = X + part.x * scale, Y + part.Y, Z + (1 - part.x - part.y) * scale
+    end
+  end
+  local sum = X + Y + Z
+  if sum <= 0 then
+    return nil, nil
+  end
+  return X / sum, Y / sum
+end
+
+--- How far from the black-body locus a color still goes to a light's white channels, Euclidean in xy.
 --- @type number
 Color.WHITE_BAND = 0.012
 

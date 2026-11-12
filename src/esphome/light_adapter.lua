@@ -2,6 +2,7 @@
 --- the white last sent, the fade ESPHome runs between commands, and what a report says. One instance per driver load.
 
 local persist = require("lib.persist")
+local Color = require("lib.light.color")
 local ColorMode = require("esphome.proto_schema").Enum.ColorMode
 
 ---------------------------------------------------------------------------
@@ -441,9 +442,51 @@ local function shownWhite(x, y)
   return x, y, LIGHT_COLOR_MODE_CCT
 end
 
---- xy and mode a light's fields show, or nil. A combined mode shows the
---- color while color_brightness >= white, else the white (shownWhite).
+-- The mix a combined mode shows when its color and its white channels both give light, or nil. The color part is
+-- its RGB at color_brightness, the white part its channels at the white they show, on one luminance scale: full RGB
+-- white and a full white channel weigh the same.
+local function mixed(self, fields)
+  local mode = fields.color_mode
+  if not (COLOR_MODES_SUPPORTING_RGB[mode] and mode ~= ColorMode.COLOR_MODE_RGB) then
+    return nil
+  end
+  local colorY = fields.color_brightness * (0.2126 * fields.red + 0.7152 * fields.green + 0.0722 * fields.blue)
+  local whiteY, wx, wy = fields.white, nil, nil
+  if mode == ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE then
+    whiteY = fields.cold_white + fields.warm_white
+    local mireds = fields.color_temperature > 0 and fields.color_temperature
+      or whiteY > 0 and self.minMireds + (self.maxMireds - self.minMireds) * fields.warm_white / whiteY
+    if mireds then
+      wx, wy = Color.kelvinToXY(LightAdapter.miredsToKelvin(mireds))
+    end
+  elseif mode == ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE then
+    if fields.color_temperature > 0 then
+      wx, wy = Color.kelvinToXY(LightAdapter.miredsToKelvin(fields.color_temperature))
+    end
+  else
+    -- An RGBW light's white is the point last sent, else the default one its own white mode shows.
+    local point = persist:get(WHITE_POINT)
+    if point and point.x and point.y then
+      wx, wy = point.x, point.y
+    else
+      wx, wy = self:takenColor(DEFAULT_COLOR_X, DEFAULT_COLOR_Y, LIGHT_COLOR_MODE_CCT)
+    end
+  end
+  if not (colorY > 0 and whiteY > 0 and wx) then
+    return nil
+  end
+  local h, s = rgbToHSV(fields.red, fields.green, fields.blue)
+  local cx, cy = C4:ColorHSVtoXY(h, s, 100)
+  return Color.mixXY({ { x = cx, y = cy, Y = colorY }, { x = wx, y = wy, Y = whiteY } })
+end
+
+--- xy and mode a light's fields show, or nil. A combined mode lit on both sides shows the mix of its color and
+--- white; lit on one side, that side (shownWhite for the white).
 function LightAdapter:shownColor(fields)
+  local mx, my = mixed(self, fields)
+  if mx then
+    return mx, my, LIGHT_COLOR_MODE_FULL
+  end
   local mode = fields.color_mode
   local hasColor = mode and COLOR_MODES_SUPPORTING_RGB[mode]
   local white = fields.white

@@ -302,6 +302,11 @@ function Light:_due(aspect)
   self:_heard(self.ledger:due(aspect, self.motion:now()))
 end
 
+--- The wait for what the connection's first report left out ended.
+function Light:_awaited()
+  self:_heard(self.ledger:awaited())
+end
+
 --- A scene's next step is due.
 --- @param id integer
 function Light:_sceneStep(id)
@@ -367,8 +372,9 @@ end
 --- @param heard LightHeard
 function Light:_heard(heard)
   local before = self.motion:now()
-  if #heard.foreign > 0 and self.device.fade.retimes then
-    -- Another client's command restarts every channel of a device that re-times, so no ramp of ours runs on.
+  if #heard.foreign > 0 and (self.device.fade.retimes or self.device.fade.kind == "walk") then
+    -- Another client's command restarts every channel of a device that re-times, and ends a fade the library
+    -- walks, so no ramp of ours runs on.
     self.motion:haltAll()
   end
   self.motion:settle(heard.settle)
@@ -406,7 +412,7 @@ function Light:_followUp(cmds)
     })
   end
   if self.online then
-    self.proxy:sync(self.motion:view())
+    self.proxy:sync(self.motion:view(), self.ledger.awaiting)
     local shown = self.proxy:shown()
     if shown then
       local ok, err = pcall(self.adapter.show, self.adapter, shown)

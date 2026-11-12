@@ -3,6 +3,7 @@
 --- is set, so a driver's own one for a command the library does not handle (EXTRA_SET) runs first.
 
 local log = require("lib.logging")
+local Buttons = require("lib.light.buttons")
 local Color = require("lib.light.color")
 
 require("drivers-common-public.global.handlers")
@@ -103,7 +104,7 @@ local IGNORED = { ALL_SCENES_PUSHED = true, SET_COLOR_ON_MODE = true }
 -- A link's commands, as the BUTTON_ACTION actions they are: 0 release after a hold, 1 press, 2 release
 -- after a click.
 --- @type table<string, integer>
-local LINK_ACTIONS = { DO_PUSH = 1, DO_CLICK = 2, DO_RELEASE = 0 }
+local LINK_ACTIONS = { DO_PUSH = Buttons.PRESS, DO_CLICK = Buttons.RELEASE_CLICK, DO_RELEASE = Buttons.RELEASE_HOLD }
 
 --- @class LightHandlers
 local Handlers = {}
@@ -281,7 +282,8 @@ function Handlers.register(light)
   if not links then
     return
   end
-  for button, id in pairs({ [0] = links.top, [1] = links.bottom, [2] = links.toggle }) do
+  for _, button in ipairs(Buttons.ALL) do
+    local id = Buttons.link(links, button)
     RFP[id] = function(idBinding, strCommand, tParams, _args)
       log:trace("RFP[%s] %s", idBinding, strCommand)
       if strCommand == "REQUEST_BUTTON_COLORS" then

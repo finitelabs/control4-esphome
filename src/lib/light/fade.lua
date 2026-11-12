@@ -21,7 +21,7 @@ function Fade.length(fade, fromOn, toOn, ms)
     end
     return fromOn and own.changeMs or own.onMs
   end
-  return math.max(0, math.min(math.floor(ms or 0), fade.maxMs or 65535))
+  return math.max(0, math.min(math.floor(ms or 0), fade.maxMs))
 end
 
 --- The time a command asks of the device for a change of this length: none on "own" and "walk".

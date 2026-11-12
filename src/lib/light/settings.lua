@@ -57,7 +57,7 @@ local Settings = {}
 Settings.__index = Settings
 
 -- The persisted keys, verbatim, so an existing install keeps its presets and rates. `scenes` is Scenes'.
--- color_presets is kept until v3's open item 6 settles whether a proxy names a preset without coordinates.
+-- color_presets is kept for a proxy that names a preset without its coordinates.
 Settings.P_PRESET_LEVEL = "preset_level"
 Settings.P_CLICK_RATE_UP = "click_rate_up"
 Settings.P_CLICK_RATE_DOWN = "click_rate_down"
@@ -80,7 +80,7 @@ Settings.PRESET_ORIGIN_DEVICE = 1
 Settings.PREVIOUS_ON_PRESET_ID = 10
 
 local DEFAULT_PRESET_LEVEL = 100
--- The click and hold rates a light starts with, up and down, as Control4's own lights have them.
+-- The click and hold rates a light starts with, up and down.
 local DEFAULT_CLICK_RATE_UP, DEFAULT_CLICK_RATE_DOWN = 250, 750
 local DEFAULT_HOLD_RATE_UP, DEFAULT_HOLD_RATE_DOWN = 5000, 5000
 local DEFAULT_RATE = 500
@@ -354,12 +354,20 @@ function Settings:readSetup(xml)
     end
   end
 
-  -- The rates and the range the proxy holds, which an install that never stored them still has.
+  -- The rates and the range the proxy holds, which an install that never stored them still has. A rate of 0 there
+  -- is one never set, so the default stands.
   for key, name in pairs({
     [Settings.P_CLICK_RATE_UP] = "CLICK_RATE_UP",
     [Settings.P_CLICK_RATE_DOWN] = "CLICK_RATE_DOWN",
     [Settings.P_HOLD_RATE_UP] = "HOLD_RATE_UP",
     [Settings.P_HOLD_RATE_DOWN] = "HOLD_RATE_DOWN",
+  }) do
+    local rate = tointeger(setup[name])
+    if rate and rate > 0 and persist:get(key) == nil then
+      persist:set(key, rate)
+    end
+  end
+  for key, name in pairs({
     [Settings.P_MIN_ON_LEVEL] = "MIN_ON_LEVEL",
     [Settings.P_MAX_ON_LEVEL] = "MAX_ON_LEVEL",
   }) do

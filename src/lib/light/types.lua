@@ -364,6 +364,7 @@ Types.API = 1
 --- @field asked boolean A refresh was asked in this window.
 --- @field extended boolean The deadline was extended once.
 --- @field deadline integer
+--- @field landed boolean|nil What is held is a position no command sent, reported once the newest change had landed.
 
 --- What start read from the proxy, which Motion starts from and the first report is weighed against.
 --- @class LightSeed

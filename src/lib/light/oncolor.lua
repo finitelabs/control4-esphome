@@ -10,7 +10,7 @@ local Range = require("lib.light.range")
 --- What Settings holds that an on reads.
 --- @class LightOnSettings
 --- @field defaultOn boolean The profile's defaultOn: an On with no on mode goes to the Default On level.
---- @field onModes boolean The profile offers on modes: a held on's follow-up is the Color On Mode's own preset.
+--- @field onModes boolean The profile offers on modes: a Navigator On's follow-up is the Color On Mode's own preset.
 --- @field onLo integer Min On Level, 1-100.
 --- @field onHi integer Max On Level, 1-100.
 --- @field presetLevel integer The Default On level, 1-100.
@@ -33,11 +33,8 @@ local Range = require("lib.light.range")
 --- @field nextOn LightPick|nil A color set while the light was off, or going off: the next on comes on in it.
 --- @field picked LightPick|nil The color picked for this on cycle: levels keep it, with no on mode's color, until
 ---   the light goes off.
---- @field followUp LightFollowUp|nil Open while the proxy may follow the last on or level with its color.
-
---- @class LightFollowUp
---- @field held boolean The on took the held color and named a brightness preset (a Navigator On): its follow-up
----   names a preset, and is no color to apply.
+--- @field followUp boolean Open while the proxy may follow an on or level that named a brightness preset with its
+---   color.
 
 --- A choice with the preset its color is, told with the color.
 --- @class LightOnColorChoice : LightOnChoice
@@ -67,62 +64,24 @@ function OnColor.darkens(intent, now)
   return kind == "off" or (kind == "toggle" and now.on == true) or (kind == "level" and (intent.level or 0) <= 0)
 end
 
---- Whether a color intent is the proxy's follow-up of the on or level just before it, or the color the light already
---- heads for, sent back bare or in the Color On Mode's preset. After a Navigator On that took the held color, the
---- follow-up names a preset: on a profile with on modes the Color On Mode's own (zb:2020-2027), as any other is a color
---- someone chose; without on modes any preset, as Hatch's app sends.
+--- Whether a color intent is the proxy's follow-up of an on or level that named a brightness preset (a Navigator
+--- On): a color naming a preset, on a profile with on modes the Color On Mode's own, as any other is a color
+--- someone chose; without on modes any preset. Every other color is a choice.
 --- @param intent LightIntent
---- @param now LightNow
 --- @param picks LightOnPicks
 --- @param settings LightOnSettings|nil
 --- @return boolean
-function OnColor.followUp(intent, now, picks, settings)
-  local window = picks.followUp
-  if intent.kind ~= "color" or not window or not intent.color then
+function OnColor.followUp(intent, picks, settings)
+  if intent.kind ~= "color" or not picks.followUp or not intent.color then
     return false
   end
-  if window.held and intent.presetId ~= nil and intent.presetOrigin ~= nil then
-    if not (settings and settings.onModes) then
-      return true
-    end
-    if intent.presetId == settings.onPresetId and intent.presetOrigin == settings.onPresetOrigin then
-      return true
-    end
-  end
-  -- The color the light heads for, sent back bare or in the Color On Mode's own preset, is the proxy's echo; one
-  -- naming another preset is a choice, told in that preset.
-  local onModePreset = settings ~= nil
-    and intent.presetId == settings.onPresetId
-    and intent.presetOrigin == settings.onPresetOrigin
-  if intent.presetId ~= nil and not onModePreset then
+  if intent.presetId == nil or intent.presetOrigin == nil then
     return false
   end
-  if now.on ~= true then
-    return false
-  end
-  if now.color ~= nil and Color.alike(intent.color, now.color) then
+  if not (settings and settings.onModes) then
     return true
   end
-  -- The proxy sends the on mode's color back as it holds it, which the light may show in its own form: a white
-  -- off the locus, or a white on a light with no color temperature.
-  return settings ~= nil and Color.alike(intent.color, OnColor.proxyOnColor(now, settings))
-end
-
---- The color the proxy holds for an on in its on mode: the On color, Previous On's color, or the Dim-To-Warm
---- mix at the level the light heads for. Nil when the on mode gives none.
---- @param now LightNow
---- @param settings LightOnSettings
---- @return LightColor|nil
-function OnColor.proxyOnColor(now, settings)
-  local mode = settings.colorOnMode
-  if mode == "preset" then
-    return settings.onColor
-  elseif mode == "previous" then
-    return settings.previousColor
-  elseif mode == "fade" and settings.onColor and settings.dimColor and now.level then
-    return Color.dimToWarm(settings.dimColor, settings.onColor, Range.toLevel(now.level, settings.onLo, settings.onHi))
-  end
-  return nil
+  return intent.presetId == settings.onPresetId and intent.presetOrigin == settings.onPresetOrigin
 end
 
 --- The level an On goes to: the on mode's, else the Default On level where the profile has it, else the
@@ -189,7 +148,7 @@ end
 function OnColor.choose(intent, inputs)
   local now, device, settings, picks = inputs.now, inputs.device, inputs.settings, inputs.picks
   if intent.kind == "color" then
-    if OnColor.followUp(intent, now, picks, settings) then
+    if OnColor.followUp(intent, picks, settings) then
       return { level = levelNow(now, settings), color = now.color, unchosen = false, followUp = true }
     end
     return nil

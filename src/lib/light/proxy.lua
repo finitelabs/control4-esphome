@@ -6,6 +6,7 @@
 
 local log = require("lib.logging")
 local values = require("lib.values")
+local Buttons = require("lib.light.buttons")
 local Caps = require("lib.light.caps")
 local Color = require("lib.light.color")
 local Range = require("lib.light.range")
@@ -17,9 +18,8 @@ require("lib.utils")
 local VAR_LEVEL, VAR_LEVEL_TARGET = 1001, 1110
 local VAR_COLOR, VAR_COLOR_TARGET = 1200, 1210
 
--- The proxy's three buttons, by the ids BUTTON_ACTION and the setup name them.
-local TOP, BOTTOM, TOGGLE = 0, 1, 2
-local BUTTON_NAMES = { [TOP] = "Top", [BOTTOM] = "Bottom", [TOGGLE] = "Toggle" }
+-- The names the setup gives the proxy's three buttons.
+local BUTTON_NAMES = { [Buttons.TOP] = "Top", [Buttons.BOTTOM] = "Bottom", [Buttons.TOGGLE] = "Toggle" }
 
 --- What the proxy was told of the level.
 --- @class LightToldLevel
@@ -42,6 +42,7 @@ local BUTTON_NAMES = { [TOP] = "Top", [BOTTOM] = "Bottom", [TOGGLE] = "Toggle" }
 --- @field target LightColor|nil The ramp's target, while one is told or taken as arrived.
 --- @field endsAt integer|nil When that ramp ends.
 --- @field changing boolean A CHANGING was sent for that ramp, so its end is told.
+--- @field atRead LightColor|nil The color the proxy showed at the read, its ramp finished or not.
 
 --- A BUTTON_ACTION to echo after the ramp it starts is told.
 --- @class LightPress
@@ -113,7 +114,7 @@ function LightProxy:_holdSettings()
   for _, echo in ipairs(self:_echoValues()) do
     self.echoes[echo.notify] = echo.value
   end
-  for _, button in ipairs({ TOP, BOTTOM, TOGGLE }) do
+  for _, button in ipairs(Buttons.ALL) do
     local on, off = self.settings:buttonColors(button)
     self.buttons[button] = { on = on, off = off }
   end
@@ -179,6 +180,7 @@ function LightProxy:read()
     self.level.level = nil
   end
   local shown = parseColor(color)
+  self.color.atRead = shown
   self.color.target, self.color.endsAt, self.color.changing = nil, nil, false
   if shown and colorTarget == color then
     self.color.color = shown
@@ -229,7 +231,7 @@ function LightProxy:online(device)
   if links then
     -- The three buttons, a string per the NUMBER_BUTTONS notify, then each one's name and colors.
     SendToProxy(proxy, "NUMBER_BUTTONS", "3", "NOTIFY")
-    for _, button in ipairs({ TOP, BOTTOM, TOGGLE }) do
+    for _, button in ipairs(Buttons.ALL) do
       local on, off = self.settings:buttonColors(button)
       SendToProxy(proxy, "BUTTON_INFO", {
         BUTTON_ID = button,
@@ -240,7 +242,7 @@ function LightProxy:online(device)
       self.buttons[button] = { on = on, off = off }
     end
     -- A keypad keeps the colors it was last told, which may be from before the proxy's were read.
-    for _, button in ipairs({ TOP, BOTTOM, TOGGLE }) do
+    for _, button in ipairs(Buttons.ALL) do
       self:_tellLinkColors(button)
     end
   end
@@ -304,6 +306,13 @@ function LightProxy:_leds(on, again)
   end
   self.leds = on
   self.ledsSent = true
+  self:_sendLeds(on)
+end
+
+--- Send each link's LED a state, leaving what was told as it was.
+--- @private
+--- @param on boolean
+function LightProxy:_sendLeds(on)
   local links = self.profile.links
   if not links then
     return
@@ -320,6 +329,10 @@ end
 function LightProxy:_levelChanged(level, preset, reached)
   self.toldSince.level = true
   local told = self.level
+  if level == 0 then
+    -- An off ends what the last level command asked.
+    self.asked = nil
+  end
   -- At an off the proxy writes Previous On with the last level it was told, here a pre-on's 1: it is told
   -- the level to keep first: the one it showed lit, else where the ramp from off had got to, else, before
   -- the light was lit, Previous On's own.
@@ -365,6 +378,10 @@ function LightProxy:_levelChanging(current, target, ms, endsAt, preset, ramp)
   self.toldSince.level = true
   local told = self.level
   told.preOn = told.preOn or (target > 0 and (told.level or 0) < 1)
+  if target == 0 and told.preOn and (ramp.level or 0) * 100 >= self.settings:onRange() / 2 then
+    -- A fade to off from where a ramp from off had lit the light: the proxy keeps that level at the off.
+    told.preOn = false
+  end
   told.target, told.endsAt, told.preset = target, endsAt, preset
   told.from, told.to, told.startAt, told.ms = ramp.level, ramp.on and ramp.levelTarget or 0, endsAt - ms, ms
   -- The proxy takes the light's state from CURRENT: one on its way up from off is lit from the start.
@@ -467,8 +484,13 @@ function LightProxy:_syncColor(view, now, endsOff)
     if same and not self.resayDue.color then
       return
     end
-    -- From where the color has got to: a re-timed or replacing ramp starts there, not at the last told.
-    self:_colorChanging(target, view.colorMs, endsAt, preset, origin, current)
+    -- From where the color has got to: a re-timed or replacing ramp starts there, not at the last told. Before any
+    -- color or ramp is told, from what the proxy shows: its color at the read, or D65 as a white.
+    local from = current
+    if told.color == nil and not told.changing then
+      from = told.atRead or Color.D65
+    end
+    self:_colorChanging(target, view.colorMs, endsAt, preset, origin, from)
     return
   end
   -- A preset named while the light is off is told at once: Navigator shows that preset as the light's.
@@ -487,8 +509,12 @@ end
 function LightProxy:_syncLevel(view, now, lo, hi)
   local told = self.level
   local preset = view.levelPreset
-  -- With Min On at Max On or above every level sits at one brightness: the level asked is the one told.
+  -- With Min On at Max On or above every level sits at one brightness: the level a command asked is the one
+  -- told, and a light lit any other way keeps the level told, or is told full coming on from off.
   local asked = lo >= hi and self.asked or nil
+  if asked ~= nil and asked <= 0 then
+    asked = nil
+  end
   if view.levelTarget ~= nil and view.levelMs > 0 then
     local target = view.on and (asked or shownLevel(view.levelTarget, lo, hi)) or 0
     local endsAt = now + view.levelMs
@@ -498,7 +524,11 @@ function LightProxy:_syncLevel(view, now, lo, hi)
     self:_levelChanging(shownLevel(view.level, lo, hi), target, view.levelMs, endsAt, preset, view)
     return
   end
-  local level = view.on and math.max(1, asked or shownLevel(view.level, lo, hi)) or 0
+  local lit = asked
+  if lit == nil and lo >= hi and (told.level or 0) > 0 then
+    lit = told.level
+  end
+  local level = view.on and math.max(1, lit or shownLevel(view.level, lo, hi)) or 0
   local presetMoved = level > 0 and preset ~= nil and preset ~= told.preset
   if told.target ~= nil or level ~= told.level or presetMoved or self.resayDue.level then
     self:_levelChanged(level, preset, level == 0 and self:_reached(now, lo, hi) or nil)
@@ -528,14 +558,20 @@ end
 --- Tell the proxy what differs from what it was told: the color, the level, the button presses, and the
 --- settings it echoes.
 --- @param view LightView
-function LightProxy:sync(view)
+--- @param awaiting table<LightAspect, boolean>|nil Level and color not to tell yet: the Ledger's awaiting.
+function LightProxy:sync(view, awaiting)
+  awaiting = awaiting or {}
   local now = C4:GetTime()
   local lo, hi = self.settings:onRange()
   local ramping = view.levelTarget ~= nil and view.levelMs > 0
   local endsOff = not ramping and not view.on and (self.level.level or 0) > 0
   self.ledsSent = false
-  self:_syncColor(view, now, endsOff)
-  self:_syncLevel(view, now, lo, hi)
+  if not awaiting.color then
+    self:_syncColor(view, now, endsOff)
+  end
+  if not awaiting.level then
+    self:_syncLevel(view, now, lo, hi)
+  end
   if self.ledsDue then
     self.ledsDue = false
     if not self.ledsSent then
@@ -589,7 +625,7 @@ function LightProxy:_syncSettings()
       end
     end
     if not commanded[self.settings.P_BUTTON_COLORS] then
-      for _, button in ipairs({ TOP, BOTTOM, TOGGLE }) do
+      for _, button in ipairs(Buttons.ALL) do
         local on, off = self.settings:buttonColors(button)
         self.buttons[button] = { on = on, off = off }
       end
@@ -606,7 +642,7 @@ function LightProxy:_syncSettings()
   if not self.profile.links then
     return
   end
-  for _, button in ipairs({ TOP, BOTTOM, TOGGLE }) do
+  for _, button in ipairs(Buttons.ALL) do
     local on, off = self.settings:buttonColors(button)
     local told = self.buttons[button]
     if on ~= told.on or off ~= told.off then
@@ -627,33 +663,17 @@ end
 --- @param button integer
 --- @return integer|nil
 function LightProxy:_link(button)
-  local links = self.profile.links
-  if not links then
-    return nil
-  end
-  if button == TOP then
-    return links.top
-  elseif button == BOTTOM then
-    return links.bottom
-  end
-  return links.toggle
+  return Buttons.link(self.profile.links, button)
 end
 
 --- The button a link binding drives, or nil for the proxy binding and any other.
 --- @param idBinding integer|nil
 --- @return integer|nil
 function LightProxy:_button(idBinding)
-  local links = self.profile.links
-  if not links or idBinding == nil then
+  if idBinding == nil then
     return nil
-  elseif idBinding == links.top then
-    return TOP
-  elseif idBinding == links.bottom then
-    return BOTTOM
-  elseif idBinding == links.toggle then
-    return TOGGLE
   end
-  return nil
+  return Buttons.forLink(self.profile.links, idBinding)
 end
 
 --- @param button integer
@@ -751,22 +771,20 @@ function LightProxy:answer(strCommand, _tParams, _view, idBinding)
       SendToProxy(idBinding, "MATCH_LED_STATE", { STATE = self:_ledsHeld() }, "NOTIFY", true)
       return
     end
-    for _, button in ipairs({ TOP, BOTTOM, TOGGLE }) do
+    for _, button in ipairs(Buttons.ALL) do
       local on, off = self.settings:buttonColors(button)
       SendToProxy(proxy, "BUTTON_COLORS", { BUTTON_ID = button, ON_COLOR = on, OFF_COLOR = off }, "NOTIFY")
     end
-    self:_leds(self:_ledsHeld(), true)
+    self:_sendLeds(self:_ledsHeld())
   end
 end
 
---- Whether the link LEDs show the light on: as told, or before any were told, by the level the light holds.
+--- Whether the link LEDs show the light on: as told. Before any were told they show it off, as the light's state
+--- isn't known until its first report, which then tells them.
 --- @private
 --- @return boolean
 function LightProxy:_ledsHeld()
-  if self.leds ~= nil then
-    return self.leds
-  end
-  return (self.level.level or 0) > 0
+  return self.leds == true
 end
 
 return LightProxy

@@ -381,4 +381,60 @@ do
   T.eq("and its fade is unknown", adapter.fade, nil)
 end
 
+---------------------------------------------------------------------------
+T.section("a combined mode lit on both sides reports the mix it shows")
+---------------------------------------------------------------------------
+do
+  local function between(v, a, b)
+    return v > math.min(a, b) + 1e-6 and v < math.max(a, b) - 1e-6
+  end
+  for _, case in ipairs({
+    {
+      "RGBWW with no mireds range",
+      { ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE },
+      nil,
+      { cold_white = 0.5, warm_white = 0.5 },
+    },
+    {
+      "RGBCT in one combined mode",
+      { ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE },
+      { min_mireds = 153, max_mireds = 500 },
+      { white = 0.5, color_temperature = 1e6 / 4000 },
+    },
+    -- An RGBW light's white is the default point its own white mode shows, with no white sent yet.
+    { "RGBW in one combined mode", { ColorMode.COLOR_MODE_RGB_WHITE }, nil, { white = 0.5 }, true },
+  }) do
+    local name, modes, mireds, whitePart, defaultWhite = case[1], case[2], case[3], case[4], case[5]
+    local adapter, entity = light(modes, mireds)
+    local state =
+      { state = true, brightness = 1, color_mode = modes[1], color_brightness = 1, red = 1, green = 0, blue = 0 }
+    for k, v in pairs(whitePart) do
+      state[k] = v
+    end
+    local color = adapter:report(entity, state).color
+    local white = adapter:report(entity, {
+      state = true,
+      brightness = 1,
+      color_mode = modes[1],
+      color_brightness = 0,
+      red = 1,
+      white = whitePart.white,
+      cold_white = whitePart.cold_white,
+      warm_white = whitePart.warm_white,
+      color_temperature = whitePart.color_temperature,
+    }).color
+    if defaultWhite then
+      local x, y = adapter:takenColor(LightAdapter.DEFAULT_COLOR_X, LightAdapter.DEFAULT_COLOR_Y, 1)
+      white = { x = x, y = y }
+    end
+    T.truthy(name .. ": the mix is a full color", color and color.mode == "xy")
+    T.truthy(
+      name .. ": between red and the light's white in x",
+      color and white and between(color.x, 0, white.x),
+      color and string.format("%.4f vs %.4f", color.x, white.x)
+    )
+    T.truthy(name .. ": and in y", color and white and between(color.y, 1, white.y))
+  end
+end
+
 T.finish()
