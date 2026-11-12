@@ -23,6 +23,13 @@ local DRIVER = HERE .. "/../drivers/esphome_light/driver.lua"
 
 local PROXY, ESPHOME = 5001, 5002
 
+-- A command as the dispatcher hands it on, to the command's own handler or else the binding's, without the
+-- dispatcher's error trap.
+local function deliver(idBinding, command, params)
+  local handler = type(RFP[command]) == "function" and RFP[command] or RFP[idBinding]
+  return handler(idBinding, command, params or {}, {})
+end
+
 ---------------------------------------------------------------------------
 -- Virtual clock: the shim's timers have no clock to order by, and a scene's
 -- step and a command's ramp end at different times.
@@ -276,7 +283,7 @@ local function restart(modes, on)
       local was = proxyOnline
       proxyOnline = tParams.STATE
       if proxyOnline and not was and proxyCapabilities.dimmer == "False" then
-        RFP.GET_LIGHT_LEVEL(PROXY, "GET_LIGHT_LEVEL", {})
+        deliver(PROXY, "GET_LIGHT_LEVEL", {})
       end
     end
   end
@@ -302,7 +309,7 @@ local function light(modes, on)
 end
 
 local function proxy(command, params)
-  RFP[command](PROXY, command, params or {})
+  deliver(PROXY, command, params)
 end
 
 local function activate(elements)
@@ -1296,7 +1303,7 @@ do
   run(15000)
   T.eq("Toggle click: the light ends off", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 0 })
   rising()
-  RFP.DO_CLICK(TOP_LINK, "DO_CLICK", {})
+  deliver(TOP_LINK, "DO_CLICK", {})
   T.eq("a click with no push: it sends its ramp and nothing else", commands(), 1)
   T.eq("from where the ramp had got to", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"), { 50 })
   rising()
@@ -1619,7 +1626,7 @@ do
     light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
     proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(60, 2000) })
     mark()
-    RFP[c[3]](c[2], c[3], c[4])
+    deliver(c[2], c[3], c[4])
     T.eq(c[1] .. " from off: its pre-on, and its ramp told from 1", { firstBrightness(), rampsTold() }, {
       0.0039,
       { "1 to " .. c[5] },
@@ -1731,7 +1738,7 @@ do
     light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
     proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(60, 2000) })
     mark()
-    RFP[c[3]](c[2], c[3], c[4])
+    deliver(c[2], c[3], c[4])
     run(1000)
     T.eq(c[1] .. " from off: the LED is told on as its ramp begins", leds(), { { 0, true } })
     proxy("CLEAR_ALL_SCENES")
@@ -1764,8 +1771,8 @@ do
   -- One that stops at off is off, as the light is.
   light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
   mark()
-  RFP.DO_PUSH(TOGGLE_LINK, "DO_PUSH", {})
-  RFP.DO_RELEASE(TOGGLE_LINK, "DO_RELEASE", {})
+  deliver(TOGGLE_LINK, "DO_PUSH", {})
+  deliver(TOGGLE_LINK, "DO_RELEASE", {})
   T.eq("a Toggle Button Link held from off and let go at once: on, then off", leds(), { { 0, true }, { 0, false } })
   light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 5000 })
@@ -1815,7 +1822,7 @@ do
   end
   --- Send `step`: { binding, command, params }.
   local function send(step)
-    RFP[step[2]](step[1], step[2], step[3])
+    deliver(step[1], step[2], step[3])
   end
   local RATED = { PROXY, "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 } }
   local STOP = { PROXY, "SET_BRIGHTNESS_STOP", {} }
@@ -1958,9 +1965,9 @@ do
     light(dimmer, false)
     proxy("UPDATE_BRIGHTNESS_PRESET", { COMMAND = "MODIFIED", ID = 10, NAME = "Previous On", LEVEL = 40 })
     mark()
-    RFP[on[2]](on[1], on[2], on[3])
+    deliver(on[1], on[2], on[3])
     run(50)
-    RFP[stop[2]](stop[1], stop[2], stop[3])
+    deliver(stop[1], stop[2], stop[3])
     run(40)
   end
   local RATED = { PROXY, "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 } }
@@ -2439,7 +2446,7 @@ do
     {
       "a Button Link's click",
       function()
-        RFP.DO_CLICK(TOP_LINK, "DO_CLICK", {})
+        deliver(TOP_LINK, "DO_CLICK", {})
       end,
     },
     {
@@ -7445,7 +7452,7 @@ do
     { false, { 0 } }
   )
   fading()
-  RFP.DO_CLICK(TOGGLE_LINK, "DO_CLICK", {})
+  deliver(TOGGLE_LINK, "DO_CLICK", {})
   T.eq("a Toggle Button Link's click with no push", { lastCommand().state, levelsTold() }, { false, { 0 } })
 
   local function click()
@@ -9128,9 +9135,9 @@ do
   colorTarget(BLUE, 1000)
   proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS })
   proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = RELEASE_CLICK })
-  RFP.DO_CLICK(TOP_LINK, "DO_CLICK", {})
-  RFP.DO_PUSH(TOGGLE_LINK, "DO_PUSH", {})
-  RFP.DO_RELEASE(TOGGLE_LINK, "DO_RELEASE", {})
+  deliver(TOP_LINK, "DO_CLICK", {})
+  deliver(TOGGLE_LINK, "DO_PUSH", {})
+  deliver(TOGGLE_LINK, "DO_RELEASE", {})
   proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
   proxy("RAMP_SCENE_DOWN", { SCENE_ID = 7, RATE = 1000 })
   run(15000)
@@ -9233,9 +9240,9 @@ do
     colorTarget(BLUE, 1000)
     proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS })
     proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = RELEASE_CLICK })
-    RFP.DO_CLICK(TOP_LINK, "DO_CLICK", {})
-    RFP.DO_PUSH(TOGGLE_LINK, "DO_PUSH", {})
-    RFP.DO_RELEASE(TOGGLE_LINK, "DO_RELEASE", {})
+    deliver(TOP_LINK, "DO_CLICK", {})
+    deliver(TOGGLE_LINK, "DO_PUSH", {})
+    deliver(TOGGLE_LINK, "DO_RELEASE", {})
     proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
     proxy("RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 1000 })
     run(15000)
@@ -9283,10 +9290,10 @@ do
   light(dimmer)
   answer(true, 0.6)
   RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", { suspended = "true" })
-  RFP.DO_PUSH(TOGGLE_LINK, "DO_PUSH", {})
+  deliver(TOGGLE_LINK, "DO_PUSH", {})
   answer(false)
   mark()
-  RFP.DO_CLICK(TOGGLE_LINK, "DO_CLICK", {})
+  deliver(TOGGLE_LINK, "DO_CLICK", {})
   run(15000)
   T.eq("a Toggle press while suspended at 60, then back off: its click turns the light on", levels(), { 100 })
 end
@@ -9447,7 +9454,7 @@ do
   proxy("REQUEST_BUTTON_COLORS")
   T.eq("asked before the new light reports: the LEDs read off", leds(), { false })
   mark()
-  RFP.REQUEST_BUTTON_COLORS(TOP_LINK, "REQUEST_BUTTON_COLORS", {})
+  deliver(TOP_LINK, "REQUEST_BUTTON_COLORS", {})
   T.eq("and over a button link", leds(), { false })
   mark()
   answer(false, 0)
