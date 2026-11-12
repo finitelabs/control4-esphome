@@ -100,9 +100,10 @@ color-temperature, and full-color lights are all supported.
 > both. A color picked close to a white, such as the On Color a new light is
 > given, lights the light's white where it has one and is shown as the color
 > that was picked. A color temperature outside the light's range lights the
-> nearer end of it, and Control4 shows that end. On a light built with `color_interlock`, a fade between a
-> color and a white goes dark for a moment half way, because ESPHome changes
-> between its color and white modes through off.
+> nearer end of it, and Control4 shows that end. On a light built with
+> `color_interlock`, a fade between a color and a white goes dark for a moment
+> half way, because ESPHome changes between its color and white modes through
+> off.
 
 # <span style="color:#17BCF2">Installer Setup</span>
 
@@ -149,10 +150,10 @@ until that light reports.
 The light ignores commands while its device is offline or its **ESPHome Light**
 connection is removed, so a command sent meanwhile changes nothing in Control4
 and runs no light programming. Once the device reports again, the light shows
-its level and color. After a controller restart, a driver update or a
-reconnect, the light reports its level and color as it finds them, even when
-they have not changed. A command for the level or color the light already shows
-runs no Brightness Changed, Level Change or Color Changed programming.
+its level and color. After a controller restart, a driver update or a reconnect,
+the light reports its level and color as it finds them, even when they have not
+changed. A command for the level or color the light already shows runs no
+Brightness Changed, Level Change or Color Changed programming.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
@@ -235,8 +236,8 @@ and provides the light functionality to Control4.
 > Lighting Scene, stays when the light is dimmed or brightened. A scene step
 > that sets the level and the color together is the exception, and the light
 > follows Dim-To-Warm from the next level change. The light follows Dim-To-Warm
-> again the next time it turns on, and from its first level
-> change after a controller restart or a driver update.
+> again the next time it turns on, and from its first level change after a
+> controller restart or a driver update.
 
 > **Note:** A color set while the light is off is the color it next turns on in,
 > over its **Color On Mode**, whether it is turned on from a Navigator,
