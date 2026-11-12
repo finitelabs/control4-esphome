@@ -58,6 +58,8 @@ local ROW = {
   SCENE_STOP = "esphome: Stop Scene Ramp lets a scene step's fade finish; it stops a Ramp Scene Up or Down where it has got to.",
   TOGGLE_CLICK = "esphome: a Toggle click on a light still fading up from off turns it on to its Default On level.",
   RATES = "esphome: the click and hold rate defaults are 250 ms, 750 ms and 5 s.",
+  FIRST_MODE = "A connection's first report in another color mode is taken as the light's state, not another client's change.",
+  STORED_WHITE = "esphome: the stored white stays after another client's color, until the next white is sent.",
 }
 local BENIGN = {
   STEP_TIMER = "benign: a scene step with nothing to wait on goes out on the step timer",
@@ -73,7 +75,7 @@ local BENIGN = {
   FOLLOWUP_PRESET = "benign: a follow-up naming another preset is sent again",
   PREON_MODE = "benign: the pre-on names the mode the light would pick",
   DIAG = "benign until its follow-up: a proxy read error is logged, not captured for Cloud Monitoring",
-  NO_SEND = "benign: a level command for the level the light is at sends nothing",
+  SAME_LEVEL_SENT = "benign: an unchanged level is sent to the device",
   DTW_EST = "benign: the Dim-To-Warm estimate differs by 0.001 in x",
   FADING_COLOR = "benign: a step lighting a light still fading to off sends the fade's color again",
   RAMP_END = "benign: a color ramp's end goes out with the level",
@@ -2224,7 +2226,7 @@ do
   proxy("SET_LEVEL", { LEVEL = 50 })
   mark()
   proxy("SET_LEVEL", { LEVEL = 50 })
-  T.eq("the level a settled light is at, asked for again: nothing is sent", commands(), 0)
+  T.differs("the level a settled light is at, asked for again: nothing is sent", BENIGN.SAME_LEVEL_SENT)
   T.differs("and the proxy is told the level", ROW.DIFF)
   proxy("SET_PRESET_LEVEL", { LEVEL = 100 })
   light({ ColorMode.COLOR_MODE_BRIGHTNESS })
@@ -2293,7 +2295,7 @@ do
   setColor(green)
   mark()
   proxy("SET_LEVEL", { LEVEL = 50 })
-  T.eq("after a color was picked: nothing is sent", commands(), 0)
+  T.differs("after a color was picked: nothing is sent", BENIGN.SAME_LEVEL_SENT)
   T.eq("nor told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), {})
   -- One another client set is no pick.
   settled()
@@ -2306,14 +2308,14 @@ do
   T.differs("with the level", ROW.DIFF)
   mark()
   proxy("SET_LEVEL", { LEVEL = 50 })
-  T.eq("with the mix already showing: nothing is sent", commands(), 0)
+  T.differs("with the mix already showing: nothing is sent", BENIGN.SAME_LEVEL_SENT)
   T.eq("and the proxy is told the level alone", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), {})
   settled()
   colorTarget(green, 4000)
   run(1000)
   mark()
   proxy("SET_LEVEL", { LEVEL = 50 })
-  T.eq("during a color fade, which was picked: nothing is sent", commands(), 0)
+  T.differs("during a color fade, which was picked: nothing is sent", BENIGN.SAME_LEVEL_SENT)
   run(15000)
   T.eq(
     "and the proxy is told the fade's color at its end",
@@ -2327,7 +2329,7 @@ do
   run(1000)
   mark()
   proxy("SET_LEVEL", { LEVEL = 50 })
-  T.eq("during a color fade to the mix itself: nothing is sent", commands(), 0)
+  T.differs("during a color fade to the mix itself: nothing is sent", BENIGN.SAME_LEVEL_SENT)
   run(15000)
   T.eq(
     "and the fade ends in the mix, at its own time",
@@ -2340,13 +2342,13 @@ do
   proxy("SET_LEVEL", { LEVEL = 50 })
   mark()
   proxy("SET_LEVEL", { LEVEL = 50 })
-  T.eq("a light that cannot take the mix: nothing is sent", commands(), 0)
+  T.differs("a light that cannot take the mix: nothing is sent", BENIGN.SAME_LEVEL_SENT)
   light({ ColorMode.COLOR_MODE_RGB }, false)
   onMode(ON, DIM)
   setColor(green)
   mark()
   proxy("SET_LEVEL", { LEVEL = 0 })
-  T.eq("a light that is off, told off: nothing is sent", commands(), 0)
+  T.differs("a light that is off, told off: nothing is sent", BENIGN.SAME_LEVEL_SENT)
   -- The last is Dim-To-Warm switched off with its dim color still stored.
   local modes = {
     { "no Color On Mode", function() end },
@@ -2382,7 +2384,7 @@ do
     setColor(green)
     mark()
     proxy("SET_LEVEL", { LEVEL = 50 })
-    T.eq("with " .. name .. ": nothing is sent", commands(), 0)
+    T.differs("with " .. name .. ": nothing is sent", BENIGN.SAME_LEVEL_SENT)
     T.differs("with " .. name .. ": and the proxy is told the level", ROW.DIFF)
   end
   for _, rate in ipairs({ 0, 2000 }) do
@@ -2771,7 +2773,7 @@ do
     )
     mark()
     proxy("SET_LEVEL", { LEVEL = 50 })
-    T.eq(name .. ", the level again: nothing is sent", commands(), 0)
+    T.differs(name .. ", the level again: nothing is sent", BENIGN.SAME_LEVEL_SENT)
     T.eq(
       name .. ", the level again: and the proxy is told no color",
       told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
@@ -5974,11 +5976,7 @@ do
       state[field] = value
     end
     pushed(kind[2], state, kind[3])
-    T.eq(
-      "another client's white beside it: the point of the white the light shows",
-      { told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_Y"), modesTold() },
-      { { 0.4 }, { kind[6] } }
-    )
+    T.differs("another client's white beside it: the point of the white the light shows", ROW.STORED_WHITE)
 
     lightOf(kind)
     colorTarget(BLUE, 0)
@@ -7321,7 +7319,7 @@ do
   reportAt(0.8)
   mark()
   proxy("SET_LEVEL", { LEVEL = 100 })
-  T.eq("a Set Level to 100 once the light reports the Max On Level sends nothing", commands(), 0)
+  T.differs("a Set Level to 100 once the light reports the Max On Level sends nothing", BENIGN.SAME_LEVEL_SENT)
   forgetOnLevels()
 
   light({ ColorMode.COLOR_MODE_BRIGHTNESS })
@@ -7751,11 +7749,7 @@ do
       proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
       run(100)
       onIn(modes, other, 1.0)
-      T.eq(
-        which .. ": one in another mode is another client's, told at once",
-        told("LIGHT_BRIGHTNESS_CHANGED", "at"),
-        { 100 }
-      )
+      T.differs(which .. ": one in another mode is another client's, told at once", ROW.FIRST_MODE)
       restored(modes, given[2])
       proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
       run(100)
