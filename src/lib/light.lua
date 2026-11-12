@@ -316,7 +316,7 @@ end
 
 --- Buttons' 250 ms press gate ended with the button still down.
 function Light:_gateEnded()
-  local intent = self.buttons:gateEnded(self.motion:now())
+  local intent = self.buttons:gateEnded(self.motion:now(), self.motion:view())
   self:_followUp(intent and self:_move(intent) or {})
 end
 
@@ -337,6 +337,7 @@ function Light:_move(intent)
   end
   self.picks:noted(intent, self.motion:now(), self.settings:forOn())
   self.buttons:noted(intent, self.motion:now())
+  self.ledger:taken(intent)
   self.motion:assumeLit(self.ledger:lit())
   return self.motion:command(intent, OnColor.choose(intent, self:_onInputs()), self.settings:forMotion())
 end

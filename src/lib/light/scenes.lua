@@ -162,7 +162,8 @@ end
 --- @param ms integer
 function Scenes:_arm(ms)
   local id, generation, light = self.run.id, self.generation, self.light
-  SetTimer(timerName(id), ms, function()
+  -- Director refuses a 0 ms timer, so a step with no rate waits the shortest one it takes.
+  SetTimer(timerName(id), math.max(1, ms), function()
     if generation == self.generation then
       light:_sceneStep(id)
     end

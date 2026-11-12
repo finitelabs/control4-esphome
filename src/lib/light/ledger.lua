@@ -118,8 +118,15 @@ function Ledger:heard(report, now)
       -- The light as it stood before a running ramp got to move its on: an off's level is only the level kept.
       value = nil
     end
-    if aspect == "level" and value ~= nil and history[1] == "on" and report.on == false then
-      -- An off held as history carries the level that stale state kept: history too, never a lit level.
+    if
+      aspect == "level"
+      and value ~= nil
+      and history[1] == "on"
+      and (report.on == false or (self.device.feedback.shows == "target" and self.windows.level == nil))
+    then
+      -- An on held as history carries the level of that stale state: history too. An off's is only the level
+      -- kept; a lit one from a device that reports its targets, with no command out for the level, came before
+      -- our command as well.
       history[#history + 1] = aspect
     elseif
       aspect == "level"
@@ -130,6 +137,9 @@ function Ledger:heard(report, now)
       -- A lit light below where its fade to off started is that fade on its way, held with its on, or alone
       -- from a device that reports one attribute at a time.
       history[#history + 1] = aspect
+    elseif aspect == "level" and value ~= nil and report.on == false and self:_ourOffOut() then
+      -- Beside an off while one of ours is out, the level is only the one the light keeps for its next on.
+      value = nil
     elseif value ~= nil and self:_weigh(aspect, value, report, now, out) == "history" then
       history[#history + 1] = aspect
     end
@@ -169,6 +179,18 @@ function Ledger:heard(report, now)
     self:_await(report)
   end
   return out
+end
+
+--- An intent the library took sets the level or color it carries, sent or held for the next on: neither is
+--- waited for any more.
+--- @param intent LightIntent
+function Ledger:taken(intent)
+  if intent.level ~= nil then
+    self:_heardOf("level")
+  end
+  if intent.color ~= nil then
+    self:_heardOf("color")
+  end
 end
 
 --- The wait for what the connection's first report left out ended: each is told as the library holds it.
@@ -539,7 +561,8 @@ end
 --- @param deadline integer
 function Ledger:_arm(aspect, window, deadline)
   window.deadline = deadline
-  SetTimer("Light.Wait." .. aspect, math.max(0, deadline - C4:GetTime()), function()
+  -- Director refuses a 0 ms timer, so a deadline already due runs on the shortest one it takes.
+  SetTimer("Light.Wait." .. aspect, math.max(1, deadline - C4:GetTime()), function()
     self.light:_due(aspect)
   end)
 end
@@ -652,6 +675,15 @@ function Ledger:_walkUnheard(now)
   local level, color = self.windows.level, self.windows.color
   return (now.levelRamping == true and level ~= nil and level.kind == "command" and not level.heard)
     or (now.colorRamping == true and color ~= nil and color.kind == "command" and not color.heard)
+end
+
+--- Whether the newest command out for the on is an off of ours.
+--- @private
+--- @return boolean
+function Ledger:_ourOffOut()
+  local window = self.windows.on
+  local newest = window and window.kind ~= "learning" and window.sent[#window.sent]
+  return newest and newest.value == false or false
 end
 
 --- Whether a lit level is a fade to off on its way, on a device that reports where its light has got to: no

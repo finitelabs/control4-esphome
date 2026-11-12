@@ -113,8 +113,7 @@ end
 -- The profile
 -----------------------------------------------------------------------------------------------------
 
---- Check a driver's profile and fill its defaults: every boolean false, proxy 5001, no links, a longest rate of
---- 65535 ms. An error is
+--- Check a driver's profile and fill its defaults: every boolean false, proxy 5001, no links. An error is
 --- the driver's own, so Light.new raises with it; the api itself is Light.new's to check.
 --- @param p table|nil
 --- @return LightProfile|nil profile Nil with the errors.
@@ -146,6 +145,13 @@ function Caps.profile(p)
       errors[#errors + 1] = "profile.proxy must be a binding id"
     end
   end
+  if p.maxMs ~= nil then
+    if whole(p.maxMs) and p.maxMs > 0 then
+      out.maxMs = p.maxMs
+    else
+      errors[#errors + 1] = "profile.maxMs must be a whole number of ms above 0"
+    end
+  end
   if p.links ~= nil and p.links ~= false then
     if type(p.links) ~= "table" then
       errors[#errors + 1] = "profile.links must be { top, toggle, bottom } binding ids"
@@ -169,13 +175,6 @@ function Caps.profile(p)
     out.cct = cctRange(p.cct)
     if not out.cct then
       errors[#errors + 1] = "profile.cct must be true or { minK, maxK } in Kelvin, minK no more than maxK"
-    end
-  end
-  if p.maxMs ~= nil then
-    if whole(p.maxMs) and p.maxMs > 0 then
-      out.maxMs = p.maxMs
-    else
-      errors[#errors + 1] = "profile.maxMs must be a whole number of ms above 0"
     end
   end
   if out.known and out.cct == true then
@@ -522,7 +521,7 @@ function Caps.static(profile)
     row("has_fixed_ramp_rate", "False"),
     row("fixed_ramp_rate", "0"),
     row("brightness_rate_min", "0"),
-    row("brightness_rate_max", tostring(profile.maxMs or Caps.RATE_MAX)),
+    row("brightness_rate_max", tostring(profile.maxMs)),
     -- The proxy reads no rate default from either list, so this and color_rate_default are inert.
     row("brightness_rate_default", "0"),
     row("click_rate_min", "0"),
@@ -537,7 +536,7 @@ function Caps.static(profile)
     row("supports_color_stop", bool((dims or color or cct) and fades)),
     row("color_rate_behavior", fades and "1" or "0"),
     row("color_rate_min", "0"),
-    row("color_rate_max", tostring(profile.maxMs or Caps.RATE_MAX)),
+    row("color_rate_max", tostring(profile.maxMs)),
     row("color_rate_default", "0"),
     row("has_button_events", bool(links)),
     row("has_leds", bool(links)),

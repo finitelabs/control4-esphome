@@ -257,18 +257,31 @@ function Buttons:action(button, action, now, view)
   return nil
 end
 
+--- Where the light has got to, as a C4 level: 0 while off.
+--- @private
+--- @param view LightView
+--- @return integer
+function Buttons:_at(view)
+  if not view.on or view.level <= 0 then
+    return 0
+  end
+  local lo, hi = self.settings:onRange()
+  return math.max(1, Range.toLevel(view.level, lo, hi))
+end
+
 --- The gate ended with the button still down: its hold ramp starts, over the hold rate scaled by the
---- distance left.
+--- distance left from where the light has got to.
 --- @param now LightNow
+--- @param view LightView
 --- @return LightIntent|nil
-function Buttons:gateEnded(now)
+function Buttons:gateEnded(now, view)
   local press = self.press
   if not press or not press.waiting then
     return nil
   end
   press.waiting = false
   local up = press.direction == "up"
-  local level = self:_level(now)
+  local level = self:_at(view)
   local distance = up and (100 - level) or level
   local hold = {
     kind = "level",

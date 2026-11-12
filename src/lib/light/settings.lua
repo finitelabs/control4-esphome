@@ -114,16 +114,21 @@ function Settings:presetLevel()
   return math.min(v, 100)
 end
 
---- The level a Top click ramps to: the brightness on mode's, where the profile takes on modes and one is set,
---- else the Default On level.
---- @return integer level 1-100.
-function Settings:clickLevel()
+--- The brightness on mode's level, where the profile takes on modes and one is set.
+--- @return integer|nil level 1-100.
+function Settings:onModeLevel()
   local onMode = self.profile.onModes and persist:get(Settings.P_ON_MODE)
   local level = onMode and tointeger(onMode.level)
   if level and level >= 1 then
     return math.min(level, 100)
   end
-  return self:presetLevel()
+  return nil
+end
+
+--- The level a Top click ramps to: the brightness on mode's, else the Default On level.
+--- @return integer level 1-100.
+function Settings:clickLevel()
+  return self:onModeLevel() or self:presetLevel()
 end
 
 --- @return integer ms
@@ -246,11 +251,7 @@ function Settings:forOn()
   if not self.profile.onModes then
     return on
   end
-  local onMode = persist:get(Settings.P_ON_MODE)
-  local level = onMode and tointeger(onMode.level)
-  if level and level >= 1 then
-    on.onModeLevel = math.min(level, 100)
-  end
+  on.onModeLevel = self:onModeLevel()
   local mode = persist:get(Settings.P_COLOR_ON_MODE)
   on.colorOnMode = colorOnModeKind(mode)
   if on.colorOnMode ~= "none" then

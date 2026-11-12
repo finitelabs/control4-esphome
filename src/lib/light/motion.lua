@@ -1020,13 +1020,14 @@ function Motion:_armRamps(fade)
   end
   local t = C4:GetTime()
   local lr, cr = self.levelRamp, self.colorRamp
+  -- Director refuses a 0 ms timer, so a ramp that lands now ends on the shortest one it takes.
   if lr then
-    SetTimer(TIMER_LEVEL, Fade.left(lr.startMs, lr.ms, t), function()
+    SetTimer(TIMER_LEVEL, math.max(1, Fade.left(lr.startMs, lr.ms, t)), function()
       self.light:_rampEnded("level")
     end)
   end
   if cr then
-    SetTimer(TIMER_COLOR, Fade.left(cr.startMs, cr.ms, t), function()
+    SetTimer(TIMER_COLOR, math.max(1, Fade.left(cr.startMs, cr.ms, t)), function()
       self.light:_rampEnded("color")
     end)
   end
