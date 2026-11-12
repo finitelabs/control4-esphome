@@ -100,7 +100,7 @@ color-temperature, and full-color lights are all supported.
 > both. A color picked close to a white, such as the On Color a new light is
 > given, lights the light's white where it has one and is shown as the color
 > that was picked. A color temperature outside the light's range lights the
-> nearer end of it. On a light built with `color_interlock`, a fade between a
+> nearer end of it, and Control4 shows that end. On a light built with `color_interlock`, a fade between a
 > color and a white goes dark for a moment half way, because ESPHome changes
 > between its color and white modes through off.
 
@@ -143,16 +143,16 @@ proxy is offline, while the ESPHome device is offline or the **ESPHome Light**
 connection is removed. A light whose device drops off the network shows off, as
 do keypad buttons linked to it, since it has most likely lost power. When the
 connection is removed, or the ESPHome driver reconnects to apply a log setting,
-the light keeps the level it had.
+the light keeps the level it had. Bound to a different light, it shows offline
+until that light reports.
 
 The light ignores commands while its device is offline or its **ESPHome Light**
 connection is removed, so a command sent meanwhile changes nothing in Control4
 and runs no light programming. Once the device reports again, the light shows
-its level and color. A level or color the light still has runs no Brightness
-Changed, Level Change or Color Changed programming, after a controller restart
-or a driver update too. After a controller restart Control4 still reports the
-color variables of a light with color or color temperature as changed, as it
-learns the light's capabilities again.
+its level and color. After a controller restart, a driver update or a
+reconnect, the light reports its level and color as it finds them, even when
+they have not changed. A command for the level or color the light already shows
+runs no Brightness Changed, Level Change or Color Changed programming.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
@@ -232,8 +232,10 @@ and provides the light functionality to Control4.
 
 > **Note:** With **Color On Mode** set to Dim-To-Warm, a color set while the
 > light is on, from a Navigator, programming, a color preset or an Advanced
-> Lighting Scene, stays when the light is dimmed or brightened. The light
-> follows Dim-To-Warm again the next time it turns on, and from its first level
+> Lighting Scene, stays when the light is dimmed or brightened. A scene step
+> that sets the level and the color together is the exception, and the light
+> follows Dim-To-Warm from the next level change. The light follows Dim-To-Warm
+> again the next time it turns on, and from its first level
 > change after a controller restart or a driver update.
 
 > **Note:** A color set while the light is off is the color it next turns on in,
@@ -245,8 +247,7 @@ and provides the light functionality to Control4.
 > Color On Mode.
 
 > **Note:** A ramp that Control4 stops part way stops where the light has got
-> to. A light added before this driver version does this from its next
-> controller restart.
+> to.
 
 ### ESPHome Light (consumer)
 

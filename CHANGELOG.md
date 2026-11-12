@@ -18,6 +18,64 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Changed
+
+- After a driver restart or a reconnect the ESPHome light reports its brightness
+  and color to Control4 as it finds them, even when they have not changed.
+- A command for the brightness or color the ESPHome light already shows no
+  longer fires a change event in Control4 programming.
+- The ESPHome light answers brightness queries with the level it last reported,
+  also during a fade or while the device can't be reached.
+- Keypad buttons with no colors of their own show the ESPHome light's colors
+  from Composer, then the standard defaults.
+- Turning an ESPHome light on fades its color to the on color over the same time
+  as its brightness.
+- With Dim-To-Warm, turning the ESPHome light off fades its color all the way to
+  the Dim color.
+- With Dim-To-Warm, the color blends in a straight line between the Dim and On
+  colors, whites included, and reports the white the ESPHome light shows.
+- With Dim-To-Warm, a color set by a scene step on an ESPHome light gives way to
+  Dim-To-Warm at the next brightness change.
+- Choosing the color an ESPHome light is already fading to holds that color, as
+  any chosen color does.
+- An ESPHome light turned back on before its fade to off ends keeps the color it
+  had.
+- A keypad press on a dimmable ESPHome light waits 250 ms to tell a click from a
+  hold, and a click fades over the click rate.
+- A keypad hold on an ESPHome light takes time in proportion to the distance it
+  has left, and letting go stops only a hold or a scene ramp.
+- Click and hold rates on an ESPHome light left unset default to 250 ms up, 750
+  ms down and 5 seconds for a hold.
+- Toggle buttons alternate their hold direction after each ramp, and a Toggle
+  press while the ESPHome light fades up from off keeps it coming on.
+- A keypad press on an ESPHome light leaves a running scene alone until the
+  press becomes a click or a hold.
+- Ramp Scene Up on an ESPHome light ramps to full brightness rather than the on
+  level.
+- Stop Scene Ramp on an ESPHome light lets a scene step's fade finish and stops
+  Ramp Scene Up or Down where it is.
+- A stop or an off just after an ESPHome light starts fading on leaves it at its
+  lowest level, and the next on returns there.
+- An ESPHome light counts as on until its fade to off ends.
+- Stopping a brightness fade on an ESPHome light also stops its color where the
+  fade has got to.
+- Binding the ESPHome light to a different device shows it offline until the new
+  device reports.
+- The ESPHome light reports a setting back to Control4 only when it changes, not
+  at every start.
+- An ESPHome light that only switches on and off changes and reports at once,
+  with no fade.
+- A color temperature beyond the ESPHome light's range is reported as the
+  nearest one the ESPHome light can show.
+- With Dim-To-Warm, a blend on an ESPHome light that passes near white lights
+  the white channels.
+- A white chosen in Control4 on an ESPHome light is kept when another app
+  changes the color, until a new white is chosen.
+- An ESPHome light lit on both its color and white channels reports the color
+  the mix shows.
+
 ## v20261111 - 2026-11-11
 
 ### Fixed
