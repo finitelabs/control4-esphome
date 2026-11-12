@@ -14,8 +14,9 @@
 --
 -- A driver.lua cannot be loaded far enough to reach its handlers, so
 -- RFP.UPDATE_STATE is cut out of the source and compiled under a synthetic
--- environment. The driver's own arithmetic is what runs; only its collaborators
--- are supplied here.
+-- environment, with the light adapter that reads the report. The driver's and
+-- the adapter's own arithmetic is what runs; only their collaborators are
+-- supplied here.
 
 local T = require("testlib")
 
@@ -23,6 +24,7 @@ require("c4_shim")
 require("lib.utils")
 
 local NAN = 0 / 0
+local ColorMode = require("esphome.proto_schema").Enum.ColorMode
 
 -- Resolved from this file rather than the working directory: make test runs from
 -- the driver root, test/run_test.sh does not.
@@ -44,6 +46,9 @@ end
 local src = readFile(root .. "/drivers/esphome_light/driver.lua")
 T.check("the esphome_light source was read", src ~= nil, "missing")
 
+local adapterSrc = readFile(root .. "/src/esphome/light_adapter.lua")
+T.check("the light adapter's source was read", adapterSrc ~= nil, "missing")
+
 local handlerSrc = src and src:match("\n(function RFP%.UPDATE_STATE%s*%b()\n.-\nend)\n")
 T.check("RFP.UPDATE_STATE was cut out", handlerSrc ~= nil, "no match")
 
@@ -59,10 +64,23 @@ local function newLog()
   })
 end
 
+--- Load the light adapter from its source.
+--- @param source string The adapter's source.
+--- @return table LightAdapter
+local function loadAdapter(source)
+  local chunk, err = loadstring(source, "light_adapter")
+  T.check("the adapter compiles", chunk ~= nil, err)
+  return chunk()
+end
+
 --- Compile a cut handler under a synthetic environment.
 --- @param source string The handler source.
+--- @param LightAdapter table|nil The adapter module; the one in src/ if nil.
 --- @return table env The environment, carrying RFP and the recorded calls.
-local function compileHandler(source)
+local function compileHandler(source, LightAdapter)
+  LightAdapter = LightAdapter or loadAdapter(adapterSrc)
+  local adapter = LightAdapter.new(ESPHOME_BINDING)
+  adapter:learn({ supported_color_modes = { ColorMode.COLOR_MODE_BRIGHTNESS } })
   local env = {
     RFP = {},
     log = newLog(),
@@ -81,9 +99,8 @@ local function compileHandler(source)
     rampingColor = false,
     rampingBrightness = false,
     currentBrightness = -1,
-    COLOR_MODES_SUPPORTING_CCT = {},
-    COLOR_MODES_SUPPORTING_RGB = {},
-    ESPHomeProtoSchema = require("esphome.proto_schema"),
+    LightAdapter = LightAdapter,
+    adapter = adapter,
     PersistKey = {},
     -- The range a light has until Max and Min On Level are set.
     persist = {
@@ -171,18 +188,19 @@ T.eq("an off light reports zero", drive(compileHandler(handlerSrc), { state = fa
 T.section("reverting the fix puts the NaN case back")
 --------------------------------------------------------------------------------
 
--- Reverts `tofinite` to the `tonumber` the fix replaced, so the assertions above
--- are shown to fail against the pre-fix source rather than passing for some
--- unrelated reason.
+-- Reverts the adapter's `tofinite` to the `tonumber` the fix replaced, so the
+-- assertions above are shown to fail against the pre-fix source rather than
+-- passing for some unrelated reason.
 local revertedSrc, swaps =
-  handlerSrc:gsub('tofinite%(Select%(state, "brightness"%)%)', 'tonumber(Select(state, "brightness"))')
+  adapterSrc:gsub('tofinite%(Select%(state, "brightness"%)%)', 'tonumber(Select(state, "brightness"))')
 T.eq("the revert replaced exactly one call", swaps, 1)
+local reverted = loadAdapter(revertedSrc)
 
-local revertedLevel = drive(compileHandler(revertedSrc), { state = true, brightness = NAN })
+local revertedLevel = drive(compileHandler(handlerSrc, reverted), { state = true, brightness = NAN })
 T.check("the reverted source pushes a NaN", revertedLevel ~= revertedLevel, "pushed " .. tostring(revertedLevel))
 T.eq(
   "and still agrees on a finite brightness",
-  drive(compileHandler(revertedSrc), { state = true, brightness = 0.42 }),
+  drive(compileHandler(handlerSrc, reverted), { state = true, brightness = 0.42 }),
   42
 )
 
