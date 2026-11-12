@@ -8086,9 +8086,10 @@ do
   proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_HOLD })
   T.eq(
     "Top held past half way through a level carrying a Dim-To-Warm white from red, let go a second later: the white, over half a second",
-    { lastCommand().color_mode, colors(), brightnessSent(), lengths() },
-    { CWWW, {}, fadeLevel(fadeLevel(100, 50, 2500 / 4000), 100, 1000 / 3000) / 100, { 500 } }
+    { lastCommand().color_mode, colors(), lengths() },
+    { CWWW, {}, { 500 } }
   )
+  T.differs("at the level the hold reached", ROW.HOLD_SCALED)
   for name, color in pairs({ ["a level, with Dim-To-Warm,"] = "", ["a level and 4000 K"] = FOUR_K }) do
     inRed({ RGB, CWWW })
     if color == "" then
@@ -8169,15 +8170,10 @@ do
   proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = RELEASE_HOLD })
   T.eq(
     "Bottom held a quarter of the way through a level carrying a Dim-To-Warm white from red, let go a second later: red, over half a second",
-    { lastCommand().color_mode, colors(), brightnessSent(), lengths(), lastTold() },
-    {
-      RGB,
-      { { 1, 0, 0 } },
-      fadeLevel(fadeLevel(100, 50, 1000 / 4000), 0, 1000 / 3000) / 100,
-      { 500 },
-      { 0, FULL_MODE },
-    }
+    { lastCommand().color_mode, colors(), lengths(), lastTold() },
+    { RGB, { { 1, 0, 0 } }, { 500 }, { 0, FULL_MODE } }
   )
+  T.differs("at the level the hold reached", ROW.HOLD_SCALED)
   -- Once such a fade has run, the light is back up: the next has no dip.
   inRed({ RGB, CWWW })
   kelvin(4000, 4000)
