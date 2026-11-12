@@ -97,6 +97,7 @@ local FADED_FIELDS =
 ---   reset (a disconnect or a bind), so the first report after one is the light's own word.
 --- @field wireColors EsphomeLightFields[] The color fields last reported, then each sent since (oldest first),
 ---   emptied with wireLevels.
+---   The white point is not one of these: it is a persisted pick, kept as long as WHITE_POINT says.
 local LightAdapter = {}
 LightAdapter.__index = LightAdapter
 
