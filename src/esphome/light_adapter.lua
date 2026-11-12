@@ -48,6 +48,8 @@ local COLOR_MODES_SUPPORTING_WHITE = {
 
 -- xy of the last white sent, and the color it was picked as (or the
 -- out-of-range color temperature asked for); no report carries either.
+-- Kept through a reload and a disconnect, so the light's report of that white
+-- still reads back as the color picked; an unbind forgets it.
 local WHITE_POINT = "white_point"
 
 local LIGHT_COLOR_MODE_FULL = 0
@@ -91,8 +93,10 @@ local FADED_FIELDS =
 --- @field maxMireds number
 --- @field target EsphomeLightFields Color and white fields the light is heading to: last report plus sends since.
 --- @field fade EsphomeLightFade|nil The transition the last command started, as ESPHome runs it.
---- @field wireLevels number[] The brightness last reported, then each sent since (oldest first).
---- @field wireColors EsphomeLightFields[] The color fields last reported, then each sent since (oldest first).
+--- @field wireLevels number[] The brightness last reported, then each sent since (oldest first). Emptied by
+---   reset (a disconnect or a bind), so the first report after one is the light's own word.
+--- @field wireColors EsphomeLightFields[] The color fields last reported, then each sent since (oldest first),
+---   emptied with wireLevels.
 local LightAdapter = {}
 LightAdapter.__index = LightAdapter
 
