@@ -1,7 +1,7 @@
 --- The light's three buttons, from BUTTON_ACTION and from the Button Links: presses, holds and clicks as
 --- intents for Motion.
 ---
---- On a light that dims, a press waits 250 ms before its hold ramp starts. Only that button's click or release, or
+--- On a light that dims, a press waits 250 ms before its hold ramp starts. A click or release of any button, or
 --- another press, ends the wait; a command meanwhile leaves it, as the button is still down. A click is the click
 --- action: Top ramps to the on mode's level, else the Default On level, over the click rate up, Bottom to off over
 --- the click rate down, and Toggle does Bottom's if lit, else Top's. A release stops a hold or a scene ramp still

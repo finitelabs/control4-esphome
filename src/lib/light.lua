@@ -412,6 +412,9 @@ function Light:_followUp(cmds)
       color = self.motion:landing("color"),
     })
   end
+  -- A command of ours that sets the power ends another hand's on waiting for its level: the walk's next step
+  -- takes the light as the wire left it.
+  self.motion:assumeLit(self.ledger:lit())
   if self.online then
     self.proxy:sync(self.motion:view(), self.ledger.awaiting)
     local shown = self.proxy:shown()
