@@ -454,6 +454,17 @@ function LightAdapter:shownColor(fields)
   if inWhite and mode and COLOR_MODES_SUPPORTING_CCT[mode] and fields.color_temperature > 0 then
     return shownWhite(C4:ColorCCTtoXY(LightAdapter.miredsToKelvin(fields.color_temperature)))
   end
+  -- A light with no mireds range reports its cold and warm white with no color temperature: the white their split
+  -- shows over the range used to send them.
+  local split = fields.cold_white + fields.warm_white
+  if
+    inWhite
+    and (mode == ColorMode.COLOR_MODE_COLD_WARM_WHITE or mode == ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE)
+    and split > 0
+  then
+    local mireds = self.minMireds + (self.maxMireds - self.minMireds) * fields.warm_white / split
+    return shownWhite(C4:ColorCCTtoXY(LightAdapter.miredsToKelvin(mireds)))
+  end
   if hasColor and math.max(fields.red, fields.green, fields.blue) > 0 then
     local h, s = rgbToHSV(fields.red, fields.green, fields.blue)
     local x, y = C4:ColorHSVtoXY(h, s, 100)

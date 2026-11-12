@@ -243,6 +243,18 @@ do
     ColorMode.COLOR_MODE_COLD_WARM_WHITE
   )
   T.truthy("and gets its channels sent", body.has_cold_white and body.has_warm_white)
+  local other = light({ ColorMode.COLOR_MODE_COLD_WARM_WHITE })
+  report = other:report({ supported_color_modes = { ColorMode.COLOR_MODE_COLD_WARM_WHITE } }, {
+    state = true,
+    brightness = 1,
+    color_mode = ColorMode.COLOR_MODE_COLD_WARM_WHITE,
+    cold_white = body.cold_white,
+    warm_white = body.warm_white,
+  })
+  T.truthy(
+    "its report of a split with no color temperature reads back as the white the split shows",
+    report.color and math.abs(report.color.kelvin - 2700) <= 1
+  )
 end
 
 ---------------------------------------------------------------------------
