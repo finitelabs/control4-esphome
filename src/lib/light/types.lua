@@ -63,6 +63,7 @@ Types.API = 1
 --- @field cct LightCctRange|boolean|nil A range: every device has it. true: each device names its own.
 --- @field known boolean|nil Every device is as the profile says: its capabilities never change at runtime.
 --- @field fades boolean|nil Some device can fade: stops, click and hold rates, color_rate_behavior 1.
+--- @field maxMs integer|nil The longest rate the static capabilities offer, for every device. Default 65535.
 --- @field defaultOn boolean|nil supports_default_on. Without it an ON with no on mode resumes at the device's level.
 --- @field scenes boolean|nil Advanced Lighting Scenes.
 --- @field onModes boolean|nil The brightness and color on modes.
@@ -134,9 +135,9 @@ Types.API = 1
 --- @field level number Device brightness 0-1 on the Min/Max On line; while off, the level kept; 1 on a light
 ---   that does not dim.
 --- @field color LightColor|nil Nil only on a device with neither color nor CCT.
---- @field setsLevel boolean This command changes the light's output: its power or its level. Every off has it,
----   with `level` the level kept, and so does every command with fromOff. Without it `level` is only carried
----   for a wire that couples level and color, and `on` is unchanged: on false, the light stays off. On a stop,
+--- @field setsLevel boolean This command sets the light's output, its power or its level, an unchanged one too. Every
+---   off has it, with `level` the level kept, and so does every command with fromOff. Without it `level` is only
+---   carried for a wire that couples level and color, and `on` is unchanged: on false, the light stays off. On a stop,
 ---   setsLevel and setsColor name the aspects stopped.
 --- @field setsColor boolean This command changes the color. With fromOff, only when a held color or an on mode's
 ---   color goes with the on; otherwise the light comes on in the color it kept, and `color` is carried. An off
@@ -256,7 +257,6 @@ Types.API = 1
 --     brightness_rate_default, color_rate_default, brightness_on_mode, button_colors, brightness_presets,
 --     color_presets, color_on_mode, previous_color, brightness_on_mode_preset, max_on_level, min_on_level
 --   Scenes: scenes
---   LightProxy: light_rate_caps
 
 -----------------------------------------------------------------------------------------------------
 -- The library's own shapes
@@ -323,7 +323,8 @@ Types.API = 1
 --- @field colorRate integer The color rate default, ms.
 --- @field on LightOnSettings For Dim-To-Warm at each walk step.
 
---- What Ledger compares a report with: Motion's value per aspect, a ramp's end while one runs.
+--- What Ledger compares a report with: Motion's value per aspect, a ramp's end while one runs; during a walk, the
+--- newest step sent.
 --- @class LightNow : LightValues
 --- @field levelRamping boolean
 --- @field colorRamping boolean
@@ -374,5 +375,7 @@ Types.API = 1
 --- @field settle LightValues Values to adopt; a ramp still running on that aspect ends there.
 --- @field foreign LightAspect[] The aspects another hand moved.
 --- @field ask boolean Call adapter:refresh() once.
+--- @field first LightAspect[] The aspects this was the first report of since a start or a loss, a match included:
+---   each is told to the proxy, changed or not.
 
 return Types

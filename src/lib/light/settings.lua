@@ -52,6 +52,7 @@ require("drivers-common-public.global.lib")
 --- @field profile LightProfile
 --- @field setupColors table<integer, LightButtonColors> Each button's colors in the proxy's setup, by button id,
 ---   for a button with none saved.
+--- @field commanded table<string, boolean> The persist keys a setting command changed since takeCommanded.
 local Settings = {}
 Settings.__index = Settings
 
@@ -87,7 +88,7 @@ local DEFAULT_RATE = 500
 --- @param profile LightProfile The checked profile: an on mode counts only where it offers onModes.
 --- @return LightSettings
 function Settings.new(profile)
-  return setmetatable({ profile = profile, setupColors = {} }, Settings)
+  return setmetatable({ profile = profile, setupColors = {}, commanded = {} }, Settings)
 end
 
 -----------------------------------------------------------------------------------------------------
@@ -539,6 +540,28 @@ function Settings:_setButtonColor(tParams)
   persist:set(Settings.P_BUTTON_COLORS, colors)
 end
 
+-- The setting commands whose value the proxy hears back, and the key each one sets.
+--- @type table<string, string>
+local COMMANDED = {
+  SET_PRESET_LEVEL = Settings.P_PRESET_LEVEL,
+  SET_CLICK_RATE_UP = Settings.P_CLICK_RATE_UP,
+  SET_CLICK_RATE_DOWN = Settings.P_CLICK_RATE_DOWN,
+  SET_HOLD_RATE_UP = Settings.P_HOLD_RATE_UP,
+  SET_HOLD_RATE_DOWN = Settings.P_HOLD_RATE_DOWN,
+  SET_MAX_ON_LEVEL = Settings.P_MAX_ON_LEVEL,
+  SET_MIN_ON_LEVEL = Settings.P_MIN_ON_LEVEL,
+  SET_BUTTON_COLOR = Settings.P_BUTTON_COLORS,
+}
+
+--- The persist keys a setting command changed since the last call, which LightProxy echoes even across a setup
+--- re-read; the record starts again empty.
+--- @return table<string, boolean>
+function Settings:takeCommanded()
+  local commanded = self.commanded
+  self.commanded = {}
+  return commanded
+end
+
 --- Take a setting command.
 --- @param strCommand string
 --- @param tParams table<string, string>|nil
@@ -577,6 +600,9 @@ function Settings:apply(strCommand, tParams)
     self:_setButtonColor(tParams)
   else
     return false
+  end
+  if COMMANDED[strCommand] then
+    self.commanded[COMMANDED[strCommand]] = true
   end
   return true
 end

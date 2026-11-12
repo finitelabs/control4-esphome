@@ -50,6 +50,7 @@ local COLOR_MODE_CCT = 1
 --- @field profile LightProfile
 --- @field run LightSceneRun|nil
 --- @field generation integer Bumped by every stop, so a timer from an earlier run takes nothing.
+--- @field ramping boolean A Ramp Scene Up or Down sent from here still runs, which Stop Scene Ramp stops.
 local Scenes = {}
 Scenes.__index = Scenes
 
@@ -57,7 +58,7 @@ Scenes.__index = Scenes
 --- @param profile LightProfile
 --- @return LightScenes
 function Scenes.new(light, profile)
-  return setmetatable({ light = light, profile = profile, run = nil, generation = 0 }, Scenes)
+  return setmetatable({ light = light, profile = profile, run = nil, generation = 0, ramping = false }, Scenes)
 end
 
 --- @return table<string, LightScene>
@@ -220,6 +221,8 @@ function Scenes:_apply()
   end
   run.due = "advance"
   self:_arm(ms)
+  -- A step's own command replaces a scene ramp still running.
+  self.ramping = false
   return stepIntent(step)
 end
 
@@ -238,6 +241,7 @@ function Scenes:foreign(aspects)
   for _, aspect in ipairs(aspects) do
     if aspect == "level" or aspect == "on" then
       self:stopSteps()
+      self.ramping = false
       return
     end
   end
@@ -246,6 +250,7 @@ end
 --- The run is replaced: the light was lost or reset.
 function Scenes:reset()
   self:stopSteps()
+  self.ramping = false
 end
 
 --- The run's timer fired for scene `id`.
@@ -359,6 +364,7 @@ function Scenes:_ramp(tParams, up)
   self:stopSteps()
   local last = scene and scene.elements[#scene.elements]
   local step = last and stepIntent(last)
+  self.ramping = true
   return {
     kind = "level",
     level = up and 100 or 0,
@@ -385,18 +391,17 @@ function Scenes:rampDown(tParams, _now)
   return self:_ramp(tParams, false)
 end
 
---- STOP_SCENE_RAMP, and its published name STOP_RAMP_SCENE: the level stops where a scene ramp has got to.
---- @param tParams table<string, string>
+--- STOP_SCENE_RAMP, and its published name STOP_RAMP_SCENE: every scene's steps stop, and a Ramp Scene Up or Down
+--- still running stops where it has got to, level and color. A step's own fade runs to its end.
+--- @param _tParams table<string, string>
 --- @param _now LightNow
 --- @return LightIntent|nil
-function Scenes:stopRamp(tParams, _now)
-  local id = sceneId(tParams)
-  local scene = id and stored()[tostring(id)]
-  if scene and scene.ignoreRamp then
+function Scenes:stopRamp(_tParams, _now)
+  self:stopSteps()
+  if not self.ramping then
     return nil
   end
-  self:stopSteps()
-  -- A scene's ramp stops the color with the level, each where it has got to.
+  self.ramping = false
   return { kind = "stop", source = "scene" }
 end
 

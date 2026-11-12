@@ -26,23 +26,6 @@ Caps.WAIT_MS = 1000
 --- @type integer
 Caps.STEP_MS = 100
 
---- The dynamic capabilities the proxy's Navigator Dynamic Capabilities variable (6661) shows. It rewrites
---- the variable only when one of these changes, so the rest can lag what the proxy holds.
---- @type table<string, boolean>
-Caps.REFLECTED = {
-  dimmer = true,
-  supports_target = true,
-  supports_color = true,
-  supports_color_correlated_temperature = true,
-  has_extras = true,
-  cold_start = true,
-  color_rate_behavior = true,
-  color_rate_min = true,
-  color_rate_max = true,
-  color_correlated_temperature_min = true,
-  color_correlated_temperature_max = true,
-}
-
 --- One static capability, as the build writes it.
 --- @class LightCapRow
 --- @field key string
@@ -62,7 +45,7 @@ local PROFILE_BOOLEANS = {
   extras = true,
 }
 
-local PROFILE_FIELDS = { api = true, proxy = true, links = true, cct = true }
+local PROFILE_FIELDS = { api = true, proxy = true, links = true, cct = true, maxMs = true }
 
 local DEVICE_FIELDS = {
   dims = true,
@@ -130,7 +113,8 @@ end
 -- The profile
 -----------------------------------------------------------------------------------------------------
 
---- Check a driver's profile and fill its defaults: every boolean false, proxy 5001, no links. An error is
+--- Check a driver's profile and fill its defaults: every boolean false, proxy 5001, no links, a longest rate of
+--- 65535 ms. An error is
 --- the driver's own, so Light.new raises with it; the api itself is Light.new's to check.
 --- @param p table|nil
 --- @return LightProfile|nil profile Nil with the errors.
@@ -141,7 +125,7 @@ function Caps.profile(p)
   end
   local errors = {}
   --- @type LightProfile
-  local out = { api = p.api, proxy = Caps.PROXY }
+  local out = { api = p.api, proxy = Caps.PROXY, maxMs = Caps.RATE_MAX }
   for _, k in ipairs(sortedKeys(p)) do
     local v = p[k]
     if PROFILE_BOOLEANS[k] then
@@ -185,6 +169,13 @@ function Caps.profile(p)
     out.cct = cctRange(p.cct)
     if not out.cct then
       errors[#errors + 1] = "profile.cct must be true or { minK, maxK } in Kelvin, minK no more than maxK"
+    end
+  end
+  if p.maxMs ~= nil then
+    if whole(p.maxMs) and p.maxMs > 0 then
+      out.maxMs = p.maxMs
+    else
+      errors[#errors + 1] = "profile.maxMs must be a whole number of ms above 0"
     end
   end
   if out.known and out.cct == true then
@@ -531,7 +522,7 @@ function Caps.static(profile)
     row("has_fixed_ramp_rate", "False"),
     row("fixed_ramp_rate", "0"),
     row("brightness_rate_min", "0"),
-    row("brightness_rate_max", tostring(Caps.RATE_MAX)),
+    row("brightness_rate_max", tostring(profile.maxMs or Caps.RATE_MAX)),
     -- The proxy reads no rate default from either list, so this and color_rate_default are inert.
     row("brightness_rate_default", "0"),
     row("click_rate_min", "0"),
@@ -546,7 +537,7 @@ function Caps.static(profile)
     row("supports_color_stop", bool((dims or color or cct) and fades)),
     row("color_rate_behavior", fades and "1" or "0"),
     row("color_rate_min", "0"),
-    row("color_rate_max", tostring(Caps.RATE_MAX)),
+    row("color_rate_max", tostring(profile.maxMs or Caps.RATE_MAX)),
     row("color_rate_default", "0"),
     row("has_button_events", bool(links)),
     row("has_leds", bool(links)),
@@ -609,20 +600,6 @@ function Caps.dynamic(device, profile)
     caps.color_correlated_temperature_max = device.cct.maxK
   end
   return caps
-end
-
---- The keys of a dynamic set the proxy's 6661 does not show, which the light keeps a record of to know
---- whether the proxy holds them.
---- @param caps LightDynamicCaps
---- @return LightDynamicCaps
-function Caps.unreflected(caps)
-  local out = {}
-  for k, v in pairs(caps) do
-    if not Caps.REFLECTED[k] then
-      out[k] = v
-    end
-  end
-  return out
 end
 
 return Caps

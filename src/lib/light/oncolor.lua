@@ -97,7 +97,32 @@ function OnColor.followUp(intent, now, picks, settings)
   if intent.presetId ~= nil and not onModePreset then
     return false
   end
-  return now.on == true and now.color ~= nil and Color.alike(intent.color, now.color)
+  if now.on ~= true then
+    return false
+  end
+  if now.color ~= nil and Color.alike(intent.color, now.color) then
+    return true
+  end
+  -- The proxy sends the on mode's color back as it holds it, which the light may show in its own form: a white
+  -- off the locus, or a white on a light with no color temperature.
+  return settings ~= nil and Color.alike(intent.color, OnColor.proxyOnColor(now, settings))
+end
+
+--- The color the proxy holds for an on in its on mode: the On color, Previous On's color, or the Dim-To-Warm
+--- mix at the level the light heads for. Nil when the on mode gives none.
+--- @param now LightNow
+--- @param settings LightOnSettings
+--- @return LightColor|nil
+function OnColor.proxyOnColor(now, settings)
+  local mode = settings.colorOnMode
+  if mode == "preset" then
+    return settings.onColor
+  elseif mode == "previous" then
+    return settings.previousColor
+  elseif mode == "fade" and settings.onColor and settings.dimColor and now.level then
+    return Color.dimToWarm(settings.dimColor, settings.onColor, Range.toLevel(now.level, settings.onLo, settings.onHi))
+  end
+  return nil
 end
 
 --- The level an On goes to: the on mode's, else the Default On level where the profile has it, else the

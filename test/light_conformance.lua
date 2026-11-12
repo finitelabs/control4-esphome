@@ -571,10 +571,16 @@ function C.run(T, rig)
       C.case(T, name, function()
         local h = fresh(rig)
         local p = h.proxy
-        pushScene(p, 8, { { level = 100 }, { delay = 500, level = 0 }, { delay = 500, level = 100 } }, true)
+        -- Each step outlasts the device's own fades, which the library can't shorten.
+        local step = 500
+        local own = device.fade.own
+        if device.fade.kind == "own" and own then
+          step = math.max(step, own.onMs + 200, own.offMs + 200, own.changeMs + 200)
+        end
+        pushScene(p, 8, { { level = 100 }, { delay = step, level = 0 }, { delay = step, level = 100 } }, true)
         p:send("ACTIVATE_SCENE", { SCENE_ID = 8 })
         local seen = { [true] = false, [false] = false }
-        for _ = 1, 40 do
+        for _ = 1, math.ceil(step * 8 / 100) do
           h.clock.run(100)
           seen[h.device.state().on == true] = true
         end
@@ -737,7 +743,7 @@ function C.run(T, rig)
     finish(h)
   end)
 
-  T.section(name .. ": a controller restart over an unchanged device tells no Changed")
+  T.section(name .. ": a controller restart tells the brightness and color once, where the device is")
   C.case(T, name, function()
     local h = fresh(rig)
     local p = h.proxy
@@ -750,8 +756,12 @@ function C.run(T, rig)
     h = restart(rig, h)
     p = h.proxy
     T.eq(name .. ": online again", on(p.online), true)
-    T.eq(name .. ": no Brightness Changed", p:count("LIGHT_BRIGHTNESS_CHANGED"), 0)
-    T.eq(name .. ": no Color Changed", p:count("LIGHT_COLOR_CHANGED"), 0)
+    T.eq(name .. ": one Brightness Changed", p:count("LIGHT_BRIGHTNESS_CHANGED"), 1)
+    T.eq(name .. ": at the device's level", p.level, percent(h))
+    if hasColor then
+      T.eq(name .. ": one Color Changed", p:count("LIGHT_COLOR_CHANGED"), 1)
+      T.check(name .. ": in the device's color", sameXY(p.color, xyOf(h.device.state().color)), T.show(p.color))
+    end
     finish(h)
   end)
 

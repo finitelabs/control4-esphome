@@ -9,7 +9,6 @@
 local log = require("lib.logging")
 local Color = require("lib.light.color")
 local Fade = require("lib.light.fade")
-local OnColor = require("lib.light.oncolor")
 local Range = require("lib.light.range")
 
 require("drivers-common-public.global.timer")
@@ -33,12 +32,14 @@ local DEFAULT_FADE = { kind = "device", curve = "linear", preOn = false, retimes
 --- @field colorRamp LightColorRamp|nil
 --- @field walking boolean The walk's step timer is armed.
 --- @field walked LightFrom|nil What the walk's last step sent.
+--- @field walkKept number|nil The level an off device keeps, for a walk that starts from off.
 --- @field wireOn boolean The power the newest command sent leaves the device in.
 --- @field held boolean The light is off with a color told but not sent; LightNow.colorHeld on a "hold" device.
 --- @field levelPreset integer|nil
 --- @field colorPreset integer|nil
 --- @field colorPresetOrigin integer|nil
 --- @field ms LightMotionSettings|nil The settings values the newest command came with, for estimates between them.
+--- @field assumed boolean Another hand's on waits for its level: commands take the light, and the device, as lit.
 local Motion = {}
 Motion.__index = Motion
 
@@ -63,6 +64,7 @@ function Motion.new(light)
     walking = false,
     wireOn = false,
     held = false,
+    assumed = false,
   }, Motion)
 end
 
@@ -92,9 +94,22 @@ end
 -- What the other parts read
 -----------------------------------------------------------------------------------------------------
 
---- Where each aspect is going: a ramp's end while one runs.
+--- Where each aspect is going: a ramp's end while one runs. During a walk the device holds only the steps it
+--- was sent, so the newest step is where it is going.
 --- @return LightNow
 function Motion:now()
+  local walked = self.walked
+  if walked and (self.levelRamp or self.colorRamp) then
+    local lit = walked.level > 0
+    return {
+      on = lit,
+      level = lit and walked.level or self.walkKept or self:_kept(walked.level),
+      color = walked.color or self.color,
+      levelRamping = self.levelRamp ~= nil,
+      colorRamping = self.colorRamp ~= nil,
+      colorHeld = self:_held(),
+    }
+  end
   return {
     on = self.on,
     level = self.level,
@@ -146,6 +161,13 @@ end
 -----------------------------------------------------------------------------------------------------
 -- Events
 -----------------------------------------------------------------------------------------------------
+
+--- Whether another hand's on waits for its level. Only command translation reads it: the view and now() keep
+--- the light as last settled, so it is told at the level that comes.
+--- @param lit boolean
+function Motion:assumeLit(lit)
+  self.assumed = lit == true
+end
 
 --- An intent from the proxy, a link or a scene.
 --- @param intent LightIntent
@@ -202,10 +224,12 @@ function Motion:sent(cmd, rest)
 end
 
 --- Adopt what the device has said; a ramp on that aspect ends there. A value that differs from Motion's
---- drops the preset that set the old one.
+--- drops the preset that set the old one. A power alone says nothing of how far a level ramp has got: it
+--- ends only a ramp heading the other way.
 --- @param values LightValues
 function Motion:settle(values)
   if values.on ~= nil or values.level ~= nil then
+    local lr = self.levelRamp
     if values.on ~= nil then
       self.on = values.on
       self.wireOn = values.on
@@ -218,8 +242,10 @@ function Motion:settle(values)
         self.levelPreset = nil
       end
       self.level = values.level
+      self:_endLevelRamp()
+    elseif lr and values.on ~= (lr.to > 0) then
+      self:_endLevelRamp()
     end
-    self:_endLevelRamp()
   end
   if values.color ~= nil then
     if not sameColor(values.color, self.color) then
@@ -264,14 +290,12 @@ function Motion:step(ms)
   if done then
     shown, color = self:_shown(), self.color
   else
-    shown, color = self:_rawLevelAt(t), self:_colorAt(t)
-    if lr and not (cr and not cr.carried) then
-      color = self:_dimToWarm(lr, shown, ms) or color
-    end
+    shown, color = self:_levelAt(t), self:_colorAt(t)
   end
   local last = self.walked or { level = lr and lr.from or self:_shown(), color = cr and cr.from or color }
   local levelMoves = (shown <= 0) ~= (last.level <= 0) or not self:_sameLevel(shown, last.level)
-  local colorMoves = not sameColor(color, last.color)
+  -- The last step lands a color the walk moved exactly, however little it moved.
+  local colorMoves = not sameColor(color, last.color, (done and cr) and 0 or nil)
   if done then
     self.levelRamp, self.colorRamp, self.walked = nil, nil, nil
   else
@@ -287,14 +311,15 @@ function Motion:step(ms)
     return out
   end
   if not done then
-    self.walked = { level = shown, color = color }
+    -- What the device was sent: an aspect a step leaves alone stays where the last step put it.
+    self.walked = { level = levelMoves and shown or last.level, color = colorMoves and color or last.color }
   end
   self:_push(out, {
     kind = "change",
     on = shown > 0,
     level = shown > 0 and shown or self:_kept(last.level),
     color = color,
-    setsLevel = levelMoves or (done and lr ~= nil),
+    setsLevel = levelMoves,
     setsColor = colorMoves,
     transitionMs = 0,
     from = last,
@@ -303,12 +328,26 @@ function Motion:step(ms)
   return out
 end
 
---- End running ramps at their targets, sending nothing: a changed fade on declare.
+--- End running ramps at their targets: a changed fade on declare. A walk the device is part way through gets
+--- one last 0-time step to the ends, since no step took it there; a device fade got there by itself.
+--- @return LightCommand[]
 function Motion:finishAll()
-  self:_endLevelRamp()
-  self:_endColorRamp()
-  CancelTimer(TIMER_WALK)
-  self.walking, self.walked = false, nil
+  local out = {}
+  local lr, cr = self.levelRamp, self.colorRamp
+  if self.walked and (lr or cr) and self.ms and self.device then
+    local t = C4:GetTime()
+    if lr then
+      lr.ms = math.max(0, t - lr.startMs)
+    end
+    if cr then
+      cr.ms = math.max(0, t - cr.startMs)
+    end
+    CancelTimer(TIMER_WALK)
+    self.walking = false
+    out = self:step(self.ms)
+  end
+  self:_dropRamps()
+  return out
 end
 
 --- Every running ramp stops where its estimate has the light, sending nothing: another hand's command on a
@@ -325,7 +364,16 @@ function Motion:haltAll()
   if self.colorRamp then
     self.color = self:_colorAt(t)
   end
-  self:finishAll()
+  self:_dropRamps()
+end
+
+--- No ramp runs and no step waits.
+--- @private
+function Motion:_dropRamps()
+  self:_endLevelRamp()
+  self:_endColorRamp()
+  CancelTimer(TIMER_WALK)
+  self.walking, self.walked, self.walkKept = false, nil, nil
 end
 
 --- The run is replaced: ramps stop where the estimate has the light, and nothing waits to go.
@@ -347,9 +395,12 @@ function Motion:_toLevel(out, intent, choice, ms)
   local t = C4:GetTime()
   local device, fade = self.device, self:_fade()
   local fromShown = self:_levelAt(t)
+  if self.assumed and fromShown <= 0 then
+    fromShown = self.level or 1
+  end
   local kind = intent.kind
   if kind == "toggle" then
-    kind = self:_levelAt(t, true) > 0 and "off" or "on"
+    kind = (self.assumed or self:_levelAt(t, true) > 0) and "off" or "on"
   end
   local target, rate
   if kind == "off" then
@@ -369,13 +420,9 @@ function Motion:_toLevel(out, intent, choice, ms)
   local merged = own or (choice and choice.color and self:_take(choice.color)) or nil
   local unchosen = own == nil and merged ~= nil and choice ~= nil and choice.unchosen == true
   local colorMoves = merged ~= nil and not sameColor(merged, self.color)
-  local levelMoves = self.levelRamp ~= nil or not toOn or toOn ~= self.on or not self:_sameLevel(target, self.level)
-  if toOn == self.on and not toOn and not self.levelRamp and not colorMoves then
-    return -- an off to a light already off
-  end
-  if not levelMoves and not colorMoves then
-    return
-  end
+  -- A scene step's color, and Dim-To-Warm's mix, go with every level, even one the light already shows.
+  local withLevel = own ~= nil or (merged ~= nil and unchosen)
+  local levelMoves = self.levelRamp ~= nil or toOn ~= self.on or not self:_sameLevel(target, self.level)
   self.levelPreset = kind == "level" and not intent.color and intent.presetId or nil
 
   -- A light that does not dim takes no level ramp, but a color the command carries still runs over the fade.
@@ -388,6 +435,7 @@ function Motion:_toLevel(out, intent, choice, ms)
   self.level = toOn and target or kept
 
   self:_endLevelRamp()
+  local colorRamped = false
   local toShown = toOn and target or 0
   if levelLength > 0 and levelMoves and not self:_sameShown(fromShown, toShown) then
     self.levelRamp = {
@@ -415,8 +463,9 @@ function Motion:_toLevel(out, intent, choice, ms)
       end
     else
       self:_endColorRamp()
-      -- From dark the light lights in the color; a lit light goes to it with the level.
-      if length > 0 and fromShown > 0 and not sameColor(fromColor, merged) then
+      -- The color goes from the one the light has to the new one over the level's time, from dark too.
+      if length > 0 and fromColor ~= nil and not sameColor(fromColor, merged) then
+        colorRamped = true
         self.colorRamp = {
           from = fromColor or merged,
           to = merged,
@@ -432,10 +481,12 @@ function Motion:_toLevel(out, intent, choice, ms)
     end
   elseif self.colorRamp and Fade.retimes(fade) then
     self:_retimeColor(length, t)
+    -- Every channel restarts over this command's time: a color ramp it ends lands now, in this command.
+    withLevel = withLevel or self.colorRamp == nil
   end
   self:_armRamps(fade)
   if fade.kind == "walk" and (self.levelRamp or self.colorRamp) then
-    self:_walk(from)
+    self:_walk(from, fromShown <= 0 and kept or nil)
     return
   end
 
@@ -445,27 +496,31 @@ function Motion:_toLevel(out, intent, choice, ms)
   local transition = Fade.transition(fade, (device.dims or merged ~= nil) and length or 0)
   if fade.kind == "device" and fade.preOn and device.dims and transition > 0 and toOn and fromShown <= 0 then
     local bottom = 1 / self:_steps()
+    -- A color that fades with the level starts where the light has it; one set at once goes with the pre-on.
+    local preColor = colorRamped and fromColor or self.color
     self:_push(out, {
       kind = "preOn",
       on = true,
       level = bottom,
-      color = self.color,
+      color = preColor,
       setsLevel = true,
-      setsColor = colorMoves or carries,
+      setsColor = not colorRamped and (colorMoves or carries),
       transitionMs = 0,
       from = from,
       colorUnchosen = unchosen,
     })
-    from = { level = bottom, color = self.color }
-    colorMoves = false
+    from = { level = bottom, color = preColor }
+    if not colorRamped then
+      colorMoves = false
+    end
   end
   self:_push(out, {
     kind = "change",
     on = toOn,
     level = self.level,
     color = self.color,
-    setsLevel = levelMoves,
-    setsColor = colorMoves or carries,
+    setsLevel = true,
+    setsColor = colorMoves or carries or withLevel,
     transitionMs = transition,
     from = from,
     colorUnchosen = unchosen,
@@ -487,8 +542,9 @@ function Motion:_toColor(out, intent, choice, ms)
     log:debug("Motion: a color the device cannot show is dropped")
     return
   end
+  local lit = self.on or self.assumed
   -- Off, the color is the next on's: told as asked, while the wire takes it as the device can show it.
-  if not self.on then
+  if not lit then
     target = Color.forDevice(intent.color, self.device, true) or target
   end
   self.colorPreset, self.colorPresetOrigin = intent.presetId, intent.presetOrigin
@@ -502,7 +558,7 @@ function Motion:_toColor(out, intent, choice, ms)
   self:_endColorRamp()
   self.color = target
 
-  if not self.on then
+  if not lit then
     -- On a "device" fade the color runs over what the fade to off has left, so it is there as the light goes dark.
     if fade.kind == "walk" and self.walking then
       return -- the walk's next step carries it
@@ -549,7 +605,7 @@ function Motion:_toColor(out, intent, choice, ms)
   end
   self:_push(out, {
     kind = "change",
-    on = self.wireOn,
+    on = self.wireOn or self.assumed,
     level = self.level or 1,
     color = target,
     setsLevel = false,
@@ -577,10 +633,7 @@ function Motion:_stopLevel(out, ms)
   local keepColor = (cr ~= nil and not cr.carried) or lr.set
   local color, colorMs, unchosen = self.color, 0, lr.unchosen
   if not keepColor then
-    local mix = self:_dimToWarm(lr, shown, ms)
-    if mix then
-      color = mix
-    elseif cr then
+    if cr then
       color, unchosen = self:_colorAt(t), cr.unchosen
     end
     self:_endColorRamp()
@@ -611,21 +664,23 @@ function Motion:_stopLevel(out, ms)
   })
 end
 
---- Where a stop holds the level a ramp has: to or from off, under the Min it holds at the Min, or off under half
---- way to it; and on a whole C4 level, so the device and the proxy agree on it exactly.
+--- Where a stop holds the level a ramp has: from off, under the Min it holds at the Min; to off, under the Min
+--- it holds at the Min, or off under half way to it; and on a whole C4 level, so the device and the proxy agree on it exactly. A light outside the
+--- Min/Max line, left there by a change of it, holds where it is.
 --- @private
 --- @param lr LightLevelRamp
 --- @param shown number
 --- @param ms LightMotionSettings
 --- @return number
 function Motion:_stopShown(lr, shown, ms)
-  if lr.from <= 0 or lr.to <= 0 then
-    local minOn = self:_toDevice(1, ms)
-    if shown < minOn then
-      shown = shown < minOn / 2 and 0 or minOn
-    end
+  local minOn = self:_toDevice(1, ms)
+  if lr.to > 0 and lr.from <= 0 and shown < minOn then
+    shown = minOn -- a light on its way on stops lit
+  elseif lr.to <= 0 and shown < minOn then
+    shown = shown < minOn / 2 and 0 or minOn
   end
-  if shown > 0 then
+  local bottom, top = Range.toDevice(1, ms.lo, ms.hi), Range.toDevice(100, ms.lo, ms.hi)
+  if shown > 0 and shown >= bottom - 1e-9 and shown <= top + 1e-9 then
     shown = Range.toDevice(Range.toLevel(shown, ms.lo, ms.hi), ms.lo, ms.hi)
   end
   return shown
@@ -643,7 +698,7 @@ function Motion:_stopBoth(out, ms)
   end
   local t = C4:GetTime()
   local shown = self:_levelAt(t)
-  local on, level = self.on, self.level
+  local on, level, before = self.on, self.level, self.color
   if lr then
     shown = self:_stopShown(lr, shown, ms)
     on = shown > 0
@@ -652,10 +707,6 @@ function Motion:_stopBoth(out, ms)
   end
   local color = self:_colorAt(t)
   local unchosen = (lr ~= nil and lr.unchosen) or (cr ~= nil and cr.unchosen)
-  -- The color the level carries is Dim-To-Warm's mix at the stop level; a color of its own holds where it is.
-  if lr and not ((cr ~= nil and not cr.carried) or lr.set) then
-    color = self:_dimToWarm(lr, shown, ms) or color
-  end
   if cr then
     self.colorPreset, self.colorPresetOrigin = nil, nil
   end
@@ -670,7 +721,7 @@ function Motion:_stopBoth(out, ms)
     level = level,
     color = color,
     setsLevel = true,
-    setsColor = device.color or device.cct ~= nil,
+    setsColor = (device.color or device.cct ~= nil) and (cr ~= nil or not sameColor(color, before)),
     transitionMs = 0,
     from = { level = shown, color = color },
     colorUnchosen = unchosen == true,
@@ -776,14 +827,13 @@ function Motion:_colorAt(t)
   if not cr then
     return self.color
   end
-  local lr = self.levelRamp
-  if cr.carried and lr and self.ms then
-    local mix = self:_dimToWarm(lr, self:_levelAt(t), self.ms)
-    if mix then
-      return mix
-    end
+  local at = Fade.color(cr.from, cr.to, Fade.progress(self:_fade(), cr.startMs, cr.ms, t))
+  -- A white on its way between two whites keeps its Kelvin, so it goes out and is told as a white.
+  if at.mode == Color.CCT and at.kelvin == nil then
+    local k = Color.kelvin(at.x, at.y)
+    at = { x = at.x, y = at.y, mode = Color.CCT, kelvin = k and math.floor(k + 0.5) or nil }
   end
-  return Fade.color(cr.from, cr.to, Fade.progress(self:_fade(), cr.startMs, cr.ms, t))
+  return at
 end
 
 --- A command for the level takes the color on to its target over the command's time.
@@ -847,15 +897,17 @@ function Motion:_endColorRamp()
   self.colorRamp = nil
 end
 
---- Arm the walk's next step, unless it is armed. A walk that starts steps from `from`.
+--- Arm the walk's next step, unless it is armed. A walk that starts steps from `from`, and from off keeps `kept`.
 --- @private
 --- @param from LightFrom
-function Motion:_walk(from)
+--- @param kept number|nil
+function Motion:_walk(from, kept)
   if self.walking then
     return
   end
   if self.walked == nil then
     self.walked = from
+    self.walkKept = kept
   end
   self.walking = true
   SetTimer(TIMER_WALK, self:_fade().stepMs or 100, function()
@@ -868,7 +920,7 @@ end
 function Motion:_stopWalkIfDone()
   if self.levelRamp == nil and self.colorRamp == nil then
     CancelTimer(TIMER_WALK)
-    self.walking, self.walked = false, nil
+    self.walking, self.walked, self.walkKept = false, nil, nil
   end
 end
 
@@ -884,8 +936,9 @@ end
 --- @param cmd LightCommand
 function Motion:_push(out, cmd)
   local hold = self.device.colorWhileOff == "hold"
-  cmd.fromOff = cmd.kind ~= "stop" and cmd.on and not self.wireOn
-  if cmd.fromOff or cmd.on ~= self.wireOn then
+  local wireOn = self.wireOn or self.assumed
+  cmd.fromOff = cmd.kind ~= "stop" and cmd.on and not wireOn
+  if cmd.fromOff or cmd.on ~= wireOn then
     cmd.setsLevel = true
   end
   if cmd.fromOff and hold and self.held then
@@ -901,13 +954,19 @@ function Motion:_push(out, cmd)
   if cmd.on or cmd.setsColor then
     self.held = false
   end
+  local asked = cmd.color
   cmd.color = self:_wire(cmd.color)
   cmd.colorUnchosen = cmd.colorUnchosen == true
   if not self.device.dims then
     cmd.level = 1
   end
-  -- Lit, the light shows the color as the wire took it: a Kelvin told as asked while off is clamped now.
-  if cmd.fromOff and cmd.color then
+  -- Lit, the light shows the color it rests in as the wire took it: a Kelvin told as asked while off is clamped
+  -- now. A walk's step or a pre-on in the color kept leaves the rest color alone.
+  if cmd.on and cmd.setsColor and cmd.color and asked and sameColor(asked, self.color, 0) then
+    local cr = self.colorRamp
+    if cr and sameColor(cr.to, asked, 0) then
+      cr.to = cmd.color
+    end
     self.color = cmd.color
   end
   self.wireOn = cmd.on
@@ -948,25 +1007,6 @@ function Motion:_wire(color)
     return Color.forDevice({ x = color.x, y = color.y, mode = Color.CCT }, device)
   end
   return { x = color.x, y = color.y, mode = Color.FULL }
-end
-
---- Dim-To-Warm's color at a brightness, when the level ramp carries Dim-To-Warm's color: the color it
---- carries is the mix at its end, the Dim color for a fade to off. Nil otherwise, as for a color picked or an
---- on mode's preset.
---- @private
---- @param lr LightLevelRamp
---- @param shown number
---- @param ms LightMotionSettings
---- @return LightColor|nil
-function Motion:_dimToWarm(lr, shown, ms)
-  if not lr.merged or shown <= 0 then
-    return nil
-  end
-  local atEnd = OnColor.dimToWarm(lr.to > 0 and Range.toLevel(lr.to, ms.lo, ms.hi) or 0, self.device, ms.on)
-  if not sameColor(atEnd, lr.merged) then
-    return nil
-  end
-  return OnColor.dimToWarm(Range.toLevel(shown, ms.lo, ms.hi), self.device, ms.on)
 end
 
 -----------------------------------------------------------------------------------------------------

@@ -149,13 +149,14 @@ function Light:declare(device)
   self.motion:declare(checked)
   self.ledger:declare(checked)
   self.buttons:declare(checked)
+  local cmds = {}
   if before and not Caps.same(before.fade, checked.fade) then
-    self.motion:finishAll()
+    cmds = self.motion:finishAll()
     self.ledger:closeAll()
   end
   if self.online then
     self.proxy:capabilities(checked)
-    self:_followUp({})
+    self:_followUp(cmds)
   end
 end
 
@@ -252,9 +253,6 @@ end
 --- @param echo boolean The proxy's own BUTTON_ACTION, which is echoed back; a link's press is not.
 function Light:button(button, action, echo)
   self.proxy:pressed(button, action, echo)
-  if action == Buttons.PRESS then
-    self.scenes:stopSteps()
-  end
   local intent = self.buttons:action(button, action, self.motion:now(), self.motion:view())
   self:_followUp(intent and self:_move(intent) or {})
 end
@@ -334,6 +332,7 @@ function Light:_move(intent)
   end
   self.picks:noted(intent, self.motion:now(), self.settings:forOn())
   self.buttons:noted(intent, self.motion:now())
+  self.motion:assumeLit(self.ledger:lit())
   return self.motion:command(intent, OnColor.choose(intent, self:_onInputs()), self.settings:forMotion())
 end
 
@@ -377,6 +376,8 @@ function Light:_heard(heard)
     self.scenes:foreign(rampsEnded(before, heard.foreign))
     self.picks:foreign(heard.foreign)
   end
+  -- A connection's first word on each aspect is told whatever it is, as at every start and reconnect.
+  self.proxy:resay(heard.first or {})
   self:_followUp({})
   if heard.ask then
     self:_refresh()

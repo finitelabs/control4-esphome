@@ -23,6 +23,8 @@ local ASPECTS = { "on", "level", "color" }
 --- @field libraryOn boolean|nil The on the library holds: from Motion at each report and deadline, then from
 ---   each command that changes the output and each on settled. While another hand's on waits for its level
 ---   (a learning window), it is on.
+--- @field reportedOn boolean|nil The on the device last reported.
+--- @field offFrom number|nil Where the newest fade to off started, until a command lights the light again.
 local Ledger = {}
 Ledger.__index = Ledger
 
@@ -65,9 +67,21 @@ function Ledger:sent(cmd, landings)
   end
   if cmd.setsLevel then
     self.libraryOn = cmd.on
+    self.offFrom = (not cmd.on) and cmd.from.level or nil
   end
   if cmd.setsColor and cmd.color then
     self:_open("color", cmd.color, cmd.from.color, landings.color)
+  end
+  -- On a device that re-times, a command for one aspect moves the other's landing: its open window waits for it.
+  for _, aspect in ipairs(ASPECTS) do
+    local window = self.windows[aspect]
+    local landing = landings[aspect]
+    if window and window.kind == "command" and landing then
+      local deadline = landing + self.device.feedback.waitMs
+      if deadline > window.deadline then
+        self:_arm(aspect, window, deadline)
+      end
+    end
   end
 end
 
@@ -76,29 +90,51 @@ end
 --- @param now LightNow
 --- @return LightHeard
 function Ledger:heard(report, now)
-  local out = { settle = {}, foreign = {}, ask = false }
+  local out = { settle = {}, foreign = {}, ask = false, first = {} }
   self.libraryOn = self:_onHeld(now.on)
+  local past = self:_beforeRamp(report, now)
   --- @type LightAspect[]
   local history = {}
   for _, aspect in ipairs(ASPECTS) do
     local value = report[aspect]
+    if past and (aspect == "on" or (aspect == "level" and report.on == false)) then
+      -- The light as it stood before a running ramp got to move its on: an off's level is only the level kept.
+      value = nil
+    end
     if aspect == "level" and value ~= nil and history[1] == "on" and report.on == false then
       -- An off held as history carries the level that stale state kept: history too, never a lit level.
+      history[#history + 1] = aspect
+    elseif aspect == "level" and value ~= nil and history[1] == "on" and self:_onItsWayOff(value) then
+      -- A lit light below where its fade to off started is that fade on its way, held with its on.
       history[#history + 1] = aspect
     elseif value ~= nil and self:_weigh(aspect, value, report, now, out) == "history" then
       history[#history + 1] = aspect
     end
   end
-  -- A report another hand made is that hand's state whole: what it held as history is the hand's too.
+  -- A report another hand made is that hand's state whole: what it held as history is the hand's too. On a
+  -- device that re-times, another hand's command restarted every channel, so each aspect the report carries is
+  -- where the device now heads, an echo of ours included.
   if #out.foreign > 0 then
     for _, aspect in ipairs(history) do
       self:_foreign(aspect, report[aspect], out)
     end
+    if self.device.fade.retimes then
+      for _, aspect in ipairs(ASPECTS) do
+        if report[aspect] ~= nil and out.settle[aspect] == nil then
+          out.settle[aspect] = report[aspect]
+          self:_close(aspect)
+        end
+      end
+    end
   end
+  self:_keepChangedOn(out, now)
   if out.settle.on ~= nil then
     self.libraryOn = out.settle.on
   end
   self.libraryOn = self:_onHeld(self.libraryOn)
+  if report.on ~= nil then
+    self.reportedOn = report.on
+  end
   return out
 end
 
@@ -107,14 +143,26 @@ end
 --- @param now LightNow
 --- @return LightHeard
 function Ledger:due(aspect, now)
-  local out = { settle = {}, foreign = {}, ask = false }
+  local out = { settle = {}, foreign = {}, ask = false, first = {} }
   self.libraryOn = self:_onHeld(now.on)
   local window = self.windows[aspect]
   if not window then
     return out
   end
   local feedback = self.device.feedback
-  if window.held ~= nil then
+  local newest = window.sent[#window.sent]
+  if
+    window.held ~= nil
+    and feedback.shows == "position"
+    and feedback.refresh
+    and not window.asked
+    and not (newest and self:_same(aspect, window.held, newest.value))
+  then
+    -- A position held on its way may lag the light: one read tells where it ended.
+    window.kind, window.asked, window.extended = "asked", true, true
+    out.ask = true
+    self:_arm(aspect, window, C4:GetTime() + feedback.waitMs)
+  elseif window.held ~= nil then
     self:_settle(aspect, window.held, out)
   elseif window.heard then
     self:_close(aspect)
@@ -125,6 +173,7 @@ function Ledger:due(aspect, now)
   else
     self:_close(aspect)
   end
+  self:_keepChangedOn(out, now)
   if out.settle.on ~= nil then
     self.libraryOn = out.settle.on
   end
@@ -142,6 +191,14 @@ end
 function Ledger:reset()
   self:closeAll()
   self.unheard = { on = true, level = true, color = true }
+  self.reportedOn = nil
+  self.offFrom = nil
+end
+
+--- Whether another hand's on waits for its level: the light is lit for the commands that follow it.
+--- @return boolean
+function Ledger:lit()
+  return self:_onHeld(nil) == true
 end
 
 -----------------------------------------------------------------------------------------------------
@@ -167,6 +224,7 @@ function Ledger:_weigh(aspect, value, report, now, out)
   -- already out for it, the window weighs it instead.
   if self.unheard[aspect] then
     self.unheard[aspect] = false
+    out.first[#out.first + 1] = aspect
     if not window then
       if not self:_same(aspect, value, now[aspect]) then
         out.settle[aspect] = value
@@ -197,7 +255,8 @@ function Ledger:_noWindow(aspect, value, report, now, out)
   end
   local feedback = self.device.feedback
   if aspect == "on" and value == true and now.on == false and report.level == nil and feedback.refresh then
-    -- Another hand's on with no level: ask, and tell the on with the level it brings.
+    -- Another hand's on with no level: ask, and tell the on with the level it brings (a light that doesn't dim
+    -- has none, and the read's on settles alone).
     local deadline = C4:GetTime() + feedback.waitMs
     local on = self:_learn("on", false, deadline)
     on.held, on.heard = true, true
@@ -205,6 +264,33 @@ function Ledger:_noWindow(aspect, value, report, now, out)
     out.foreign[#out.foreign + 1] = "on"
     out.ask = true
     return
+  end
+  local level = self.windows.level
+  if
+    aspect == "on"
+    and value == false
+    and now.on == true
+    and feedback.refresh
+    and feedback.shows == "position"
+    and level
+    and level.kind == "command"
+  then
+    -- An off while a lit light's level runs may be from before the command: held, and the device read once.
+    local window = {
+      kind = "command",
+      sent = { { value = true, landing = C4:GetTime() } },
+      before = true,
+      held = false,
+      heard = true,
+      echoed = false,
+      asked = true,
+      extended = false,
+      deadline = 0,
+    }
+    self.windows.on = window
+    self:_arm("on", window, level.deadline)
+    out.ask = true
+    return "history"
   end
   self:_foreign(aspect, value, out)
 end
@@ -225,7 +311,7 @@ function Ledger:_inWindow(aspect, window, value, report, now, out)
   -- level, as a device may answer the read one attribute at a time: the on is told with the level, or at the
   -- deadline. An off instead ends the wait.
   if window.kind == "learning" then
-    if aspect == "on" and value == true then
+    if aspect == "on" and value == true and self.device.dims then
       return
     end
     self:_settle(aspect, value, out)
@@ -235,23 +321,37 @@ function Ledger:_inWindow(aspect, window, value, report, now, out)
     end
     return self:_learned(aspect, out)
   end
-  -- g: after J6's ask, the first push or final settles.
-  if window.kind == "asked" and (kind == "push" or kind == "final") then
+  -- g: after J6's ask, the first push or final settles. Under "position" only the read's own answer does, or
+  -- an echo: a push may still be the light on its way.
+  local newest = window.sent[#window.sent]
+  if
+    window.kind == "asked"
+    and (
+      kind == "final"
+      or (kind == "push" and (feedback.shows ~= "position" or self:_same(aspect, value, newest and newest.value)))
+    )
+  then
+    if self:_waitForLevel(aspect, window, value, report, now) then
+      return
+    end
     self:_settle(aspect, value, out)
     return self:_learned(aspect, out)
   end
   -- a: a final settles, whatever it shows.
   if kind == "final" then
+    if self:_waitForLevel(aspect, window, value, report, now) then
+      return
+    end
     return self:_settle(aspect, value, out)
   end
   -- b: a moving answer is held.
   if kind == "moving" then
     return self:_hold(window, value)
   end
-  local ramping = (aspect == "level" and now.levelRamping) or (aspect == "color" and now.colorRamping)
+  -- The on rides the level: it is moving while the level's ramp runs.
+  local ramping = (aspect ~= "color" and now.levelRamping) or (aspect == "color" and now.colorRamping)
   -- c: an echo of the newest command is the light's own.
-  local newest = window.sent[#window.sent]
-  if self:_same(aspect, value, newest.value) then
+  if newest and self:_same(aspect, value, newest.value) then
     window.held, window.heard, window.echoed = nil, true, true
     if feedback.shows == "position" then
       -- The light is at the change's end: where the command sent it, not the report's rounding of it.
@@ -373,6 +473,73 @@ function Ledger:_onHeld(on)
     return true
   end
   return on
+end
+
+--- Whether a report shows the light as it stood before a running level ramp got to move its on: lit while a
+--- ramp to off runs, or off while a ramp from off has lit nothing yet. A light that walks steps there and
+--- reports where its steps have got to.
+--- @private
+--- @param report LightReport
+--- @param now LightNow
+--- @return boolean
+function Ledger:_beforeRamp(report, now)
+  return now.levelRamping == true
+    and report.on ~= nil
+    and report.on ~= now.on
+    and report.on == self.reportedOn
+    and self.windows.on == nil
+end
+
+--- An on answered alone while the library holds the light off, by a device that answers a read one
+--- attribute at a time: it waits for its level, and is told with it, or at the deadline.
+--- @private
+--- @param aspect LightAspect
+--- @param window LightWindow
+--- @param value LightAspectValue
+--- @param report LightReport
+--- @param now LightNow
+--- @return boolean waiting
+function Ledger:_waitForLevel(aspect, window, value, report, now)
+  if
+    aspect ~= "on"
+    or value ~= true
+    or report.level ~= nil
+    or now.on ~= false
+    or not self.device.feedback.refresh
+    or not self.device.dims
+  then
+    return false
+  end
+  local deadline = C4:GetTime() + self.device.feedback.waitMs
+  window.kind, window.held, window.heard, window.asked = "learning", true, true, true
+  self:_arm("on", window, deadline)
+  self:_learn("level", now.level, deadline)
+  return true
+end
+
+--- Whether a lit level is a fade to off on its way, on a device that reports where its light has got to: no
+--- level window is open (the off closed it), and the level is at or below where the fade started.
+--- @private
+--- @param level number
+--- @return boolean
+function Ledger:_onItsWayOff(level)
+  local from = self.offFrom
+  return from ~= nil
+    and self.device.feedback.shows == "position"
+    and self.windows.level == nil
+    and level <= from + 1 / self.device.levelSteps
+end
+
+--- An on alone that the library already holds is no news: settling it would only end the level's ramp. With
+--- a level or a color beside it, it stays: an off's level is only the level kept.
+--- @private
+--- @param out LightHeard
+--- @param now LightNow
+function Ledger:_keepChangedOn(out, now)
+  local settle = out.settle
+  if settle.on ~= nil and settle.on == now.on and settle.level == nil and settle.color == nil then
+    settle.on = nil
+  end
 end
 
 --- A level came for another hand's on: the on is told with it.

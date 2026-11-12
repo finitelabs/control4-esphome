@@ -3,7 +3,9 @@
 --- - the next-on color: one set while the light is off, that the next on comes on in;
 --- - the pick: the on cycle's chosen color, which levels keep, with no on mode's color, until the light
 ---   reaches off. A scene's color-only step is one; a step that sets level and color together is not;
---- - the follow-up window: 250 ms after an on or a level, in which the proxy may send the color it set.
+--- - the follow-up window: 250 ms after an on or a level, in which the proxy may send the color it set. It
+---   takes one follow-up; any other color in it is a pick and closes it, so an on mode's preset after that is a
+---   choice again.
 --- None of it persists: a reload ends it, as a loss or Reset Driver does.
 
 local OnColor = require("lib.light.oncolor")
@@ -17,12 +19,14 @@ local FOLLOW_UP_MS = 250
 --- @field picked LightPick|nil
 --- @field followUntil integer|nil C4:GetTime() ms when the follow-up window closes.
 --- @field followHeld boolean The window follows a Navigator On that took the held color.
+--- @field followSpent boolean The window took its follow-up, and closes at the next intent, once the on's
+---   choice has read it.
 local Picks = {}
 Picks.__index = Picks
 
 --- @return LightPicks
 function Picks.new()
-  return setmetatable({ followHeld = false }, Picks)
+  return setmetatable({ followHeld = false, followSpent = false }, Picks)
 end
 
 --- What an on reads.
@@ -44,6 +48,9 @@ end
 --- @param now LightNow
 --- @param settings LightOnSettings|nil Whose on modes decide the proxy's follow-up; nil reads it by Hatch's rule.
 function Picks:noted(intent, now, settings)
+  if self.followSpent then
+    self.followUntil, self.followSpent = nil, false
+  end
   -- A light off and still has reached off since the last intent: the cycle's pick ended there, when the proxy
   -- was told level 0, not at the command that darkened it, so a hold down or a fade that stays lit keeps it.
   if not now.on and not now.levelRamping then
@@ -51,9 +58,14 @@ function Picks:noted(intent, now, settings)
   end
   local kind = intent.kind
   if kind == "color" then
-    if not intent.color or OnColor.followUp(intent, now, self:forOn(), settings) then
+    if not intent.color then
       return
     end
+    if OnColor.followUp(intent, now, self:forOn(), settings) then
+      self.followSpent = true
+      return
+    end
+    self.followUntil = nil
     local pick = { color = intent.color, presetId = intent.presetId, presetOrigin = intent.presetOrigin }
     -- A light still lit on its way to off takes it as this cycle's pick, which ends at that off (#298).
     if now.on or now.levelRamping then
@@ -96,7 +108,7 @@ end
 
 --- The run replaced: nothing held.
 function Picks:reset()
-  self.nextOn, self.picked, self.followUntil, self.followHeld = nil, nil, nil, false
+  self.nextOn, self.picked, self.followUntil, self.followHeld, self.followSpent = nil, nil, nil, false, false
 end
 
 return Picks

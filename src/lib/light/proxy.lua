@@ -5,7 +5,6 @@
 --- Every send is a literal SendToProxy( call, since a suite may replace the global after it loads.
 
 local log = require("lib.logging")
-local persist = require("lib.persist")
 local values = require("lib.values")
 local Caps = require("lib.light.caps")
 local Color = require("lib.light.color")
@@ -14,30 +13,9 @@ local Range = require("lib.light.range")
 require("drivers-common-public.global.lib")
 require("lib.utils")
 
--- The proxy's own variables: the level and its target, the color and its target, and the Navigator
--- Dynamic Capabilities it holds.
+-- The proxy's own variables: the level and its target, and the color and its target.
 local VAR_LEVEL, VAR_LEVEL_TARGET = 1001, 1110
 local VAR_COLOR, VAR_COLOR_TARGET = 1200, 1210
-local VAR_CAPABILITIES = 6661
-
--- The capability keys told last that 6661 does not reflect: the proxy holds its rates apart from it,
--- across a driver update too.
-local P_RATE_CAPS = "light_rate_caps"
-
--- The keys whose change makes the proxy rewrite 6661; it may hold any other at an older value.
-local REFLECTED = {
-  dimmer = true,
-  supports_target = true,
-  supports_color = true,
-  supports_color_correlated_temperature = true,
-  has_extras = true,
-  cold_start = true,
-  color_rate_behavior = true,
-  color_rate_min = true,
-  color_rate_max = true,
-  color_correlated_temperature_min = true,
-  color_correlated_temperature_max = true,
-}
 
 -- The proxy's three buttons, by the ids BUTTON_ACTION and the setup name them.
 local TOP, BOTTOM, TOGGLE = 0, 1, 2
@@ -51,6 +29,10 @@ local BUTTON_NAMES = { [TOP] = "Top", [BOTTOM] = "Bottom", [TOGGLE] = "Toggle" }
 --- @field target integer|nil The target of a CHANGING not yet followed by a CHANGED.
 --- @field endsAt integer|nil When that CHANGING's ramp ends, C4:GetTime() ms.
 --- @field preOn boolean A CHANGING lit the light from off: at an off the proxy would keep its level 1.
+--- @field from number|nil That CHANGING's start, device brightness 0-1.
+--- @field to number|nil Its end, device brightness.
+--- @field startAt integer|nil When it was told, C4:GetTime() ms.
+--- @field ms integer|nil Its time.
 
 --- What the proxy was told of the color.
 --- @class LightToldColor
@@ -83,6 +65,9 @@ local BUTTON_NAMES = { [TOP] = "Top", [BOTTOM] = "Bottom", [TOGGLE] = "Toggle" }
 --- @field presetNamed boolean A proxy color command named a preset: told even while the light is off.
 --- @field readOff boolean A loss read the light off in this outage.
 --- @field shownDue boolean The connection's first LightShown is still owed.
+--- @field resayDue table<string, boolean> "level" and "color": told at the next sync even where the proxy shows
+---   them, once the device has reported them since a start or a loss.
+--- @field toldSince table<string, boolean> "level" and "color": told since the connection came online.
 --- @field level LightToldLevel
 --- @field color LightToldColor
 --- @field leds boolean|nil The link LEDs' state told; nil before any.
@@ -109,6 +94,8 @@ function LightProxy.new(profile, settings)
     presetNamed = false,
     shownDue = false,
     setupDue = false,
+    resayDue = {},
+    toldSince = {},
     level = { preOn = false },
     color = { changing = false },
     presses = {},
@@ -213,27 +200,31 @@ function LightProxy:_tellOnline(online)
   values:update("Connected", online, "BOOL")
 end
 
---- Tell offline, once per outage.
+--- Tell offline, once per outage. The Connected variable is written false every time, so it exists even after
+--- the driver's values were reset while the light was already offline.
 function LightProxy:offline()
   self.shownDue = false
   self.suspended = false
   if self.toldOnline ~= false then
     self:_tellOnline(false)
+  else
+    values:update("Connected", false, "BOOL")
   end
 end
 
---- The connection's first report: online, the capabilities, and the buttons the proxy is seeded with after a
---- reload.
+--- The connection's first report: online, the capabilities, told at every start and reconnect, and the buttons
+--- the proxy is seeded with after a reload.
 --- @param device LightDevice
 --- @return boolean told The capabilities were told, so the proxy's setup may now list more.
 function LightProxy:online(device)
   self.readOff = false
+  self.toldSince = {}
   self.shownDue = true
   -- After a load, a bind or a suspend a keypad shows the LEDs it was last told, maybe from before.
   self.ledsDue = self.leds == nil or self.suspended
   self.suspended = false
   self:_tellOnline(true)
-  local told = self:capabilities(device)
+  local told = self:capabilities(device, true)
   local proxy, links = self.profile.proxy, self.profile.links
   if links then
     -- The three buttons, a string per the NUMBER_BUTTONS notify, then each one's name and colors.
@@ -272,77 +263,18 @@ function LightProxy:lost(suspended)
   self:_levelChanged(0, nil)
 end
 
---- A 6661 or light_rate_caps value as the capability it stands for.
---- @param shown string|number|boolean|nil
---- @param want boolean|number
---- @return boolean
-local function capSame(shown, want)
-  if type(want) == "boolean" then
-    return shown == want or shown == (want and "True" or "False")
-  end
-  return tonumber(shown) == want
-end
-
---- Whether the proxy already holds every capability: the reflected keys in 6661, the rest as told last.
---- @param caps table<string, boolean|number>
---- @return boolean
-function LightProxy:_holds(caps)
-  local ok, xml = pcall(function()
-    return ParseXml(C4:GetDeviceVariable(C4:GetProxyDevices(), VAR_CAPABILITIES))
-  end)
-  local shown = ok and Select(xml, "DynamicCapabilities") or nil
-  if type(shown) ~= "table" then
-    return false
-  end
-  -- With none stored, the proxy holds driver.xml's static values, which the build wrote from this profile.
-  local rates = persist:get(P_RATE_CAPS)
-  if type(rates) ~= "table" then
-    rates = {}
-    for _, row in ipairs(Caps.static(self.profile)) do
-      rates[row.key] = row.value
-    end
-  end
-  local compared = false
-  for key, want in pairs(caps) do
-    if REFLECTED[key] then
-      if shown[key] ~= nil then
-        compared = true
-        if not capSame(shown[key], want) then
-          return false
-        end
-      end
-    elseif not capSame(rates[key], want) then
-      return false
-    end
-  end
-  return compared
-end
-
---- Tell the capabilities when the proxy does not hold them. After a controller start the proxy fires its
---- color variables' events for any it is told, so a change is the only reason to tell.
+--- Tell the capabilities: at a connection's first report whatever they are, and after it whenever they change.
 --- @param device LightDevice
+--- @param force boolean|nil Tell them even unchanged.
 --- @return boolean told
-function LightProxy:capabilities(device)
+function LightProxy:capabilities(device, force)
   self.device = device
   local caps = Caps.dynamic(device, self.profile)
-  if self.caps then
-    if Caps.same(caps, self.caps) then
-      return false
-    end
-  elseif self:_holds(caps) then
-    log:debug("The proxy shows the light's capabilities")
-    self.caps = caps
+  if not force and self.caps and Caps.same(caps, self.caps) then
     return false
   end
   SendToProxy(self.profile.proxy, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
   self.caps = caps
-  local rates = {}
-  for key, value in pairs(caps) do
-    if not REFLECTED[key] then
-      rates[key] = value
-    end
-  end
-  persist:set(P_RATE_CAPS, rates)
   return true
 end
 
@@ -384,12 +316,15 @@ end
 --- LIGHT_BRIGHTNESS_CHANGED: the level the light is at.
 --- @param level integer
 --- @param preset integer|nil
-function LightProxy:_levelChanged(level, preset)
+--- @param reached integer|nil At an off, the C4 level a ramp from off had lit the light to; nil before it lit.
+function LightProxy:_levelChanged(level, preset, reached)
+  self.toldSince.level = true
   local told = self.level
   -- At an off the proxy writes Previous On with the last level it was told, here a pre-on's 1: it is told
-  -- the level to keep first, the one it showed lit or, before the light was lit, Previous On's own.
+  -- the level to keep first: the one it showed lit, else where the ramp from off had got to, else, before
+  -- the light was lit, Previous On's own.
   if level == 0 and told.preOn then
-    local keep = (told.level or 0) > 0 and told.level or self.settings:previousOnLevel()
+    local keep = (told.level or 0) > 0 and told.level or reached or self.settings:previousOnLevel()
     if keep and keep >= 1 then
       log:debug("LIGHT_BRIGHTNESS_CHANGING: %s to 0, rate=0", keep)
       SendToProxy(self.profile.proxy, "LIGHT_BRIGHTNESS_CHANGING", {
@@ -409,6 +344,7 @@ function LightProxy:_levelChanged(level, preset)
   end
   told.level, told.preset = level, preset
   told.target, told.endsAt, told.preOn = nil, nil, false
+  told.from, told.to, told.startAt, told.ms = nil, nil, nil, nil
   log:debug("LIGHT_BRIGHTNESS_CHANGED: %s", level)
   -- The preset that set this level, so the proxy knows the preset still owns it (Light V2 _10.2).
   SendToProxy(self.profile.proxy, "LIGHT_BRIGHTNESS_CHANGED", {
@@ -424,10 +360,13 @@ end
 --- @param ms integer
 --- @param endsAt integer
 --- @param preset integer|nil
-function LightProxy:_levelChanging(current, target, ms, endsAt, preset)
+--- @param ramp LightView The view it was told from, whose device brightnesses an off reads.
+function LightProxy:_levelChanging(current, target, ms, endsAt, preset, ramp)
+  self.toldSince.level = true
   local told = self.level
   told.preOn = told.preOn or (target > 0 and (told.level or 0) < 1)
   told.target, told.endsAt, told.preset = target, endsAt, preset
+  told.from, told.to, told.startAt, told.ms = ramp.level, ramp.on and ramp.levelTarget or 0, endsAt - ms, ms
   -- The proxy takes the light's state from CURRENT: one on its way up from off is lit from the start.
   if target > 0 then
     current = math.max(1, current)
@@ -450,6 +389,7 @@ end
 --- @param preset integer|nil
 --- @param origin integer|nil
 function LightProxy:_colorChanged(color, preset, origin)
+  self.toldSince.color = true
   local told = self.color
   told.color, told.preset, told.origin = color, preset, origin
   told.changing = false
@@ -471,6 +411,7 @@ end
 --- @param origin integer|nil
 --- @param from LightColor
 function LightProxy:_colorChanging(target, ms, endsAt, preset, origin, from)
+  self.toldSince.color = true
   local told = self.color
   told.target, told.endsAt, told.changing = target, endsAt, true
   told.preset, told.origin = preset, origin
@@ -523,7 +464,7 @@ function LightProxy:_syncColor(view, now, endsOff)
       told.target, told.endsAt = target, endsAt
       return
     end
-    if same then
+    if same and not self.resayDue.color then
       return
     end
     -- From where the color has got to: a re-timed or replacing ramp starts there, not at the last told.
@@ -532,7 +473,7 @@ function LightProxy:_syncColor(view, now, endsOff)
   end
   -- A preset named while the light is off is told at once: Navigator shows that preset as the light's.
   local presetMoved = (lit or self.presetNamed) and preset ~= nil and (preset ~= told.preset or origin ~= told.origin)
-  if told.changing or not Color.alike(current, told.color) or presetMoved then
+  if told.changing or not Color.alike(current, told.color) or presetMoved or self.resayDue.color then
     self:_colorChanged(current, preset, origin)
   end
   told.target, told.endsAt = nil, nil
@@ -551,17 +492,37 @@ function LightProxy:_syncLevel(view, now, lo, hi)
   if view.levelTarget ~= nil and view.levelMs > 0 then
     local target = view.on and (asked or shownLevel(view.levelTarget, lo, hi)) or 0
     local endsAt = now + view.levelMs
-    if told.target == target and sameEnd(told.endsAt, endsAt) then
+    if told.target == target and sameEnd(told.endsAt, endsAt) and not self.resayDue.level then
       return
     end
-    self:_levelChanging(shownLevel(view.level, lo, hi), target, view.levelMs, endsAt, preset)
+    self:_levelChanging(shownLevel(view.level, lo, hi), target, view.levelMs, endsAt, preset, view)
     return
   end
   local level = view.on and math.max(1, asked or shownLevel(view.level, lo, hi)) or 0
   local presetMoved = level > 0 and preset ~= nil and preset ~= told.preset
-  if told.target ~= nil or level ~= told.level or presetMoved then
-    self:_levelChanged(level, preset)
+  if told.target ~= nil or level ~= told.level or presetMoved or self.resayDue.level then
+    self:_levelChanged(level, preset, level == 0 and self:_reached(now, lo, hi) or nil)
   end
+end
+
+--- Where the ramp the proxy was told had got to, as a C4 level, when an off ends it part way: lit once past half
+--- way to Min On; nil before that, or with no ramp told.
+--- @private
+--- @param now integer
+--- @param lo integer
+--- @param hi integer
+--- @return integer|nil
+function LightProxy:_reached(now, lo, hi)
+  local told = self.level
+  if told.from == nil or told.to == nil or not told.ms or told.ms <= 0 then
+    return nil
+  end
+  local done = math.max(0, math.min(1, (now - told.startAt) / told.ms))
+  local at = told.from + (told.to - told.from) * done
+  if at * 100 < lo / 2 then
+    return nil
+  end
+  return shownLevel(at, lo, hi)
 end
 
 --- Tell the proxy what differs from what it was told: the color, the level, the button presses, and the
@@ -582,6 +543,7 @@ function LightProxy:sync(view)
     end
   end
   self.presetNamed = false
+  self.resayDue = {}
   -- Echoed after the ramp it starts: echoed first, the proxy snaps its UI to the on or off target and
   -- the CHANGING after it rewinds, a visible jump.
   local presses = self.presses
@@ -595,6 +557,7 @@ end
 --- A setting the proxy hears back once it changes, in the notify that carries it.
 --- @class LightEcho
 --- @field notify string
+--- @field key string The setting's persist key.
 --- @field value integer
 
 --- The settings the proxy hears back: the preset level, the click and hold rates, and Max and Min On.
@@ -603,23 +566,34 @@ function LightProxy:_echoValues()
   local s = self.settings
   local lo, hi = s:onRange()
   return {
-    { notify = "PRESET_LEVEL", value = s:presetLevel() },
-    { notify = "CLICK_RATE_UP", value = s:clickRate(true) },
-    { notify = "CLICK_RATE_DOWN", value = s:clickRate(false) },
-    { notify = "HOLD_RATE_UP", value = s:holdRate(true) },
-    { notify = "HOLD_RATE_DOWN", value = s:holdRate(false) },
-    { notify = "MAX_ON", value = hi },
-    { notify = "MIN_ON", value = lo },
+    { notify = "PRESET_LEVEL", key = s.P_PRESET_LEVEL, value = s:presetLevel() },
+    { notify = "CLICK_RATE_UP", key = s.P_CLICK_RATE_UP, value = s:clickRate(true) },
+    { notify = "CLICK_RATE_DOWN", key = s.P_CLICK_RATE_DOWN, value = s:clickRate(false) },
+    { notify = "HOLD_RATE_UP", key = s.P_HOLD_RATE_UP, value = s:holdRate(true) },
+    { notify = "HOLD_RATE_DOWN", key = s.P_HOLD_RATE_DOWN, value = s:holdRate(false) },
+    { notify = "MAX_ON", key = s.P_MAX_ON_LEVEL, value = hi },
+    { notify = "MIN_ON", key = s.P_MIN_ON_LEVEL, value = lo },
   }
 end
 
 --- Echo each setting that changed since it was told, and the colors of each button that changed.
 function LightProxy:_syncSettings()
+  local commanded = self.settings:takeCommanded()
   if self.setupDue then
-    -- The setup re-read at the first report: what it gave the settings is the proxy's own.
+    -- The setup re-read: what it gave the settings is the proxy's own. A setting command taken since the
+    -- load, offline or not, is still echoed.
     self.setupDue = false
-    self:_holdSettings()
-    return
+    for _, echo in ipairs(self:_echoValues()) do
+      if not commanded[echo.key] then
+        self.echoes[echo.notify] = echo.value
+      end
+    end
+    if not commanded[self.settings.P_BUTTON_COLORS] then
+      for _, button in ipairs({ TOP, BOTTOM, TOGGLE }) do
+        local on, off = self.settings:buttonColors(button)
+        self.buttons[button] = { on = on, off = off }
+      end
+    end
   end
   local proxy = self.profile.proxy
   for _, echo in ipairs(self:_echoValues()) do
@@ -705,6 +679,19 @@ function LightProxy:taken(intent)
   end
 end
 
+--- Tell these aspects at the next sync even where the proxy already shows them: each one's first report from the
+--- device since a start or a loss, which the light tells whatever it is. One already told since the connection
+--- came online is not told again.
+--- @param aspects LightAspect[]
+function LightProxy:resay(aspects)
+  for _, aspect in ipairs(aspects) do
+    local key = aspect == "color" and "color" or "level"
+    if not self.toldSince[key] then
+      self.resayDue[key] = true
+    end
+  end
+end
+
 --- A button press to echo as BUTTON_ACTION at the next sync, after the CHANGING it starts. A link's own
 --- DO_* is never echoed: the proxy sent it, so it already knows the button fired.
 --- @param button integer
@@ -727,7 +714,8 @@ function LightProxy:shown()
   local color = self.color.color
   local kelvin = nil
   if color and color.mode == Color.CCT and self.device and self.device.cct then
-    kelvin = color.kelvin or Color.kelvin(color.x, color.y)
+    -- The Kelvin the proxy shows is its own conversion of the xy it holds.
+    kelvin = Color.kelvin(color.x, color.y)
     kelvin = kelvin and math.floor(kelvin + 0.5) or nil
   end
   local told = self.shownTold
@@ -760,17 +748,25 @@ function LightProxy:answer(strCommand, _tParams, _view, idBinding)
       -- A keypad button bound to a Button Link asks over that link, and is answered on it.
       local on, off = self.settings:buttonColors(asking)
       SendToProxy(idBinding, "BUTTON_COLORS", { ON_COLOR = on, OFF_COLOR = off }, "NOTIFY")
-      SendToProxy(idBinding, "MATCH_LED_STATE", { STATE = self.leds == true }, "NOTIFY", true)
+      SendToProxy(idBinding, "MATCH_LED_STATE", { STATE = self:_ledsHeld() }, "NOTIFY", true)
       return
     end
     for _, button in ipairs({ TOP, BOTTOM, TOGGLE }) do
       local on, off = self.settings:buttonColors(button)
       SendToProxy(proxy, "BUTTON_COLORS", { BUTTON_ID = button, ON_COLOR = on, OFF_COLOR = off }, "NOTIFY")
     end
-    if self.leds ~= nil then
-      self:_leds(self.leds, true)
-    end
+    self:_leds(self:_ledsHeld(), true)
   end
+end
+
+--- Whether the link LEDs show the light on: as told, or before any were told, by the level the light holds.
+--- @private
+--- @return boolean
+function LightProxy:_ledsHeld()
+  if self.leds ~= nil then
+    return self.leds
+  end
+  return (self.level.level or 0) > 0
 end
 
 return LightProxy

@@ -84,10 +84,7 @@ Cases.list = {
           setsLevel = true,
           setsColor = false,
           transitionMs = 1000,
-          from = {
-            level = 0.0039215686274509803,
-            color = { x = 0.31576713349498398, y = 0.32566383425793799, mode = "cct", kelvin = 6360 },
-          },
+          from = { level = 0.0039215686274509803 },
           colorUnchosen = false,
         },
       },
