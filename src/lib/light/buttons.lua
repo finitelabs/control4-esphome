@@ -11,6 +11,7 @@
 --- nothing.
 
 local Range = require("lib.light.range")
+local Timer = require("lib.light.timer")
 
 require("lib.utils")
 require("drivers-common-public.global.lib")
@@ -236,7 +237,7 @@ function Buttons:action(button, action, now, view)
       acted = false,
     }
     local light = self.light
-    SetTimer(GATE_TIMER, GATE_MS, function()
+    Timer.arm(GATE_TIMER, GATE_MS, function()
       light:_gateEnded()
     end, false)
     return nil

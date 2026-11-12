@@ -4,6 +4,7 @@
 
 local log = require("lib.logging")
 local Color = require("lib.light.color")
+local Timer = require("lib.light.timer")
 
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
@@ -579,8 +580,7 @@ end
 --- @param deadline integer
 function Ledger:_arm(aspect, window, deadline)
   window.deadline = deadline
-  -- Director refuses a 0 ms timer, so a deadline already due runs on the shortest one it takes.
-  SetTimer("Light.Wait." .. aspect, math.max(1, deadline - C4:GetTime()), function()
+  Timer.arm("Light.Wait." .. aspect, deadline - C4:GetTime(), function()
     self.light:_due(aspect)
   end)
 end
@@ -603,7 +603,7 @@ end
 
 --- @private
 function Ledger:_armAwaiting()
-  SetTimer("Light.Awaiting", self.device.feedback.waitMs, function()
+  Timer.arm("Light.Awaiting", self.device.feedback.waitMs, function()
     self.light:_awaited()
   end)
 end

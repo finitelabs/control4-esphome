@@ -4,6 +4,7 @@
 
 local log = require("lib.logging")
 local persist = require("lib.persist")
+local Timer = require("lib.light.timer")
 
 require("lib.utils")
 require("drivers-common-public.global.lib")
@@ -162,8 +163,7 @@ end
 --- @param ms integer
 function Scenes:_arm(ms)
   local id, generation, light = self.run.id, self.generation, self.light
-  -- Director refuses a 0 ms timer, so a step with no rate waits the shortest one it takes.
-  SetTimer(timerName(id), math.max(1, ms), function()
+  Timer.arm(timerName(id), ms, function()
     if generation == self.generation then
       light:_sceneStep(id)
     end
