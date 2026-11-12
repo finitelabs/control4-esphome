@@ -3,9 +3,15 @@
 --- - LIGHT_STATE follows CHANGING's CURRENT, and Brightness Percent steps along the line once a second.
 --- - Previous On is written from the last level told above 0 when the light goes off, and pushed back to
 ---   the driver as UPDATE_BRIGHTNESS_PRESET.
---- - Its variables hold what it was told: 1001 the level and 1110 its target, 1200 the color and 1210 its
----   target (as "x,y,mode"), and 6661 the capabilities, without the rate keys it never reflects.
+--- - Its variables hold what it was told: 1001 the level and 1110 its target (none for a light that does not
+---   dim), 1200 the color and 1210 its target (as "x,y,mode", six figures each), and 6661 the capabilities.
+--- - 6661 lists every capability it holds, but is rewritten only when a notify changes one of the keys that
+---   rewrite it, so the others can lag; without dimming it lists the brightness, click and hold rates 0.
+--- - A light that does not dim is asked GET_LIGHT_LEVEL inside the ONLINE_CHANGED that brings it online.
+--- - A LIGHT_COLOR_CHANGED naming a preset id without its origin is dropped whole.
 --- - GET_SETUP is answered from `setup`, or from `newLight` until the proxy is told the light has color.
+--- Each is measured on dev: control4-zigbee3 4cbbee10 test/test_light_feedback.lua 463-523 and 676-685, and
+--- control4-tplink f9b0d1b test/test_light_direct.lua 321-435.
 ---
 --- It is the driver's library-independent view of the proxy: it knows no lib.light internals.
 
@@ -15,6 +21,56 @@ P.PROXY = 5001
 P.LINKS = { top = 300, toggle = 301, bottom = 302 }
 --- The proxy's own device id, which C4:GetProxyDevices answers and GET_SETUP is asked of.
 P.PROXY_DEVICE = 7001
+
+--- What 6661 lists, in its order.
+--- @type string[]
+P.CAPABILITY_KEYS = {
+  "dimmer",
+  "supports_target",
+  "supports_brightness_stop",
+  "supports_color",
+  "supports_color_correlated_temperature",
+  "supports_color_stop",
+  "brightness_rate_min",
+  "brightness_rate_max",
+  "color_correlated_temperature_min",
+  "color_correlated_temperature_max",
+  "color_rate_behavior",
+  "color_rate_min",
+  "color_rate_max",
+  "has_extras",
+  "click_rate_min",
+  "click_rate_max",
+  "hold_rate_min",
+  "hold_rate_max",
+  "cold_start",
+  "supports_color_cycling",
+  "advanced_scene_support",
+  "hide_proxy_properties",
+  "hide_proxy_commands",
+  "hide_proxy_events",
+  "hide_proxy_conditionals_loops",
+}
+
+--- The order the proxy takes a notify's capabilities in, and whether a change to each rewrites 6661.
+--- @type {[1]: string, [2]: boolean}[]
+P.TAKEN = {
+  { "dimmer", true },
+  { "supports_target", true },
+  { "supports_color", true },
+  { "supports_color_correlated_temperature", true },
+  { "brightness_rate_min", false },
+  { "brightness_rate_max", false },
+  { "has_extras", true },
+  { "cold_start", true },
+  { "supports_brightness_stop", false },
+  { "supports_color_stop", false },
+  { "color_rate_behavior", true },
+  { "color_rate_min", true },
+  { "color_rate_max", true },
+  { "color_correlated_temperature_min", true },
+  { "color_correlated_temperature_max", true },
+}
 
 local HERE = debug.getinfo(1, "S").source:match("@(.*[/\\])") or "./"
 
@@ -50,7 +106,9 @@ end
 --- @field newLight string|nil GET_SETUP's answer until the proxy is told the light has color.
 --- @field links LightLinks|false|nil The Button Link bindings; false for none. Default P.LINKS.
 --- @field variables table<integer, string>|nil What the proxy's variables hold at the start, as after a
----   controller restart.
+---   controller restart. A 6661 among them is what the proxy holds.
+--- @field capabilities table<string, string>|nil driver.xml's capabilities, which the proxy holds until it is
+---   told others; every other key holds "False".
 
 --- @class FakeClock
 --- @field now fun(): integer
@@ -72,6 +130,7 @@ end
 --- @field caps table<string, any>|nil The last DYNAMIC_CAPABILITIES_CHANGED.
 --- @field setupReads integer
 --- @field vars table<string, {value: string}> The proxy device's variables, by id.
+--- @field held table<string, string> The capabilities the proxy holds, which 6661 may lag.
 local Proxy = {}
 Proxy.__index = Proxy
 
@@ -94,7 +153,7 @@ local function colorText(color)
   if not color then
     return nil
   end
-  return string.format("%s,%s,%s", tostring(color.x), tostring(color.y), tostring(color.mode or 0))
+  return string.format("%g,%g,%d", tonumber(color.x) or 0, tonumber(color.y) or 0, tonumber(color.mode) or 0)
 end
 
 --- Install a fake proxy over SendToProxy, the device registry and GET_SETUP.
@@ -110,6 +169,14 @@ function P.install(clock, opts)
   p:reset()
   for id, value in pairs(opts.variables or {}) do
     p.vars[tostring(id)] = { value = value }
+  end
+  p.held = {}
+  for key, value in pairs(opts.capabilities or {}) do
+    p.held[key] = value
+  end
+  local listed = p.vars["6661"] and p.vars["6661"].value or ""
+  for _, key in ipairs(P.CAPABILITY_KEYS) do
+    p.held[key] = listed:match("<" .. key .. ">([^<]*)</" .. key .. ">") or p.held[key]
   end
   local me = tonumber(C4:GetDeviceID())
   ShimSetDevices({
@@ -153,6 +220,7 @@ function Proxy:reset()
   self.leds = {}
   self.setupReads = 0
   self.caps = nil
+  self.held = {}
   for id in pairs(self.vars) do
     self.vars[id] = nil
   end
@@ -175,25 +243,48 @@ function Proxy:_var(id, value)
   end
 end
 
+--- Whether the proxy treats the light as one that dims: unless 6661 says it does not.
+--- @return boolean
+function Proxy:dims()
+  local listed = self.vars["6661"] and self.vars["6661"].value or ""
+  return not listed:find("<dimmer>False</dimmer>", 1, true)
+end
+
+--- Write 6661 from what the proxy holds.
 --- @private
---- @param caps table<string, any>
-function Proxy:_capsVar(caps)
-  local keys = {}
-  for key in pairs(caps) do
-    if not (key:match("_rate_min$") or key:match("_rate_max$")) then
-      keys[#keys + 1] = key
-    end
-  end
-  table.sort(keys)
+function Proxy:_listCaps()
+  local dims = self.held.dimmer == "True"
   local parts = {}
-  for _, key in ipairs(keys) do
-    local v = caps[key]
-    if type(v) == "boolean" then
-      v = v and "True" or "False"
+  for _, key in ipairs(P.CAPABILITY_KEYS) do
+    local value = self.held[key] or "False"
+    if not dims and key:match("^%l+_rate_m%l%l$") and not key:match("^color") then
+      value = "0"
     end
-    parts[#parts + 1] = string.format("<%s>%s</%s>", key, tostring(v), key)
+    parts[#parts + 1] = string.format("<%s>%s</%s>", key, value, key)
   end
   self:_var("6661", "<DynamicCapabilities>" .. table.concat(parts) .. "</DynamicCapabilities>")
+end
+
+--- Take a DYNAMIC_CAPABILITIES_CHANGED as the proxy does: key by key in its order, rewriting 6661 at each change
+--- to a key that rewrites it.
+--- @private
+--- @param told table<string, any>
+function Proxy:_takeCaps(told)
+  if not self.vars["6661"] then
+    self:_listCaps()
+  end
+  for _, taken in ipairs(P.TAKEN) do
+    local key, rewrites, value = taken[1], taken[2], told[taken[1]]
+    if value ~= nil then
+      value = type(value) == "boolean" and (value and "True" or "False") or tostring(value)
+      if value ~= self.held[key] then
+        self.held[key] = value
+        if rewrites then
+          self:_listCaps()
+        end
+      end
+    end
+  end
 end
 
 --- @private
@@ -203,8 +294,8 @@ function Proxy:_heard(id, cmd, params)
   if id == links.top or id == links.toggle or id == links.bottom then
     if cmd == "MATCH_LED_STATE" then
       self.leds[id] = params.STATE
-      self.notes[#self.notes + 1] = { at = now, binding = id, cmd = cmd, params = params }
     end
+    self.notes[#self.notes + 1] = { at = now, binding = id, cmd = cmd, params = params }
     return
   end
   if id ~= P.PROXY then
@@ -221,7 +312,7 @@ function Proxy:_heard(id, cmd, params)
       self.lastLit = level
     end
     self:_var("1001", level)
-    self:_var("1110", level)
+    self:_var("1110", self:dims() and level or nil)
   elseif cmd == "LIGHT_BRIGHTNESS_CHANGING" then
     local current = tonumber(params.LIGHT_BRIGHTNESS_CURRENT)
     local target = tonumber(params.LIGHT_BRIGHTNESS_TARGET)
@@ -232,8 +323,11 @@ function Proxy:_heard(id, cmd, params)
       self.lastLit = current
     end
     self:_var("1001", current)
-    self:_var("1110", target)
+    self:_var("1110", self:dims() and target or nil)
   elseif cmd == "LIGHT_COLOR_CHANGED" then
+    if params.LIGHT_COLOR_CURRENT_PRESET_ID ~= nil and params.LIGHT_COLOR_CURRENT_PRESET_ORIGIN == nil then
+      return
+    end
     self.color = {
       x = params.LIGHT_COLOR_CURRENT_X,
       y = params.LIGHT_COLOR_CURRENT_Y,
@@ -257,13 +351,17 @@ function Proxy:_heard(id, cmd, params)
     self:_var("1200", colorText(current))
     self:_var("1210", colorText(target))
   elseif cmd == "ONLINE_CHANGED" then
+    local was = self.online
     self.online = params.STATE
+    if params.STATE and not was and not self:dims() then
+      dispatch(P.PROXY, "GET_LIGHT_LEVEL", {})
+    end
   elseif cmd == "DYNAMIC_CAPABILITIES_CHANGED" then
     self.caps = params
     self.colorTold = self.colorTold
       or params.supports_color == true
       or params.supports_color_correlated_temperature == true
-    self:_capsVar(params)
+    self:_takeCaps(params)
   end
   if wasLit and not self.lit and self.lastLit then
     -- The proxy rewrites its Previous On preset at every off, and tells the driver.
@@ -298,6 +396,20 @@ end
 function Proxy:last(cmd)
   local told = self:told(cmd)
   return told[#told]
+end
+
+--- Every notify of one command to a Button Link since the mark, in order.
+--- @param binding integer
+--- @param cmd string
+--- @return table<string, any>[] params
+function Proxy:toldLink(binding, cmd)
+  local out = {}
+  for _, n in ipairs(self.notes) do
+    if n.cmd == cmd and n.binding == binding then
+      out[#out + 1] = n.params
+    end
+  end
+  return out
 end
 
 --- The levels told by CHANGED since the mark.

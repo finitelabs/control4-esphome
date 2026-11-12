@@ -17,6 +17,8 @@ local emit = print
 
 local passed, failed = 0, 0
 local sections = 0
+-- Intended differences, counted per row, and the rows in the order first met.
+local differences, rows = {}, {}
 
 --- A value rendered for a failure message. Tables print sorted, one level of
 --- nesting deep, so a mismatch names the differing field.
@@ -78,6 +80,21 @@ function T.check(name, ok, detail)
     emit(string.format("  FAIL %s%s", name, detail ~= nil and ("  -> " .. tostring(detail)) or ""))
   end
   return ok and true or false
+end
+
+--- An assertion an old suite makes that the code under test is meant to fail, as a design row says. It is
+--- not checked: it is counted under `row`, and T.finish prints the count per row.
+function T.differs(name, row)
+  if type(row) ~= "string" or row == "" then
+    return T.check(name, false, "T.differs needs the row that says why it differs")
+  end
+  if not differences[row] then
+    differences[row] = 0
+    rows[#rows + 1] = row
+  end
+  differences[row] = differences[row] + 1
+  emit(string.format("  diff %s  -> %s", name, row))
+  return true
 end
 
 function T.section(name)
@@ -175,6 +192,12 @@ end
 
 --- Print the summary and exit. Every test file ends with this.
 function T.finish()
+  if #rows > 0 then
+    emit("\nIntended differences:")
+    for _, row in ipairs(rows) do
+      emit(string.format("  %d  %s", differences[row], row))
+    end
+  end
   emit(string.format("\n%d passed, %d failed", passed, failed))
   os.exit(failed == 0 and 0 or 1)
 end
