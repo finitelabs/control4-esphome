@@ -250,17 +250,15 @@ T.section("a pre-on, a light that does not dim, and a refresh")
 ---------------------------------------------------------------------------
 do
   local adapter = light({ ColorMode.COLOR_MODE_RGB })
-  adapter:send(
-    command({
-      kind = "preOn",
-      fromOff = true,
-      level = 1 / 255,
-      setsLevel = true,
-      setsColor = true,
-      color = RED,
-      from = { level = 0 },
-    })
-  )
+  adapter:send(command({
+    kind = "preOn",
+    fromOff = true,
+    level = 1 / 255,
+    setsLevel = true,
+    setsColor = true,
+    color = RED,
+    from = { level = 0 },
+  }))
   local body = lastBody()
   T.truthy(
     "a pre-on lights the bottom step at once",
