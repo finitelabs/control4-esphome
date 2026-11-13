@@ -214,6 +214,36 @@ do
 end
 
 ---------------------------------------------------------------------------
+T.section("a white picked as a color while the light shows that white")
+---------------------------------------------------------------------------
+do
+  local modes = { ColorMode.COLOR_MODE_RGB, ColorMode.COLOR_MODE_COLD_WARM_WHITE }
+  local entity = { supported_color_modes = modes }
+  local shows = {
+    state = true,
+    brightness = 1,
+    color_mode = ColorMode.COLOR_MODE_COLD_WARM_WHITE,
+    color_temperature = 1e6 / 3200,
+    cold_white = 0.5,
+    warm_white = 1,
+  }
+  local adapter = light(modes, { min_mireds = 153, max_mireds = 370 }, shows)
+  local x, y = C4:ColorCCTtoXY(3200)
+  local picked = { x = x, y = y, mode = "xy" }
+  adapter:send(command({ setsColor = true, color = picked }))
+  T.truthy("it goes out as the white the light shows", math.abs(lastBody().color_temperature - 312.5) < 0.01)
+  local report = adapter:report(entity, shows)
+  T.truthy(
+    "the light's report of it reads back as the color picked",
+    near(report.color.x, picked.x) and near(report.color.y, picked.y) and report.color.mode == "xy"
+  )
+  T.eq("and so does a repeat of that report", adapter:report(entity, shows).color.mode, "xy")
+  adapter:send(command({ setsColor = true, color = { x = x, y = y, mode = "cct", kelvin = 3200 } }))
+  lastBody()
+  T.eq("a color temperature sent for that white reads back as one", adapter:report(entity, shows).color.mode, "cct")
+end
+
+---------------------------------------------------------------------------
 T.section("a CCT light, and a cold and warm white one with no mireds range")
 ---------------------------------------------------------------------------
 do

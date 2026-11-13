@@ -1091,25 +1091,32 @@ end
 --- @param _shown LightShown
 function LightAdapter:show(_shown) end
 
--- Whether a report matches a value on the wire: the last report's, or one sent since. Drops the entries before the
--- match and repeats of it right after, and keeps `reported` as the first entry. Also returns the value it matched.
+-- Whether a report matches a value on the wire: one sent since the last report, else the last report's. Drops the
+-- entries before the match and repeats of it right after, and keeps `reported` as the first entry. Also returns the
+-- value it matched.
 local function onWire(sent, matches, reported)
-  local own, matched = false, nil
-  for i, value in ipairs(sent) do
-    if matches(value) then
-      matched = value
-      for _ = 2, i do
-        table.remove(sent, 1)
-      end
-      while sent[2] and matches(sent[2]) do
-        table.remove(sent, 2)
-      end
-      own = true
+  local at = nil
+  for i = 2, #sent do
+    if matches(sent[i]) then
+      at = i
       break
     end
   end
+  if not at and sent[1] ~= nil and matches(sent[1]) then
+    at = 1
+  end
+  local matched = nil
+  if at then
+    matched = sent[at]
+    for _ = 2, at do
+      table.remove(sent, 1)
+    end
+    while sent[2] and matches(sent[2]) do
+      table.remove(sent, 2)
+    end
+  end
   sent[1] = reported
-  return own, matched
+  return at ~= nil, matched
 end
 
 --- The light's state from an UPDATE_STATE. A report of the white last sent reads back as the color it was picked as.
@@ -1128,8 +1135,9 @@ function LightAdapter:report(entity, state)
   if not (levelOnWire and colorOnWire) then
     self:dropFade()
   end
-  -- The wire form of a command not yet answered is reported as that command's color, and a report of the wire
-  -- form last reported as the color it was reported as, so the light's rounding is no new color.
+  -- The wire form of a command not yet answered is reported as that command's color, even when the last report had
+  -- it too: a white picked as a color reads back as the pick. With no command matching, a report of the wire form
+  -- last reported is the color it was reported as, so the light's rounding is no new color.
   local color = sent and self.sentFor[sent]
   if not color and (self.color or self.cct) then
     color = lightColor(self, self:shownColor(fields))
