@@ -104,14 +104,7 @@
       <!-- #endif -->
     </actions>
   </config>
-  <!--
-    A dynamic capability overrides these in both directions, so discovery
-    corrects a light that lacks one back down. The dimming tier is True anyway
-    because Composer's test panel needs static AND dynamic; the color tier does
-    not, so it stays off. Cost of the dimming tier: consumers that read this list
-    with an `or` fallback cannot tell a declared False from an undeclared one and
-    see every light as dimmable (DRV-113).
-  -->
+  <!-- The light's capabilities are the build's, written from the profile the driver gives Light.new. -->
   <capabilities/>
   <proxies>
     <proxy proxybindingid="5001" primary="True" name="ESPHome Light">light_v2</proxy>
