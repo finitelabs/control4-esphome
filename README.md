@@ -1121,8 +1121,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   also during a fade or while the device can't be reached.
 - Keypad buttons with no colors of their own show the ESPHome light's colors
   from Composer, then the standard defaults.
-- Turning an ESPHome light on fades its color to the on color over the same time
-  as its brightness.
+- Turning an ESPHome light on brings it up in its on color, with Dim-To-Warm
+  following its brightness and a scene step that turns it on fading from the
+  color it had.
 - With Dim-To-Warm, turning the ESPHome light off fades its color all the way to
   the Dim color.
 - With Dim-To-Warm, the color blends in a straight line between the Dim and On

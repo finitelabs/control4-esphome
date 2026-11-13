@@ -26,6 +26,8 @@ local ASPECTS = { "on", "level", "color" }
 ---   (a learning window), it is on.
 --- @field reportedOn boolean|nil The on the device last reported.
 --- @field offFrom number|nil Where the newest fade to off started, until a command lights the light again.
+--- @field offColor LightColor|nil On a "hold" device, the color it had lit when our off went out, until the
+---   light is lit again or a color settles: whatever color is held for the next on, the device kept this one.
 --- @field walkUnheard boolean|nil While a report is weighed: it is the first a running walk hears.
 --- @field awaiting table<LightAspect, boolean> What the connection's first report left out: a lit light's level
 ---   and its color, and the level of a light first heard off that a report lights without one. The proxy isn't
@@ -67,6 +69,7 @@ function Ledger:sent(cmd, landings)
   end
   -- Without setsLevel the on is only carried: the output is unchanged. An off's level is only the level kept.
   local libraryOn = self:_onHeld(self.libraryOn)
+  local kept = self.offColor
   if cmd.setsLevel and cmd.on ~= libraryOn then
     self:_open("on", cmd.on, libraryOn, landings.on)
   end
@@ -77,13 +80,18 @@ function Ledger:sent(cmd, landings)
   if cmd.setsLevel then
     self.libraryOn = cmd.on
     self.offFrom = (not cmd.on) and cmd.from.level or nil
+    if self.device.colorWhileOff == "hold" then
+      self.offColor = (not cmd.on) and (libraryOn == false and kept or cmd.from.color) or nil
+    end
     self:_heardOf("level")
   end
   if cmd.setsColor then
     self:_heardOf("color")
   end
+  -- The on that lights a "hold" device again starts from the color it kept, which a late answer to our off
+  -- shows: history, not another hand's.
   if cmd.setsColor and cmd.color then
-    self:_open("color", cmd.color, cmd.from.color, landings.color)
+    self:_open("color", cmd.color, cmd.fromOff and kept or cmd.from.color, landings.color)
   end
   -- A command moves each aspect's landing: a re-time moves the other aspect's, an off the level's, a stop ends
   -- a change early. A command's window waits until its aspect's change lands, then the wait; one asked waits
@@ -167,6 +175,9 @@ function Ledger:heard(report, now)
   self:_keepChangedOn(out, now)
   if out.settle.on ~= nil then
     self.libraryOn = out.settle.on
+  end
+  if out.settle.on == true or out.settle.color ~= nil then
+    self.offColor = nil
   end
   self.libraryOn = self:_onHeld(self.libraryOn)
   self.walkUnheard = false
@@ -275,6 +286,9 @@ function Ledger:due(aspect, now)
   if out.settle.on ~= nil then
     self.libraryOn = out.settle.on
   end
+  if out.settle.on == true or out.settle.color ~= nil then
+    self.offColor = nil
+  end
   return out
 end
 
@@ -294,6 +308,7 @@ function Ledger:reset()
   CancelTimer("Light.Awaiting")
   self.reportedOn = nil
   self.offFrom = nil
+  self.offColor = nil
 end
 
 --- Whether another hand's on waits for its level: the light is lit for the commands that follow it.
@@ -316,8 +331,9 @@ end
 --- @return "history"|nil history The value was held as history.
 function Ledger:_weigh(aspect, value, report, now, out)
   -- While a "hold" device is off with a color told but not sent, a report that doesn't say on carries no
-  -- color news: the color the proxy shows stands for the next on.
-  if aspect == "color" and now.colorHeld == true and report.on ~= true then
+  -- color news, nor does a lit one while our off is out, the light on its way down in the color it kept: the
+  -- color the proxy shows stands for the next on.
+  if aspect == "color" and now.colorHeld == true and (report.on ~= true or self:_ourOffOut()) then
     return
   end
   local window = self.windows[aspect]

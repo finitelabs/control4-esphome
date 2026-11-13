@@ -135,6 +135,33 @@ T.check(
   string.format("memory_kb %s, live_kb %s", tostring(memoryKB), tostring(liveKB))
 )
 
+T.section("A controller whose locale writes a decimal comma still sends numbers with a point")
+do
+  -- The controller's C library writes floats with its locale's decimal point; this one's is a comma.
+  local format, tostr, native = string.format, tostring, tostring_native
+  local function comma(text)
+    return (text:gsub("%.", ","))
+  end
+  string.format = function(pattern, ...)
+    local text = format(pattern, ...)
+    return pattern:find("%%[%d.]*[fg]") and comma(text) or text
+  end
+  tostring = function(v)
+    return type(v) == "number" and comma(tostr(v)) or tostr(v)
+  end
+  tostring_native = tostring
+  diag:onReport(function()
+    return { { measurement = "example_device", fields = { latency_ms = 12.5 } } }
+  end)
+  sent = posted(ShimFireTimers)
+  string.format, tostring, tostring_native = format, tostr, native
+  diag:onReport(nil)
+  local line = sent[1].body:match("^[^\n]*")
+  T.truthy("memory_kb has a point", line:find(" memory_kb=[%d.]+,live_kb=") ~= nil, line)
+  T.truthy("and so does live_kb", line:find(",live_kb=[%d.]+,global_count=") ~= nil, line)
+  T.contains("and a driver's own field", sent[1].body, " latency_ms=12.5 ")
+end
+
 T.section("The census never walks package, which holds every module loaded")
 _G.CensusProbe = { 1, 2, 3 }
 local census = Diagnostics:new(SERVER):_tableCensus()

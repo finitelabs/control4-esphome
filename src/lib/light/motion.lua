@@ -514,9 +514,24 @@ function Motion:_toLevel(out, intent, choice, ms)
       end
     else
       self:_endColorRamp()
-      -- The color goes from the one the light has to the new one over the level's time, from dark too. A light
-      -- with no color known is taken to be in D65.
-      local start = length > 0 and (fromColor or self:_take(Color.D65)) or nil
+      -- The color goes from the one the light has to the new one over the level's time. From dark, an on mode's
+      -- color starts where the on mode has a dark light, so a hold stopped part way is in the on mode's color for
+      -- its level. A scene step's starts from the color kept, as does every color on a light that runs its own
+      -- fades, which no stop reaches. A light with no color known is taken to be in D65.
+      local onStart = fade.kind ~= "own"
+          and fromShown <= 0
+          and own == nil
+          and choice
+          and choice.from
+          and self:_take(choice.from)
+        or nil
+      local start = length > 0 and (onStart or fromColor or self:_take(Color.D65)) or nil
+      -- With no pre-on, the device starts its fade from the color it kept, so a stop puts it in the on mode's. A
+      -- "hold" device kept the color it had before the one held.
+      if onStart and self.levelRamp and fade.kind == "device" and not fade.preOn then
+        local held = self.held and device.colorWhileOff == "hold"
+        self.levelRamp.placesColor = held or not sameColor(onStart, fromColor)
+      end
       if start ~= nil and not sameColor(start, merged) then
         colorRamped = true
         self.colorRamp = {
@@ -541,6 +556,8 @@ function Motion:_toLevel(out, intent, choice, ms)
   -- An on from off sets the color a held color or an on mode gives it, even one equal to the color kept, and
   -- a pre-on and its change both carry it.
   local carries = toOn and not self.wireOn and (merged ~= nil or (device.colorWhileOff == "hold" and self.held))
+  -- A color ramp that starts away from the color the light has: the light is put there as it lights.
+  local startsAway = colorRamped and not sameColor(self.colorRamp.from, fromColor)
   if fade.kind == "walk" and (self.levelRamp or self.colorRamp) then
     local lr = self.levelRamp
     -- A level no ramp walks goes at once, and a walk from off lights the light at once with its first step, unless
@@ -548,6 +565,9 @@ function Motion:_toLevel(out, intent, choice, ms)
     if not lr or fromShown <= 0 then
       local level = lr and self:_rawLevelAt(t) or self.level
       local color = self.colorRamp and (self.walked and self.walked.color or fromColor) or self.color
+      if startsAway and fromShown <= 0 then
+        color = self.colorRamp.from
+      end
       local sent = self.levelSent
       local already = lr == nil
         and sent ~= nil
@@ -561,7 +581,8 @@ function Motion:_toLevel(out, intent, choice, ms)
           level = level,
           color = color,
           setsLevel = true,
-          setsColor = self.colorRamp == nil and (colorMoves or carries or withLevel),
+          setsColor = (self.colorRamp == nil and (colorMoves or carries or withLevel))
+            or (startsAway and fromShown <= 0),
           transitionMs = 0,
           from = from,
           colorUnchosen = unchosen,
@@ -580,8 +601,8 @@ function Motion:_toLevel(out, intent, choice, ms)
   local transition = Fade.transition(fade, (device.dims or merged ~= nil) and length or 0)
   if fade.kind == "device" and fade.preOn and device.dims and transition > 0 and toOn and fromShown <= 0 then
     local bottom = 1 / self:_steps()
-    -- A color that fades with the level starts where the light has it, or, with none known, the pre-on puts it in
-    -- the D65 its ramp starts from; one set at once goes with the pre-on.
+    -- A color that fades with the level starts where its ramp does: the pre-on puts it there when that is not the
+    -- color the light has, or none is known. One set at once goes with the pre-on.
     local preColor = colorRamped and self.colorRamp.from or self.color
     self:_push(out, {
       kind = "preOn",
@@ -589,7 +610,7 @@ function Motion:_toLevel(out, intent, choice, ms)
       level = bottom,
       color = preColor,
       setsLevel = true,
-      setsColor = (colorRamped and fromColor == nil) or (not colorRamped and (colorMoves or carries)),
+      setsColor = startsAway or (not colorRamped and (colorMoves or carries)),
       transitionMs = 0,
       from = from,
       colorUnchosen = unchosen,
@@ -637,12 +658,26 @@ function Motion:_toColor(out, intent, choice, ms)
   local fade = self:_fade()
   local from = { level = self:_levelAt(t), color = self:_colorAt(t) }
   local lr = self.levelRamp
-  if lr then
-    lr.merged, lr.set = nil, true
-  end
   local rate = intent.rateMs or ms.colorRate
   local length = Fade.length(fade, true, true, rate)
   local cr = self.colorRamp
+  -- An on that lit the light in its color carries it on the level, with no color ramp. The proxy's copy of it
+  -- changes nothing and nothing goes out, unless it gets there sooner on a light that fades the color from the one
+  -- it kept. The color stays the on's, so a stop still places it.
+  if
+    lit
+    and cr == nil
+    and lr
+    and lr.merged
+    and sameColor(lr.merged, target)
+    and sameColor(from.color, target)
+    and (not lr.placesColor or t + length >= lr.startMs + lr.ms)
+  then
+    return
+  end
+  if lr then
+    lr.merged, lr.set = nil, true
+  end
   if lit and cr and sameColor(cr.to, target) and t + length >= cr.startMs + cr.ms then
     -- The color is on its way there already, and no sooner by this: it keeps going, now a color of its own, and
     -- nothing more goes out. The proxy's own copy of an on's color comes this way.
@@ -768,7 +803,7 @@ function Motion:_stopLevel(out, ms)
     level = self.level,
     color = color,
     setsLevel = true,
-    setsColor = colorMoves,
+    setsColor = colorMoves or (lr.placesColor == true and not keepColor),
     transitionMs = colorMs,
     from = { level = shown, color = color },
     colorUnchosen = unchosen == true,
@@ -832,7 +867,8 @@ function Motion:_stopBoth(out, ms)
     level = level,
     color = color,
     setsLevel = true,
-    setsColor = (device.color or device.cct ~= nil) and (cr ~= nil or not sameColor(color, before)),
+    setsColor = (device.color or device.cct ~= nil)
+      and (cr ~= nil or not sameColor(color, before) or (lr ~= nil and lr.placesColor == true)),
     transitionMs = 0,
     from = { level = shown, color = color },
     colorUnchosen = unchosen == true,
@@ -1107,6 +1143,11 @@ function Motion:_push(out, cmd)
   if hold and not cmd.on and not cmd.setsLevel then
     self.held = true
     return
+  end
+  -- A "hold" device drops a color sent with an off too, so the off goes without it and the color is held.
+  if hold and not cmd.on and cmd.setsColor then
+    cmd.setsColor = false
+    self.held = true
   end
   if cmd.on or cmd.setsColor then
     self.held = false

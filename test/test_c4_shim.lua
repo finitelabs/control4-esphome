@@ -481,8 +481,11 @@ for _, hasSocket in ipairs({ false, true }) do
         handle:Cancel()
       end
     end
-    T.eq(label .. ": and SetTimer makes no timer for it", SetTimer("zero", 0, function() end), nil)
-    T.check(label .. ": nor a named slot", Timer["zero"] == nil)
+    local zero = SetTimer("zero", 0, function() end)
+    T.check(label .. ": SetTimer arms a one-shot at 0 ms on the shortest delay taken", type(zero) == "userdata")
+    CancelTimer("zero")
+    T.eq(label .. ": but makes no repeating timer for it", SetTimer("spin", 0, function() end, true), nil)
+    T.check(label .. ": nor a named slot", Timer["spin"] == nil)
 
     T.check(label .. ": SetTimer registers the handle", TimerFunctions[t] ~= nil)
     T.check(label .. ": SetTimer records the named slot", Timer["ping"] == t)

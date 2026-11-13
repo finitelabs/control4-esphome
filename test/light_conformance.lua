@@ -93,19 +93,47 @@ local function colorParams(color, rate)
   }
 end
 
---- The proxy's color on mode: `color` as the On color, from preset 1 of the device's presets, or none.
+--- A white at `kelvin`: a white on a light with color temperature, else a full color at the white's point.
+--- @param device LightDevice
+--- @param kelvin integer
+--- @return LightRigColor
+local function whiteFor(device, kelvin)
+  local x, y = C4:ColorCCTtoXY(kelvin)
+  return { x = x, y = y, mode = device.cct and 1 or 0 }
+end
+
+--- The proxy's color on mode: `color` as the On color, from preset 1 of the device's presets, or none. With
+--- `dim`, Dim-To-Warm, from `dim` (preset 2) at the bottom to `color` at the top.
 --- @param p FakeProxy
 --- @param color LightRigColor|nil
-local function colorOnMode(p, color)
+--- @param dim LightRigColor|nil
+local function colorOnMode(p, color, dim)
   p:send("UPDATE_COLOR_ON_MODE", {
     COLOR_PRESET_ID = color and 1 or 0,
     COLOR_PRESET_ORIGIN = color and 1 or 0,
     COLOR_PRESET_COLOR_X = color and color.x,
     COLOR_PRESET_COLOR_Y = color and color.y,
     COLOR_PRESET_COLOR_MODE = color and color.mode,
-    COLOR_FADE_PRESET_ID = 0,
-    COLOR_FADE_PRESET_ORIGIN = 0,
+    COLOR_FADE_PRESET_ID = dim and 2 or 0,
+    COLOR_FADE_PRESET_ORIGIN = dim and 1 or 0,
+    COLOR_FADE_PRESET_COLOR_X = dim and dim.x,
+    COLOR_FADE_PRESET_COLOR_Y = dim and dim.y,
+    COLOR_FADE_PRESET_COLOR_MODE = dim and dim.mode,
   })
+end
+
+--- Dim-To-Warm's mix at a C4 level: a white on the line between its ends' whites, else the point between them.
+--- @param dim LightRigColor
+--- @param color LightRigColor
+--- @param level integer
+--- @return {x: number, y: number}
+local function mixAt(dim, color, level)
+  local b = math.max(0, math.min(100, level)) / 100
+  local x, y = dim.x + (color.x - dim.x) * b, dim.y + (color.y - dim.y) * b
+  if color.mode == 1 then
+    x, y = C4:ColorCCTtoXY(C4:ColorXYtoCCT(x, y))
+  end
+  return { x = x, y = y }
 end
 
 --- A scene's steps, as the proxy pushes them.
@@ -458,7 +486,7 @@ function C.run(T, rig)
       p:send("OFF")
       h.clock.run(ms)
       p:mark()
-      p:appOn(dims and 80 or 100, { x = onColor.x, y = onColor.y, mode = onColor.mode, preset = 1, origin = 1 })
+      p:appOn(dims and 80 or 100)
       h.clock.run(ms)
       local told = p:told("LIGHT_COLOR_CHANGED")
       T.eq(name .. ": the proxy is told one color", #told, 1)
@@ -546,6 +574,81 @@ function C.run(T, rig)
         )
         finish(h)
       end)
+
+      if hasColor and profile.onModes then
+        --- The light on in `before`, then off, and a hold of `link` from off let go part way up.
+        --- @param h LightRigHarness
+        --- @param before LightRigColor
+        --- @param setMode fun()
+        --- @param link integer
+        local function holdFromOff(h, before, setMode, link)
+          local p = h.proxy
+          p:send("ON")
+          h.clock.run(ms)
+          p:send("SET_COLOR_TARGET", colorParams(before, 0))
+          h.clock.run(ms)
+          p:send("OFF")
+          h.clock.run(ms)
+          setMode()
+          p:link(link, "DO_PUSH")
+          h.clock.run(1500)
+          p:link(link, "DO_RELEASE")
+          h.clock.run(ms)
+          local at = percent(h)
+          T.check(name .. ": the hold from off stopped part way up", at > 0 and at < 100, at)
+        end
+
+        T.section(name .. ": a link's hold from off under a Color On Mode stops in the On color, not one on the way")
+        C.case(T, name, function()
+          local h = fresh(rig)
+          local p = h.proxy
+          local onColor, before = colorFor(device, 0.6, 0.3, 2700), colorFor(device, 0.3, 0.5, 6000)
+          holdFromOff(h, before, function()
+            colorOnMode(p, onColor)
+          end, links.toggle)
+          T.check(name .. ": the proxy shows the On color", sameXY(shownXY(p.color), onColor), T.show(p.color))
+          local color = xyOf(h.device.state().color)
+          T.check(name .. ": and the device is in it", sameXY(color, onColor), T.show(color))
+          colorOnMode(p, nil)
+          finish(h)
+        end)
+
+        T.section(
+          name .. ": a link's hold from off under Dim-To-Warm, after a cool white, stops in the mix for its level"
+        )
+        C.case(T, name, function()
+          local h = fresh(rig)
+          local p = h.proxy
+          local top, bottom = whiteFor(device, 4000), whiteFor(device, 2700)
+          -- A device that shows both whites as asked shows the mix between them. One that shows every white on a
+          -- white channel of its own can't, and the proxy alone says where the light stopped.
+          local asked = true
+          p:send("ON")
+          h.clock.run(ms)
+          for _, white in ipairs({ bottom, top }) do
+            p:send("SET_COLOR_TARGET", colorParams(white, 0))
+            h.clock.run(ms)
+            asked = asked and sameXY(xyOf(h.device.state().color), white)
+          end
+          holdFromOff(h, whiteFor(device, 6000), function()
+            colorOnMode(p, top, bottom)
+          end, links.top)
+          local want = mixAt(bottom, top, p.level or 0)
+          T.check(
+            name .. ": the proxy shows the mix",
+            sameXY(shownXY(p.color), want),
+            T.show({ shown = p.color, want = want, level = p.level })
+          )
+          local color = xyOf(h.device.state().color)
+          T.check(
+            name .. ": and the device is in it, on a device that shows both whites as asked",
+            not asked or sameXY(color, want),
+            T.show({ device = color, want = want })
+          )
+          colorOnMode(p, nil)
+          finish(h)
+        end)
+      end
     end
   end
 

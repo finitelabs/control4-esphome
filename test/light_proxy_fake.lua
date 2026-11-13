@@ -2,7 +2,12 @@
 --- Links, and models what the real proxy derives from them, as measured on dev (tests/light/test_proxy_fake.lua):
 --- - LIGHT_STATE follows CHANGING's CURRENT, and Brightness Percent steps along the line once a second.
 --- - Previous On is written from the last level told above 0 when the light goes off, and pushed back to
----   the driver as UPDATE_BRIGHTNESS_PRESET.
+---   the driver as UPDATE_BRIGHTNESS_PRESET when that level changed. Its color, the color 1200 holds, is
+---   pushed as UPDATE_COLOR_PRESET at every off.
+--- - The app's On names the brightness on mode's preset, and only under Dim-To-Warm is it followed by the On
+---   preset at its full color. A Default On level set on the proxy reaches the driver as SET_PRESET_LEVEL
+---   twice, then UPDATE_BRIGHTNESS_PRESET for preset 1.
+--- - A keypad's Button Link commands reach the light with no params, and the proxy sends nothing for them.
 --- - Its variables hold what it was told: 1001 the level and 1110 its target (none for a light that does not
 ---   dim), 1200 the color and 1210 its target (as "x,y,mode", six figures each), and 6661 the capabilities.
 --- - 6661 lists every capability it holds, but is rewritten only when a notify changes one of the keys that
@@ -129,13 +134,15 @@ end
 --- @field setupReads integer
 --- @field vars table<string, {value: string}> The proxy device's variables, by id.
 --- @field held table<string, string> The capabilities the proxy holds, which 6661 may lag.
+--- @field brightnessOnMode integer The brightness preset an On goes to: 1 Default On, 10 Previous.
+--- @field colorOnMode table<string, any>|nil The last UPDATE_COLOR_ON_MODE sent to the light.
 local Proxy = {}
 Proxy.__index = Proxy
 
 --- A command to the light, as Director delivers it: a command-keyed RFP first, then the binding's.
 --- @param binding integer
 --- @param cmd string
---- @param params table<string, any>
+--- @param params table<string, any>|nil
 local function dispatch(binding, cmd, params)
   local handler = RFP[cmd]
   if type(handler) ~= "function" then
@@ -163,6 +170,7 @@ function P.install(clock, opts)
   local p = setmetatable({ clock = clock, links = opts.links == nil and P.LINKS or opts.links }, Proxy)
   p.setup, p.newLight = opts.setup or "", opts.newLight
   p.colorTold = false
+  p.brightnessOnMode = 1
   p.vars = {}
   p:reset()
   for id, value in pairs(opts.variables or {}) do
@@ -372,16 +380,31 @@ function Proxy:_heard(id, cmd, params)
     self:_takeCaps(params)
   end
   if wasLit and not self.lit and self.lastLit then
-    -- The proxy rewrites its Previous On preset at every off, and tells the driver.
     local keep = self.lastLit
+    local moved = keep ~= self.previousOn
     self.previousOn = keep
-    self.clock.at(1, function()
-      dispatch(
-        P.PROXY,
-        "UPDATE_BRIGHTNESS_PRESET",
-        { COMMAND = "MODIFIED", ID = 10, NAME = "Previous On", LEVEL = keep }
-      )
-    end)
+    if moved then
+      self.clock.at(1, function()
+        dispatch(
+          P.PROXY,
+          "UPDATE_BRIGHTNESS_PRESET",
+          { COMMAND = "MODIFIED", ID = 10, NAME = "Previous On", LEVEL = keep }
+        )
+      end)
+    end
+    local x, y, mode = tostring(self.vars["1200"] and self.vars["1200"].value or ""):match("^([^,]+),([^,]+),([^,]+)$")
+    if x then
+      self.clock.at(12, function()
+        dispatch(P.PROXY, "UPDATE_COLOR_PRESET", {
+          COMMAND = "MODIFIED",
+          ID = 10,
+          NAME = "Previous On",
+          COLOR_X = tonumber(x),
+          COLOR_Y = tonumber(y),
+          COLOR_MODE = tonumber(mode),
+        })
+      end)
+    end
   end
 end
 
@@ -474,37 +497,60 @@ end
 --- @param cmd string
 --- @param params table<string, any>|nil
 function Proxy:send(cmd, params)
-  return dispatch(P.PROXY, cmd, params or {})
+  params = params or {}
+  if cmd == "UPDATE_COLOR_ON_MODE" then
+    self.colorOnMode = params
+  elseif cmd == "UPDATE_BRIGHTNESS_ON_MODE" then
+    self.brightnessOnMode = tonumber(params.BRIGHTNESS_PRESET_ID) or self.brightnessOnMode
+  elseif cmd == "SET_BRIGHTNESS_ON_MODE" then
+    self.brightnessOnMode = tonumber(params.PRESET_ID) or self.brightnessOnMode
+  end
+  return dispatch(P.PROXY, cmd, params)
 end
 
---- Send a Button Link command (DO_PUSH, DO_CLICK, DO_RELEASE) on one of the links.
+--- Send a Button Link command (DO_PUSH, DO_CLICK, DO_RELEASE) on one of the links, with no params: Director
+--- delivers a keypad's link commands with none.
 --- @param binding integer
 --- @param cmd string
 function Proxy:link(binding, cmd)
-  return dispatch(binding, cmd, {})
+  return dispatch(binding, cmd, nil)
 end
 
---- The Control4 app's On: SET_BRIGHTNESS_TARGET at the on level over 750 ms naming brightness preset 1, then the
---- on color about 18 ms later as SET_COLOR_TARGET, with its preset id and origin.
+--- The Control4 app's On: SET_BRIGHTNESS_TARGET at the on level over 750 ms, naming the brightness on mode's
+--- preset. Under Dim-To-Warm alone, about 18 ms later, SET_COLOR_TARGET names the On preset at its full color.
 --- @param level integer
---- @param color {x: number, y: number, mode: integer|nil, preset: integer|nil, origin: integer|nil}|nil
-function Proxy:appOn(level, color)
-  self:send(
-    "SET_BRIGHTNESS_TARGET",
-    { LIGHT_BRIGHTNESS_TARGET = level, LIGHT_BRIGHTNESS_TARGET_PRESET_ID = 1, RATE = 750 }
-  )
-  if color then
-    self.clock.at(18, function()
-      self:send("SET_COLOR_TARGET", {
-        LIGHT_COLOR_TARGET_X = color.x,
-        LIGHT_COLOR_TARGET_Y = color.y,
-        LIGHT_COLOR_TARGET_MODE = color.mode or 0,
-        LIGHT_COLOR_TARGET_PRESET_ID = color.preset,
-        LIGHT_COLOR_TARGET_PRESET_ORIGIN = color.origin,
-        LIGHT_COLOR_TARGET_COLOR_RATE = 750,
-      })
-    end)
+function Proxy:appOn(level)
+  self:send("SET_BRIGHTNESS_TARGET", {
+    LIGHT_BRIGHTNESS_TARGET = level,
+    LIGHT_BRIGHTNESS_TARGET_PRESET_ID = self.brightnessOnMode,
+    RATE = 750,
+  })
+  local mode = self.colorOnMode
+  if not mode or (tonumber(mode.COLOR_FADE_PRESET_ORIGIN) or 0) == 0 then
+    return
   end
+  self.clock.at(18, function()
+    self:send("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = mode.COLOR_PRESET_COLOR_X,
+      LIGHT_COLOR_TARGET_Y = mode.COLOR_PRESET_COLOR_Y,
+      LIGHT_COLOR_TARGET_MODE = mode.COLOR_PRESET_COLOR_MODE or 0,
+      LIGHT_COLOR_TARGET_PRESET_ID = mode.COLOR_PRESET_ID,
+      LIGHT_COLOR_TARGET_PRESET_ORIGIN = mode.COLOR_PRESET_ORIGIN,
+      LIGHT_COLOR_TARGET_RATE = 750,
+    })
+  end)
+end
+
+--- A Default On level set on the proxy: SET_PRESET_LEVEL twice, then UPDATE_BRIGHTNESS_PRESET for preset 1.
+--- @param level integer
+function Proxy:presetLevel(level)
+  self:send("SET_PRESET_LEVEL", { LEVEL = level })
+  self.clock.at(3, function()
+    self:send("SET_PRESET_LEVEL", { LEVEL = level })
+  end)
+  self.clock.at(4, function()
+    dispatch(P.PROXY, "UPDATE_BRIGHTNESS_PRESET", { COMMAND = "MODIFIED", ID = 1, NAME = "On", LEVEL = level })
+  end)
 end
 
 --- Push an on mode or a rate default, as the proxy does: only when it changes.

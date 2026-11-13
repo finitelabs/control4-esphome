@@ -4,7 +4,6 @@
 PROJECT_NAME  := control4-esphome
 DISTRIBUTIONS := drivercentral oss
 README_DRIVER := esphome
-README_BUILD  := oss
 # A new repo has no driver until its first lands, and builds and verifies nothing.
 DRIVERS       := $(wildcard drivers/*/driver.xml)
 
@@ -183,12 +182,13 @@ update-xml-modified: $(VENV_STAMP)
 .PHONY: docs docs-html docs-pdf docs-readme docs-drivercentral
 docs: docs-readme docs-html docs-pdf docs-drivercentral ## Generate all documentation
 
+# The README is committed, so it comes from the OSS docs, which never carry the support contacts.
 
 docs-readme: preprocess $(VENV_STAMP)
 	rm -rf ./images
-	@if [ -d build/$(README_BUILD)/drivers/$(README_DRIVER)/www/documentation/images ]; then cp -r build/$(README_BUILD)/drivers/$(README_DRIVER)/www/documentation/images .; fi
+	@if [ -d build/oss/drivers/$(README_DRIVER)/www/documentation/images ]; then cp -r build/oss/drivers/$(README_DRIVER)/www/documentation/images .; fi
 	$(VENV_PY) tools/docs.py readme \
-		build/$(README_BUILD)/drivers/$(README_DRIVER)/www/documentation/index.md README.md
+		build/oss/drivers/$(README_DRIVER)/www/documentation/index.md README.md
 
 
 # What a DriverCentral upload needs beyond the zip and the PDFs: the listing's

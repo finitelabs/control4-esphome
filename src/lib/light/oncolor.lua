@@ -190,16 +190,20 @@ function OnColor.choose(intent, inputs)
   end
 
   local hasColor = device ~= nil and (device.color or device.cct ~= nil)
-  local color, unchosen, presetId, presetOrigin = nil, false, nil, nil
+  local color, unchosen, presetId, presetOrigin, from = nil, false, nil, nil, nil
   if hasColor then
     if lights and picks.picked then
       color = Color.forDevice(picks.picked.color, device)
       presetId, presetOrigin = picks.picked.presetId, picks.picked.presetOrigin
+      from = color
     elseif lights then
       color, unchosen = onModeColor(level, device, settings)
       if color and settings.colorOnMode ~= "fade" then
         color = keptWhite(color, now)
         presetId, presetOrigin = settings.onPresetId, settings.onPresetOrigin
+        from = color
+      elseif color then
+        from = OnColor.dimToWarm(0, device, settings)
       end
     elseif not picks.picked then
       -- A level while on carries Dim-To-Warm's color, the light's own choice for no one now.
@@ -218,6 +222,7 @@ function OnColor.choose(intent, inputs)
     followUp = false,
     presetId = presetId,
     presetOrigin = presetOrigin,
+    from = from,
   }
 end
 
