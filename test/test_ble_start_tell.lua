@@ -128,10 +128,84 @@ H.test("a SwitchBot contact tells an open door OPENED, however long it is open, 
   T.eq("closed again: CLOSED", toldTo("SwitchBot", "contact_contact"), { "CLOSED" })
 end)
 
+-- The Contact Sensor's motion bit: byte 1 bit 6.
+local NO_MOTION, MOTION = "\100\0\100\0", "\100\64\100\0"
+
+H.test("a SwitchBot motion sensor tells motion OPENED and no motion CLOSED", function()
+  H.boot({ ["MAC Address"] = MAC }, function()
+    persist:delete("RelayContactStates")
+    require("lib.values"):delete("Device Type")
+  end)
+  advertise("FD3D", NO_MOTION)
+  T.eq("no motion, first heard: CLOSED, silently", toldTo("SwitchBot", "contact_motion"), { "STATE_CLOSED" })
+  H.clearSent()
+  advertise("FD3D", MOTION)
+  T.eq("motion seen: OPENED", toldTo("SwitchBot", "contact_motion"), { "OPENED" })
+end)
+
+--- Boot, and return what the late init told each binding and the events it fired, which H.boot
+--- would otherwise clear.
+local function bootTelling(properties, prepare)
+  local told, fired, send, fire = {}, {}, C4.SendToProxy, C4.FireEventByID
+  C4.SendToProxy = function(self, idBinding, strCommand, ...)
+    table.insert(told, { binding = idBinding, command = strCommand })
+    return send(self, idBinding, strCommand, ...)
+  end
+  C4.FireEventByID = function(self, idEvent, ...)
+    table.insert(fired, idEvent)
+    return fire(self, idEvent, ...)
+  end
+  local ok, err = pcall(H.boot, properties, prepare)
+  C4.SendToProxy, C4.FireEventByID = send, fire
+  assert(ok, err)
+  return told, fired
+end
+
+--- What one binding was told in `told`, in order.
+local function toldIn(told, namespace, key)
+  local binding = bindings:getDynamicBinding(namespace, key)
+  local got = {}
+  for _, s in ipairs(told) do
+    if binding and s.binding == binding.bindingId then
+      got[#got + 1] = s.command
+    end
+  end
+  return got
+end
+
+H.test("after the update, the motion state an earlier build told is corrected silently, once", function()
+  -- This build's contact and motion connections, as an update keeps them.
+  H.boot({ ["MAC Address"] = MAC }, function()
+    persist:delete("RelayContactStates")
+    require("lib.values"):delete("Device Type")
+  end)
+  advertise("FD3D", NO_MOTION)
+
+  -- An earlier build told no motion OPENED; a leak and the Bot's relay already read as they do now.
+  local told, fired = bootTelling({ ["MAC Address"] = MAC }, function()
+    persist:set("RelayContactStates", { motion = "OPENED", leak = "OPENED", botRelay = "CLOSED" })
+    persist:delete("ContactsReadOpened")
+  end)
+  T.eq("no motion is told it reads CLOSED, silently", toldIn(told, "SwitchBot", "contact_motion"), { "STATE_CLOSED" })
+  T.eq("nothing fires", fired, {})
+  local kept = persist:get("RelayContactStates", {})
+  T.eq("the leak state is left as it was", kept.leak, "OPENED")
+  T.eq("and so is the Bot relay's", kept.botRelay, "CLOSED")
+  H.clearSent()
+  advertise("FD3D", NO_MOTION)
+  T.eq("the same reading after it tells nothing", toldTo("SwitchBot", "contact_motion"), {})
+
+  told = bootTelling({ ["MAC Address"] = MAC }, function()
+    persist:set("RelayContactStates", { motion = "OPENED" })
+  end)
+  T.eq("a later load corrects nothing", toldIn(told, "SwitchBot", "contact_motion"), {})
+end)
+
 H.test("after the update, a SwitchBot contact told the reverse before is corrected silently", function()
   H.boot({ ["MAC Address"] = MAC }, function()
     -- An earlier build told a shut door OPENED.
     persist:set("RelayContactStates", { contact = "OPENED" })
+    persist:delete("ContactsReadOpened")
     require("lib.values"):delete("Device Type")
   end)
   advertise("FD3D", CONTACT_CLOSED)
@@ -139,6 +213,43 @@ H.test("after the update, a SwitchBot contact told the reverse before is correct
   H.clearSent()
   advertise("FD3D", CONTACT_OPEN)
   T.eq("and its next change as one", toldTo("SwitchBot", "contact_contact"), { "OPENED" })
+end)
+
+H.test("after the update, a contact already read the right way is left as it is", function()
+  -- A build that reads the door the right way keeps it under its own key; an older build's reversed state is
+  -- still kept beside it.
+  local told, fired = bootTelling({ ["MAC Address"] = MAC }, function()
+    persist:set("RelayContactStates", { contact = "CLOSED", door = "CLOSED" })
+    persist:delete("ContactsReadOpened")
+    require("lib.values"):delete("Device Type")
+  end)
+  T.eq("nothing is told to the contact at the start", toldIn(told, "SwitchBot", "contact_contact"), {})
+  T.eq("nothing fires", fired, {})
+  advertise("FD3D", CONTACT_CLOSED)
+  T.eq("the shut door's reading is told silently", toldTo("SwitchBot", "contact_contact"), { "STATE_CLOSED" })
+  H.clearSent()
+  advertise("FD3D", CONTACT_OPEN)
+  T.eq("and its next change as one", toldTo("SwitchBot", "contact_contact"), { "OPENED" })
+end)
+
+H.test("after the update, a door that opened while the driver was down is told as a change", function()
+  H.boot({ ["MAC Address"] = MAC }, function()
+    persist:set("RelayContactStates", { door = "CLOSED" })
+    persist:delete("ContactsReadOpened")
+    require("lib.values"):delete("Device Type")
+  end)
+  advertise("FD3D", CONTACT_OPEN)
+  T.eq("the door that opened is told as a change", toldTo("SwitchBot", "contact_contact"), { "OPENED" })
+end)
+
+H.test("a new SwitchBot item has nothing to correct", function()
+  local told = bootTelling({ ["MAC Address"] = MAC }, function()
+    persist:delete("RelayContactStates")
+    persist:delete("ContactsReadOpened")
+  end)
+  T.eq("nothing is told at its start", toldIn(told, "SwitchBot", "contact_contact"), {})
+  T.eq("or to its motion", toldIn(told, "SwitchBot", "contact_motion"), {})
+  T.eq("and the correction is marked done", persist:get("ContactsReadOpened"), true)
 end)
 
 H.test("after a restart, a SwitchBot contact's unchanged state fires nothing", function()

@@ -27,6 +27,7 @@ local proxyRegistry = require("esphome.ble.coordinator.proxy_registry")
 local deviceRegistry = require("esphome.ble.coordinator.device_registry")
 local router = require("esphome.ble.coordinator.router")
 local presenceTracker = require("esphome.ble.coordinator.presence_tracker")
+local once = require("esphome.once")
 local bleScanner = require("esphome.ble.scanner")
 local bleScannerProperties = require("esphome.ble.scanner_properties")
 
@@ -698,6 +699,12 @@ function OnDriverLateInit()
 
   -- Set up proxy bindings
   setupProxyBindings()
+
+  -- Earlier builds told Present and Occupied Closed while present or occupied. Turn what they kept
+  -- before the selected presence devices are tracked again from it.
+  once("ContactsReadOpened", function()
+    presenceTracker:correctKeptStates()
+  end)
 
   -- Set up scanner properties for device selection
   setupScannerProperties()
