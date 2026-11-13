@@ -98,8 +98,8 @@ local function tagInKitchen()
   H.clearSent()
 end
 
-local function opened()
-  return H.count("OPENED")
+local function closed()
+  return H.count("CLOSED")
 end
 
 H.test("a tag no proxy hears for the Away Timeout is Away", function()
@@ -112,7 +112,7 @@ H.test("a tag no proxy hears for the Away Timeout is Away", function()
     "device_AABBCCDDEE01_left_room",
     "any_device_left_room",
   })
-  T.eq("and its contact and the Kitchen's open", opened(), 2)
+  T.eq("and its contact and the Kitchen's close", closed(), 2)
 end)
 
 H.test("a lapsed license holds the tag home, and Away runs again once the license is active", function()
@@ -125,7 +125,7 @@ H.test("a lapsed license holds the tag home, and Away runs again once the licens
     awayCheck()
   end
   T.eq("ten minutes lapsed: no presence event fires", events(), {})
-  T.eq("and its contact and the Kitchen's stay closed", opened(), 0)
+  T.eq("and its contact and the Kitchen's stay open", closed(), 0)
   T.eq("it is still in the Kitchen", H.variable("Presence Test Tag [AABBCCDDEE01] Room"), "Kitchen")
 
   licenseChecks(1, 1)

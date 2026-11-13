@@ -24,6 +24,7 @@ local constants = require("constants")
 local UUID = require("esphome.ble.uuid")
 local SwitchBot = require("esphome.ble.parsers.switchbot")
 local StateTell = require("esphome.state_tell")
+local once = require("esphome.once")
 local http = require("lib.http")
 
 --- Update the Driver Status property and the Connected variable so
@@ -175,12 +176,12 @@ local SENSOR_BINDINGS = {
   [SENSOR_TYPE.HUMIDITY] = { bindingClass = "HUMIDITY_VALUE", scale = "PERCENT", displayName = "Humidity" },
 }
 
---- Contact sensor binding configurations, shaped like BTHome's: openEvent is told while the
---- sensor is active (motion seen, door open, leak or tamper found), closedEvent while it is not.
+--- Contact sensor binding configurations: openEvent is told while the sensor is active (motion
+--- seen, door open, leak or tamper found), closedEvent while it is not.
 --- toldKey, where set, is the key its told state is kept under instead of its type.
 --- @type table<ContactType, {openEvent: string, closedEvent: string, displayName: string, toldKey: string?}?>
 local CONTACT_BINDINGS = {
-  [CONTACT_TYPE.MOTION] = { openEvent = "CLOSED", closedEvent = "OPENED", displayName = "Motion" },
+  [CONTACT_TYPE.MOTION] = { openEvent = "OPENED", closedEvent = "CLOSED", displayName = "Motion" },
   -- States kept under "contact" were told reversed; a first state under a new key goes out silently.
   [CONTACT_TYPE.CONTACT] = { openEvent = "OPENED", closedEvent = "CLOSED", displayName = "Contact", toldKey = "door" },
   [CONTACT_TYPE.LEAK] = { openEvent = "OPENED", closedEvent = "CLOSED", displayName = "Leak" },
@@ -2012,6 +2013,11 @@ function OnDriverLateInit()
   for p, _ in pairs(Properties) do
     OnPropertyChanged(p)
   end
+  -- Earlier builds told motion Closed. Turn what they kept; the contact keeps its own key.
+  once("ContactsReadOpened", function()
+    local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "contact_" .. CONTACT_TYPE.MOTION)
+    told:flip(CONTACT_TYPE.MOTION, binding and binding.bindingId)
+  end)
 
   gInitialized = true
   updateStatus("Waiting for data", false)

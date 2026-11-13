@@ -18,6 +18,9 @@ local persist = require("lib.persist")
 
 H.use("esphome_bluetooth_coordinator")
 
+-- Each item here starts on this build, so the correction for states an earlier build kept is done.
+persist:set("ContactsReadOpened", true)
+
 local PROXIES = 5001
 local KITCHEN, LIVING_ROOM = 801, 802
 local MAC = "02:00:00:00:00:01"
@@ -66,7 +69,7 @@ local values = require("lib.values")
 --- Values kept from before a restart, for a device home in the Kitchen. The restart restores them.
 local function keptInKitchen()
   persist:set("PresenceDevices", { [MAC] = { mac = MAC, name = "Test Tag" } })
-  persist:set("PresenceStates", { device_020000000001 = "CLOSED", room_11 = "CLOSED" })
+  persist:set("PresenceStates", { device_020000000001 = "OPENED", room_11 = "OPENED" })
   persist:set("PresenceRooms", { [MAC] = { id = 11, name = "Kitchen" } })
   values:update("Presence " .. TAG .. " Room", "Kitchen", "STRING")
   values:update("Kitchen [11] Occupied", "true", "STRING")
@@ -131,8 +134,8 @@ H.test("a presence-only device is placed in the room with the strongest signal",
     "Any Device Entered Room",
   })
   T.eq("the Kitchen counts it", H.variable("Kitchen [11] Occupants"), "Test Tag")
-  T.eq("the Kitchen's binding closes", sentTo("CLOSED", "room_11"), 1)
-  T.eq("its Present binding closes", sentTo("CLOSED", "device_020000000001"), 1)
+  T.eq("the Kitchen's binding opens", sentTo("OPENED", "room_11"), 1)
+  T.eq("its Present binding opens", sentTo("OPENED", "device_020000000001"), 1)
 end)
 
 H.test("moving to the Living Room fires the room events for both rooms", function()
@@ -151,8 +154,8 @@ H.test("moving to the Living Room fires the room events for both rooms", functio
   T.eq("the Kitchen is empty", H.variable("Kitchen [11] Occupied"), "false")
   T.eq("the Living Room counts it", H.variable("Living Room [12] Occupants"), "Test Tag")
   T.eq("its RSSI is the Living Room's, in whole dBm", H.variable("Presence " .. TAG .. " RSSI"), -52)
-  T.eq("the Kitchen's binding opens", sentTo("OPENED", "room_11"), 1)
-  T.eq("the Living Room's binding closes", sentTo("CLOSED", "room_12"), 1)
+  T.eq("the Kitchen's binding closes", sentTo("CLOSED", "room_11"), 1)
+  T.eq("the Living Room's binding opens", sentTo("OPENED", "room_12"), 1)
 end)
 
 H.test("when the Living Room proxy loses it, its last reading there does not hold it", function()
@@ -181,7 +184,7 @@ H.test("going quiet past the Away Timeout fires Left Room and empties its room",
     TAG .. " Left Room",
     "Any Device Left Room",
   })
-  T.eq("its Present binding opens", sentTo("OPENED", "device_020000000001"), 1)
+  T.eq("its Present binding closes", sentTo("CLOSED", "device_020000000001"), 1)
 end)
 
 H.test("back home, it is placed by the proxy that sees it now, not by older readings", function()
@@ -226,7 +229,7 @@ H.test("below Minimum Room RSSI it leaves its room and stays home", function()
   })
   T.eq("Any Device Left Room names the room it left", previousRoomAt["Any Device Left Room"], "Living Room")
   T.eq("the Living Room is empty", H.variable("Living Room [12] Occupied"), "false")
-  T.eq("its Present binding stays closed", sentTo("OPENED", "device_020000000001"), 0)
+  T.eq("its Present binding stays open", sentTo("CLOSED", "device_020000000001"), 0)
 end)
 
 H.test("back home below Minimum Room RSSI, it is present in no room", function()
@@ -239,7 +242,7 @@ H.test("back home below Minimum Room RSSI, it is present in no room", function()
   stay(3, nil, -90)
   T.eq("it is Home", H.variable("Presence " .. TAG .. " Room"), "Home")
   T.eq("only Home fires", fired, { TAG .. " Home" })
-  T.eq("its Present binding closes", sentTo("CLOSED", "device_020000000001"), 1)
+  T.eq("its Present binding opens", sentTo("OPENED", "device_020000000001"), 1)
 
   Properties["Minimum Room RSSI (dBm)"] = "-100"
   OnPropertyChanged("Minimum Room RSSI (dBm)")
@@ -288,7 +291,7 @@ H.test("deselecting it while it is in a room empties the room", function()
   T.eq("the Living Room empties", fired, { "Living Room [12] Empty" })
   T.eq("the Living Room is empty", H.variable("Living Room [12] Occupied"), "false")
   T.eq("the Living Room counts no one", H.variable("Living Room [12] Occupant Count"), 0)
-  T.eq("the Living Room's binding opens", sentTo("OPENED", "room_12"), 1)
+  T.eq("the Living Room's binding closes", sentTo("CLOSED", "room_12"), 1)
   T.eq("its room is no longer kept", persist:get("PresenceRooms", {})[MAC], nil)
 end)
 
@@ -312,9 +315,9 @@ H.test("a device home in the Kitchen before a restart, seen there again, fires n
   T.eq("no event fires", fired, {})
   T.eq("no value backed by its state changes, from the start on", stateValues(changed), {})
   T.eq("the Kitchen still counts it", H.variable("Kitchen [11] Occupants"), "Test Tag")
-  T.eq("its Present binding, which still shows it home, is told nothing", sentTo("CLOSED", "device_020000000001"), 0)
-  T.eq("the Kitchen's binding, which still shows it occupied, is told nothing", sentTo("CLOSED", "room_11"), 0)
-  T.eq("not even silently", sentTo("STATE_CLOSED", "room_11"), 0)
+  T.eq("its Present binding, which still shows it home, is told nothing", sentTo("OPENED", "device_020000000001"), 0)
+  T.eq("the Kitchen's binding, which still shows it occupied, is told nothing", sentTo("OPENED", "room_11"), 0)
+  T.eq("not even silently", sentTo("STATE_OPENED", "room_11"), 0)
 end)
 
 H.test("a device home in the Kitchen before a restart, heard first in the Living Room, moves there", function()
@@ -336,7 +339,7 @@ H.test("a device home in the Kitchen before a restart, heard first in the Living
   })
   T.eq("the previous room is the Kitchen", previousRoomAt[TAG .. " Entered Room"], "Kitchen")
   T.eq("the Kitchen is empty", H.variable("Kitchen [11] Occupied"), "false")
-  T.eq("the Kitchen's binding opens", sentTo("OPENED", "room_11"), 1)
+  T.eq("the Kitchen's binding closes", sentTo("CLOSED", "room_11"), 1)
   T.eq("the Living Room is kept as its room", persist:get("PresenceRooms", {})[MAC].name, "Living Room")
 end)
 
@@ -351,8 +354,8 @@ H.test("a device home in the Kitchen before a restart, not heard again, leaves i
 
   now = now + 121
   H.fire("AwayCheck")
-  T.eq("the device is told away", sentTo("OPENED", "device_020000000001"), 1)
-  T.eq("the Kitchen is told empty", sentTo("OPENED", "room_11"), 1)
+  T.eq("the device is told away", sentTo("CLOSED", "device_020000000001"), 1)
+  T.eq("the Kitchen is told empty", sentTo("CLOSED", "room_11"), 1)
   T.eq("the Kitchen empties, and it goes away from it", fired, {
     "Kitchen [11] Empty",
     TAG .. " Away",
@@ -395,7 +398,7 @@ end)
 H.test("a device home and a room occupied before a restart, with no room kept, read away and empty", function()
   H.boot(nil, function()
     persist:set("PresenceDevices", { [MAC] = { mac = MAC, name = "Test Tag" } })
-    persist:set("PresenceStates", { device_020000000001 = "CLOSED", room_11 = "CLOSED" })
+    persist:set("PresenceStates", { device_020000000001 = "OPENED", room_11 = "OPENED" })
     persist:delete("PresenceRooms")
     package.loaded["esphome.ble.coordinator.presence_tracker"] = nil
   end)
@@ -412,8 +415,8 @@ H.test("a device home and a room occupied before a restart, with no room kept, r
 
   now = now + 61
   H.fire("AwayCheck")
-  T.eq("past it, the device is told away", sentTo("OPENED", "device_020000000001"), 1)
-  T.eq("the Kitchen is told empty", sentTo("OPENED", "room_11"), 1)
+  T.eq("past it, the device is told away", sentTo("CLOSED", "device_020000000001"), 1)
+  T.eq("the Kitchen is told empty", sentTo("CLOSED", "room_11"), 1)
   T.eq("its Away and the Kitchen's Empty fire", fired, { TAG .. " Away", "Kitchen [11] Empty" })
 
   H.clearSent()
@@ -443,19 +446,19 @@ H.test("a tag that goes away from a room with no proxy left empties the room", f
   T.eq("it is Away", H.variable("Presence " .. TAG .. " Room"), "Away")
   T.eq("the Kitchen reads empty", H.variable("Kitchen [11] Occupied"), "false")
   T.eq("and counts no one", H.variable("Kitchen [11] Occupant Count"), 0)
-  T.eq("the Kitchen's connection opens", sentTo("OPENED", "room_11"), 1)
+  T.eq("the Kitchen's connection closes", sentTo("CLOSED", "room_11"), 1)
 end)
 
 H.test("a tag removed and added again while home starts away", function()
   H.boot(nil, function()
     persist:set("PresenceDevices", { [MAC] = { mac = MAC, name = "Test Tag" } })
-    persist:set("PresenceStates", { device_020000000001 = "CLOSED" })
+    persist:set("PresenceStates", { device_020000000001 = "OPENED" })
     package.loaded["esphome.ble.coordinator.presence_tracker"] = nil
   end)
   local tracker = require("esphome.ble.coordinator.presence_tracker")
   tracker:untrackDevice(MAC)
   tracker:trackDevice(MAC, { mac = MAC, name = "Test Tag" })
-  T.eq("its kept state is away", persist:get("PresenceStates").device_020000000001, "OPENED")
+  T.eq("its kept state is away", persist:get("PresenceStates").device_020000000001, "CLOSED")
 end)
 
 H.test("a room renamed while the driver runs: a device entering it keeps the name the proxy gives", function()
