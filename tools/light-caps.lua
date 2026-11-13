@@ -4,6 +4,10 @@
 
 local Caps = require("lib.light.caps")
 
+--- So a reader of a light driver's source driver.xml knows the build writes its capabilities.
+local COMMENT =
+  "<!-- The light's capabilities are the build's, written from the profile the driver gives Light.new. -->"
+
 --- The element for key between from and to, where the capabilities element opens and closes.
 --- @param xml string
 --- @param key string
@@ -24,6 +28,10 @@ return function(light, path)
   local f = assert(io.open(path, "rb"))
   local xml = f:read("*a")
   f:close()
+  local at = xml:find("<capabilities[%s/>]")
+  if at and (xml:sub(1, at - 1):gsub("%s+$", "")):sub(-#COMMENT) ~= COMMENT then
+    error(path .. " needs this line just above its <capabilities> element:\n  " .. COMMENT, 0)
+  end
   -- An empty <capabilities/>, as the template's driver.xml starts, opens to take the keys.
   local emptyStart, emptyEnd = xml:find("<capabilities%s*/>")
   if emptyStart then

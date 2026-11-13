@@ -210,7 +210,9 @@ Types.API = 1
 -- Light.new(adapter, profile): Light
 --   Once, at the driver chunk's top level, where the build finds it: the build loads the chunk and writes
 --   driver.xml's light capabilities from the profile, beside any capability the driver keeps. driver.xml
---   carries none of the light's capability keys itself. Raises on a profile.api other than Types.API, a
+--   carries none of the light's capability keys itself. Just above its capabilities element it carries
+--   "<!-- The light's capabilities are the build's, written from the profile the driver gives Light.new. -->",
+--   and the build stops without it. Raises on a profile.api other than Types.API, a
 --   profile field of the wrong type, or an adapter without send, refresh and show.
 --
 -- light:start()

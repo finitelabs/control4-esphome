@@ -85,7 +85,11 @@ if type(light) == "table" and type(light.made) == "table" and #light.made > 0 th
     io.stderr:write(string.format("Error: %s makes %d lights; a driver makes one\n", driver_name, #light.made))
     os.exit(1)
   end
-  dofile("../../../../tools/light-caps.lua")(light.made[1], "driver.xml")
+  local ok, err = pcall(dofile("../../../../tools/light-caps.lua"), light.made[1], "driver.xml")
+  if not ok then
+    io.stderr:write(string.format("Error: %s: %s\n", driver_name, tostring(err)))
+    os.exit(1)
+  end
 end
 
 -- Discover newly loaded modules and resolve their file paths using
