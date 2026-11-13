@@ -168,6 +168,10 @@ end
 
 function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   log:trace("RFP.UPDATE_STATE(%s, %s, %s)", idBinding, strCommand, tParams)
+  -- Late init asks for the state again once the light has started.
+  if not gInitialized then
+    return
+  end
   local entity = DeserializeSafe(Select(tParams, "entity"))
   local state = DeserializeSafe(Select(tParams, "state"))
   if IsEmpty(entity) or IsEmpty(state) then

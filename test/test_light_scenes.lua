@@ -9261,7 +9261,7 @@ do
   })
   gInitialized = true
   C4.ColorCCTtoXY = toXY
-  T.differs("a report before late init is dropped: no color is told", ROW.START_TELL)
+  T.eq("a report before late init is dropped: no color is told", xs(), {})
   for _, c in ipairs({
     { "a proxy that shows no color", nil },
     { "one whose value is no color", "" },
@@ -9492,7 +9492,7 @@ do
   gInitialized = false
   answer(true, 0.6)
   gInitialized = true
-  T.differs("a report before late init is dropped: no level is told", ROW.START_TELL)
+  T.eq("a report before late init is dropped: no level is told", levels(), {})
   -- Found off where the proxy shows it on, as after a power cut, it keeps the color it last went off in for Previous.
   light({ RGB }, false)
   onMode(PREVIOUS_ON)
@@ -9622,7 +9622,7 @@ do
     state = SerializeSafe({ state = true, brightness = 1.0 }),
   })
   gInitialized = true
-  T.differs("a report before late init is dropped: no capabilities are told", ROW.START_TELL)
+  T.eq("a report before late init is dropped: no capabilities are told", capabilities(), 0)
 end
 
 T.finish()
