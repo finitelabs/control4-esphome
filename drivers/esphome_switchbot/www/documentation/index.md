@@ -442,7 +442,7 @@ Passive motion detection sensors with light level sensing.
 
 **Properties shown:** Motion, Light Level, Battery
 
-**Bindings:** CONTACT_SENSOR (motion = closed)
+**Bindings:** CONTACT_SENSOR (reads Opened while motion is seen)
 
 **Events:**
 
@@ -472,7 +472,7 @@ Water leak detection sensor with tamper detection.
 
 **Properties shown:** Leak Detected, Tamper, Battery, Battery Low
 
-**Bindings:** CONTACT_SENSOR (leak = closed)
+**Bindings:** CONTACT_SENSOR (reads Opened while a leak is detected)
 
 **Events:**
 

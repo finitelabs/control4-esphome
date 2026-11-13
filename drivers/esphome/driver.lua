@@ -31,6 +31,7 @@ local bleScannerProperties = require("esphome.ble.scanner_properties")
 
 local BluetoothProxyCapability = require("esphome.capabilities.bluetooth_proxy")
 local ButtonLeds = require("esphome.button_leds")
+local once = require("esphome.once")
 
 local BinarySensorEntity = require("esphome.entities.binary_sensor")
 local ButtonEntity = require("esphome.entities.button")
@@ -143,6 +144,9 @@ function OnDriverLateInit()
   for p, _ in pairs(Properties) do
     OnPropertyChanged(p)
   end
+  -- Earlier builds told every binary sensor Closed while on, and a sensor's class is known only at
+  -- discovery.
+  once("ContactsReadOpened", BinarySensorEntity.clearNotifiedState)
   gInitialized = true
   Connect()
   --#ifndef DRIVERCENTRAL

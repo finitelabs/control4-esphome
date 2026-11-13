@@ -626,12 +626,12 @@ address for devices, room ID for rooms) to avoid conflicts.
 
 ### Room Occupancy Bindings
 
-- **[Room] [RoomID] Occupied** - CLOSED when room has occupants, OPENED when
+- **[Room] [RoomID] Occupied** - OPENED when room has occupants, CLOSED when
   empty
 
 ### Device Presence Bindings
 
-- **[Device] [MAC] Present** - CLOSED when device is home, OPENED when away
+- **[Device] [MAC] Present** - OPENED when device is home, CLOSED when away
 
 # <span style="color:#17BCF2">Best Practices</span>
 
