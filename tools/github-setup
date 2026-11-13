@@ -4,19 +4,19 @@
 # it would make. Pass --apply to make them, including creating the
 # repository if it does not exist.
 #
-# Usage: tools/github-setup [--apply] [--public]
+# Usage: tools/github-setup [--apply]
 #
 # The repository is <github_org>/<project_name> from the copier answers, so
 # it targets whatever organization or personal account the project was
 # scaffolded for. Personal accounts get a repository admin bypass actor on
 # the ruleset instead of the organization admin one.
 #
-# New repositories are created private. Pass --public to create a public
-# repository instead. The flag does not change the visibility of an existing
-# repository; flip that deliberately in the GitHub UI when a driver is ready
-# for release.
+# The repository's visibility is repo_visibility from the copier answers.
+# Making a repository public publishes its whole history, so change the
+# answer in a pull request first, then run --apply.
 #
 # Standard settings:
+#   - Visibility: repo_visibility from the copier answers
 #   - Description: project_description from the copier answers
 #   - Projects and wiki disabled
 #   - Squash merges only, auto-merge allowed, head branches deleted on merge
@@ -32,12 +32,10 @@
 set -euo pipefail
 
 APPLY=false
-VISIBILITY=private
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --apply) APPLY=true ;;
-    --public) VISIBILITY=public ;;
     -h|--help)
       sed -n '2,/^$/s/^# \{0,1\}//p' "$0"
       exit 0
@@ -53,6 +51,7 @@ command -v gh >/dev/null || { echo "error: gh is not installed" >&2; exit 1; }
 ORG=finitelabs
 NAME=control4-esphome
 DESCRIPTION='Control4 drivers for ESPHome integration. Connect your Control4 system directly to ESPHome devices via the native API to control lights, switches, and sensors.'
+VISIBILITY=public
 REPO="$ORG/$NAME"
 
 DRIFT=0
@@ -143,10 +142,17 @@ if $CREATED; then
 fi
 
 # Repository settings.
-IFS=$'\t' read -r C_BRANCH C_PROJ C_WIKI C_SQUASH C_MERGE C_REBASE C_AUTO C_DEL < <(
-  gh api "repos/$REPO" --jq '[.default_branch, .has_projects, .has_wiki,
+IFS=$'\t' read -r C_VIS C_BRANCH C_PROJ C_WIKI C_SQUASH C_MERGE C_REBASE C_AUTO C_DEL < <(
+  gh api "repos/$REPO" --jq '[.visibility, .default_branch, .has_projects, .has_wiki,
     .allow_squash_merge, .allow_merge_commit, .allow_rebase_merge,
     .allow_auto_merge, .delete_branch_on_merge] | @tsv')
+
+if [ "$C_VIS" = "$VISIBILITY" ]; then
+  note "visibility is $C_VIS"
+else
+  change "make the repository $VISIBILITY, as repo_visibility says (GitHub has: $C_VIS)"
+  $APPLY && gh api -X PATCH "repos/$REPO" -f visibility="$VISIBILITY" >/dev/null
+fi
 
 if [ "$C_BRANCH" = "master" ]; then
   change "rename default branch master to main"

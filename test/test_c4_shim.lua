@@ -461,6 +461,32 @@ for _, hasSocket in ipairs({ false, true }) do
       fired = fired + 1
     end)
 
+    -- Director's answers, measured on a controller.
+    for _, delay in ipairs({ 0, -1, 0.5, 0.999 }) do
+      local ok, err = pcall(C4.SetTimer, C4, delay, function() end, false)
+      T.eq(label .. ": a delay of " .. delay .. " ms is refused as Director refuses it", { ok, err }, {
+        false,
+        "Invalid argument value",
+      })
+    end
+    local okNil, errNil = pcall(C4.SetTimer, C4, nil, function() end, false)
+    T.eq(label .. ": no delay is refused as Director refuses it", { okNil, errNil }, {
+      false,
+      "milliseconds should be a number",
+    })
+    for _, delay in ipairs({ 1, 1.5, "100" }) do
+      local ok, handle = pcall(C4.SetTimer, C4, delay, function() end, false)
+      T.check(label .. ": a delay of " .. delay .. " ms is taken", ok and type(handle) == "userdata", handle)
+      if ok and type(handle) == "userdata" then
+        handle:Cancel()
+      end
+    end
+    local zero = SetTimer("zero", 0, function() end)
+    T.check(label .. ": SetTimer arms a one-shot at 0 ms on the shortest delay taken", type(zero) == "userdata")
+    CancelTimer("zero")
+    T.eq(label .. ": but makes no repeating timer for it", SetTimer("spin", 0, function() end, true), nil)
+    T.check(label .. ": nor a named slot", Timer["spin"] == nil)
+
     T.check(label .. ": SetTimer registers the handle", TimerFunctions[t] ~= nil)
     T.check(label .. ": SetTimer records the named slot", Timer["ping"] == t)
 
@@ -487,6 +513,60 @@ for _, hasSocket in ipairs({ false, true }) do
   if not reloaded then
     T.check("shim reload (" .. label .. ")", false, reloadErr)
   end
+end
+
+--------------------------------------------------------------------------------
+T.section("F.virtualClock")
+--------------------------------------------------------------------------------
+
+do
+  local realSetTimer = C4.SetTimer
+  local clock = F.virtualClock()
+  Timer, TimerFunctions = {}, {}
+  local fired = {}
+  local function note(name)
+    return function()
+      fired[#fired + 1] = name .. "@" .. (clock.now() - 1000000)
+    end
+  end
+
+  T.eq("C4:GetTime reads the virtual clock", C4:GetTime(), 1000000)
+  T.eq("in the units asked for", C4:GetTime("s"), 1000)
+  C4:SetTimer(200, note("late"))
+  C4:SetTimer(100, note("first"))
+  C4:SetTimer(100, note("second"))
+  local repeating = C4:SetTimer(150, note("repeat"), true)
+  clock.at(50, note("at"))
+  clock.run(320)
+  T.eq("timers fire in due order, and ties in the order they were set", fired, {
+    "at@50",
+    "first@100",
+    "second@100",
+    "repeat@150",
+    "late@200",
+    "repeat@300",
+  })
+  T.eq("and time ends where the run does", clock.now(), 1000320)
+  T.eq("Cancel returns nil", repeating:Cancel(), nil)
+  clock.run(1000)
+  T.eq("and stops a repeating timer", #fired, 6)
+
+  SetTimer("Throws", 10, function()
+    error("boom")
+  end)
+  clock.run(10)
+  T.eq("an error inside a timer callback is recorded", #clock.errors, 1)
+  T.contains("with its message", clock.errors[1] or "", "boom")
+
+  local ok, err = pcall(C4.SetTimer, C4, 0.5, note("never"))
+  T.eq("a delay under 1 ms is refused as Director refuses it", { ok, err }, { false, "Invalid argument value" })
+  T.contains("and recorded, as global/timer.lua only prints the refusal", clock.errors[2] or "", "delay of 0.5")
+  clock.run(10)
+  T.check("and never fires", not table.concat(fired, " "):find("never"), fired)
+
+  clock.restore()
+  T.check("restore puts C4:SetTimer back", C4.SetTimer == realSetTimer)
+  T.check("and C4:GetTime on the wall clock", math.abs(C4:GetTime() / 1000 - os.time()) < 5, C4:GetTime())
 end
 
 --------------------------------------------------------------------------------
@@ -565,52 +645,169 @@ do
 end
 
 --------------------------------------------------------------------------------
--- Color conversion scales. The two reference pairs were measured on a CA-1
--- running OS 3.4; the rest pin the scale boundaries that a driver would notice.
--- RGB is 0-255 and unrounded, HSV is h 0-360 / s 0-100 / v 0-100. A shim on the
--- 0-1 RGB scale, or rounding to integers, would let a driver that scales wrong
--- pass here and wash out the color on hardware.
-T.section("C4:ColorHSVtoRGB / C4:ColorRGBtoHSV")
+-- Color conversions, measured on a dev controller running 4.3.0. RGB is 0-255
+-- and unrounded, HSV is h 0-360 / s 0-100 / v 0-100, and xy is Rec. 2020 with
+-- the sRGB curve unless a gamut is named. A shim on another scale or gamut would
+-- let a driver that converts wrong pass here and show the wrong color on
+-- hardware.
+T.section("C4:Color* conversions")
 do
-  --- Round-trip through a fixed number of decimals, so a comparison is not at
-  --- the mercy of the last float bit.
-  local function approx(got, want)
-    return math.abs(got - want) < 0.001
+  local function near(got, want, tolerance)
+    return type(got) == "number" and math.abs(got - want) <= (tolerance or 1e-9)
+  end
+  local function nearAll(got, want, tolerance)
+    for i = 1, #want do
+      if not near(got[i], want[i], tolerance) then
+        return false
+      end
+    end
+    return #got == #want
   end
 
   local r, g, b = C4:ColorHSVtoRGB(120, 75, 100)
-  T.check("HSV(120,75,100) -> R 63.75", approx(r, 63.75), r)
-  T.check("HSV(120,75,100) -> G 255", approx(g, 255), g)
-  T.check("HSV(120,75,100) -> B 63.75", approx(b, 63.75), b)
+  T.check("HSV(120,75,100) -> RGB(63.75,255,63.75)", nearAll({ r, g, b }, { 63.75, 255, 63.75 }), { r, g, b })
   T.check("returns RGB unrounded", r ~= math.floor(r), r)
 
   local h, s, v = C4:ColorRGBtoHSV(64, 255, 64)
-  T.check("RGB(64,255,64) -> H 120", approx(h, 120), h)
-  T.check("RGB(64,255,64) -> S 74.902", approx(s, 74.902), s)
-  T.check("RGB(64,255,64) -> V 100", approx(v, 100), v)
+  T.check("RGB(64,255,64) -> HSV(120,74.902,100)", nearAll({ h, s, v }, { 120, 74.90196078431373, 100 }), { h, s, v })
 
   -- Hue sector boundaries: each primary sits at the start of its own sector.
   T.eq("HSV(0,100,100) is pure red", { C4:ColorHSVtoRGB(0, 100, 100) }, { 255, 0, 0 })
   T.eq("HSV(120,100,100) is pure green", { C4:ColorHSVtoRGB(120, 100, 100) }, { 0, 255, 0 })
   T.eq("HSV(240,100,100) is pure blue", { C4:ColorHSVtoRGB(240, 100, 100) }, { 0, 0, 255 })
-  -- 360 wraps to 0 rather than falling off the last sector and returning black.
-  T.eq("hue 360 wraps to hue 0", { C4:ColorHSVtoRGB(360, 100, 100) }, { 255, 0, 0 })
-
+  T.eq("hue 360 is red, in the last sector", { C4:ColorHSVtoRGB(360, 100, 100) }, { 255, 0, 0 })
+  T.check(
+    "a hue past 360 is not wrapped",
+    nearAll({ C4:ColorHSVtoRGB(400, 75, 100) }, { 255, 63.75, 191.25 }),
+    { C4:ColorHSVtoRGB(400, 75, 100) }
+  )
+  T.eq("nor is one below 0", { C4:ColorHSVtoRGB(-30, 50, 100) }, { 255, 127.5, 63.75 })
   -- Value scales the whole triple, so half value is half the 0-255 range.
   T.eq("value 50 halves the RGB range", { C4:ColorHSVtoRGB(240, 100, 50) }, { 0, 0, 127.5 })
+  T.eq("an RGB scale is taken", { C4:ColorHSVtoRGB(120, 75, 100, 1) }, { 0.25, 1, 0.25 })
 
   T.eq("RGB(255,0,0) -> H 0 S 100 V 100", { C4:ColorRGBtoHSV(255, 0, 0) }, { 0, 100, 100 })
   T.eq("RGB(0,0,255) -> H 240", { C4:ColorRGBtoHSV(0, 0, 255) }, { 240, 100, 100 })
   -- Grays have no hue and no saturation, but keep their value.
   T.eq("white is S 0 V 100", { C4:ColorRGBtoHSV(255, 255, 255) }, { 0, 0, 100 })
   T.eq("black is all zero", { C4:ColorRGBtoHSV(0, 0, 0) }, { 0, 0, 0 })
-
+  T.eq("and on a scale of 1", { C4:ColorRGBtoHSV(0.25, 1, 0.25, 1) }, { 120, 75, 100 })
   -- Hue is never negative: the red sector wraps through 360 rather than to -60.
   local negH = C4:ColorRGBtoHSV(255, 0, 128)
-  T.check("hue below the red sector wraps to 0-360", negH >= 0 and negH <= 360, negH)
+  T.check("hue below the red sector wraps to 0-360", near(negH, 329.88235294117646, 1e-9), negH)
 
-  -- nil is treated as 0 rather than raising, matching the other shim accessors.
-  T.eq("nil arguments read as zero", { C4:ColorHSVtoRGB() }, { 0, 0, 0 })
+  -- XY to RGB at full value, and back, through the HSV a controller works in.
+  local red = { C4:ColorXYtoRGB(0.708, 0.292) }
+  T.eq("the Rec. 2020 red primary is full red", red, { 255, 0, 0 })
+  local rx, ry = C4:ColorRGBtoXY(255, 0, 0)
+  T.check("and full red is that primary", near(rx, 0.708, 1e-3) and near(ry, 0.292, 1e-3), { rx, ry })
+  local gx, gy = C4:ColorRGBtoXY(0, 128, 0)
+  local gr, gg, gb = C4:ColorXYtoRGB(gx, gy)
+  T.check("a dim green comes back at full value", gr == 0 and gg == 255 and gb == 0, { gr, gg, gb })
+  local mx, my = C4:ColorRGBtoXY(255, 128, 0)
+  T.check(
+    "a mixed color takes its channels on the scale",
+    near(mx, 0.6168, 1e-3) and near(my, 0.3776, 1e-3),
+    { mx, my }
+  )
+  T.eq("HSV red is the Rec. 2020 primary", { C4:ColorHSVtoXY(0, 100, 100) }, { 0.708, 0.292 })
+  T.check(
+    "or the sRGB one when named",
+    nearAll({ C4:ColorHSVtoXY(0, 100, 100, "srgb") }, { 0.64, 0.33 }),
+    { C4:ColorHSVtoXY(0, 100, 100, "srgb") }
+  )
+  T.check(
+    "a gamut name is case-sensitive",
+    nearAll({ C4:ColorHSVtoXY(0, 100, 100, "SRGB") }, { 0.708, 0.292 }),
+    { C4:ColorHSVtoXY(0, 100, 100, "SRGB") }
+  )
+  T.check(
+    "an orange through the sRGB curve",
+    nearAll({ C4:ColorHSVtoXY(30, 50, 100) }, { 0.46212138950329257, 0.38866797768088546 }),
+    { C4:ColorHSVtoXY(30, 50, 100) }
+  )
+  T.check(
+    "and value moves it, since the curve is not linear",
+    nearAll({ C4:ColorHSVtoXY(30, 50, 50) }, { 0.45315863266554135, 0.38646590497202926 }),
+    { C4:ColorHSVtoXY(30, 50, 50) }
+  )
+  T.check(
+    "white is the D65 point",
+    nearAll({ C4:ColorHSVtoXY(0, 0, 100) }, { 0.31271, 0.32902 }),
+    { C4:ColorHSVtoXY(0, 0, 100) }
+  )
+  T.eq("black is the point a controller answers", { C4:ColorHSVtoXY(0, 0, 0) }, {
+    0.31363058811039002,
+    0.32889966390724001,
+  })
+  local primaries = "0.7,0.25,0.25,0.75,0.1,0.5"
+  T.check(
+    "custom primaries",
+    nearAll({ C4:ColorHSVtoXY(0, 100, 100, "custom", primaries) }, { 0.7, 0.25 }),
+    { C4:ColorHSVtoXY(0, 100, 100, "custom", primaries) }
+  )
+  T.check(
+    "and a custom white",
+    nearAll({ C4:ColorHSVtoXY(0, 0, 100, "custom", primaries, "0.33, 0.34") }, { 0.33, 0.34 }),
+    { C4:ColorHSVtoXY(0, 0, 100, "custom", primaries, "0.33, 0.34") }
+  )
+  T.check(
+    "custom primaries that are not six numbers fall back to Rec. 2020",
+    nearAll({ C4:ColorHSVtoXY(0, 100, 100, "custom", "0.7,0.25") }, { 0.708, 0.292 }),
+    { C4:ColorHSVtoXY(0, 100, 100, "custom", "0.7,0.25") }
+  )
+
+  T.eq("xy to HSV is in whole numbers at full value", { C4:ColorXYtoHSV(0.64, 0.33) }, { 14, 82, 100 })
+  T.eq("D65 has no saturation", { C4:ColorXYtoHSV(0.3127, 0.329) }, { 0, 0, 100 })
+  T.eq("xy outside the gamut is clipped to its nearest edge", { C4:ColorXYtoHSV(0.4, 0) }, { 295, 100, 100 })
+  T.eq("or corner", { C4:ColorXYtoHSV(0, 0) }, { 240, 100, 100 })
+  T.eq("in the gamut named", { C4:ColorXYtoHSV(0.7, 0.29, "srgb") }, { 0, 100, 100 })
+  -- The Planckian locus within 0.001 of the controller's, in 10 K steps.
+  T.check(
+    "1000 K",
+    nearAll({ C4:ColorCCTtoXY(1000) }, { 0.65275005575017397, 0.34446222719737002 }, 1e-3),
+    { C4:ColorCCTtoXY(1000) }
+  )
+  T.check(
+    "2700 K",
+    nearAll({ C4:ColorCCTtoXY(2700) }, { 0.45985779174671698, 0.410598847355503 }, 1e-3),
+    { C4:ColorCCTtoXY(2700) }
+  )
+  T.check(
+    "20000 K",
+    nearAll({ C4:ColorCCTtoXY(20000) }, { 0.25645643940880802, 0.25762855215387898 }, 1e-3),
+    { C4:ColorCCTtoXY(20000) }
+  )
+  T.eq("a kelvin is taken down to its 10 K step", { C4:ColorCCTtoXY(2709.9) }, { C4:ColorCCTtoXY(2700) })
+  T.eq("and held to 1000 K", { C4:ColorCCTtoXY(0) }, { C4:ColorCCTtoXY(1000) })
+  T.eq("and to 20000 K", { C4:ColorCCTtoXY(25000) }, { C4:ColorCCTtoXY(20000) })
+  T.eq("a numeric string is its number", { C4:ColorCCTtoXY("3000") }, { C4:ColorCCTtoXY(3000) })
+
+  local roundTrips = true
+  for kelvin = 1000, 20000, 990 do
+    roundTrips = roundTrips and C4:ColorXYtoCCT(C4:ColorCCTtoXY(kelvin)) == math.floor(kelvin / 10) * 10
+  end
+  T.check("every step reads back as itself", roundTrips)
+  T.eq("D65 reads as the step nearest it in xy", C4:ColorXYtoCCT(0.3127, 0.329), 6360)
+  local x, y = C4:ColorCCTtoXY(4000)
+  T.eq("and so does a point near the locus", C4:ColorXYtoCCT(x + 0.005, y + 0.005), 3870)
+  T.eq("a red reads as the warmest step", C4:ColorXYtoCCT(0.64, 0.33), 1000)
+
+  T.raises("a missing argument raises", function()
+    C4:ColorHSVtoRGB(120, 75)
+  end, "Not enough arguments passed (expected 3: H, S, V[, scale])")
+  T.raises("as does one that is no number", function()
+    C4:ColorCCTtoXY("warm")
+  end, "kelvin should be a number")
+  T.raises("or an optional one passed as nil", function()
+    C4:ColorHSVtoRGB(120, 75, 100, nil)
+  end, "scale should be a number")
+  T.raises("or a gamut passed as nil", function()
+    C4:ColorHSVtoXY(0, 100, 100, nil)
+  end, "gamut should be a string")
+  T.raises("and a call without the receiver", function()
+    C4.ColorXYtoCCT(0.3, 0.3)
+  end, "An unknown error occurred")
 end
 
 --------------------------------------------------------------------------------
@@ -1372,6 +1569,52 @@ T.eq("an empty filter lists every device", listed({}), { 20, 30, 31, 40 })
 ShimSetDeviceHidden(20, true)
 T.eq("a hidden device is not listed", listed({ DeviceIds = "20" }), {})
 ShimResetDevices()
+
+--------------------------------------------------------------------------------
+T.section("C4:GetProxyDevices")
+--------------------------------------------------------------------------------
+
+-- Measured on 4.3.0: the proxy ids come back as separate values, not a table, and a
+-- device with none (an agent, a room) answers no value at all.
+local function answers(...)
+  return { n = select("#", ...), ... }
+end
+ShimSetDevices({
+  [C4:GetDeviceID()] = { deviceName = "Lamp", proxies = { [700] = { driverFileName = "light_v2.c4i" } } },
+  [700] = { deviceName = "Lamp", driverFileName = "light_v2.c4i", protocol = { [C4:GetDeviceID()] = {} } },
+  [20] = { deviceName = "Controller", proxies = { [22] = {}, [21] = {} } },
+  [30] = { deviceName = "Agent", driverFileName = "control4_agent_backup.c4i" },
+})
+T.eq("this driver's proxy", answers(C4:GetProxyDevices()), { n = 1, 700 })
+T.eq("whatever it is passed", answers(C4:GetProxyDevices("light_v2")), { n = 1, 700 })
+T.eq("device 0 is this driver", answers(C4:GetProxyDevicesById(0)), { n = 1, 700 })
+T.eq("a device's proxies, ascending", answers(C4:GetProxyDevicesById(20)), { n = 2, 21, 22 })
+T.eq("a proxy answers itself", answers(C4:GetProxyDevicesById("700")), { n = 1, 700 })
+T.eq("a device with no proxy answers no value", answers(C4:GetProxyDevicesById(30)), { n = 0 })
+T.eq("nor does one the project lacks", answers(C4:GetProxyDevicesById(999)), { n = 0 })
+T.raises("a missing id raises", function()
+  C4:GetProxyDevicesById()
+end, "Not enough arguments passed (expected 1: devId)")
+T.raises("as does one that is no number", function()
+  C4:GetProxyDevicesById("lamp")
+end, "devId should be a number")
+ShimResetDevices()
+T.eq("a driver the registry lacks has no proxy", answers(C4:GetProxyDevices()), { n = 0 })
+
+--------------------------------------------------------------------------------
+T.section("C4:SendUIRequest")
+--------------------------------------------------------------------------------
+
+T.eq("a request no test answers is answered with nothing", C4:SendUIRequest(700, "GET_SETUP", {}), "")
+local asked
+ShimSetUIRequest(function(id, request, params)
+  asked = { id, request, params }
+  return "<setup/>"
+end)
+T.eq("a seam answers it", C4:SendUIRequest(700, "GET_SETUP", { A = "1" }), "<setup/>")
+T.eq("with what it was asked", asked, { 700, "GET_SETUP", { A = "1" } })
+ShimSetUIRequest(nil)
+T.eq("and gives it back when cleared", C4:SendUIRequest(700, "GET_SETUP", {}), "")
 
 --------------------------------------------------------------------------------
 T.section("C4:SendToDevice and C4:SendToProxy")

@@ -840,10 +840,11 @@ function Diagnostics:_writeMetrics(memoryKB, liveKB, totalTables, sorted, sorted
   -- diagnostics measurement
   local fields = {}
   if memoryKB then
-    table.insert(fields, string.format("memory_kb=%.2f", memoryKB))
+    -- A locale with a decimal comma would split the field, so the number is written with a point.
+    table.insert(fields, "memory_kb=" .. tostring_return_period(memoryKB))
   end
   if liveKB then
-    table.insert(fields, string.format("live_kb=%.2f", liveKB))
+    table.insert(fields, "live_kb=" .. tostring_return_period(liveKB))
   end
   table.insert(fields, string.format("global_count=%di", TableLength(_G)))
   table.insert(fields, string.format("total_tables=%di", totalTables))
@@ -919,7 +920,7 @@ local function fieldValue(value)
     if value ~= value or value == math.huge or value == -math.huge then
       return nil
     end
-    return string.format("%.15g", value)
+    return tostring_return_period(value)
   elseif type(value) == "string" then
     return escapeInfluxString(cap(value, DRIVER_VALUE_MAX_BYTES))
   end

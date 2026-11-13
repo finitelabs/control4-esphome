@@ -61,6 +61,8 @@ then pull the change in with `copier update`.
 - `utils.lua`: general utilities (XML, device queries, table helpers, type
   coercion)
 - `values.lua`: value parsing, coercion, and formatting
+- `light.lua` and `light/`: the Light V2 library, which a light driver is an
+  adapter over (see [Writing a Light Driver](#writing-a-light-driver))
 - `github-updater.lua`: GitHub Releases self-updater (OSS builds)
 
 **Vendor libraries (`vendor/`):**
@@ -98,6 +100,10 @@ then pull the change in with `copier update`.
 - `requirements.txt`, the build-time Python dependency list
 - `test/testlib.lua`, `test/c4_fixtures.lua`, `test/c4_shim.lua`,
   `test/run_test.sh`, and the `test/test_*.lua` suites covering shared code
+- `test/light_proxy_fake.lua`, `test/light_rig.lua`, `test/light_drivers.lua`,
+  `test/light_conformance.lua`, `test/test_light_conformance.lua`,
+  `test/light_contract_cases.lua` and `test/light_setup/`, the Light V2
+  conformance kit, and `tools/light-caps.lua`
 - `.copier-answers.yml`, which Copier maintains; never edit it by hand
 
 ### What's Driver-Specific (Yours to Edit)
@@ -390,6 +396,10 @@ runs `fn` with `print` collected and returns `ok, err, output`, and
 - `F.dofileBuild(path, build)` runs a Lua file as the `"drivercentral"` or
   `"oss"` build compiles it, with its `#ifdef` blocks applied. A driver loaded
   raw runs every arm.
+- `F.virtualClock(opts)` runs `C4:SetTimer` and `C4:GetTime` on a virtual clock,
+  so a test plays minutes of timers at once and in a fixed order. Drive it with
+  `run(ms)` and `at(ms, fn)`, read `now()` and `errors` (what a timer or promise
+  callback threw), then `restore()`.
 
 ### Persisted values
 
@@ -425,6 +435,43 @@ it. Neither runner needs telling about them: `make test` collects only
 resolves on its own.
 
 Promote either one into the template only once a second driver needs it.
+
+## Writing a Light Driver
+
+`src/lib/light.lua` owns the Light V2 proxy and the Button Links: their commands
+and notifications, presets, on modes, Dim-To-Warm, scenes, fades, and what the
+proxy is told. `src/lib/light/types.lua` is the contract: what a driver gives
+the library and what it gets back. A light driver gives it four things:
+
+- A profile, once: what the driver offers the proxy. The build writes
+  `driver.xml`'s light capabilities from it (`tools/light-caps.lua`), so
+  `driver.xml` carries none of them.
+- An adapter with `send`, `refresh` and `show`: it puts each command on its
+  transport, asks the device for its whole state, and mirrors what the proxy
+  shows on a device page.
+- `light:declare(device)` on each connection, before its first report: what this
+  device can do, how it fades, and how its reports behave.
+- `light:report(report)` for every device state, and `light:lost(suspended)`
+  when the connection goes.
+
+`Light.new(adapter, profile)` runs once, at the driver chunk's top level.
+`light:start()` runs in `OnDriverLateInit`, and `light:reset()` from Reset
+Driver.
+
+`test/test_light_conformance.lua` proves each light driver over the repo's own
+`test/light_rigs.lua`, written to the rig interface in `test/light_rig.lua`.
+Each rig loads its driver as it ships and fakes only its transport, and the
+cases in `test/light_conformance.lua` judge what a fake proxy
+(`test/light_proxy_fake.lua`) is told and where the device ends. A repo with no
+light driver and no rigs passes with a note.
+
+`test/light_contract_cases.lua` holds named scenarios with the exact commands
+the library sends an adapter for each. An adapter's own wire test feeds those
+commands to its `send` and checks what goes on the wire.
+
+The library, its kit and its cases are the template's: a change to them goes to
+the template, where its own tests and fuzzer run, and reaches each repo at its
+next `copier update`.
 
 ### Tools tests
 
@@ -512,9 +559,9 @@ security add-generic-password -s control4-driver-build -a NAME -w
 In CI, the Build workflow passes `make build` each build secret by name from the
 repository's GitHub Actions secrets (add each name under Settings > Secrets and
 variables > Actions), so `make build` and the tools it runs never see any other
-secret. The template passes its own: `SUPPORT_CODE_SECRET` with a DriverCentral
-build, and the four `INFLUXDB_*` with Cloud Monitoring. A driver's own go in the
-copier answer `extra_build_secrets`
+secret. The template passes its own: `SUPPORT_CODE_SECRET`, `SUPPORT_PHONE` and
+`SUPPORT_EMAIL` with a DriverCentral build, and the four `INFLUXDB_*` with Cloud
+Monitoring. A driver's own go in the copier answer `extra_build_secrets`
 (`uvx copier update --trust --data extra_build_secrets="NAME OTHER"`), and
 `make check` fails when `.env.default` and the workflow disagree. Each value is
 a single line.
@@ -529,7 +576,16 @@ encrypted (`encryption="2"` on its `<script>`, set in the build copy of
 `driver.xml`), and `make package` deletes the plain-text squished Lua in
 `dist/<build>/source`, so neither the `.c4z` nor a CI artifact carries the value
 in the clear. Only `build/` keeps it, and that is gitignored and never uploaded.
-Keep placeholders out of documentation: a PDF is not encrypted.
+Keep placeholders out of documentation, since a PDF is not encrypted. The two
+exceptions are the support contacts a DriverCentral build's docs give, which are
+meant to be read: the secret only keeps them out of the repository. Write the
+phone number as `[%%SUPPORT_PHONE%%](tel:__SUPPORT_PHONE__)` and the email
+address as `[%%SUPPORT_EMAIL%%](mailto:__SUPPORT_EMAIL__)`, each inside
+`#ifdef DRIVERCENTRAL`. The link takes the `__NAME__` form, since mdformat
+escapes a `%` in a link. Set `SUPPORT_PHONE` with dashes, `+1-NNN-NNN-NNNN`, so
+it also makes the `tel:` link. Only the docs and their PDFs give the contacts.
+The README comes from the OSS docs, which never show them, and the listing
+description, `resources/drivercentral/description.md`, gives neither.
 
 A DriverCentral build is packaged encrypted with or without a secret.
 `make package` then opens every package of an encrypted build and fails unless

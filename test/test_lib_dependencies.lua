@@ -45,6 +45,22 @@ local function ls(dir)
   return names
 end
 
+--- Every .lua file under dir at any depth, relative to it and sorted, so a module in a
+--- subdirectory such as src/lib/light/ is held to the same rule as one at the top.
+local function luaFiles(dir)
+  local paths = {}
+  local pipe = io.popen(string.format("cd %q 2>/dev/null && find . -type f -name '*.lua'", dir))
+  if not pipe then
+    return paths
+  end
+  for line in pipe:lines() do
+    table.insert(paths, (line:gsub("^%./", "")))
+  end
+  pipe:close()
+  table.sort(paths)
+  return paths
+end
+
 --- Lua has no comment-aware lexer here; dropping to end of line over a source with
 --- no inline `--` inside strings is enough to keep doc comments from reading as calls.
 local function stripComments(src)
@@ -89,9 +105,9 @@ if libDir and dcpDir then
   -- siblings call. Map those the same way, so an intra-lib missing require is
   -- caught as well -- the DRV-97 class one level in. A module defining a global
   -- is excluded from needing it below via `own`, so self-references don't flag.
-  for _, name in ipairs(ls(libDir)) do
-    local mod = name:match("^(.+)%.lua$")
-    local body = mod and readFile(libDir .. "/" .. name)
+  for _, name in ipairs(luaFiles(libDir)) do
+    local mod = name:gsub("%.lua$", ""):gsub("/", ".")
+    local body = readFile(libDir .. "/" .. name)
     if body then
       for fn in stripComments(body):gmatch("\n%s*function%s+([%a_][%w_]*)%s*%(") do
         owner[fn] = "lib." .. mod
@@ -99,9 +115,9 @@ if libDir and dcpDir then
     end
   end
 
-  for _, name in ipairs(ls(libDir)) do
-    local mod = name:match("^(.+)%.lua$")
-    local raw = mod and readFile(libDir .. "/" .. name)
+  for _, name in ipairs(luaFiles(libDir)) do
+    local mod = name:gsub("%.lua$", ""):gsub("/", ".")
+    local raw = readFile(libDir .. "/" .. name)
     if raw then
       local src = stripComments(raw)
       local own = definedIn(src)

@@ -2,6 +2,7 @@
 --- the white last sent, the fade ESPHome runs between commands, and what a report says. One instance per driver load.
 
 local persist = require("lib.persist")
+local Color = require("lib.light.color")
 local ColorMode = require("esphome.proto_schema").Enum.ColorMode
 
 ---------------------------------------------------------------------------
@@ -48,6 +49,8 @@ local COLOR_MODES_SUPPORTING_WHITE = {
 
 -- xy of the last white sent, and the color it was picked as (or the
 -- out-of-range color temperature asked for); no report carries either.
+-- Kept through a reload and a disconnect, so the light's report of that white
+-- still reads back as the color picked; an unbind forgets it.
 local WHITE_POINT = "white_point"
 
 local LIGHT_COLOR_MODE_FULL = 0
@@ -80,7 +83,7 @@ local FADED_FIELDS =
 --- @field holds boolean A fade to off: color and white hold to its end.
 --- @field dimmed boolean Begun while dimmed mid mode change, so it brings the light back up.
 
---- @class EsphomeLightAdapter
+--- @class EsphomeLightAdapter : LightAdapter
 --- @field binding integer The ESPHome connection's binding.
 --- @field entity table|nil The entity listing from the latest report.
 --- @field dims boolean The entity lists a mode with brightness.
@@ -91,6 +94,12 @@ local FADED_FIELDS =
 --- @field maxMireds number
 --- @field target EsphomeLightFields Color and white fields the light is heading to: last report plus sends since.
 --- @field fade EsphomeLightFade|nil The transition the last command started, as ESPHome runs it.
+--- @field wireLevels number[] The brightness last reported, then each sent since (oldest first). Emptied by
+---   reset (a disconnect or a bind), so the first report after one is the light's own word.
+--- @field wireColors EsphomeLightFields[] The color fields last reported, then each sent since (oldest first),
+---   emptied with wireLevels.
+---   The white point is not one of these: it is a persisted pick, kept as long as WHITE_POINT says.
+--- @field sentFor table<EsphomeLightFields, LightColor> The color each command's fields in wireColors were sent for.
 local LightAdapter = {}
 LightAdapter.__index = LightAdapter
 
@@ -116,6 +125,9 @@ function LightAdapter.new(binding)
     maxMireds = 500, -- ~2000K (warm)
     target = {},
     fade = nil,
+    wireLevels = {},
+    wireColors = {},
+    sentFor = setmetatable({}, { __mode = "k" }),
   }, LightAdapter)
 end
 
@@ -255,6 +267,9 @@ function LightAdapter:reset(unbound)
   self.modes = {}
   self.target = {}
   self.fade = nil
+  self.wireLevels = {}
+  self.wireColors = {}
+  self.sentFor = setmetatable({}, { __mode = "k" })
   if unbound then
     persist:delete(WHITE_POINT)
   end
@@ -427,9 +442,51 @@ local function shownWhite(x, y)
   return x, y, LIGHT_COLOR_MODE_CCT
 end
 
---- xy and mode a light's fields show, or nil. A combined mode shows the
---- color while color_brightness >= white, else the white (shownWhite).
+-- The mix a combined mode shows when its color and its white channels both give light, or nil. The color part is
+-- its RGB at color_brightness, the white part its channels at the white they show, on one luminance scale: full RGB
+-- white and a full white channel weigh the same.
+local function mixed(self, fields)
+  local mode = fields.color_mode
+  if not (COLOR_MODES_SUPPORTING_RGB[mode] and mode ~= ColorMode.COLOR_MODE_RGB) then
+    return nil
+  end
+  local colorY = fields.color_brightness * (0.2126 * fields.red + 0.7152 * fields.green + 0.0722 * fields.blue)
+  local whiteY, wx, wy = fields.white, nil, nil
+  if mode == ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE then
+    whiteY = fields.cold_white + fields.warm_white
+    local mireds = fields.color_temperature > 0 and fields.color_temperature
+      or whiteY > 0 and self.minMireds + (self.maxMireds - self.minMireds) * fields.warm_white / whiteY
+    if mireds then
+      wx, wy = Color.kelvinToXY(LightAdapter.miredsToKelvin(mireds))
+    end
+  elseif mode == ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE then
+    if fields.color_temperature > 0 then
+      wx, wy = Color.kelvinToXY(LightAdapter.miredsToKelvin(fields.color_temperature))
+    end
+  else
+    -- An RGBW light's white is the point last sent, else the default one its own white mode shows.
+    local point = persist:get(WHITE_POINT)
+    if point and point.x and point.y then
+      wx, wy = point.x, point.y
+    else
+      wx, wy = self:takenColor(DEFAULT_COLOR_X, DEFAULT_COLOR_Y, LIGHT_COLOR_MODE_CCT)
+    end
+  end
+  if not (colorY > 0 and whiteY > 0 and wx) then
+    return nil
+  end
+  local h, s = rgbToHSV(fields.red, fields.green, fields.blue)
+  local cx, cy = C4:ColorHSVtoXY(h, s, 100)
+  return Color.mixXY({ { x = cx, y = cy, Y = colorY }, { x = wx, y = wy, Y = whiteY } })
+end
+
+--- xy and mode a light's fields show, or nil. A combined mode lit on both sides shows the mix of its color and
+--- white; lit on one side, that side (shownWhite for the white).
 function LightAdapter:shownColor(fields)
+  local mx, my = mixed(self, fields)
+  if mx then
+    return mx, my, LIGHT_COLOR_MODE_FULL
+  end
   local mode = fields.color_mode
   local hasColor = mode and COLOR_MODES_SUPPORTING_RGB[mode]
   local white = fields.white
@@ -439,6 +496,17 @@ function LightAdapter:shownColor(fields)
   local inWhite = not (hasColor and fields.color_brightness > 0 and fields.color_brightness >= white)
   if inWhite and mode and COLOR_MODES_SUPPORTING_CCT[mode] and fields.color_temperature > 0 then
     return shownWhite(C4:ColorCCTtoXY(LightAdapter.miredsToKelvin(fields.color_temperature)))
+  end
+  -- A light with no mireds range reports its cold and warm white with no color temperature: the white their split
+  -- shows over the range used to send them.
+  local split = fields.cold_white + fields.warm_white
+  if
+    inWhite
+    and (mode == ColorMode.COLOR_MODE_COLD_WARM_WHITE or mode == ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE)
+    and split > 0
+  then
+    local mireds = self.minMireds + (self.maxMireds - self.minMireds) * fields.warm_white / split
+    return shownWhite(C4:ColorCCTtoXY(LightAdapter.miredsToKelvin(mireds)))
   end
   if hasColor and math.max(fields.red, fields.green, fields.blue) > 0 then
     local h, s = rgbToHSV(fields.red, fields.green, fields.blue)
@@ -889,6 +957,193 @@ function LightAdapter:retarget(colors)
   for i, color in ipairs(colors) do
     aimFields(self, color, i > 1)
   end
+end
+
+---------------------------------------------------------------------------
+-- The light library's adapter
+---------------------------------------------------------------------------
+
+--- The facts of the connected entity.
+--- @return LightDevice
+function LightAdapter:device()
+  local miredsToKelvin = LightAdapter.miredsToKelvin
+  return {
+    dims = self.dims,
+    color = self.color,
+    cct = self.cct and { minK = miredsToKelvin(self.maxMireds), maxK = miredsToKelvin(self.minMireds) } or nil,
+    colorWhileOff = "send",
+    levelSteps = 255,
+    -- ESPHome fades each command over its transition_length, eased, restarting every channel; a fade up from off
+    -- starts from the level it kept, so a rated on opens with a pre-on.
+    fade = { kind = "device", curve = "smootherstep", preOn = self.dims, retimes = true },
+    -- It answers each command with a report of its own, seen within 250 ms, and a refresh re-enumerates it.
+    feedback = { shows = "target", waitMs = 1000, refresh = false },
+  }
+end
+
+-- A command's color as the light's fields take it: a white on the locus inside the range is lit as that white.
+local function wireColor(self, color)
+  if color.mode == "cct" then
+    return color.x, color.y, LIGHT_COLOR_MODE_CCT
+  end
+  return self:takenColor(color.x, color.y, LIGHT_COLOR_MODE_FULL)
+end
+
+--- A light without a color temperature shows its whites as full colors.
+--- @return LightColor|nil
+local function lightColor(self, x, y, mode)
+  if not (x and y) then
+    return nil
+  end
+  if mode == LIGHT_COLOR_MODE_CCT and self.cct then
+    return { x = x, y = y, mode = "cct", kelvin = math.floor((tonumber(C4:ColorXYtoCCT(x, y)) or 0) + 0.5) }
+  end
+  return { x = x, y = y, mode = "xy" }
+end
+
+-- Keep a command's white point and aim, track the color it sends as the color it was sent for, and put it on
+-- the wire.
+--- @param sentFor LightColor|nil
+local function deliver(self, opts, dark, sentFor)
+  self:keepPoint(opts)
+  if opts.has_state and (opts.has_brightness or opts.state == false or not self.dims) then
+    self.wireLevels[#self.wireLevels + 1] = opts.state and (opts.brightness or 1.0) or 0
+  end
+  local color = self:aim(opts, dark)
+  if color then
+    self.wireColors[#self.wireColors + 1] = color
+    self.sentFor[color] = sentFor
+  end
+  self:put(opts)
+end
+
+--- Put one command on the wire. A stop the light's own fade has dimmed (mid mode change) or holds in a combined mode
+--- is held where that fade has got to, and the color it rests at is returned.
+--- @param cmd LightCommand
+--- @return LightRest|nil
+function LightAdapter:send(cmd)
+  local now = C4:GetTime()
+  local dark = cmd.from.level == 0
+  local x, y, mode
+  if cmd.color and cmd.setsColor then
+    x, y, mode = wireColor(self, cmd.color)
+  end
+  if cmd.kind == "preOn" then
+    deliver(self, LightAdapter.preOn(x and self:colorFields(x, y, mode, true, true)), dark, x and cmd.color)
+    return nil
+  end
+  if not self.dims then
+    -- An On/Off-only light switches at once.
+    deliver(self, { has_state = true, state = cmd.on }, dark)
+    return nil
+  end
+  local opts = { has_state = true, state = cmd.on, has_transition_length = true, transition_length = cmd.transitionMs }
+  local colorOpts = x and self:colorFields(x, y, mode, cmd.setsLevel, cmd.on)
+  local rest = nil
+  if cmd.kind == "stop" then
+    -- Dimmed mid mode change: ease back up rather than jump.
+    if self:dimmedAt(now) then
+      opts.transition_length = math.max(opts.transition_length, LightAdapter.MODE_STOP_RATE)
+    end
+    if cmd.setsColor then
+      local _, past = self:changingMode(self.fade, now)
+      local faded = not past and self:fadedFields(now)
+      local _, _, toward = self:shownColor(self.target)
+      if past then
+        -- Past the midpoint of a mode change the light is in the mode it is changing to, at the color it was sent.
+        local tx, ty, tmode = self:shownColor(self.target)
+        if tx then
+          colorOpts = self:colorFields(tx, ty, tmode, nil, cmd.on)
+          rest = { color = lightColor(self, tx, ty, tmode) }
+        end
+      elseif faded then
+        -- In a combined mode or before that midpoint, hold the light's own fields.
+        colorOpts = self:holdFields(faded)
+        rest = { color = lightColor(self, self:shownColor(faded)) }
+      elseif
+        toward == LIGHT_COLOR_MODE_CCT
+        or (toward == LIGHT_COLOR_MODE_PICKED_WHITE and not self:isWhitePoint(cmd.color.x, cmd.color.y))
+      then
+        -- Part way to a white the light shows a white: the estimate's own.
+        x, y, mode = self:takenColor(cmd.color.x, cmd.color.y, LIGHT_COLOR_MODE_CCT)
+        colorOpts = self:colorFields(x, y, mode, cmd.setsLevel, cmd.on)
+        rest = { color = lightColor(self, x, y, mode) }
+      end
+    end
+  end
+  if cmd.setsLevel then
+    opts.has_brightness = true
+    opts.brightness = cmd.on and cmd.level or 0
+  end
+  for k, v in pairs(colorOpts or {}) do
+    opts[k] = v
+  end
+  deliver(self, opts, dark, colorOpts and (rest and rest.color or cmd.color))
+  return rest
+end
+
+--- Ask for the whole state, which comes back as a report.
+function LightAdapter:refresh()
+  SendToProxy(self.binding, "REFRESH_STATE", {}, "NOTIFY")
+end
+
+--- The light has no device page.
+--- @param _shown LightShown
+function LightAdapter:show(_shown) end
+
+-- Whether a report matches a value on the wire: one sent since the last report, else the last report's. Drops the
+-- entries before the match and repeats of it right after, and keeps `reported` as the first entry. Also returns the
+-- value it matched.
+local function onWire(sent, matches, reported)
+  local at = nil
+  for i = 2, #sent do
+    if matches(sent[i]) then
+      at = i
+      break
+    end
+  end
+  if not at and sent[1] ~= nil and matches(sent[1]) then
+    at = 1
+  end
+  local matched = nil
+  if at then
+    matched = sent[at]
+    for _ = 2, at do
+      table.remove(sent, 1)
+    end
+    while sent[2] and matches(sent[2]) do
+      table.remove(sent, 2)
+    end
+  end
+  sent[1] = reported
+  return at ~= nil, matched
+end
+
+--- The light's state from an UPDATE_STATE. A report of the white last sent reads back as the color it was picked as.
+--- @return LightReport
+function LightAdapter:report(entity, state)
+  local on, brightness, fields = self:read(entity, state)
+  local levelOnWire = onWire(self.wireLevels, function(sent)
+    return math.abs(sent - brightness) < 0.5 / 255
+  end, brightness)
+  local colorOnWire, sent = onWire(self.wireColors, function(color)
+    return LightAdapter.holds(state, color)
+  end, fields)
+  -- A report of a value sent: the light is still heading to what was sent after it. Another value: it is the
+  -- light's new target, and its fade is unknown.
+  self:retarget(colorOnWire and self.wireColors or { fields })
+  if not (levelOnWire and colorOnWire) then
+    self:dropFade()
+  end
+  -- The wire form of a command not yet answered is reported as that command's color, even when the last report had
+  -- it too: a white picked as a color reads back as the pick. With no command matching, a report of the wire form
+  -- last reported is the color it was reported as, so the light's rounding is no new color.
+  local color = sent and self.sentFor[sent]
+  if not color and (self.color or self.cct) then
+    color = lightColor(self, self:shownColor(fields))
+  end
+  self.sentFor[fields] = color
+  return { kind = "push", on = on, level = on and brightness or nil, color = color }
 end
 
 return LightAdapter

@@ -102,6 +102,7 @@ do
   C4:AddDynamicBinding(10, "CONTROL", true, "Valve", "RELAY")
 
   T.falsy("nothing is bound before Bind", C4:GetBoundConsumerDevices(ME, 10))
+  T.eq("and it answers no value at all, as on 4.3.0", select("#", C4:GetBoundConsumerDevices(ME, 10)), 0)
   T.eq("GetBoundProviderDevice answers 0, not nil, when unbound", C4:GetBoundProviderDevice(ME, 10), 0)
 
   C4:Bind(ME, 10, CONSUMER, 1, "RELAY")
@@ -112,6 +113,7 @@ do
   local bound = C4:GetBoundConsumerDevices(ME, 10)
   T.eq("GetBoundConsumerDevices answers { [deviceId] = name }", at(bound, CONSUMER), "Hallway Switch")
   T.eq("a device id of 0 means the current device", at(C4:GetBoundConsumerDevices(0, 10), CONSUMER), "Hallway Switch")
+  T.eq("numeric strings pass as their numbers", at(C4:GetBoundConsumerDevices("0", "10"), CONSUMER), "Hallway Switch")
   T.eq("our own provider binding reports us as the provider", C4:GetBoundProviderDevice(ME, 10), ME)
 
   local record = recordFor(ME, 10)
