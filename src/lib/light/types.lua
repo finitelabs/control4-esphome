@@ -376,6 +376,7 @@ Types.API = 1
 --- @field settle LightValues Values to adopt; a ramp still running on that aspect ends there.
 --- @field foreign LightAspect[] The aspects another hand moved.
 --- @field ask boolean Call adapter:refresh() once.
+--- @field form LightColor|nil The running color ramp's end in the form the light echoed it.
 --- @field first LightAspect[] The aspects this was the first report of since a start or a loss, a match included:
 ---   each is told to the proxy, changed or not.
 

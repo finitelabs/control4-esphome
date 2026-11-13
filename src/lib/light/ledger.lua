@@ -465,15 +465,31 @@ function Ledger:_inWindow(aspect, window, value, report, now, out)
   end
   -- The on rides the level: it is moving while the level's ramp runs.
   local ramping = (aspect ~= "color" and now.levelRamping) or (aspect == "color" and now.colorRamping)
-  -- An echo of the newest command is the light's own.
-  if newest and self:_echoes(aspect, value, newest.value) then
+  -- An echo of the newest command is the light's own. One in another form than sent that is, in that form, what
+  -- the light showed before may be from before the command: it is history.
+  local form = newest ~= nil and not self:_same(aspect, value, newest.value)
+  if newest and self:_echoes(aspect, value, newest.value) and not (form and self:_shown(aspect, window, value)) then
     window.held, window.heard, window.echoed = nil, true, true
-    if feedback.shows == "position" and (aspect ~= "color" or not ramping) then
-      -- The light is at the change's end: where the command sent it, not the report's rounding of it. A color
-      -- its ramp still runs to is a device that reads the color's target at once: the ramp's end tells it.
-      return self:_settle(aspect, newest.value, out)
+    if aspect ~= "color" or not ramping then
+      if feedback.shows == "position" then
+        -- The light is at the change's end: where the command sent it, not the report's rounding of it. A color
+        -- its ramp still runs to is a device that reads the color's target at once: the ramp's end tells it.
+        return self:_settle(aspect, newest.value, out)
+      elseif form then
+        -- A color the light reports in another form than it was sent is told in the light's form.
+        return self:_settle(aspect, value, out)
+      end
+    elseif form and feedback.shows == "target" then
+      -- So is the end of a color fade the light echoes in another form while it runs.
+      out.form = value
     end
     if not ramping then
+      -- Another client's command ended the ramp part way, and the light says it heads to the command's end. An off
+      -- light's level is only the level kept, and says nothing.
+      local lit = aspect ~= "level" or self.libraryOn ~= false
+      if lit and not self:_same(aspect, now[aspect], newest.value) then
+        return self:_settle(aspect, newest.value, out)
+      end
       self:_close(aspect)
     end
     return
@@ -760,7 +776,7 @@ function Ledger:_settle(aspect, value, out)
   -- A value that matches the newest sent, in device units, is that command's: not the report's rounding of it.
   local window = self.windows[aspect]
   local newest = window and window.sent[#window.sent]
-  if newest and self:_echoes(aspect, value, newest.value) then
+  if newest and self:_same(aspect, value, newest.value) then
     value = newest.value
   end
   out.settle[aspect] = value
@@ -821,6 +837,21 @@ function Ledger:_same(aspect, a, b)
   --- @cast a LightColor
   --- @cast b LightColor
   return a.mode == b.mode and math.abs(a.x - b.x) <= Color.TOLERANCE and math.abs(a.y - b.y) <= Color.TOLERANCE
+end
+
+--- Whether a value is, in its own form, what the light showed before the window or an older command sent.
+--- @private
+--- @param aspect LightAspect
+--- @param window LightWindow
+--- @param value LightAspectValue
+--- @return boolean
+function Ledger:_shown(aspect, window, value)
+  for i = #window.sent - 1, 1, -1 do
+    if self:_same(aspect, value, window.sent[i].value) then
+      return true
+    end
+  end
+  return self:_same(aspect, value, window.before)
 end
 
 --- Whether a value matches a command older than the window's newest.

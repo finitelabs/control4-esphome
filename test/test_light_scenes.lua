@@ -4697,9 +4697,10 @@ do
   colorTarget(BLUE, 1500)
   run(730)
   level(20, 1500)
-  T.differs(
+  T.eq(
     "a level 750 ms into a color fade: the fade is told again from the color it was at as the level went out",
-    BENIGN.PRECISION
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1], half }
   )
   run(720)
   mark()
@@ -4715,9 +4716,10 @@ do
   colorTarget(BLUE, 1500)
   run(730)
   level(20, 1500)
-  T.differs(
+  T.eq(
     "a level that carries its color, 750 ms into a color fade: its color is told from where the fade was then",
-    BENIGN.PRECISION
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1], half }
   )
 
   -- A color for a light fading to off restarts the fade's record, untold.

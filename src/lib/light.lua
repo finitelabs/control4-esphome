@@ -379,6 +379,9 @@ function Light:_heard(heard)
     self.motion:haltAll()
   end
   self.motion:settle(heard.settle)
+  if heard.form then
+    self.motion:reform(heard.form)
+  end
   if #heard.foreign > 0 then
     self.scenes:foreign(rampsEnded(before, heard.foreign))
     self.picks:foreign(heard.foreign)
@@ -399,6 +402,9 @@ end
 --- @param cmds LightCommand[]
 function Light:_followUp(cmds)
   self.inside = true
+  -- The proxy is told the light as of the follow-up's start: on a controller C4:GetTime moves on while a command
+  -- is sent, and a ramp it starts is told from where it starts.
+  local t = C4:GetTime()
   for _, cmd in ipairs(cmds) do
     local ok, rest = pcall(self.adapter.send, self.adapter, cmd)
     if not ok then
@@ -416,7 +422,7 @@ function Light:_followUp(cmds)
   -- takes the light as the wire left it.
   self.motion:assumeLit(self.ledger:lit())
   if self.online then
-    self.proxy:sync(self.motion:view(), self.ledger.awaiting)
+    self.proxy:sync(self.motion:view(t), self.ledger.awaiting, t)
     local shown = self.proxy:shown()
     if shown then
       local ok, err = pcall(self.adapter.show, self.adapter, shown)

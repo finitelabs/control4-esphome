@@ -559,9 +559,10 @@ end
 --- settings it echoes.
 --- @param view LightView
 --- @param awaiting table<LightAspect, boolean>|nil Level and color not to tell yet: the Ledger's awaiting.
-function LightProxy:sync(view, awaiting)
+--- @param now integer|nil The C4:GetTime() ms the view was read at; now when nil.
+function LightProxy:sync(view, awaiting, now)
   awaiting = awaiting or {}
-  local now = C4:GetTime()
+  now = now or C4:GetTime()
   local lo, hi = self.settings:onRange()
   local ramping = view.levelTarget ~= nil and view.levelMs > 0
   local endsOff = not ramping and not view.on and (self.level.level or 0) > 0

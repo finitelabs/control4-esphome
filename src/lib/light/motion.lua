@@ -125,10 +125,11 @@ function Motion:now()
   }
 end
 
---- Where the light is now and where it is heading, for LightProxy.
+--- Where the light is and where it is heading, for LightProxy.
+--- @param t integer|nil The C4:GetTime() ms to read it at; now when nil.
 --- @return LightView
-function Motion:view()
-  local t = C4:GetTime()
+function Motion:view(t)
+  t = t or C4:GetTime()
   local shown = self:_levelAt(t)
   local view = {
     on = self.on,
@@ -264,6 +265,14 @@ function Motion:settle(values)
     end
   end
   self:_stopWalkIfDone()
+end
+
+--- A running color ramp ends in the form the light echoed its end in.
+--- @param color LightColor
+function Motion:reform(color)
+  if self.colorRamp then
+    self.color = color
+  end
 end
 
 --- A ramp's timer ran out: the aspect is at its rest value. It sends nothing.

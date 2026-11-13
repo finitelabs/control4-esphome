@@ -14,10 +14,14 @@ local Fade = {}
 --- @param ms integer The time the command asks.
 --- @return integer
 function Fade.length(fade, fromOn, toOn, ms)
+  if not fromOn and not toOn then
+    -- An off for a light already off moves nothing: a timed off lights some lights to fade them out.
+    return 0
+  end
   if fade.kind == "own" then
     local own = fade.own
     if not toOn then
-      return fromOn and own.offMs or 0
+      return own.offMs
     end
     return fromOn and own.changeMs or own.onMs
   end
