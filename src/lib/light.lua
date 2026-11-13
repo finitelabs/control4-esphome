@@ -18,6 +18,7 @@
 
 local log = require("lib.logging")
 local Types = require("lib.light.types")
+local Color = require("lib.light.color")
 local Caps = require("lib.light.caps")
 local OnColor = require("lib.light.oncolor")
 local Settings = require("lib.light.settings")
@@ -192,6 +193,25 @@ local function unfit(report)
   return nil
 end
 
+--- A report in the forms the light declares: a light with color and no color temperature shows a white as the full
+--- color at its point, the form the library sends it in.
+--- @param report LightReport
+--- @param device LightDevice
+--- @return LightReport
+local function inForms(report, device)
+  local color = report.color
+  if not (color and color.mode == Color.CCT and device.color and not device.cct) then
+    return report
+  end
+  local out = {}
+  for k, v in pairs(report) do
+    out[k] = v
+  end
+  local x, y, mode = Color.taken(color.x, color.y, Color.CCT, true, false)
+  out.color = { x = x, y = y, mode = mode }
+  return out
+end
+
 --- One device state.
 --- @param report LightReport
 function Light:report(report)
@@ -217,7 +237,7 @@ function Light:report(report)
     -- A new light's setup lists no colors until the proxy has heard its capabilities.
     self.settings:readSetup(self.proxy:readSetup())
   end
-  self:_heard(self.ledger:heard(report, self.motion:now()))
+  self:_heard(self.ledger:heard(inForms(report, self.device), self.motion:now()))
 end
 
 --- The connection is gone. true: stopped on purpose, the proxy keeps the level. false: a loss.

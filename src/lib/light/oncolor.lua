@@ -129,6 +129,24 @@ local function onModeColor(level, device, settings)
   return nil, false
 end
 
+--- A full color at the white the light shows as a Kelvin is that white, and the on keeps it: a light that shows a
+--- white sent as a full color reports the Kelvin, which would tell the color again.
+--- @param color LightColor
+--- @param now LightNow
+--- @return LightColor
+local function keptWhite(color, now)
+  local shown = now.color
+  if
+    color.mode == Color.FULL
+    and shown
+    and shown.mode == Color.CCT
+    and Color.same(color.x, color.y, Color.FULL, shown.x, shown.y, Color.FULL)
+  then
+    return shown
+  end
+  return color
+end
+
 --- The C4 level the light is at now: 0 while off.
 --- @param now LightNow
 --- @param settings LightOnSettings
@@ -180,6 +198,7 @@ function OnColor.choose(intent, inputs)
     elseif lights then
       color, unchosen = onModeColor(level, device, settings)
       if color and settings.colorOnMode ~= "fade" then
+        color = keptWhite(color, now)
         presetId, presetOrigin = settings.onPresetId, settings.onPresetOrigin
       end
     elseif not picks.picked then
