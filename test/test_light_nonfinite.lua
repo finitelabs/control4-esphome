@@ -1,5 +1,5 @@
--- A light reporting a non-finite brightness must fall back, not push the NaN to
--- the LIGHT_V2 proxy.
+-- A light reporting a non-finite brightness must fall back, not hand the NaN to
+-- the light library.
 --
 -- Run from the driver root:
 --   make test
@@ -8,15 +8,8 @@
 --
 -- ESPHome sends NaN for the brightness of a light that has not reported one, and
 -- protobuf v0.6.9 decodes it as a real NaN. `tonumber(x) or 1.0` does not fall
--- back for a NaN, and math.max(0, math.min(100, nan)) returns the NaN rather
--- than clamping it, so the NaN reached the proxy and, since nan ~= anything,
--- re-notified on every state message.
---
--- A driver.lua cannot be loaded far enough to reach its handlers, so
--- RFP.UPDATE_STATE is cut out of the source and compiled under a synthetic
--- environment, with the light adapter that reads the report. The driver's and
--- the adapter's own arithmetic is what runs; only their collaborators are
--- supplied here.
+-- back for a NaN, and the library drops a report with a non-finite value whole,
+-- so the light would never show its state.
 
 local T = require("testlib")
 
@@ -31,38 +24,13 @@ local ColorMode = require("esphome.proto_schema").Enum.ColorMode
 local root = (debug.getinfo(1, "S").source:match("^@(.*[/\\])") or "./") .. ".."
 
 local ESPHOME_BINDING = 1
-local PROXY_BINDING = 5001
 
-local function readFile(path)
-  local fh = io.open(path, "r")
-  if not fh then
-    return nil
-  end
-  local body = fh:read("*a")
+local fh = io.open(root .. "/src/esphome/light_adapter.lua", "r")
+local adapterSrc = fh and fh:read("*a")
+if fh then
   fh:close()
-  return body
 end
-
-local src = readFile(root .. "/drivers/esphome_light/driver.lua")
-T.check("the esphome_light source was read", src ~= nil, "missing")
-
-local adapterSrc = readFile(root .. "/src/esphome/light_adapter.lua")
 T.check("the light adapter's source was read", adapterSrc ~= nil, "missing")
-
-local handlerSrc = src and src:match("\n(function RFP%.UPDATE_STATE%s*%b()\n.-\nend)\n")
-T.check("RFP.UPDATE_STATE was cut out", handlerSrc ~= nil, "no match")
-
--- The handler reads brightness through these.
-local rangeSrc = src and src:match("\n(local function onRange%(%)\n.-)\n%-%-%-%-%-")
-T.check("the on-level range's helpers were cut out", rangeSrc ~= nil, "no match")
-
-local function newLog()
-  return setmetatable({}, {
-    __index = function()
-      return function() end
-    end,
-  })
-end
 
 --- Load the light adapter from its source.
 --- @param source string The adapter's source.
@@ -73,116 +41,47 @@ local function loadAdapter(source)
   return chunk()
 end
 
---- Compile a cut handler under a synthetic environment.
---- @param source string The handler source.
---- @param LightAdapter table|nil The adapter module; the one in src/ if nil.
---- @return table env The environment, carrying RFP and the recorded calls.
-local function compileHandler(source, LightAdapter)
-  LightAdapter = LightAdapter or loadAdapter(adapterSrc)
-  local adapter = LightAdapter.new(ESPHOME_BINDING)
-  adapter:learn({ supported_color_modes = { ColorMode.COLOR_MODE_BRIGHTNESS } })
-  local env = {
-    RFP = {},
-    log = newLog(),
-    ESPHOME_BINDING = ESPHOME_BINDING,
-    PROXY_BINDING = PROXY_BINDING,
-    -- As late init leaves it.
-    gInitialized = true,
-    diagnostics = { captureError = function() end },
-    ENTITY = nil,
-    STATE = nil,
-    updateStatus = function() end,
-    updateDynamicCapabilities = function() end,
-    supportsDimming = true,
-    supportsColor = false,
-    supportsCCT = false,
-    rampingColor = false,
-    rampingBrightness = false,
-    currentBrightness = -1,
-    LightAdapter = LightAdapter,
-    adapter = adapter,
-    PersistKey = {},
-    -- The range a light has until Max and Min On Level are set.
-    persist = {
-      get = function(_, _, default)
-        return default
-      end,
-    },
-    sentBrightness = {},
-    sentColors = {},
-    isOwnReport = function()
-      return true
-    end,
-    brightnessPushes = {},
-    proxySends = {},
-    nextOn = {},
-    isLogicallyOn = function()
-      return false
-    end,
-  }
-  env.notifyBrightnessChanged = function(level)
-    env.brightnessPushes[#env.brightnessPushes + 1] = level
-  end
-  env.SendToProxy = function(idBinding, strCommand, tParams)
-    env.proxySends[#env.proxySends + 1] = { idBinding = idBinding, command = strCommand, params = tParams }
-  end
-  setmetatable(env, { __index = _G })
+local LightAdapter = loadAdapter(adapterSrc)
 
-  local chunk, err = loadstring(rangeSrc .. "\n" .. source, "light_update_state")
-  T.check("the cut handler compiles", chunk ~= nil, err)
-  setfenv(chunk, env)
-  chunk()
-  return env
-end
-
---- Drive UPDATE_STATE once with a brightness, through the real SerializeSafe hop
---- the ESPHome bridge driver uses.
---- @param env table A freshly compiled handler environment.
+--- Report a state once through the real SerializeSafe hop the ESPHome bridge driver uses.
+--- @param Adapter table The adapter module.
 --- @param state table The entity state as ESPHome reported it.
---- @return number|nil level The brightness pushed to the proxy, if any.
-local function drive(env, state)
-  local entity = { key = 91, name = "Hall Light", supports_brightness = true }
-  env.RFP.UPDATE_STATE(ESPHOME_BINDING, "UPDATE_STATE", {
-    entity = SerializeSafe(entity),
-    state = SerializeSafe(state),
-  })
-  return env.brightnessPushes[#env.brightnessPushes]
+--- @return LightReport report What the adapter hands the library.
+local function drive(Adapter, state)
+  local adapter = Adapter.new(ESPHOME_BINDING)
+  local entity = { key = 91, name = "Hall Light", supported_color_modes = { ColorMode.COLOR_MODE_BRIGHTNESS } }
+  adapter:learn(entity)
+  return adapter:report(DeserializeSafe(SerializeSafe(entity)), DeserializeSafe(SerializeSafe(state)))
 end
 
 --------------------------------------------------------------------------------
-T.section("the NaN survives the hop into the handler")
+T.section("the NaN survives the hop into the adapter")
 --------------------------------------------------------------------------------
 
 -- Without this the brightness assertions could pass because the NaN never
--- arrived, rather than because the handler rejected it.
+-- arrived, rather than because the adapter rejected it.
 local roundTripped = DeserializeSafe(SerializeSafe({ brightness = NAN, state = true }))
 T.check("SerializeSafe carries a NaN brightness", roundTripped.brightness ~= roundTripped.brightness)
 
 --------------------------------------------------------------------------------
-T.section("a non-finite brightness falls back instead of reaching the proxy")
+T.section("a non-finite brightness falls back instead of reaching the library")
 --------------------------------------------------------------------------------
 
-local nanLevel = drive(compileHandler(handlerSrc), { state = true, brightness = NAN })
-T.check("a NaN brightness is not pushed", nanLevel == nanLevel, "pushed " .. tostring(nanLevel))
-T.eq("it falls back to full brightness", nanLevel, 100)
-
--- Infinity reached 100 before the fix too, since math.min clamps it where it
--- returns a NaN unchanged. Kept as coverage of the class, but only the NaN case
--- above discriminates.
-local infLevel = drive(compileHandler(handlerSrc), { state = true, brightness = math.huge })
-T.eq("infinity falls back the same way", infLevel, 100)
+local nanLevel = drive(LightAdapter, { state = true, brightness = NAN }).level
+T.check("a NaN brightness is not reported", nanLevel == nanLevel, "reported " .. tostring(nanLevel))
+T.eq("it falls back to full brightness", nanLevel, 1.0)
+T.eq("infinity falls back the same way", drive(LightAdapter, { state = true, brightness = math.huge }).level, 1.0)
 
 --------------------------------------------------------------------------------
 T.section("a finite brightness is still reported as measured")
 --------------------------------------------------------------------------------
 
--- Without these the fix could report every light at 100 and still pass above.
-T.eq("42 percent", drive(compileHandler(handlerSrc), { state = true, brightness = 0.42 }), 42)
-T.eq("full", drive(compileHandler(handlerSrc), { state = true, brightness = 1.0 }), 100)
-T.eq("rounds to the nearest percent", drive(compileHandler(handlerSrc), { state = true, brightness = 0.005 }), 1)
-T.eq("an on light never reports zero", drive(compileHandler(handlerSrc), { state = true, brightness = 0 }), 1)
-T.eq("an absent brightness assumes full", drive(compileHandler(handlerSrc), { state = true }), 100)
-T.eq("an off light reports zero", drive(compileHandler(handlerSrc), { state = false, brightness = 0.42 }), 0)
+-- Without these the fix could report every light at full and still pass above.
+T.eq("42 percent", drive(LightAdapter, { state = true, brightness = 0.42 }).level, 0.42)
+T.eq("full", drive(LightAdapter, { state = true, brightness = 1.0 }).level, 1.0)
+T.eq("an absent brightness assumes full", drive(LightAdapter, { state = true }).level, 1.0)
+local off = drive(LightAdapter, { state = false, brightness = 0.42 })
+T.eq("an off light reports off, with no level", { off.on, off.level }, { false, nil })
 
 --------------------------------------------------------------------------------
 T.section("reverting the fix puts the NaN case back")
@@ -196,12 +95,8 @@ local revertedSrc, swaps =
 T.eq("the revert replaced exactly one call", swaps, 1)
 local reverted = loadAdapter(revertedSrc)
 
-local revertedLevel = drive(compileHandler(handlerSrc, reverted), { state = true, brightness = NAN })
-T.check("the reverted source pushes a NaN", revertedLevel ~= revertedLevel, "pushed " .. tostring(revertedLevel))
-T.eq(
-  "and still agrees on a finite brightness",
-  drive(compileHandler(handlerSrc, reverted), { state = true, brightness = 0.42 }),
-  42
-)
+local revertedLevel = drive(reverted, { state = true, brightness = NAN }).level
+T.check("the reverted source reports a NaN", revertedLevel ~= revertedLevel, "reported " .. tostring(revertedLevel))
+T.eq("and still agrees on a finite brightness", drive(reverted, { state = true, brightness = 0.42 }).level, 0.42)
 
 T.finish()

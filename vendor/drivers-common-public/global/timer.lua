@@ -8,8 +8,11 @@
 --   1. SetTimer and ExpireTimer run the callback through xpcall with debug.traceback
 --      and report a failure to ON_TIMER_ERROR when a driver sets it.
 --   2. SetTimer carries LuaDoc.
+--   3. A one-shot SetTimer (and ChangeTimer through it) with a delay under 1 ms, which Director refuses,
+--      arms at 1 ms, so the callback runs on the next tick. A repeating one is still refused: it would
+--      fire every millisecond.
 --
--- test/test_dispatch.lua covers 1.
+-- test/test_dispatch.lua covers 1 and 3.
 
 COMMON_TIMER_VER = 14
 
@@ -72,7 +75,7 @@ end
 
 --- Creates or replaces a timer.
 --- @param timerId string|C4LuaTimer The timer identifier or existing timer to replace.
---- @param delay number The delay in milliseconds.
+--- @param delay number The delay in milliseconds; a one-shot under 1 ms runs on the next tick.
 --- @param timerFunction? function The callback function.
 --- @param repeating? boolean Whether the timer repeats.
 --- @return C4LuaTimer|nil timer The timer instance.
@@ -86,6 +89,10 @@ function SetTimer(timerId, delay, timerFunction, repeating)
   if delay > ((2 ^ 31) - 1) then
     print("Timer not created: " .. tostring(timerId), "delay exceeded max value (2^31 - 1)")
     return
+  end
+
+  if delay < 1 and repeating ~= true then
+    delay = 1
   end
 
   if timerFunction == nil then

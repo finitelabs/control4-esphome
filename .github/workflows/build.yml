@@ -88,6 +88,8 @@ jobs:
         env:
           REQUIRE_SECRETS: ${{ github.ref_type == 'tag' && '1' || '' }}
           SUPPORT_CODE_SECRET: ${{ secrets.SUPPORT_CODE_SECRET }}
+          SUPPORT_PHONE: ${{ secrets.SUPPORT_PHONE }}
+          SUPPORT_EMAIL: ${{ secrets.SUPPORT_EMAIL }}
           INFLUXDB_URL: ${{ secrets.INFLUXDB_URL }}
           INFLUXDB_TOKEN: ${{ secrets.INFLUXDB_TOKEN }}
           INFLUXDB_METRICS_DB: ${{ secrets.INFLUXDB_METRICS_DB }}
@@ -97,7 +99,7 @@ jobs:
         run: make verify
 
 
-      # Tag builds are released and uploaded to Driver Central, so 14 days; main builds are for a quick look, 3; PR builds are for side-loading, 1.
+      # A public repo's Actions storage is free, so a PR build keeps 3 days and the rest 14, the most the organization allows.
       # A repo with no driver yet builds nothing to upload.
       - name: Upload drivercentral artifacts
         if: always() && hashFiles('drivers/*/driver.xml') != ''
@@ -106,10 +108,10 @@ jobs:
           name: drivercentral
           path: dist/drivercentral/*
           if-no-files-found: error
-          retention-days: ${{ github.ref_type == 'tag' && 14 || github.event_name == 'pull_request' && 1 || 3 }}
+          retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}
 
 
-      # Tag builds are released and uploaded to Driver Central, so 14 days; main builds are for a quick look, 3; PR builds are for side-loading, 1.
+      # A public repo's Actions storage is free, so a PR build keeps 3 days and the rest 14, the most the organization allows.
       # A repo with no driver yet builds nothing to upload.
       - name: Upload oss artifacts
         if: always() && hashFiles('drivers/*/driver.xml') != ''
@@ -118,5 +120,5 @@ jobs:
           name: oss
           path: dist/oss/*
           if-no-files-found: error
-          retention-days: ${{ github.ref_type == 'tag' && 14 || github.event_name == 'pull_request' && 1 || 3 }}
+          retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}
 

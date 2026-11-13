@@ -1,6 +1,7 @@
 -- How handlers.lua and timer.lua hand a call to a driver's handler, where our copy
 -- differs from Snap One's: OnPropertyChanged's name sanitizer, and the
--- ON_HANDLER_ERROR and ON_TIMER_ERROR hooks with the traceback. lib.diagnostics
+-- ON_HANDLER_ERROR and ON_TIMER_ERROR hooks with the traceback, and a one-shot timer under 1 ms, which
+-- Director refuses, running on the next tick. lib.diagnostics
 -- installs both hooks, so losing one would turn them off silently. A driver's late
 -- init calls OnPropertyChanged for each property without a pcall, which relies on
 -- the router keeping a handler's error to itself.
@@ -11,6 +12,7 @@
 --   ./test/run_test.sh test_dispatch.lua
 
 local T = require("testlib")
+local F = require("c4_fixtures")
 
 require("c4_shim")
 require("drivers-common-public.global.handlers")
@@ -109,6 +111,60 @@ end)
 T.eq("and from ExpireTimer", timerId, "ExpiredTimer")
 T.contains("with the traceback", timerErr, "stack traceback")
 ON_TIMER_ERROR = nil
+
+T.section("A one-shot timer under 1 ms runs on the next tick, where Director refuses the delay")
+do
+  local clock = F.virtualClock()
+  local fired = {}
+  local function note(name)
+    return function()
+      fired[#fired + 1] = name .. "@" .. (clock.now() - 1000000)
+    end
+  end
+
+  local zero = SetTimer("Zero", 0, note("zero"))
+  local negative = SetTimer("Negative", -250, note("negative"))
+  SetTimer("Half", 0.5, note("half"))
+  T.check("SetTimer returns a handle for a delay of 0", type(zero) == "userdata", tostring(zero))
+  T.check("and stores it before the callback runs", Timer["Zero"] == zero and #fired == 0, fired)
+  T.check("as it does for a negative delay", type(negative) == "userdata" and Timer["Negative"] == negative)
+  CancelTimer("Half")
+  clock.run(1)
+  T.eq("each runs once on the next tick, and one cancelled before then never", fired, { "zero@1", "negative@1" })
+  clock.run(10)
+  T.eq("and not again", #fired, 2)
+
+  local ticks = 0
+  local function again()
+    ticks = ticks + 1
+    if ticks < 5 then
+      SetTimer("Again", 0, again)
+    end
+  end
+  SetTimer("Again", 0, again)
+  T.eq("a callback that re-arms itself at 0 has not run inside SetTimer", ticks, 0)
+  clock.run(1)
+  T.eq("it runs once on the tick", ticks, 1)
+  clock.run(3)
+  T.eq("and once on each tick after", ticks, 4)
+  clock.run(10)
+  T.eq("until it stops re-arming", ticks, 5)
+
+  SetTimer("Changed", ONE_SECOND, note("changed"))
+  local changedAt = clock.now() - 1000000
+  ChangeTimer("Changed", 0)
+  clock.run(1)
+  T.eq("ChangeTimer to 0 runs it on the next tick", fired[3], "changed@" .. (changedAt + 1))
+  T.eq("Director refused none of these", clock.errors, {})
+
+  local _, spin = T.capture(function()
+    return SetTimer("Spin", 0, note("spin"), true)
+  end)
+  T.eq("a repeating timer under 1 ms is still refused", spin, nil)
+  T.check("and has no slot", Timer["Spin"] == nil)
+  T.contains("as Director refuses it", clock.errors[1] or "", "delay of 0 ms")
+  clock.restore()
+end
 
 T.section("Upstream's UIRequest reply and Select, which the port took")
 UIR.NOTHING = function() end
