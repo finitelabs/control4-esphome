@@ -542,6 +542,11 @@ offline, or a date or time in another format, goes back to the device's value.
 | Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver                                   |
 | Water Heater  | `ESPHOME_CLIMATE`               | Bind to ESPHome Climate sub-driver                                |
 
+A binary sensor's contact reads Opened while the sensor is on if its device
+class is door, window, opening, garage door, motion, occupancy, presence or
+moving, and Closed while it is off. Any other binary sensor reads Closed while
+it is on.
+
 > **Note:** Sensor, Number, Select, Text, Text Sensor, Date, Time and Datetime
 > entities do not create bindings. They expose data only through variables and
 > events.
@@ -1108,6 +1113,16 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ### Removed
 - Removed
 -->
+
+## Unreleased
+
+### Changed
+
+- Changed ESPHome door, window, motion, occupancy and presence sensors,
+  SwitchBot motion sensors and the Bluetooth Coordinator's Present and Occupied
+  to read Opened while open, detected, present or occupied. Programming written
+  for the old reading, or an invert added in ESPHome YAML for it, has to be
+  changed.
 
 ## v20261111 - 2026-11-11
 

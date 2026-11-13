@@ -18,6 +18,16 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Changed
+
+- Changed ESPHome door, window, motion, occupancy and presence sensors,
+  SwitchBot motion sensors and the Bluetooth Coordinator's Present and Occupied
+  to read Opened while open, detected, present or occupied. Programming written
+  for the old reading, or an invert added in ESPHome YAML for it, has to be
+  changed.
+
 ## v20261111 - 2026-11-11
 
 ### Fixed

@@ -180,8 +180,8 @@ function PresenceTracker:trackDevice(mac, config)
   -- A device first tracked starts away. One told home before a restart starts home,
   -- so the away check tells it away if it is not heard again.
   local key = "device_" .. mac:gsub(":", "")
-  self._told:assume(key, "OPENED")
-  local wasHome = self._told:state(key) == "CLOSED"
+  self._told:assume(key, "CLOSED")
+  local wasHome = self._told:state(key) == "OPENED"
   local kept = wasHome and persist:get(ROOMS_PERSIST_KEY, {})[mac] or nil
   local keptRoomId = kept and tointeger(kept.id)
   if not keptRoomId or IsEmpty(kept.name) then
@@ -389,7 +389,7 @@ function PresenceTracker:_ensureRoomSetup(roomId, roomName)
   -- Initialize occupancy tracking; a device kept in the room from before a restart is in it
   self._roomOccupancy[roomId] = self._roomOccupancy[roomId] or {}
   -- A room first set up starts empty; one set up again after a restart keeps what was told.
-  self._told:assume("room_" .. tostring(roomId), "OPENED")
+  self._told:assume("room_" .. tostring(roomId), "CLOSED")
 
   self._roomNames[roomId] = roomName
   self._keptRoomNames[roomId] = nil
@@ -738,9 +738,9 @@ function PresenceTracker:checkAwayStatus()
     self._roomsSettled = true
     for key, state in pairs(self._told:states()) do
       local roomId = tointeger(key:match("^room_(%-?%d+)$"))
-      if roomId and state == "CLOSED" and next(self._roomOccupancy[roomId] or {}) == nil then
+      if roomId and state == "OPENED" and next(self._roomOccupancy[roomId] or {}) == nil then
         local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, key)
-        if self._told:tell(key, binding and binding.bindingId, "OPENED") then
+        if self._told:tell(key, binding and binding.bindingId, "CLOSED") then
           events:fire(NAMESPACE, key .. "_empty")
         end
       end
@@ -868,8 +868,8 @@ function PresenceTracker:_onDeviceAway(mac, name, previousRoom, previousRoomId)
     events:fire(NAMESPACE, "any_device_left_room")
   end
 
-  -- Update device binding (contact sensor: OPENED = not present)
-  self._told:tell("device_" .. macKey, self._deviceBindings[mac], "OPENED")
+  -- Update device binding (contact sensor: CLOSED = away)
+  self._told:tell("device_" .. macKey, self._deviceBindings[mac], "CLOSED")
 end
 
 --- Handle device coming home
@@ -881,8 +881,8 @@ function PresenceTracker:_onDeviceHome(mac, name)
   log:info("Device %s (%s) has arrived home", name, mac)
 
   local macKey = mac:gsub(":", "")
-  -- Update device binding (contact sensor: CLOSED = present)
-  if self._told:tell("device_" .. macKey, self._deviceBindings[mac], "CLOSED") then
+  -- Update device binding (contact sensor: OPENED = present)
+  if self._told:tell("device_" .. macKey, self._deviceBindings[mac], "OPENED") then
     events:fire(NAMESPACE, "device_" .. macKey .. "_home")
   end
 end
@@ -905,7 +905,7 @@ function PresenceTracker:_updateRoomOccupancy(roomId, mac, present)
 
   local isNowOccupied = self:_showRoomOccupancy(roomId)
 
-  -- Update room binding (contact sensor: CLOSED = occupied), and fire the room event on a change.
+  -- Update room binding (contact sensor: OPENED = occupied), and fire the room event on a change.
   -- A room no proxy has reported since a restart still has its connection from before.
   local key = "room_" .. tostring(roomId)
   local bindingId = self._roomBindings[roomId]
@@ -913,7 +913,7 @@ function PresenceTracker:_updateRoomOccupancy(roomId, mac, present)
     local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, key)
     bindingId = binding and binding.bindingId
   end
-  if self._told:tell(key, bindingId, isNowOccupied and "CLOSED" or "OPENED") then
+  if self._told:tell(key, bindingId, isNowOccupied and "OPENED" or "CLOSED") then
     events:fire(NAMESPACE, key .. (isNowOccupied and "_occupied" or "_empty"))
   end
 end
@@ -947,6 +947,15 @@ function PresenceTracker:_showRoomOccupancy(roomId)
     values:update(uniqueRoomName .. " Occupants", table.concat(occupantNames, ", "), "STRING")
   end
   return isNowOccupied
+end
+
+--- Turn each device's Present and each room's Occupied kept from an earlier build the other way,
+--- told silently.
+function PresenceTracker:correctKeptStates()
+  for key in pairs(self._told:states()) do
+    local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, key)
+    self._told:flip(key, binding and binding.bindingId)
+  end
 end
 
 --- Get all tracked presence devices

@@ -6,6 +6,29 @@ local StateTell = require("esphome.state_tell")
 
 local told = StateTell:new("BinarySensorStates")
 
+--- Device classes whose "on" is open or detected, which the contact reads as Opened.
+local OPEN_WHEN_ON = {
+  door = true,
+  window = true,
+  opening = true,
+  garage_door = true,
+  motion = true,
+  occupancy = true,
+  presence = true,
+  moving = true,
+}
+
+--- The state a binary sensor's contact reads for `on`.
+--- @param entity table<string, any> The entity data received from the ESPHome client.
+--- @param on boolean Whether the sensor is on.
+--- @return string state "OPENED" or "CLOSED".
+local function contactState(entity, on)
+  if OPEN_WHEN_ON[entity.device_class] then
+    return on and "OPENED" or "CLOSED"
+  end
+  return on and "CLOSED" or "OPENED"
+end
+
 --- @class BinarySensorEntity:Entity
 local BinarySensorEntity = {
   TYPE = ESPHomeClient.EntityType.BINARY_SENSOR,
@@ -60,7 +83,7 @@ function BinarySensorEntity:updated(entity, state)
 
   local binding = bindings:getDynamicBinding(self.TYPE, "binary_sensor_" .. entity.ref)
   if binding ~= nil then
-    told:tell(entity.ref, binding.bindingId, value and "CLOSED" or "OPENED")
+    told:tell(entity.ref, binding.bindingId, contactState(entity, value))
   end
 end
 
