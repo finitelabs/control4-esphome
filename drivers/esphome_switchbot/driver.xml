@@ -77,6 +77,16 @@
           <item>Print and Log</item>
         </items>
       </property>
+      <property>
+        <name>Contact When Active</name>
+        <type>LIST</type>
+        <default>Closed</default>
+        <items>
+          <item>Closed</item>
+          <item>Opened</item>
+        </items>
+        <description>What the Motion contact reads while motion is seen.</description>
+      </property>
       <!-- #ifdef DRIVERCENTRAL -->
       <property>
         <name>Support Code</name>

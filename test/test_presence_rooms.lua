@@ -18,7 +18,7 @@ local persist = require("lib.persist")
 
 H.use("esphome_bluetooth_coordinator")
 
--- Each item here starts on this build, so the correction for states an earlier build kept is done.
+-- Each item here was added from this build, so Present and Occupied read Opened while active.
 persist:set("ContactsReadOpened", true)
 
 local PROXIES = 5001

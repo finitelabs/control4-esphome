@@ -1,6 +1,8 @@
---- Tests what an ESPHome binary sensor's contact reads: Opened while on for a door, window,
---- opening, garage door, motion, occupancy, presence or moving sensor, Closed while on for any
---- other; and the one-time step that corrects what an earlier build kept.
+--- Tests what an ESPHome binary sensor's contact reads. On an item added from this build, or one
+--- whose Contact When Active is Opened, a door, window, opening, garage door, motion, occupancy,
+--- presence or moving sensor reads Opened while on; on an item added before, Closed, as it always
+--- has. Any other class reads Closed while on. Also tests how an item is marked as added, and when
+--- a change of the reading is told.
 ---
 --- Run from the driver root:
 ---   make test
@@ -38,48 +40,104 @@ local function load(name)
   return require(name)
 end
 
-T.section("a binary sensor's contact reads by its device class")
-for _, case in ipairs({
-  { "door", "OPENED", "CLOSED" },
-  { "window", "OPENED", "CLOSED" },
-  { "opening", "OPENED", "CLOSED" },
-  { "garage_door", "OPENED", "CLOSED" },
-  { "motion", "OPENED", "CLOSED" },
-  { "occupancy", "OPENED", "CLOSED" },
-  { "presence", "OPENED", "CLOSED" },
-  { "moving", "OPENED", "CLOSED" },
-  { "smoke", "CLOSED", "OPENED" },
-  { "", "CLOSED", "OPENED" },
-}) do
-  local class, on, off = case[1], case[2], case[3]
-  persist:delete("BinarySensorStates")
-  local BinarySensorEntity = load("esphome.entities.binary_sensor")
-  local sensor = BinarySensorEntity:new({})
-  local entity = { key = 801, ref = "801", name = "Sensor", device_class = class }
-  sensor:discovered(entity)
-  local contact = bindings:getDynamicBinding(BinarySensorEntity.TYPE, "binary_sensor_801").bindingId
-  sentTo(contact)
-  local label = class == "" and "no class" or class
-  sensor:updated(entity, { state = true })
-  T.eq(label .. ": on reads " .. on, sentTo(contact), { "STATE_" .. on })
-  OBC[contact](contact, "CONTACT_SENSOR", true)
-  T.eq(label .. ": a new bind is told the same", sentTo(contact), { "STATE_" .. on })
-  sensor:updated(entity, { state = false })
-  T.eq(label .. ": off reads " .. off, sentTo(contact), { off })
+--- Start an item: `added` as Director adds it, else as an item added before; `property` is its
+--- Contact When Active.
+local function start(added, property)
+  persist:delete("ContactsReadOpened")
+  persist:delete("ContactReading")
+  Properties["Contact When Active"] = property or "Closed"
+  load("esphome.contact_reading").init(added and "DIT_ADDING" or "DIT_UPDATING")
 end
 
-T.section("a one-time step runs at the first load that has it, and never again")
-do
-  persist:delete("TestStepDone")
-  local runs = 0
-  local step = function()
-    runs = runs + 1
+for _, item in ipairs({
+  { "added from this build", true, "Closed", true },
+  { "added before", false, "Closed", false },
+  { "added before, set to Opened", false, "Opened", true },
+}) do
+  T.section("a binary sensor's contact reads by its device class: " .. item[1])
+  for _, case in ipairs({
+    { "door", true },
+    { "window", true },
+    { "opening", true },
+    { "garage_door", true },
+    { "motion", true },
+    { "occupancy", true },
+    { "presence", true },
+    { "moving", true },
+    { "smoke", false },
+    { "", false },
+  }) do
+    local class = case[1]
+    local onOpens = case[2] and item[4]
+    local on, off = onOpens and "OPENED" or "CLOSED", onOpens and "CLOSED" or "OPENED"
+    start(item[2], item[3])
+    persist:delete("BinarySensorStates")
+    local BinarySensorEntity = load("esphome.entities.binary_sensor")
+    local sensor = BinarySensorEntity:new({})
+    local entity = { key = 801, ref = "801", name = "Sensor", device_class = class }
+    sensor:discovered(entity)
+    local contact = bindings:getDynamicBinding(BinarySensorEntity.TYPE, "binary_sensor_801").bindingId
+    sentTo(contact)
+    local label = class == "" and "no class" or class
+    sensor:updated(entity, { state = true })
+    T.eq(label .. ": on reads " .. on, sentTo(contact), { "STATE_" .. on })
+    OBC[contact](contact, "CONTACT_SENSOR", true)
+    T.eq(label .. ": a new bind is told the same", sentTo(contact), { "STATE_" .. on })
+    sensor:updated(entity, { state = false })
+    T.eq(label .. ": off reads " .. off, sentTo(contact), { off })
   end
-  local once = load("esphome.once")
-  T.eq("it runs at the first load", once("TestStepDone", step), true)
-  once = load("esphome.once")
-  T.eq("not at the next", once("TestStepDone", step), false)
-  T.eq("so it ran once", runs, 1)
+end
+
+--- What C4:SetPropertyAttribs was called with, as "name=attrib".
+local attribs = {}
+C4.SetPropertyAttribs = function(_, name, attrib)
+  attribs[#attribs + 1] = name .. "=" .. tostring(attrib)
+end
+
+T.section("an item Director adds is marked, and its Contact When Active is hidden at every load")
+do
+  attribs = {}
+  start(true)
+  T.eq("adding hides it", attribs, { "Contact When Active=1" })
+  attribs = {}
+  load("esphome.contact_reading").init("DIT_STARTUP")
+  T.eq("and so does each start after", attribs, { "Contact When Active=1" })
+  attribs = {}
+  load("esphome.contact_reading").init("DIT_UPDATING")
+  T.eq("and each update", attribs, { "Contact When Active=1" })
+end
+
+T.section("an item added before shows its Contact When Active")
+do
+  attribs = {}
+  start(false)
+  T.eq("an update leaves it shown", attribs, {})
+  load("esphome.contact_reading").init("DIT_STARTUP")
+  T.eq("and so does a start", attribs, {})
+  T.eq("and nothing marks it added", persist:get("ContactsReadOpened"), nil)
+end
+
+T.section("a change of the reading is told; its replay at each load is not")
+do
+  start(false)
+  local ContactReading = load("esphome.contact_reading")
+  local retold = 0
+  local retell = function()
+    retold = retold + 1
+  end
+  ContactReading.applied(retell)
+  T.eq("the first load of this build tells nothing", retold, 0)
+  ContactReading.applied(retell)
+  T.eq("nor does a later load", retold, 0)
+  Properties["Contact When Active"] = "Opened"
+  ContactReading.applied(retell)
+  T.eq("set to Opened, it is told", retold, 1)
+  ContactReading = load("esphome.contact_reading")
+  ContactReading.applied(retell)
+  T.eq("and not again at the next load", retold, 1)
+  Properties["Contact When Active"] = "Closed"
+  ContactReading.applied(retell)
+  T.eq("set back to Closed, it is told again", retold, 2)
 end
 
 T.finish()
