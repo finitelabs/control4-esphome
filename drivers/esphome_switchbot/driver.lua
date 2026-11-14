@@ -24,7 +24,7 @@ local constants = require("constants")
 local UUID = require("esphome.ble.uuid")
 local SwitchBot = require("esphome.ble.parsers.switchbot")
 local StateTell = require("esphome.state_tell")
-local once = require("esphome.once")
+local ContactReading = require("esphome.contact_reading")
 local http = require("lib.http")
 
 --- Update the Driver Status property and the Connected variable so
@@ -176,12 +176,12 @@ local SENSOR_BINDINGS = {
   [SENSOR_TYPE.HUMIDITY] = { bindingClass = "HUMIDITY_VALUE", scale = "PERCENT", displayName = "Humidity" },
 }
 
---- Contact sensor binding configurations: openEvent is told while the sensor is active (motion
---- seen, door open, leak or tamper found), closedEvent while it is not.
+--- Contact sensor binding configurations: openEvent is told while the sensor is active (door open,
+--- leak or tamper found), closedEvent while it is not. Motion reads as the item's contact reading.
 --- toldKey, where set, is the key its told state is kept under instead of its type.
---- @type table<ContactType, {openEvent: string, closedEvent: string, displayName: string, toldKey: string?}?>
+--- @type table<ContactType, {openEvent: string?, closedEvent: string?, displayName: string, toldKey: string?}?>
 local CONTACT_BINDINGS = {
-  [CONTACT_TYPE.MOTION] = { openEvent = "OPENED", closedEvent = "CLOSED", displayName = "Motion" },
+  [CONTACT_TYPE.MOTION] = { displayName = "Motion" },
   -- States kept under "contact" were told reversed; a first state under a new key goes out silently.
   [CONTACT_TYPE.CONTACT] = { openEvent = "OPENED", closedEvent = "CLOSED", displayName = "Contact", toldKey = "door" },
   [CONTACT_TYPE.LEAK] = { openEvent = "OPENED", closedEvent = "CLOSED", displayName = "Leak" },
@@ -966,7 +966,12 @@ local function sendContactState(contactType, isActive)
     return
   end
 
-  local event = isActive and config.openEvent or config.closedEvent
+  local event
+  if config.openEvent then
+    event = isActive and config.openEvent or config.closedEvent
+  else
+    event = ContactReading.state(isActive)
+  end
   log:debug("Telling %s to contact binding %s", event, binding.bindingId)
   told:tell(config.toldKey or contactType, binding.bindingId, event)
 end
@@ -1967,7 +1972,7 @@ end
 -- Initialization
 --------------------------------------------------------------------------------
 
-function OnDriverInit()
+function OnDriverInit(driverInitType)
   --#ifdef DRIVERCENTRAL
   drivercentral:startClient()
   --#else
@@ -1977,7 +1982,8 @@ function OnDriverInit()
   log:setLogName(C4:GetDeviceData(C4:GetDeviceID(), "name"))
   log:setLogLevel(Properties["Log Level"])
   log:setLogMode(Properties["Log Mode"])
-  log:trace("OnDriverInit()")
+  log:trace("OnDriverInit(%s)", driverInitType)
+  ContactReading.init(driverInitType)
 
   -- Hidden until reported; the restore below shows each reading a device reported before
   hideOptionalProperties()
@@ -2013,11 +2019,6 @@ function OnDriverLateInit()
   for p, _ in pairs(Properties) do
     OnPropertyChanged(p)
   end
-  -- Earlier builds told motion Closed. Turn what they kept; the contact keeps its own key.
-  once("ContactsReadOpened", function()
-    local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "contact_" .. CONTACT_TYPE.MOTION)
-    told:flip(CONTACT_TYPE.MOTION, binding and binding.bindingId)
-  end)
 
   gInitialized = true
   updateStatus("Waiting for data", false)
@@ -2037,6 +2038,14 @@ OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
 --------------------------------------------------------------------------------
 -- OPC Handlers
 --------------------------------------------------------------------------------
+
+function OPC.Contact_When_Active(propertyValue)
+  log:trace("OPC.Contact_When_Active('%s')", propertyValue)
+  ContactReading.applied(function()
+    local binding = bindings:getDynamicBinding(BINDINGS_NAMESPACE, "contact_" .. CONTACT_TYPE.MOTION)
+    told:flip(CONTACT_TYPE.MOTION, binding and binding.bindingId)
+  end)
+end
 
 function OPC.Driver_Status(propertyValue)
   log:trace("OPC.Driver_Status('%s')", propertyValue)

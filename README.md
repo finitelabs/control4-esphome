@@ -267,6 +267,15 @@ device.
 Use OpenSSL for encryption. This should typically be left at the default value
 of `Yes` for better performance and compatibility.
 
+##### Contact When Active \[ **_Closed_** | Opened \]
+
+Shown only on items added before this setting existed. Sets what door, window,
+opening, garage door, motion, occupancy, presence and moving sensors' contacts
+read while open or detected: `Closed`, as these items always have, or `Opened`.
+Items added since read `Opened`. Changing it updates each contact's state at
+once without firing its Opened or Closed programming; change any programming
+written for the other reading to match.
+
 #### Bluetooth Proxy Settings
 
 > The Bluetooth Proxy feature requires an ESP32 device with the
@@ -545,7 +554,8 @@ offline, or a date or time in another format, goes back to the device's value.
 A binary sensor's contact reads Opened while the sensor is on if its device
 class is door, window, opening, garage door, motion, occupancy, presence or
 moving, and Closed while it is off. Any other binary sensor reads Closed while
-it is on.
+it is on. On items added before this reading, these classes read Closed while on
+unless [Contact When Active](#contact-when-active--closed--opened-) is `Opened`.
 
 > **Note:** Sensor, Number, Select, Text, Text Sensor, Date, Time and Datetime
 > entities do not create bindings. They expose data only through variables and
@@ -1180,11 +1190,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   changes the color, until a new white is chosen.
 - An ESPHome light lit on both its color and white channels reports the color
   the mix shows.
-- Changed ESPHome door, window, motion, occupancy and presence sensors,
-  SwitchBot motion sensors and the Bluetooth Coordinator's Present and Occupied
-  to read Opened while open, detected, present or occupied. Programming written
-  for the old reading, or an invert added in ESPHome YAML for it, has to be
-  changed.
+- ESPHome door, window, motion, occupancy and presence sensors, SwitchBot motion
+  sensors and the Bluetooth Coordinator's Present and Occupied read Opened while
+  open, detected, present or occupied on items added from this release. Items
+  added before keep their reading, with a Contact When Active setting to switch.
 
 ## v20261111 - 2026-11-11
 

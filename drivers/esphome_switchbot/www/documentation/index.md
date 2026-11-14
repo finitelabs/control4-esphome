@@ -207,6 +207,14 @@ Sets the logging level. Default is `3 - Info`.
 
 Sets the logging mode. Default is `Off`.
 
+#### Contact When Active \[ **_Closed_** | Opened \]
+
+Shown only on items added before this setting existed. Sets what the Motion
+contact reads while motion is seen: `Closed`, as these items always have, or
+`Opened`. Items added since read `Opened`. Changing it updates each contact's
+state at once without firing its Opened or Closed programming; change any
+programming written for the other reading to match.
+
 <!-- #ifdef DRIVERCENTRAL -->
 
 #### Support Code
@@ -442,7 +450,9 @@ Passive motion detection sensors with light level sensing.
 
 **Properties shown:** Motion, Light Level, Battery
 
-**Bindings:** CONTACT_SENSOR (reads Opened while motion is seen)
+**Bindings:** CONTACT_SENSOR (reads Opened while motion is seen; on items added
+before this reading, Closed unless
+[Contact When Active](#contact-when-active--closed--opened-) is `Opened`)
 
 **Events:**
 
