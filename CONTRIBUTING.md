@@ -445,7 +445,9 @@ the library and what it gets back. A light driver gives it four things:
 
 - A profile, once: what the driver offers the proxy. The build writes
   `driver.xml`'s light capabilities from it (`tools/light-caps.lua`), so
-  `driver.xml` carries none of them.
+  `driver.xml` carries none of them. Just above its `<capabilities>` element it
+  carries this line instead, and the build stops without it:
+  `<!-- The light's capabilities are the build's, written from the profile the driver gives Light.new. -->`
 - An adapter with `send`, `refresh` and `show`: it puts each command on its
   transport, asks the device for its whole state, and mirrors what the proxy
   shows on a device page.

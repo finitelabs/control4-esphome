@@ -504,6 +504,7 @@ function Caps.static(profile)
   local function row(key, value)
     return { key = key, value = value }
   end
+  -- Each key the proxy is told for a device at runtime (Caps.dynamic) corrects these either way.
   return {
     row("dimmer", bool(dims)),
     row("set_level", bool(dims)),
@@ -528,6 +529,7 @@ function Caps.static(profile)
     row("click_rate_max", tostring(Caps.RATE_MAX)),
     row("hold_rate_min", "1000"),
     row("hold_rate_max", "86400000"),
+    -- A profile that learns color from its device leaves it off until the device's capabilities turn it on.
     row("supports_color", bool(known and color)),
     row("supports_color_correlated_temperature", bool(known and cct)),
     row("color_correlated_temperature_min", tostring(known and cct and range.minK or Caps.CCT_MIN)),

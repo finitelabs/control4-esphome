@@ -516,14 +516,13 @@ function Motion:_toLevel(out, intent, choice, ms)
       self:_endColorRamp()
       -- The color goes from the one the light has to the new one over the level's time. From dark, an on mode's
       -- color starts where the on mode has a dark light, so a hold stopped part way is in the on mode's color for
-      -- its level. A scene step's starts from the color kept, as does every color on a light that runs its own
-      -- fades, which no stop reaches. A light with no color known is taken to be in D65.
+      -- its level. A scene step's starts in itself where the library lights the light, with a walk's first step or
+      -- a pre-on; a light that fades itself from dark starts it from the color kept. So does every color on a light
+      -- that runs its own fades, which no stop reaches. A light with no color known is taken to be in D65.
+      local placed = fade.kind == "walk" or (fade.kind == "device" and fade.preOn)
       local onStart = fade.kind ~= "own"
           and fromShown <= 0
-          and own == nil
-          and choice
-          and choice.from
-          and self:_take(choice.from)
+          and ((placed and own) or (own == nil and choice and choice.from and self:_take(choice.from)))
         or nil
       local start = length > 0 and (onStart or fromColor or self:_take(Color.D65)) or nil
       -- With no pre-on, the device starts its fade from the color it kept, so a stop puts it in the on mode's. A
