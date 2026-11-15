@@ -69,6 +69,9 @@ Types.API = 1
 --- @field onModes boolean|nil The brightness and color on modes.
 --- @field flash boolean|nil Scene flash elements (disable_flash false).
 --- @field extras boolean|nil has_extras. The driver sends EXTRAS_* and handles EXTRA_SET itself.
+--- @field loadGroups boolean|nil load_group_support: the light joins Control4 load groups, takes their commands, and
+---   hands its own on, off, level and button commands to a group that keeps it in sync. It is also a member of
+---   group drivers built on lib.light.group: it takes their decided commands and tells them what it shows.
 
 -----------------------------------------------------------------------------------------------------
 -- The device: the facts of one connection
@@ -215,6 +218,10 @@ Types.API = 1
 --   and the build stops without it. Raises on a profile.api other than Types.API, a
 --   profile field of the wrong type, or an adapter without send, refresh and show.
 --
+-- values:restoreValues()
+--   From OnDriverInit, as for any driver with variables: the library writes the Connected variable, and only
+--   one restored there keeps its id and the programming on it across a Director restart.
+--
 -- light:start()
 --   From OnDriverLateInit. Reads the proxy (GET_SETUP, 6661, 1001/1110, 1200/1210), tells offline until the
 --   device's first report, and asks refresh() once. Reports given before it are taken then, in order.
@@ -247,6 +254,10 @@ Types.API = 1
 -- library does not handle (EXTRA_SET) is the driver's, as a command-keyed RFP: the dispatcher tries that
 -- before the binding's function.
 --
+-- Group commands. On a light that offers load groups, the ExecuteCommand handlers EC.LIGHT_GROUP_JOIN,
+-- EC.LIGHT_GROUP_LEAVE and EC.LIGHT_GROUP_COMMAND; on a group driver's kit, EC.LIGHT_GROUP_STATE. A driver sets
+-- none of them.
+--
 -- Notifies. Every notify to the proxy and the links: LIGHT_*, DYNAMIC_CAPABILITIES_CHANGED, ONLINE_CHANGED,
 -- the link LEDs and button colors, and the answers to GET_CONNECTED_STATE and GET_LIGHT_LEVEL. EXTRAS_*
 -- stay the driver's.
@@ -259,6 +270,7 @@ Types.API = 1
 --     brightness_rate_default, color_rate_default, brightness_on_mode, button_colors, brightness_presets,
 --     color_presets, color_on_mode, previous_color, brightness_on_mode_preset, max_on_level, min_on_level
 --   Scenes: scenes
+--   Groups: load_groups, light_groups
 
 -----------------------------------------------------------------------------------------------------
 -- The library's own shapes
@@ -371,6 +383,7 @@ Types.API = 1
 --- @field extended boolean The deadline was extended once.
 --- @field deadline integer
 --- @field landed boolean|nil What is held is a position no command sent, reported once the newest change had landed.
+--- @field left boolean|nil An on report has shown the light away from where it stood when the window opened.
 
 --- What start read from the proxy, which Motion starts from and the first report is weighed against.
 --- @class LightSeed
@@ -383,6 +396,7 @@ Types.API = 1
 --- @field foreign LightAspect[] The aspects another hand moved.
 --- @field ask boolean Call adapter:refresh() once.
 --- @field form LightColor|nil The running color ramp's end in the form the light echoed it.
+--- @field kept LightColor|nil The color a "hold" device reports while a color is held: where its next on lights from.
 --- @field first LightAspect[] The aspects this was the first report of since a start or a loss, a match included:
 ---   each is told to the proxy, changed or not.
 

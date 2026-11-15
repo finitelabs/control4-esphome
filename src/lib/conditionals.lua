@@ -19,10 +19,16 @@ local CONDITIONALS_PERSIST_KEY = "Conditionals"
 --- @type number
 local CONDITIONAL_ID_START = 10
 
+--- Composer sorts a device's conditionals only when every one has a sort_order, driver.xml's
+--- included, so one given none is listed from here, after driver.xml's, in order of statement.
+--- @type number
+local SORT_ORDER_START = 1000
+
 --- @class ConditionalConfig
 --- @field type string
 --- @field condition_statement string
 --- @field description string
+--- @field sort_order number? Where Composer lists it; left out, it follows driver.xml's in order of statement.
 
 --- @class Conditional:ConditionalConfig
 --- @field conditionalId number
@@ -148,14 +154,59 @@ end
 
 local conditionals = Conditionals:new()
 
---- Retrieves all conditionals in a program-friendly format.
+--- Whether statement a sorts before b, case aside and its runs of digits compared as numbers, so
+--- Button 2 comes before Button 10.
+--- @param a string
+--- @param b string
+--- @return boolean
+local function statementBefore(a, b)
+  local pa, pb = 1, 1
+  while pa <= #a and pb <= #b do
+    local da, db = a:match("^%d+", pa), b:match("^%d+", pb)
+    if da and db then
+      local na, nb = tonumber(da), tonumber(db)
+      if na ~= nb then
+        return na < nb
+      end
+      pa, pb = pa + #da, pb + #db
+    else
+      local ca, cb = a:sub(pa, pa):lower(), b:sub(pb, pb):lower()
+      if ca ~= cb then
+        return ca < cb
+      end
+      pa, pb = pa + 1, pb + 1
+    end
+  end
+  return #a - pa < #b - pb
+end
+
+--- Retrieves all conditionals in a program-friendly format, each with a sort_order.
 --- @return table<string, Conditional> conditionals A table of conditionals indexed by their ID as strings.
 function GetConditionals()
   log:trace("GetConditionals()")
   local progConditionals = {}
+  --- @type Conditional[]
+  local unsorted = {}
   eachConditional(conditionals:getConditionals(), function(conditional)
     progConditionals[tostring(conditional.conditionalId)] = conditional
+    if conditional.sort_order == nil then
+      unsorted[#unsorted + 1] = conditional
+    end
   end)
+  table.sort(unsorted, function(a, b)
+    local sa, sb = tostring(a.condition_statement or ""), tostring(b.condition_statement or "")
+    if statementBefore(sa, sb) then
+      return true
+    elseif statementBefore(sb, sa) then
+      return false
+    elseif sa ~= sb then
+      return sa < sb
+    end
+    return a.conditionalId < b.conditionalId
+  end)
+  for i, conditional in ipairs(unsorted) do
+    conditional.sort_order = SORT_ORDER_START + i
+  end
   return progConditionals
 end
 

@@ -43,6 +43,7 @@ local PROFILE_BOOLEANS = {
   onModes = true,
   flash = true,
   extras = true,
+  loadGroups = true,
 }
 
 local PROFILE_FIELDS = { api = true, proxy = true, links = true, cct = true, maxMs = true }
@@ -557,7 +558,7 @@ function Caps.static(profile)
     row("multi_click", "False"),
     row("supports_broadcast_scenes", "False"),
     row("supports_multichannel_scenes", "False"),
-    row("load_group_support", "False"),
+    row("load_group_support", bool(profile.loadGroups)),
   }
 end
 

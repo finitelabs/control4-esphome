@@ -38,7 +38,8 @@ then pull the change in with `copier update`.
 **Common libraries (`src/lib/`):**
 
 - `bindings.lua`: binding management
-- `conditionals.lua`: conditional/programming UI management
+- `conditionals.lua`: conditional/programming UI management; gives each one a
+  `sort_order`
 - `diagnostics.lua`: Cloud Monitoring, a DriverCentral build's reports of its
   memory use and errors (see [Cloud Monitoring](#cloud-monitoring))
 - `driver-filenames.lua`: every `.c4z` the repo builds, written in by the build
@@ -242,7 +243,7 @@ make test          # Run the Lua test suite (test/test_*.lua) and tools/test_*.p
 make support-code  # Print today's Support Code (see The Support Code)
 make dc-release    # Download the newest release's DriverCentral upload (TAG=v... for another)
 make fmt           # Format all code (Lua, Python, Markdown)
-make check         # Assert formatting and build secrets without rewriting, as CI does
+make check         # Assert formatting, build secrets and conditional sort_order, as CI does
 make clean         # Remove build artifacts and dist/ (including driverpackager)
 make clean-all     # Remove everything (build artifacts, dist, deps, venv)
 ```
