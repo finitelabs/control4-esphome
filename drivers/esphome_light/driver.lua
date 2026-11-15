@@ -45,6 +45,7 @@ local light = Light.new(adapter, {
   scenes = true,
   onModes = true,
   flash = true,
+  loadGroups = true,
 })
 
 -- The entity the light last listed; nil until its first report since a load, bind or disconnect.
