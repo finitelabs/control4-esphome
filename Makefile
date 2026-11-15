@@ -110,11 +110,13 @@ fmt-md: $(VENV_STAMP)
 	[ -z "$$files" ] || $(VENV_PY) tools/docs.py fmt --wrap 80 $$files
 
 # ─── Check ────────────────────────────────────────────────────────────────────
-# Assert-only mirror of fmt (--check, no rewrite), and that the Build workflow
-# passes the build secrets .env.default declares; this is what CI runs.
+# Assert-only mirror of fmt (--check, no rewrite), that the Build workflow
+# passes the build secrets .env.default declares, and that every driver.xml
+# conditional has a sort_order, as Composer lists them in order only then; this
+# is what CI runs.
 
-.PHONY: check check-lua check-py check-md check-secrets
-check: check-lua check-py check-md check-secrets ## Assert all code is formatted and build secrets match (no rewrite)
+.PHONY: check check-lua check-py check-md check-secrets check-sort-order
+check: check-lua check-py check-md check-secrets check-sort-order ## Assert all code is formatted, build secrets match and every conditional has a sort_order (no rewrite)
 
 check-lua:
 	@dirs=""; for d in ./drivers ./src ./test ./tools ./vendor; do \
@@ -133,6 +135,9 @@ check-md: $(VENV_STAMP)
 
 check-secrets:
 	@./tools/preprocess.py --check-secrets
+
+check-sort-order:
+	@[ -z "$(DRIVERS)" ] || python3 tools/package.py check-sort-order $(DRIVERS)
 
 # ─── Preprocess ───────────────────────────────────────────────────────────────
 

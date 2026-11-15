@@ -40,6 +40,7 @@ local DEFAULT_FADE = { kind = "device", curve = "linear", preOn = false, retimes
 ---   the power and level it sent.
 --- @field wireOn boolean The power the newest command sent leaves the device in.
 --- @field held boolean The light is off with a color told but not sent; LightNow.colorHeld on a "hold" device.
+--- @field keptColor LightColor|nil While a color is held, the one the device kept: where it lights from.
 --- @field levelPreset integer|nil
 --- @field colorPreset integer|nil
 --- @field colorPresetOrigin integer|nil
@@ -153,6 +154,25 @@ function Motion:view(t)
   return view
 end
 
+--- The aspects a walk has run past the end of without sending where they end: the proxy is told them with the
+--- step that does, as the light only gets there then.
+--- @param t integer
+--- @return {level: boolean, color: boolean}|nil
+function Motion:unlanded(t)
+  local lr, cr, walked = self.levelRamp, self.colorRamp, self.walked
+  if self:_fade().kind ~= "walk" or (lr == nil and cr == nil) then
+    return nil
+  end
+  local level = lr ~= nil
+    and t >= lr.startMs + lr.ms
+    and (walked == nil or (lr.to <= 0) ~= (walked.level <= 0) or not self:_sameLevel(lr.to, walked.level))
+  local color = cr ~= nil and t >= cr.startMs + cr.ms and (walked == nil or not sameColor(cr.to, walked.color, 0))
+  if not level and not color then
+    return nil
+  end
+  return { level = level, color = color }
+end
+
 --- When the newest change of an aspect ends.
 --- @param aspect LightAspect
 --- @return integer ms C4:GetTime() ms.
@@ -237,10 +257,14 @@ function Motion:settle(values)
   if values.on ~= nil or values.level ~= nil then
     local lr = self.levelRamp
     if values.on ~= nil then
+      -- Another hand lit it while a color was held, so it shows the color it kept until a report says otherwise.
+      if values.on and values.color == nil and self:_held() and self.keptColor then
+        self.color, self.colorPreset, self.colorPresetOrigin = self.keptColor, nil, nil
+      end
       self.on = values.on
       self.wireOn = values.on
       if values.on then
-        self.held = false
+        self.held, self.keptColor = false, nil
       end
     end
     if values.level ~= nil then
@@ -256,7 +280,7 @@ function Motion:settle(values)
   if values.color ~= nil then
     if not sameColor(values.color, self.color) then
       self.colorPreset, self.colorPresetOrigin = nil, nil
-      self.held = false
+      self.held, self.keptColor = false, nil
     end
     self.color = values.color
     self:_endColorRamp()
@@ -478,7 +502,7 @@ function Motion:_toLevel(out, intent, choice, ms)
   -- A light that does not dim takes no level ramp, but a color the command carries still runs over the fade.
   local length = Fade.length(fade, fromShown > 0, toOn, rate)
   local levelLength = device.dims and length or 0
-  local fromColor = self:_colorAt(t)
+  local fromColor = (toOn and self:_held() and self.keptColor) or self:_colorAt(t)
   local from = { level = fromShown, color = fromColor }
   local kept = self:_kept(fromShown)
   self.on = toOn
@@ -1140,16 +1164,16 @@ function Motion:_push(out, cmd)
     return
   end
   if hold and not cmd.on and not cmd.setsLevel then
-    self.held = true
+    self:_hold(cmd.from.color)
     return
   end
   -- A "hold" device drops a color sent with an off too, so the off goes without it and the color is held.
   if hold and not cmd.on and cmd.setsColor then
     cmd.setsColor = false
-    self.held = true
+    self:_hold(cmd.from.color)
   end
   if cmd.on or cmd.setsColor then
-    self.held = false
+    self.held, self.keptColor = false, nil
   end
   local asked = cmd.color
   cmd.color = self:_wire(cmd.color)
@@ -1171,6 +1195,24 @@ function Motion:_push(out, cmd)
     self.levelSent = { at = C4:GetTime(), on = cmd.on, level = cmd.level }
   end
   out[#out + 1] = cmd
+end
+
+--- The color a "hold" device reports while a color is held: the one its next on lights from.
+--- @param color LightColor
+function Motion:keep(color)
+  if self:_held() then
+    self.keptColor = color
+  end
+end
+
+--- Hold a color for the next on. The first one held keeps the color the device has.
+--- @private
+--- @param kept LightColor|nil
+function Motion:_hold(kept)
+  if not self.held then
+    self.keptColor = kept
+  end
+  self.held = true
 end
 
 --- A "hold" device is off with a color told but not sent.

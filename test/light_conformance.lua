@@ -652,6 +652,95 @@ function C.run(T, rig)
     end
   end
 
+  if profile.loadGroups and dims then
+    T.section(name .. ": a load group's level reaches the device as Set Level does, and its off ends off")
+    C.case(T, name, function()
+      local h = fresh(rig)
+      local p = h.proxy
+      p:send("GROUP_SET_LEVEL", { GROUP_ID = 9001, LEVEL = 40 })
+      h.clock.run(ms)
+      T.eq(name .. ": the device is at 40", percent(h), 40)
+      T.eq(name .. ": as the proxy shows", p.level, 40)
+      p:send("GROUP_SET_LEVEL", { GROUP_ID = 9001, LEVEL = 0 })
+      h.clock.run(ms)
+      T.eq(name .. ": then off", h.device.state().on, false)
+      finish(h)
+    end)
+
+    if ramps then
+      T.section(name .. ": a load group's hold ramps the light until its stop, and holds it there")
+      C.case(T, name, function()
+        local h = fresh(rig)
+        local p = h.proxy
+        p:send("SET_LEVEL", { LEVEL = 10 })
+        h.clock.run(ms)
+        p:send("GROUP_START_RAMP", { GROUP_ID = 9001, RAMP_UP = 1, RATE = 5000 })
+        h.clock.run(1500)
+        p:send("GROUP_STOP_RAMP", { GROUP_ID = 9001 })
+        h.clock.run(ms)
+        local at = percent(h)
+        T.check(name .. ": the hold raised the level part way", at > 10 and at < 100, at)
+        T.check(
+          name .. ": where the proxy shows",
+          math.abs((p.level or -9) - at) <= 1,
+          T.show({ shown = p.level, device = at })
+        )
+        finish(h)
+      end)
+    end
+
+    T.section(name .. ": a load group in sync takes the light's own On, and once it leaves the light acts again")
+    C.case(T, name, function()
+      local h = fresh(rig)
+      local p = h.proxy
+      local handed = {}
+      local sendToDevice = C4.SendToDevice
+      C4.SendToDevice = function(c4, id, cmd, params, ...)
+        handed[#handed + 1] = { id, cmd }
+        return sendToDevice(c4, id, cmd, params, ...)
+      end
+      open[#open + 1] = function()
+        C4.SendToDevice = sendToDevice
+      end
+      p:send("OFF")
+      h.clock.run(ms)
+      p:send("JOIN_GROUP", { GROUP_ID = 9001, KEEP_SYNC = 1 })
+      p:send("ON")
+      h.clock.run(ms)
+      T.eq(name .. ": the On goes to the group", handed, { { 9001, "ON" } })
+      T.eq(name .. ": and the light stays off", h.device.state().on, false)
+      p:send("LEAVE_GROUP", { GROUP_ID = 9001 })
+      p:send("ON")
+      h.clock.run(ms)
+      T.eq(name .. ": out of the group, the On lights it", h.device.state().on, true)
+      finish(h)
+    end)
+
+    T.section(name .. ": a group driver's decided level reaches the device, and the group is told it")
+    C.case(T, name, function()
+      local h = fresh(rig)
+      local p = h.proxy
+      local told = {}
+      local sendToDevice = C4.SendToDevice
+      C4.SendToDevice = function(c4, id, cmd, params, ...)
+        if cmd == "LIGHT_GROUP_STATE" then
+          told[#told + 1] = { id, params.LEVEL }
+        end
+        return sendToDevice(c4, id, cmd, params, ...)
+      end
+      open[#open + 1] = function()
+        C4.SendToDevice = sendToDevice
+      end
+      p:send("LIGHT_GROUP_JOIN", { GROUP_ID = 9002, MEMBER_ID = "5" })
+      p:send("LIGHT_GROUP_COMMAND", { GROUP_ID = 9002, KIND = "level", LEVEL = 40, RATE = 0 })
+      h.clock.run(ms)
+      T.eq(name .. ": the device is at 40", percent(h), 40)
+      T.eq(name .. ": and the group was told 40", told[#told], { 9002, "40" })
+      p:send("LIGHT_GROUP_LEAVE", { GROUP_ID = 9002 })
+      finish(h)
+    end)
+  end
+
   if profile.scenes then
     T.section(name .. ": a stepped scene runs its steps to the last")
     C.case(T, name, function()
