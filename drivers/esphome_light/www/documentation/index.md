@@ -70,6 +70,7 @@ entities, allowing them to be controlled through the Control4 light proxy.
   link bindings
 - Advanced Lighting Scenes participation: dim and color steps, ramp/stop, and
   flash mode
+- Control4 load groups
 - Real-time state synchronization with the ESPHome device
 
 # <span style="color:#17BCF2">Compatibility</span>

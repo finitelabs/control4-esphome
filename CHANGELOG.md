@@ -20,6 +20,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added Control4 load groups to the ESPHome light: it joins a load group and
+  follows the group's level, ramps and sync.
+
 ### Changed
 
 - After a driver restart or a reconnect the ESPHome light reports its brightness
