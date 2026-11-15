@@ -46,6 +46,13 @@ function Range.toLevel(brightness, lo, hi)
   return math.max(1, math.min(100, math.floor(level + 0.5)))
 end
 
+--- A device brightness (0 to 1) as a whole percent from 1 to 100: the scale a light group and its members use.
+--- @param brightness number
+--- @return integer percent
+function Range.percent(brightness)
+  return math.max(1, math.min(100, math.floor(brightness * 100 + 0.5)))
+end
+
 --- The device step (of `steps` from off to full) a brightness goes out at.
 --- @param brightness number
 --- @param steps integer|nil nil is continuous: the brightness itself.
