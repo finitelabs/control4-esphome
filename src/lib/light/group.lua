@@ -18,7 +18,6 @@
 --- The group's profile says cct = true and leaves loadGroups out: a group is not a member of a group.
 
 local log = require("lib.logging")
-local Range = require("lib.light.range")
 local Timer = require("lib.light.timer")
 
 require("drivers-common-public.global.handlers")
@@ -52,6 +51,14 @@ Group.__index = Group
 
 --- How long after a command's fade the group waits for its members' last reports.
 Group.SETTLE_MS = 500
+
+--- The level a member is sent for the group's device brightness: the group's Min and Max On have placed it, and
+--- the member places it again on its own.
+--- @param brightness number 0-1.
+--- @return integer level 1-100.
+function Group.levelOf(brightness)
+  return math.max(1, math.min(100, math.floor(brightness * 100 + 0.5)))
+end
 
 --- @type table<string, boolean>
 Group.RULES = { most = true, lowest = true, highest = true }
@@ -104,12 +111,15 @@ function Group:setMembers(ids)
       self.states[tostring(id)] = nil
     end
   end
+  -- A member's state can come back within its join, so the list is set before any join goes out.
   self.members = {}
+  for _, id in ipairs(ids) do
+    self.members[#self.members + 1] = id
+  end
   for _, id in ipairs(ids) do
     if not was[id] or not self.states[tostring(id)] then
       C4:SendToDevice(id, "LIGHT_GROUP_JOIN", { GROUP_ID = me, MEMBER_ID = tostring(id) })
     end
-    self.members[#self.members + 1] = id
   end
   self:_changed()
 end
@@ -177,13 +187,14 @@ function Group:send(cmd)
     -- Each member opens its own rated on from off as its device needs.
     return nil
   end
-  local params = { GROUP_ID = tostring(C4:GetDeviceID()), RATE = tostring(cmd.transitionMs) }
-  if cmd.kind == "stop" then
-    params.KIND = (cmd.setsLevel and cmd.setsColor) and "stop" or (cmd.setsLevel and "stopLevel" or "stopColor")
-  elseif cmd.setsLevel then
+  -- A stop rests each member where the group's estimate is, at once.
+  local params = {
+    GROUP_ID = tostring(C4:GetDeviceID()),
+    RATE = tostring(cmd.kind == "stop" and 0 or cmd.transitionMs),
+  }
+  if cmd.setsLevel then
     if cmd.on then
-      local m = self.light.settings:forMotion()
-      params.KIND, params.LEVEL = "level", tostring(Range.toLevel(cmd.level, m.lo, m.hi))
+      params.KIND, params.LEVEL = "level", tostring(Group.levelOf(cmd.level))
     else
       params.KIND = cmd.setsColor and "level" or "off"
       params.LEVEL = cmd.setsColor and "0" or nil
@@ -197,7 +208,7 @@ function Group:send(cmd)
   else
     return nil
   end
-  self.quietUntil = math.max(self.quietUntil, C4:GetTime() + cmd.transitionMs + Group.SETTLE_MS)
+  self.quietUntil = math.max(self.quietUntil, C4:GetTime() + tonumber(params.RATE) + Group.SETTLE_MS)
   self:deliver("LIGHT_GROUP_COMMAND", params)
   self:_armQuiet()
   return nil
@@ -325,11 +336,10 @@ function Group:_report(kind)
     return
   end
   self.asked = false
-  local m = self.light.settings:forMotion()
   self.light:report({
     kind = kind,
     on = chosen.on,
-    level = chosen.on and Range.toDevice(chosen.level, m.lo, m.hi) or nil,
+    level = chosen.on and chosen.level / 100 or nil,
     color = chosen.on and chosen.color or nil,
   })
 end
