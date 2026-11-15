@@ -346,10 +346,15 @@ function Light:groupDriver(strCommand, tParams)
   self:_tellGroups()
 end
 
---- A command a group driver decided: its on mode, Dim-To-Warm and rates are already applied, so the light's own
---- are not. The light's Min and Max On still place the level, as for any command.
+--- A command a group driver decided: its on mode, Dim-To-Warm, rates and Min and Max On are already applied, so the
+--- light's own are not. Its level is a percent of the device's brightness, which the light goes to inside its own
+--- Min and Max On.
 --- @param intent LightIntent
 function Light:take(intent)
+  if intent.level and intent.level > 0 then
+    local lo, hi = self.settings:onRange()
+    intent.level = Range.toLevel(intent.level / 100, lo, hi)
+  end
   self:_followUp(self:_move(intent, true))
 end
 
@@ -545,14 +550,13 @@ function Light:_tellGroups()
   local view = self.motion:view()
   local level = view.levelTarget or view.level
   local on = view.on and level > 0
-  local m = self.settings:forMotion()
   self.groups:tell({
     online = self.online,
     dims = device.dims == true,
     hasColor = device.color == true,
     cct = device.cct,
     on = on,
-    level = on and Range.toLevel(level, m.lo, m.hi) or 0,
+    level = on and Range.percent(level) or 0,
     color = view.colorTarget or view.color,
   })
 end
