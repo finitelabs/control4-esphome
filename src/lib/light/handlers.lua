@@ -87,9 +87,6 @@ local DECIDED = {
   level = "level",
   off = "off",
   color = "color",
-  stopLevel = "stopLevel",
-  stopColor = "stopColor",
-  stop = "stop",
 }
 
 -- The light's own commands a load group in sync takes instead of the light, and the name each goes on as.

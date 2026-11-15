@@ -101,10 +101,10 @@ then pull the change in with `copier update`.
 - `requirements.txt`, the build-time Python dependency list
 - `test/testlib.lua`, `test/c4_fixtures.lua`, `test/c4_shim.lua`,
   `test/run_test.sh`, and the `test/test_*.lua` suites covering shared code
-- `test/light_proxy_fake.lua`, `test/light_rig.lua`, `test/light_drivers.lua`,
-  `test/light_conformance.lua`, `test/test_light_conformance.lua`,
-  `test/light_contract_cases.lua` and `test/light_setup/`, the Light V2
-  conformance kit, and `tools/light-caps.lua`
+- `test/light_proxy_fake.lua`, `test/light_rig.lua`, `test/light_group_rig.lua`,
+  `test/light_drivers.lua`, `test/light_conformance.lua`,
+  `test/test_light_conformance.lua`, `test/light_contract_cases.lua` and
+  `test/light_setup/`, the Light V2 conformance kit, and `tools/light-caps.lua`
 - `.copier-answers.yml`, which Copier maintains; never edit it by hand
 
 ### What's Driver-Specific (Yours to Edit)
@@ -465,8 +465,10 @@ Driver.
 `test/light_rigs.lua`, written to the rig interface in `test/light_rig.lua`.
 Each rig loads its driver as it ships and fakes only its transport, and the
 cases in `test/light_conformance.lua` judge what a fake proxy
-(`test/light_proxy_fake.lua`) is told and where the device ends. A repo with no
-light driver and no rigs passes with a note.
+(`test/light_proxy_fake.lua`) is told and where the device ends. A light group
+driver's rig is `test/light_group_rig.lua`'s `rig(name, property)`: two fake
+member lights behind the group as it ships. A repo with no light driver and no
+rigs passes with a note.
 
 `test/light_contract_cases.lua` holds named scenarios with the exact commands
 the library sends an adapter for each. An adapter's own wire test feeds those
