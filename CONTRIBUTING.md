@@ -38,6 +38,9 @@ then pull the change in with `copier update`.
 **Common libraries (`src/lib/`):**
 
 - `bindings.lua`: binding management
+- `companions.lua`: gives each of a hub driver's bindings a companion driver,
+  one at a time: the one it had, a spare, or a new one, named and shown only in
+  its room
 - `conditionals.lua`: conditional/programming UI management; gives each one a
   `sort_order`
 - `diagnostics.lua`: Cloud Monitoring, a DriverCentral build's reports of its
@@ -243,7 +246,7 @@ make test          # Run the Lua test suite (test/test_*.lua) and tools/test_*.p
 make support-code  # Print today's Support Code (see The Support Code)
 make dc-release    # Download the newest release's DriverCentral upload (TAG=v... for another)
 make fmt           # Format all code (Lua, Python, Markdown)
-make check         # Assert formatting, build secrets and conditional sort_order, as CI does
+make check         # Assert formatting, docs list spacing, build secrets and conditional sort_order, as CI does
 make clean         # Remove build artifacts and dist/ (including driverpackager)
 make clean-all     # Remove everything (build artifacts, dist, deps, venv)
 ```
@@ -261,7 +264,9 @@ on a clean tree until something has populated `build/`.
 `make build` runs these in order, starting from a cleaned `build/`:
 
 1. **Format**: stylua (Lua), black (Python), mdformat (Markdown)
-1. **Preprocess**: resolve `#ifdef`/`#ifndef` directives per distribution
+1. **Preprocess**: resolve `#ifdef`/`#ifndef` directives per distribution. In
+   Markdown, where a removed directive sat between two list items, the list
+   keeps its own spacing; `make check` fails on a built list spaced unevenly
 1. **Generate squishy**: create squish manifests from .c4zproj files
 1. **Update driver.xml**: stamp version date and modified timestamp
 1. **Generate docs**: Markdown -> HTML -> PDF, plus README and DriverCentral's

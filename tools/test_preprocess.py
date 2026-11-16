@@ -96,6 +96,77 @@ class DriverFilenamesDirectiveTest(unittest.TestCase):
         self.assertEqual(out, "")
 
 
+class DirectiveGapsTest(unittest.TestCase):
+    # How mdformat writes a top-level DriverCentral-only entry in a docs Index.
+    INDEX = (
+        "- [Setup](#setup)\n"
+        "  - [Connections](#connections)\n"
+        "\n<!-- #ifdef DRIVERCENTRAL -->\n\n"
+        "- [Developer Information](#developer-information)\n"
+        "\n<!-- #endif -->\n\n"
+        "- [Support](#support)\n"
+    )
+
+    def _process(self, content, conditions, name="index.md"):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        f = Path(tmp.name) / name
+        f.write_text(content, encoding="utf-8")
+        process_file(f, conditions)
+        return f.read_text(encoding="utf-8")
+
+    def test_a_list_without_the_entry_stays_tight(self):
+        self.assertEqual(
+            self._process(self.INDEX, {"OSS"}),
+            "- [Setup](#setup)\n  - [Connections](#connections)\n- [Support](#support)\n",
+        )
+
+    def test_a_list_with_the_entry_stays_tight(self):
+        self.assertEqual(
+            self._process(self.INDEX, {"DRIVERCENTRAL"}),
+            "- [Setup](#setup)\n"
+            "  - [Connections](#connections)\n"
+            "- [Developer Information](#developer-information)\n"
+            "- [Support](#support)\n",
+        )
+
+    def test_a_loose_list_keeps_its_blank_line_between_items(self):
+        doc = "1. One\n\n1. Two\n\n<!-- #ifdef DRIVERCENTRAL -->\n\n1. Three\n\n<!-- #endif -->\n\n1. Four\n"
+        self.assertEqual(self._process(doc, {"OSS"}), "1. One\n\n1. Two\n\n1. Four\n")
+
+    def test_paragraphs_stay_apart(self):
+        doc = "One.\n\n<!-- #ifdef DRIVERCENTRAL -->\n\nTwo.\n\n<!-- #else -->\n\nThree.\n\n<!-- #endif -->\n\nFour.\n"
+        self.assertEqual(self._process(doc, {"OSS"}), "One.\n\nThree.\n\nFour.\n")
+        self.assertEqual(
+            self._process(doc, {"DRIVERCENTRAL"}), "One.\n\nTwo.\n\nFour.\n"
+        )
+
+    def test_a_paragraph_after_a_list_stays_out_of_it(self):
+        doc = "- One\n\n<!-- #ifdef DRIVERCENTRAL -->\n\n- Two\n\n<!-- #endif -->\n\nAfter.\n"
+        self.assertEqual(self._process(doc, {"OSS"}), "- One\n\nAfter.\n")
+
+    def test_a_directive_inside_an_item_leaves_no_blank_line(self):
+        doc = (
+            "  - [Properties](#properties)\n"
+            "    <!-- #ifdef DRIVERCENTRAL -->\n"
+            "    - [Cloud](#cloud)\n"
+            "    <!-- #endif -->\n"
+            "    - [Settings](#settings)\n"
+        )
+        self.assertEqual(
+            self._process(doc, {"OSS"}),
+            "  - [Properties](#properties)\n    - [Settings](#settings)\n",
+        )
+
+    def test_other_files_keep_their_blank_lines(self):
+        doc = (
+            "<a/>\n\n<!-- #ifdef DRIVERCENTRAL -->\n\n<b/>\n\n<!-- #endif -->\n\n<c/>\n"
+        )
+        self.assertEqual(
+            self._process(doc, {"OSS"}, name="driver.xml"), "<a/>\n\n\n<c/>\n"
+        )
+
+
 class PackagedDriverNamesTest(unittest.TestCase):
     def _drivers(self, projects):
         tmp = tempfile.TemporaryDirectory()
