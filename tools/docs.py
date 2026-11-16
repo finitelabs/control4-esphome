@@ -8,6 +8,7 @@ Subcommands:
   docs.py revisions <input.md>  <output.html>  # changelog -> DriverCentral Revisions
   docs.py description <input.md> <output.html> # DriverCentral description
   docs.py fmt      [--check] --wrap N <md...>  # mdformat, keeping alert markers
+  docs.py check-lists <md...>                  # fail on a list spaced unevenly
 
 Pipeline:
   - Markdown -> HTML via markdown-it-py (GitHub-flavored, HTML passthrough),
@@ -64,11 +65,6 @@ LAYOUT_CSS = """
 .markdown-body code, .markdown-body pre, .markdown-body tt {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", "DejaVu Sans Mono", Menlo, monospace;
 }
-/* The docs index is authored in a small-font <div>. Preprocessor #ifdef blocks
-   can leave a blank line in the list for some distributions, which makes markdown
-   render it "loose": each <li> wrapped in a <p> whose paragraph margins add
-   large vertical gaps. Keep the index compact regardless. */
-.markdown-body div[style*="font-size"] li > p { margin: 0; }
 /* The browser default 3rd-level (and deeper) list marker is a heavy full-size
    black square that reads as clunky next to the level 1/2 disc & circle. Use a
    small square instead so deep index nesting stays clean. */
@@ -467,6 +463,45 @@ def fmt(args: list[str]) -> int:
     return failed
 
 
+def _uneven_lists(text: str) -> list[int]:
+    """
+    The first line of each list with a blank line between some of its items and
+    none between others. mdformat spaces every gap in a list alike, so only a
+    removed #ifdef/#endif line leaves one like this, and it renders the whole
+    list loose: each item a paragraph, spaced apart.
+    """
+    lines = text.splitlines()
+    found = []
+    lists: list[tuple] = []
+    for token in _make_md().parse(text):
+        if token.type in ("bullet_list_open", "ordered_list_open"):
+            lists.append((token, []))
+        elif token.type in ("bullet_list_close", "ordered_list_close"):
+            opened, starts = lists.pop()
+            gaps = {not lines[start - 1].strip() for start in starts[1:]}
+            if len(gaps) == 2:
+                found.append(opened.map[0] + 1)
+        elif token.type == "list_item_open" and token.level == lists[-1][0].level + 1:
+            lists[-1][1].append(token.map[0])
+    return found
+
+
+def check_lists(paths: list[str]) -> int:
+    """Name each list spaced unevenly between its items, and fail."""
+    failed = 0
+    for path in map(Path, paths):
+        for line in _uneven_lists(path.read_text(encoding="utf-8")):
+            print(
+                f'Error: File "{path.absolute()}", line {line}: this list has a'
+                " blank line between some of its items and not others, so it"
+                " renders spaced out. A removed #ifdef/#endif line leaves one: see"
+                " close_directive_gaps in tools/preprocess.py.",
+                file=sys.stderr,
+            )
+            failed = 1
+    return failed
+
+
 _COMMANDS = {
     "md2html": md2html,
     "html2pdf": html2pdf,
@@ -479,6 +514,8 @@ _COMMANDS = {
 def main() -> int:
     if sys.argv[1:2] == ["fmt"]:
         return fmt(sys.argv[2:])
+    if sys.argv[1:2] == ["check-lists"]:
+        return check_lists(sys.argv[2:])
     if len(sys.argv) != 4 or sys.argv[1] not in _COMMANDS:
         print(__doc__, file=sys.stderr)
         return 1

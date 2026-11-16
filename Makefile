@@ -115,8 +115,8 @@ fmt-md: $(VENV_STAMP)
 # conditional has a sort_order, as Composer lists them in order only then; this
 # is what CI runs.
 
-.PHONY: check check-lua check-py check-md check-secrets check-sort-order
-check: check-lua check-py check-md check-secrets check-sort-order ## Assert all code is formatted, build secrets match and every conditional has a sort_order (no rewrite)
+.PHONY: check check-lua check-py check-md check-docs check-secrets check-sort-order
+check: check-lua check-py check-md check-docs check-secrets check-sort-order ## Assert all code is formatted, built docs space their lists evenly, build secrets match and every conditional has a sort_order (no rewrite)
 
 check-lua:
 	@dirs=""; for d in ./drivers ./src ./test ./tools ./vendor; do \
@@ -132,6 +132,18 @@ check-md: $(VENV_STAMP)
 		[ -e "$$g" ] && files="$$files $$g"; \
 	done; \
 	[ -z "$$files" ] || $(VENV_PY) tools/docs.py fmt --check --wrap 80 $$files
+
+# Each doc as both builds make it: a list spaced unevenly between its items is
+# one a removed #ifdef/#endif line spaced out.
+ifeq ($(DRIVERS),)
+check-docs:
+else
+check-docs: preprocess $(VENV_STAMP)
+	@files=""; for g in build/*/drivers/*/www/documentation/*.md build/*/documentation/*.md; do \
+		[ -e "$$g" ] && files="$$files $$g"; \
+	done; \
+	[ -z "$$files" ] || $(VENV_PY) tools/docs.py check-lists $$files
+endif
 
 check-secrets:
 	@./tools/preprocess.py --check-secrets

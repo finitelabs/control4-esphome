@@ -14,6 +14,104 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Where process_file removed a directive line, until close_directive_gaps resolves it.
+REMOVED = object()
+LIST_ITEM = re.compile(r"^\s*([-*+]|\d{1,9}[.)])(\s|$)")
+
+
+def _in_list(line: str) -> bool:
+    """Whether `line` is a list item, or an indented line that continues one."""
+    if LIST_ITEM.match(line):
+        return True
+    return line[:1] in (" ", "\t") and not line.lstrip().startswith(
+        ("<", "|", ">", "```", "~~~")
+    )
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def _blank_before(lines: list, item: int) -> bool | None:
+    """
+    Whether a blank line separates the list item at `item` from the item before
+    it, or None when it is the first item or a removed directive sits there.
+    """
+    j = item - 1
+    if j >= 0 and lines[j] is not REMOVED and lines[j].strip():
+        return False
+    while j >= 0 and lines[j] is not REMOVED and not lines[j].strip():
+        j -= 1
+    if j < 0 or lines[j] is REMOVED or not _in_list(lines[j]):
+        return None
+    return True
+
+
+def _sibling(lines: list, start: int, step: int, indent: int) -> int | None:
+    """The nearest item of the same list from `start`, walking by `step`."""
+    i = start
+    while 0 <= i < len(lines) and lines[i] is not REMOVED:
+        line = lines[i]
+        if line.strip():
+            if not _in_list(line) or _indent(line) < indent:
+                return None
+            if LIST_ITEM.match(line) and _indent(line) == indent:
+                return i
+        i += step
+    return None
+
+
+def _loose(out: list[str], lines: list, after: int, indent: int) -> bool:
+    """
+    Whether the list a directive sat in separates its items with blank lines,
+    as its items on either side of the directive show; tight when none do.
+    """
+    before = _sibling(out, len(out) - 1, -1, indent)
+    if before is not None and (gap := _blank_before(out, before)) is not None:
+        return gap
+    following = _sibling(lines, after + 1, 1, indent)
+    if following is not None and (gap := _blank_before(lines, following)) is not None:
+        return gap
+    return False
+
+
+def close_directive_gaps(lines: list) -> list[str]:
+    """
+    Resolve the blank lines around each removed directive in Markdown. mdformat
+    puts one on each side of a directive, so its removal from between two list
+    items leaves a gap that spaces the whole list out; there the gap becomes what
+    the list's other items have. Anywhere else the blank lines collapse to one,
+    which keeps the blocks on either side apart.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line is not REMOVED and line.strip():
+            out.append(line)
+            i += 1
+            continue
+        j = i
+        while j < len(lines) and (lines[j] is REMOVED or not lines[j].strip()):
+            j += 1
+        run = lines[i:j]
+        blanks = [blank for blank in run if blank is not REMOVED]
+        following = lines[j] if j < len(lines) else None
+        if len(blanks) == len(run):
+            out.extend(run)
+        elif (
+            out
+            and _in_list(out[-1])
+            and following is not None
+            and LIST_ITEM.match(following)
+        ):
+            if _loose(out, lines, j, _indent(following)):
+                out.extend(blanks[:1])
+        else:
+            out.extend(blanks[:1])
+        i = j
+    return out
+
 
 def process_file(
     file_path: Path,
@@ -168,6 +266,7 @@ def process_file(
                 if including:
                     output_lines.append(line)
             else:
+                output_lines.append(REMOVED)
                 including = including and line_condition in conditions
             continue
 
@@ -180,6 +279,7 @@ def process_file(
                 if including:
                     output_lines.append(line)
             else:
+                output_lines.append(REMOVED)
                 including = including and line_condition not in conditions
             continue
 
@@ -193,6 +293,7 @@ def process_file(
                 if including:
                     output_lines.append(line)
             else:
+                output_lines.append(REMOVED)
                 including = parent_including and not including
             continue
 
@@ -206,6 +307,7 @@ def process_file(
                 if including:
                     output_lines.append(line)
             else:
+                output_lines.append(REMOVED)
                 including = parent_including if condition_stack else True
             continue
 
@@ -232,6 +334,11 @@ def process_file(
         print(
             f"Warning: Unmatched conditional directives in {file_path}: {condition_stack}"
         )
+
+    if file_path.suffix == ".md":
+        output_lines = close_directive_gaps(output_lines)
+    else:
+        output_lines = [line for line in output_lines if line is not REMOVED]
 
     # Write the processed content back to the file
     with open(file_path, "w", encoding="utf-8") as f:

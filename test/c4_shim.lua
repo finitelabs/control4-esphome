@@ -1610,6 +1610,9 @@ local ROOM_C4I_NAME = "roomdevice.c4i"
 
 --- @type table<number, table>
 local shim_devices = {}
+--- The adds C4:AddDevice has not answered yet; see ShimAnswerAdds.
+--- @type { file: string, room: integer, name: string|nil, callback: function|nil }[]
+local shim_adds = {}
 
 --- @param devices table<number, table> id -> { deviceName?, driverFileName?, roomId?, roomName?, protocol?, proxies?, variables?, hidden? }
 function ShimSetDevices(devices)
@@ -1618,6 +1621,7 @@ end
 
 function ShimResetDevices()
   shim_devices = {}
+  shim_adds = {}
 end
 
 --- Take a device out of every lookup, modeling a transient resolution failure.
@@ -1706,6 +1710,99 @@ function C4:GetDeviceDisplayName(deviceId)
     return device.deviceName
   end
   -- Absent or nameless: return no value, matching the controller.
+end
+
+--- @return table<integer, string>|nil devices Every device of a driver file, rooms included, as { [id] = name }.
+function C4:GetDevicesByC4iName(c4iName)
+  local found
+  for deviceId, device in pairs(shim_devices) do
+    if not device.hidden and device.driverFileName == c4iName then
+      found = found or {}
+      found[deviceId] = device.deviceName
+    end
+  end
+  return found
+end
+
+local shim_room = 1
+--- The room this driver is in, for C4:RoomGetId.
+function ShimSetRoom(roomId)
+  shim_room = roomId
+end
+function C4:RoomGetId()
+  return shim_room
+end
+
+-- C4:AddDevice and C4:RenameDevice, as measured on a 4.3 controller (2026-11-15). The add answers after the call
+-- returns, with the new driver's id and a parsed <devices> node naming it and its proxy; the name given names both,
+-- in the room given or the caller's, and the new driver's connections exist when it answers. A file the controller
+-- does not have answers 0 and an <error> node, and adds nothing. Renaming a proxy renames its driver too.
+
+--- @type table<string, true>
+local shim_driver_files = {}
+local shim_next_id = 9000
+
+--- @param files string[] The driver files C4:AddDevice can add; any other is not on the controller.
+function ShimSetDriverFiles(files)
+  shim_driver_files = {}
+  for _, file in ipairs(files or {}) do
+    shim_driver_files[file] = true
+  end
+end
+
+function C4:AddDevice(file, ...)
+  local args = { ... }
+  local callback = type(args[#args]) == "function" and table.remove(args) or nil
+  shim_adds[#shim_adds + 1] =
+    { file = file, room = tonumber(args[1]) or shim_room, name = args[2], callback = callback }
+end
+
+--- @return integer count The adds waiting for their answer.
+function ShimPendingAdds()
+  return #shim_adds
+end
+
+--- Harness, not a controller API: answers every add made so far, in order. An add left unanswered is one whose
+--- answer never came.
+function ShimAnswerAdds()
+  local adds = shim_adds
+  shim_adds = {}
+  for _, add in ipairs(adds) do
+    local id = 0
+    local info = { Name = "error", Value = "Unable to load driver " .. add.file, Attributes = {}, ChildNodes = {} }
+    if shim_driver_files[add.file] then
+      id, shim_next_id = shim_next_id, shim_next_id + 2
+      local name = add.name or (add.file:gsub("%.c4z$", ""))
+      shim_devices[id] =
+        { deviceName = name, driverFileName = add.file, roomId = add.room, proxies = { [id + 1] = true } }
+      shim_devices[id + 1] = { deviceName = name, driverFileName = "proxy.c4i", roomId = add.room }
+      info = {
+        Name = "devices",
+        Value = "",
+        Attributes = {},
+        ChildNodes = {
+          { Name = "protocol", Value = tostring(id), Attributes = {}, ChildNodes = {} },
+          { Name = "proxy", Value = tostring(id + 1), Attributes = {}, ChildNodes = {} },
+        },
+      }
+    end
+    if add.callback then
+      add.callback(id, info)
+    end
+  end
+end
+
+function C4:RenameDevice(deviceId, name)
+  local device = shim_devices[tonumber(deviceId)]
+  if not device then
+    return
+  end
+  device.deviceName = name
+  for _, other in pairs(shim_devices) do
+    if other.proxies and other.proxies[tonumber(deviceId)] then
+      other.deviceName = name
+    end
+  end
 end
 
 function C4:GetDeviceVariables(deviceId)
