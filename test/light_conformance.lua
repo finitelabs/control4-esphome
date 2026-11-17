@@ -187,10 +187,11 @@ end
 --- @param rig LightRig
 --- @param state LightValues|nil Where the device starts.
 --- @param variables table<integer, string>|nil What the proxy's variables hold, as after a restart.
+--- @param setup string|nil GET_SETUP's answer in place of the rig's.
 --- @return LightRigHarness
-local function fresh(rig, state, variables)
+local function fresh(rig, state, variables, setup)
   local clock = F.virtualClock()
-  local proxy = P.install(clock, { setup = rig.setup, variables = variables })
+  local proxy = P.install(clock, { setup = setup or rig.setup, variables = variables })
   local errors = {}
   local logError = log.error
   log.error = function(self, fmt, ...)
@@ -536,7 +537,8 @@ function C.run(T, rig)
 
     T.section(name .. ": a keypad asking a link for its button's colors is answered on that link")
     C.case(T, name, function()
-      local h = fresh(rig)
+      -- A proxy's setup lists the project's button colors, a new light's too.
+      local h = fresh(rig, nil, nil, rig.setup or P.setupFile("setup-732-new.xml"))
       local p = h.proxy
       for _, link in ipairs({ links.top, links.toggle, links.bottom }) do
         p:mark()

@@ -37,7 +37,7 @@ local ROW = {
   START_TELL = "At each start and reconnect the light tells its capabilities, brightness and color, even unchanged.",
   DIFF = "A command for the level or color the proxy shows tells nothing.",
   GETLEVEL = "Get Light Level answers the level last told, during a ramp and a lapse too.",
-  BUTTON_COLORS = "A button with no saved colors takes the setup's colors, then the standard defaults.",
+  BUTTON_COLORS = "A button with no saved colors takes the setup's colors, and one with neither is told none, so a keypad keeps its own.",
   ON_FADE = "Dim-To-Warm's color starts at its Dim color and follows the level as an on brings the light up, and a scene step from off fades its own color from the one the light kept.",
   OFF_DIM = "An off under Dim-To-Warm fades the color all the way to the Dim color.",
   DTW_WHITE = "A Dim-To-Warm white is told at the point on the line of whites the light shows.",
@@ -4918,35 +4918,32 @@ do
     return out
   end
 
-  T.eq("a proxy whose setup lists no buttons: each link is told the project's colors at start", started(""), {
-    [TOP_LINK] = "0000ff/000000",
-    [BOTTOM_LINK] = "000000/0000ff",
-    [TOGGLE_LINK] = "0000ff/000000",
-  })
+  T.differs("a proxy whose setup lists no buttons: each link is told the project's colors at start", ROW.BUTTON_COLORS)
+  T.eq("a proxy whose setup lists no buttons: no link is told colors at start", started(""), {})
   local listed = withTags(setupFile("setup-643.xml"), {
     BUTTON_LIST_INFO = "<BUTTON_INFO><NAME>Top</NAME><BUTTON_ID>0</BUTTON_ID><ON_COLOR>00ff00</ON_COLOR>"
       .. "<OFF_COLOR>111111</OFF_COLOR></BUTTON_INFO><BUTTON_INFO><NAME>Bottom</NAME><BUTTON_ID>1</BUTTON_ID>"
       .. "<ON_COLOR>222222</ON_COLOR><OFF_COLOR>ff0000</OFF_COLOR></BUTTON_INFO>",
   })
-  T.eq(
+  T.differs(
     "a proxy that lists its buttons: their colors over the project's, the project's for one it does not",
-    started(listed),
-    {
-      [TOP_LINK] = "00ff00/111111",
-      [BOTTOM_LINK] = "222222/ff0000",
-      [TOGGLE_LINK] = "0000ff/000000",
-    }
+    ROW.BUTTON_COLORS
   )
+  T.eq("a proxy that lists its buttons: their colors, and none for one it does not", started(listed), {
+    [TOP_LINK] = "00ff00/111111",
+    [BOTTOM_LINK] = "222222/ff0000",
+  })
   started("")
   mark()
   proxy("SET_BUTTON_COLOR", { BUTTON_ID = "1", ON_COLOR = "ff0000" })
   local told = {}
   for _, s in ipairs(sent) do
     if s.binding == BOTTOM_LINK and s.command == "BUTTON_COLORS" then
-      told[#told + 1] = s.params.ON_COLOR .. "/" .. s.params.OFF_COLOR
+      told[#told + 1] = s.params.ON_COLOR .. "/" .. (s.params.OFF_COLOR or "")
     end
   end
-  T.eq("an on color alone from Composer keeps the project's off color", told, { "ff0000/0000ff" })
+  T.differs("an on color alone from Composer keeps the project's off color", ROW.BUTTON_COLORS)
+  T.eq("an on color alone from Composer is told alone", told, { "ff0000/" })
 
   -- The Bottom's colors give its look, so the Off link is told the light's state as every link is.
   started("")

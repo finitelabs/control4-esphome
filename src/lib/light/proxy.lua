@@ -223,10 +223,11 @@ function LightProxy:online(device)
   self.ledsDue = self.leds == nil or self.lapsed
   self.lapsed = false
   self:_tellOnline(true)
+  -- Whatever 6661 lists: the proxy applies the stop flags and the brightness rates without rewriting it.
   local told = self:capabilities(device, true)
   local proxy, links = self.profile.proxy, self.profile.links
   if links then
-    -- The three buttons, a string per the NUMBER_BUTTONS notify, then each one's name and colors.
+    -- The three buttons, a string per the NUMBER_BUTTONS notify, then each one's name and the colors it has.
     SendToProxy(proxy, "NUMBER_BUTTONS", "3", "NOTIFY")
     for _, button in ipairs(Buttons.ALL) do
       local on, off = self.settings:buttonColors(button)
@@ -635,10 +636,10 @@ function LightProxy:_syncSettings()
     local on, off = self.settings:buttonColors(button)
     local told = self.buttons[button]
     if on ~= told.on or off ~= told.off then
-      if on ~= told.on then
+      if on ~= nil and on ~= told.on then
         SendToProxy(proxy, "BUTTON_INFO", { BUTTON_ID = button, ON_COLOR = on }, "NOTIFY")
       end
-      if off ~= told.off then
+      if off ~= nil and off ~= told.off then
         SendToProxy(proxy, "BUTTON_INFO", { BUTTON_ID = button, OFF_COLOR = off }, "NOTIFY")
       end
       self.buttons[button] = { on = on, off = off }
@@ -668,8 +669,8 @@ end
 --- @param button integer
 function LightProxy:_tellLinkColors(button)
   local link = self:_link(button)
-  if link then
-    local on, off = self.settings:buttonColors(button)
+  local on, off = self.settings:buttonColors(button)
+  if link and (on or off) then
     SendToProxy(link, "BUTTON_COLORS", { ON_COLOR = on, OFF_COLOR = off }, "NOTIFY")
   end
 end
@@ -756,13 +757,17 @@ function LightProxy:answer(strCommand, _tParams, _view, idBinding)
     if asking ~= nil then
       -- A keypad button bound to a Button Link asks over that link, and is answered on it.
       local on, off = self.settings:buttonColors(asking)
-      SendToProxy(idBinding, "BUTTON_COLORS", { ON_COLOR = on, OFF_COLOR = off }, "NOTIFY")
+      if on or off then
+        SendToProxy(idBinding, "BUTTON_COLORS", { ON_COLOR = on, OFF_COLOR = off }, "NOTIFY")
+      end
       SendToProxy(idBinding, "MATCH_LED_STATE", { STATE = self:_ledsHeld() }, "NOTIFY", true)
       return
     end
     for _, button in ipairs(Buttons.ALL) do
       local on, off = self.settings:buttonColors(button)
-      SendToProxy(proxy, "BUTTON_COLORS", { BUTTON_ID = button, ON_COLOR = on, OFF_COLOR = off }, "NOTIFY")
+      if on or off then
+        SendToProxy(proxy, "BUTTON_COLORS", { BUTTON_ID = button, ON_COLOR = on, OFF_COLOR = off }, "NOTIFY")
+      end
     end
     self:_sendLeds(self:_ledsHeld())
   end

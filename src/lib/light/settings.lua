@@ -158,25 +158,15 @@ function Settings:holdRate(up)
   return tointeger(persist:get(key, default)) or default
 end
 
--- Each button's LED colors, on and off, when neither a SET_BUTTON_COLOR nor the setup gave any: the Bottom
--- button's carry the Off look.
---- @type table<integer, string[]>
-local DEFAULT_BUTTON_COLORS = {
-  [0] = { "0000ff", "000000" },
-  [1] = { "000000", "0000ff" },
-  [2] = { "0000ff", "000000" },
-}
-
 --- A button's on and off LED colors: saved by SET_BUTTON_COLOR, else the proxy's setup (which holds the
---- project's), else the defaults.
+--- project's). Each is nil where neither gave it.
 --- @param button integer 0 top, 1 bottom, 2 toggle.
---- @return string onHex
---- @return string offHex
+--- @return string|nil onHex
+--- @return string|nil offHex
 function Settings:buttonColors(button)
   local saved = persist:get(Settings.P_BUTTON_COLORS, {})[tostring(button)] or {}
   local setup = self.setupColors[button] or {}
-  local default = DEFAULT_BUTTON_COLORS[button] or DEFAULT_BUTTON_COLORS[0]
-  return saved.on_color or setup.on or default[1], saved.off_color or setup.off or default[2]
+  return saved.on_color or setup.on, saved.off_color or setup.off
 end
 
 --- The level the proxy's Previous On preset holds, as it last sent it.
