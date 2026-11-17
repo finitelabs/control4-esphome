@@ -21,9 +21,9 @@ Rig.VERSION = 1
 --- @field state fun(): LightValues Where the device is now: on, level 0-1, color with x and y or kelvin.
 --- @field set fun(state: LightValues, quiet: boolean|nil) Another hand's change. quiet: the device reports its
 ---   on or off alone, so only a read shows its level.
---- @field drop fun() The connection is lost, and the driver calls light:lost(false).
+--- @field drop fun() The connection is lost, and the driver calls light:lost().
 --- @field back fun() The connection is back.
---- @field suspend fun()|nil The connection is stopped on purpose, and the driver calls light:lost(true).
+--- @field suspend fun()|nil The connection is stopped on purpose, and the driver calls light:lost().
 --- @field resume fun()|nil
 
 --- What one case holds.

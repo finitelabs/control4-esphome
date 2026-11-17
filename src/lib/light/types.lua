@@ -63,7 +63,8 @@ Types.API = 1
 --- @field cct LightCctRange|boolean|nil A range: every device has it. true: each device names its own.
 --- @field known boolean|nil Every device is as the profile says: its capabilities never change at runtime.
 --- @field fades boolean|nil Some device can fade: stops, click and hold rates, color_rate_behavior 1.
---- @field maxMs integer|nil The longest rate the static capabilities offer, for every device. Default 65535.
+--- @field maxMs integer|nil The longest rate the static capabilities offer, for every device: 1 to 999999, the most
+---   Composer reads. Default 65535.
 --- @field defaultOn boolean|nil supports_default_on. Without it an ON with no on mode resumes at the device's level.
 --- @field scenes boolean|nil Advanced Lighting Scenes.
 --- @field onModes boolean|nil The brightness and color on modes.
@@ -81,7 +82,7 @@ Types.API = 1
 --- @class LightOwnFade
 --- @field onMs integer Off to on.
 --- @field offMs integer On to off.
---- @field changeMs integer On to another level or color.
+--- @field changeMs integer On to another level or color; past 999999 it is taken as 999999.
 
 --- How the device moves. Read by Motion and Caps only. Caps.check rejects a field set for the wrong kind
 --- and fills the defaults, so no reader sees a contradictory combination.
@@ -93,7 +94,8 @@ Types.API = 1
 ---   kept, so the library opens it with a 0-time on at the bottom step.
 --- @field retimes boolean|nil "device" only, default false. A command restarts every channel over its own time,
 ---   named or not, so a command for one aspect re-times the other's running ramp. False: each aspect keeps its own.
---- @field maxMs integer|nil The longest rate the proxy may offer. Default 65535.
+--- @field maxMs integer|nil The longest rate the proxy may offer; past 999999, the most Composer reads, it is taken as
+---   999999. Default 65535.
 --- @field own LightOwnFade|nil Required for "own", nil otherwise.
 --- @field stepMs integer|nil "walk" only: the time between steps. Default 100.
 
@@ -236,10 +238,10 @@ Types.API = 1
 --   made inside send or refresh waits until the library's follow-up ends. One with a non-finite or out-of-range
 --   value, or an unknown kind, is dropped whole with an error logged.
 --
--- light:lost(suspended)
---   The connection is gone, and the run ends: no send until the next report. true (stopped on purpose: an
---   account's suspend, an unbind) keeps the level the proxy shows. false (a loss) reads off once per outage,
---   also after an earlier lost(true) and when no report came since start. Idempotent.
+-- light:lost()
+--   The connection is gone, whether lost or stopped on purpose, and the run ends: no send until the next
+--   report. The proxy is told offline and keeps the level and the link LEDs it shows; the first report after
+--   it shows the device. Idempotent.
 --
 -- light:reset()
 --   Reset Driver. Ends the run (ramps, windows, picks, presses, scene steps), tells offline until the next

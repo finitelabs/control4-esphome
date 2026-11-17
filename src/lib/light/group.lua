@@ -316,7 +316,7 @@ function Group:_changed()
   if not device then
     if self.connected then
       self.connected = false
-      light:lost(false)
+      light:lost()
     end
     return
   end
