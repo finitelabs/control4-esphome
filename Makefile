@@ -115,8 +115,8 @@ fmt-md: $(VENV_STAMP)
 # conditional has a sort_order, as Composer lists them in order only then; this
 # is what CI runs.
 
-.PHONY: check check-lua check-py check-md check-docs check-secrets check-sort-order
-check: check-lua check-py check-md check-docs check-secrets check-sort-order ## Assert all code is formatted, built docs space their lists evenly, build secrets match and every conditional has a sort_order (no rewrite)
+.PHONY: check check-lua check-py check-md check-docs check-globals check-secrets check-sort-order
+check: check-lua check-py check-md check-docs check-globals check-secrets check-sort-order ## Assert all code is formatted, built docs space their lists evenly, no build reads a global its #ifdefs removed, build secrets match and every conditional has a sort_order (no rewrite)
 
 check-lua:
 	@dirs=""; for d in ./drivers ./src ./test ./tools ./vendor; do \
@@ -143,6 +143,15 @@ check-docs: preprocess $(VENV_STAMP)
 		[ -e "$$g" ] && files="$$files $$g"; \
 	done; \
 	[ -z "$$files" ] || $(VENV_PY) tools/docs.py check-lists $$files
+endif
+
+# Each build's Lua against its source, as LuaJIT compiles both: a global a build
+# reads that one of its #ifdef/#ifndef branches took away is nil in that build only.
+ifeq ($(DRIVERS),)
+check-globals:
+else
+check-globals: preprocess
+	python3 tools/globals.py $(addprefix build/,$(DISTRIBUTIONS))
 endif
 
 check-secrets:
