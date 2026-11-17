@@ -198,7 +198,7 @@ do
   Connect()
   -- The DriverCentral cloud client sets DC_X to 0 when the license lapses.
   lapse()
-  T.eq("a lapse tells every child the device is suspended, so a light keeps its level", told(sent), SUSPENDED)
+  T.eq("a lapse tells every child the device is suspended, as every child is", told(sent), SUSPENDED)
   ShimFireTimers()
   T.eq("and only once", told(sent), SUSPENDED)
 
