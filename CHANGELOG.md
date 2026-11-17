@@ -27,6 +27,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Changed
 
+- An ESPHome light whose device drops off the network shows offline and keeps
+  its level and keypad button LEDs until the device reports again, where it used
+  to show off.
 - After a driver restart or a reconnect the ESPHome light reports its brightness
   and color to Control4 as it finds them, even when they have not changed.
 - A command for the brightness or color the ESPHome light already shows no

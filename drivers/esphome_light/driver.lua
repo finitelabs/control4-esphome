@@ -193,14 +193,13 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand, tParams, args)
   ENTITY = nil
   adapter:reset()
   updateStatus("Disconnected")
-  -- A device that drops off has usually lost power, so it reads off. A suspended one is as it was.
-  light:lost(toboolean(Select(tParams, "suspended")))
+  light:lost()
 end
 
 OBC[ESPHOME_BINDING] = function(_idBinding, _strClass, isBound)
   ENTITY = nil
   adapter:reset(not isBound)
-  light:lost(true)
+  light:lost()
   if not isBound then
     updateStatus("Disconnected")
   end

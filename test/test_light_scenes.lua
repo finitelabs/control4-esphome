@@ -1812,7 +1812,7 @@ do
   run(2500)
   mark()
   RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
-  T.eq("a disconnect half way up: off, as the proxy is told", leds(), { { 0, false } })
+  T.eq("a disconnect half way up: the LED keeps what it shows, as the proxy keeps the level", leds(), {})
 end
 
 T.section("a ramp from off that ends before the light is lit leaves Previous On where it was")
@@ -9104,16 +9104,16 @@ do
   answer(false)
   T.differs("back off, which the proxy shows since: the device's report tells nothing", ROW.START_TELL)
 
-  -- A device that drops off has usually lost power: it still reads off.
+  -- A device that drops off is told offline as a suspended one is: it keeps the level and LEDs it shows.
   light(dimmer)
   answer(true, 0.6)
   mark()
   RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})
-  T.eq("the device lost, with the light on: told offline and off, with its LEDs", {
+  T.eq("the device lost, with the light on: told only offline, keeping its level and LEDs", {
     told("ONLINE_CHANGED", "STATE"),
     levels(),
     leds(),
-  }, { { false }, { 0 }, { false } })
+  }, { { false }, {}, {} })
 
   -- Before the device's first report the level is not known.
   restart(nil)
@@ -9165,7 +9165,7 @@ do
     run(15000)
   end
 
-  -- A device that drops off reads off; a Toggle then told the light on, which ran Light On Programming.
+  -- A device that drops off takes no command: a Toggle would tell the proxy a level the light never reached.
   light(dimmer)
   answer(true, 0.6)
   RFP.UPDATE_DISCONNECT(ESPHOME, "UPDATE_DISCONNECT", {})

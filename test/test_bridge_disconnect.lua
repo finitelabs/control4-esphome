@@ -208,7 +208,7 @@ do
   local from = #sent + 1
   state.connected = false -- the device drops off the network
   ShimFireTimers()
-  T.eq("a device lost then tells every child it is lost, so a light reads off", told(sent, from), LOST)
+  T.eq("a device lost then tells every child it is lost", told(sent, from), LOST)
 
   -- Lost in the heartbeat the lapse is acted on: the license did not end that connection.
   from = #sent + 1
