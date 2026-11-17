@@ -463,8 +463,8 @@ the library and what it gets back. A light driver gives it four things:
   shows on a device page.
 - `light:declare(device)` on each connection, before its first report: what this
   device can do, how it fades, and how its reports behave.
-- `light:report(report)` for every device state, and `light:lost(suspended)`
-  when the connection goes.
+- `light:report(report)` for every device state, and `light:lost()` when the
+  connection goes.
 
 `Light.new(adapter, profile)` runs once, at the driver chunk's top level.
 `light:start()` runs in `OnDriverLateInit`, and `light:reset()` from Reset

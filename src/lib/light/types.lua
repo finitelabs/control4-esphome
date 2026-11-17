@@ -225,8 +225,9 @@ Types.API = 1
 --   one restored there keeps its id and the programming on it across a Director restart.
 --
 -- light:start()
---   From OnDriverLateInit. Reads the proxy (GET_SETUP, 6661, 1001/1110, 1200/1210), tells offline until the
---   device's first report, and asks refresh() once. Reports given before it are taken then, in order.
+--   From OnDriverLateInit. Reads the proxy (GET_SETUP, 1001/1110, 1200/1210), tells offline until the
+--   device's first report, and asks refresh() once. Reports given before it are taken then, in order. The
+--   capabilities are told at each connection's first report whatever 6661 lists.
 --
 -- light:declare(device)
 --   Each connection, before its first report, and on any change. The same facts do nothing. Capabilities
