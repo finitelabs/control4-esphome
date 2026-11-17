@@ -198,7 +198,7 @@ do
   Connect()
   -- The DriverCentral cloud client sets DC_X to 0 when the license lapses.
   lapse()
-  T.eq("a lapse tells every child the device is suspended, so a light keeps its level", told(sent), SUSPENDED)
+  T.eq("a lapse tells every child the device is suspended, as every child is", told(sent), SUSPENDED)
   ShimFireTimers()
   T.eq("and only once", told(sent), SUSPENDED)
 
@@ -208,7 +208,7 @@ do
   local from = #sent + 1
   state.connected = false -- the device drops off the network
   ShimFireTimers()
-  T.eq("a device lost then tells every child it is lost, so a light reads off", told(sent, from), LOST)
+  T.eq("a device lost then tells every child it is lost", told(sent, from), LOST)
 
   -- Lost in the heartbeat the lapse is acted on: the license did not end that connection.
   from = #sent + 1

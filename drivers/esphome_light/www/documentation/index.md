@@ -142,11 +142,9 @@ any ESPHome driver or sub-driver changes it on all of them.
 
 Displays the current status of the driver. It reads _Disconnected_, and the
 proxy is offline, while the ESPHome device is offline or the **ESPHome Light**
-connection is removed. A light whose device drops off the network shows off, as
-do keypad buttons linked to it, since it has most likely lost power. When the
-connection is removed, or the ESPHome driver reconnects to apply a log setting,
-the light keeps the level it had. Bound to a different light, it shows offline
-until that light reports.
+connection is removed. Meanwhile the light, and any keypad buttons linked to it,
+keep the level they showed until the device reports again. Bound to a different
+light, it shows offline until that light reports.
 
 The light ignores commands while its device is offline or its **ESPHome Light**
 connection is removed, so a command sent meanwhile changes nothing in Control4

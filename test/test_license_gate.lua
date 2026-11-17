@@ -216,7 +216,7 @@ do
   T.eq("steps from the load to the drop", stepsToDrop(40), 30)
   T.eq("Driver Status", Properties["Driver Status"], "No active license")
   T.eq("Cloud Status", Properties["Cloud Status"], "Invalid License")
-  T.check("companions told the device is suspended, so a light keeps its level", suspendedNotices() > 0)
+  T.check("companions told the device is suspended, as every child is", suspendedNotices() > 0)
   T.falsy("a companion's light command does not reach the device", lightCommand())
   local connects = net.connects
   step(60)

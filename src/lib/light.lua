@@ -11,7 +11,7 @@
 --- A connection's states, and what moves it:
 ---   made      --start-->                        offline (the proxy is told so, and the device asked)
 ---   offline   --a report, after declare-->      online (ONLINE_CHANGED, then the capabilities)
----   online    --lost(suspended), reset-->       offline (the run ends: ramps, windows, picks, presses, steps)
+---   online    --lost(), reset-->                offline (the run ends: ramps, windows, picks, presses, steps)
 ---   offline   --declare-->                      offline, with the facts stored for the next report
 --- Commands reach the adapter only while online. A report before start, or one made inside send or refresh,
 --- waits and is taken in order once the library is free.
@@ -247,12 +247,11 @@ function Light:report(report)
   self:_heard(self.ledger:heard(inForms(report, self.device), self.motion:now()))
 end
 
---- The connection is gone. true: stopped on purpose, the proxy keeps the level. false: a loss.
---- @param suspended boolean
-function Light:lost(suspended)
+--- The connection is gone. The proxy shows offline and keeps the level until the first report after it.
+function Light:lost()
   self:_endRun()
   self.online = false
-  self.proxy:lost(suspended == true)
+  self.proxy:lost()
   self:_tellGroups()
 end
 

@@ -62,7 +62,7 @@ end
 
 --- Notify sub-drivers that the ESPHome device has disconnected.
 --- @param suspended? boolean The driver dropped the connection itself, at a lapse or to resubscribe the device
---- logs: the device was not lost.
+--- logs: the device was not lost. Sent for every entity alike; a light keeps its level either way.
 --- @return void
 function LightEntity:disconnected(suspended)
   log:trace("LightEntity:disconnected(%s)", suspended)

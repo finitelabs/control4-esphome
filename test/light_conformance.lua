@@ -821,19 +821,20 @@ function C.run(T, rig)
     end)
   end
 
-  T.section(name .. ": a lost connection reads offline and off; back, it shows the device")
+  T.section(name .. ": a lost connection reads offline and keeps its level; back, it shows the device")
   C.case(T, name, function()
     local h = fresh(rig)
     local p = h.proxy
     p:send("ON")
     h.clock.run(ms)
+    local level = p.level
     p:mark()
     h.device.drop()
     h.clock.run(ms)
     T.eq(name .. ": ONLINE_CHANGED false", on(p.online), false)
-    T.eq(name .. ": and off", p.level, 0)
+    T.eq(name .. ": and the level is kept", p.level, level)
     if links then
-      T.eq(name .. ": the On link's LED is off", on(p.leds[links.top]), false)
+      T.eq(name .. ": the On link's LED stays lit", on(p.leds[links.top]), true)
     end
     p:mark()
     h.device.back()

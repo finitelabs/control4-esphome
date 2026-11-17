@@ -10,6 +10,9 @@ Caps.PROXY = 5001
 --- The longest rate one device command carries (ms), and a fade's maxMs by default.
 --- @type integer
 Caps.RATE_MAX = 65535
+--- The longest rate the proxy may be told: Director writes a rate bound with six significant digits, and Composer
+--- can't read one of a million or more.
+Caps.RATE_LIMIT = 999999
 
 --- The color temperature range shown before a device names its own (K).
 Caps.CCT_MIN, Caps.CCT_MAX = 2000, 6500
@@ -147,10 +150,10 @@ function Caps.profile(p)
     end
   end
   if p.maxMs ~= nil then
-    if whole(p.maxMs) and p.maxMs > 0 then
+    if whole(p.maxMs) and p.maxMs > 0 and p.maxMs <= Caps.RATE_LIMIT then
       out.maxMs = p.maxMs
     else
-      errors[#errors + 1] = "profile.maxMs must be a whole number of ms above 0"
+      errors[#errors + 1] = "profile.maxMs must be a whole number of ms from 1 to 999999, the most Composer reads"
     end
   end
   if p.links ~= nil and p.links ~= false then
@@ -297,7 +300,10 @@ local function fade(errors, f, profile, dims)
   local out = { kind = kind, maxMs = Caps.RATE_MAX }
   if f.maxMs ~= nil then
     if whole(f.maxMs) and f.maxMs > 0 then
-      out.maxMs = f.maxMs
+      out.maxMs = math.min(f.maxMs, Caps.RATE_LIMIT)
+      if f.maxMs > Caps.RATE_LIMIT then
+        errors[#errors + 1] = "fade.maxMs is past the 999999 ms Composer reads; taken as 999999"
+      end
     else
       errors[#errors + 1] = "fade.maxMs must be a whole number of ms above 0; ignored"
     end
@@ -354,6 +360,11 @@ local function fade(errors, f, profile, dims)
       elseif own then
         errors[#errors + 1] = string.format("fade.own.%s must be a whole number of ms; taken as 0", name)
       end
+    end
+    -- changeMs is the proxy's fixed rate and both brightness bounds.
+    if out.own.changeMs > Caps.RATE_LIMIT then
+      out.own.changeMs = Caps.RATE_LIMIT
+      errors[#errors + 1] = "fade.own.changeMs is past the 999999 ms Composer reads; taken as 999999"
     end
   elseif f.own ~= nil then
     errors[#errors + 1] = 'fade.own is for an "own" fade; ignored'

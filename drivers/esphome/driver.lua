@@ -212,7 +212,7 @@ function OPC.Driver_Version(propertyValue)
 end
 
 --- Whether the driver dropped the connection itself, at a lapse or to resubscribe the device logs, and has not
---- reconnected. The device was not lost, so sub-drivers are told it is suspended, which keeps a light's level.
+--- reconnected. The device was not lost, so sub-drivers are told it is suspended.
 local suspended = false
 
 --- Drop the connection to end or change the device log subscription, which has no unsubscribe.

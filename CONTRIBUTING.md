@@ -89,6 +89,10 @@ then pull the change in with `copier update`.
   Markdown
 - `docs.py`: documentation generation (Markdown -> HTML -> PDF, plus README) and
   the Markdown formatting `make fmt` runs
+- `globals.py`: the `make check` step that fails when a build reads a global an
+  `#ifdef`/`#ifndef` branch took away, such as a `local function` inside
+  `--#ifndef DRIVERCENTRAL` that shared code calls. The tests load the source
+  with every branch in, so they can't see it.
 - `package.py`: packaging helpers (driver.xml stamping, zip bundling)
 - `deps.py`: build preflight, checks the `.venv` against `requirements.txt`
 - `gen-squishy.lua`: auto-generates squishy files from driver.c4zproj
@@ -246,7 +250,7 @@ make test          # Run the Lua test suite (test/test_*.lua) and tools/test_*.p
 make support-code  # Print today's Support Code (see The Support Code)
 make dc-release    # Download the newest release's DriverCentral upload (TAG=v... for another)
 make fmt           # Format all code (Lua, Python, Markdown)
-make check         # Assert formatting, docs list spacing, build secrets and conditional sort_order, as CI does
+make check         # Assert formatting, docs list spacing, per-build globals, build secrets and conditional sort_order, as CI does
 make clean         # Remove build artifacts and dist/ (including driverpackager)
 make clean-all     # Remove everything (build artifacts, dist, deps, venv)
 ```

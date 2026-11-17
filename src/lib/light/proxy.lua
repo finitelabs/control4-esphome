@@ -59,12 +59,11 @@ local BUTTON_NAMES = { [Buttons.TOP] = "Top", [Buttons.BOTTOM] = "Bottom", [Butt
 --- @field settings LightSettings
 --- @field device LightDevice|nil The facts the capabilities were last worked out from.
 --- @field toldOnline boolean|nil nil before the first ONLINE_CHANGED of this load.
---- @field suspended boolean The connection was stopped on purpose (lost(true)); it ends at the next online.
---- @field ledsDue boolean The connection's first sync tells the link LEDs, after a load or a suspend.
+--- @field lapsed boolean The connection was lost; it ends at the next online.
+--- @field ledsDue boolean The connection's first sync tells the link LEDs, after a load or a loss.
 --- @field ledsSent boolean The link LEDs were told in the sync running now.
 --- @field asked integer|nil The C4 level the last level command asked: with Min On at Max On or above, it is told.
 --- @field presetNamed boolean A proxy color command named a preset: told even while the light is off.
---- @field readOff boolean A loss read the light off in this outage.
 --- @field shownDue boolean The connection's first LightShown is still owed.
 --- @field resayDue table<string, boolean> "level" and "color": told at the next sync even where the proxy shows
 ---   them, once the device has reported them since a start or a loss.
@@ -88,8 +87,7 @@ function LightProxy.new(profile, settings)
   local self = setmetatable({
     profile = profile,
     settings = settings,
-    readOff = false,
-    suspended = false,
+    lapsed = false,
     ledsDue = false,
     ledsSent = false,
     presetNamed = false,
@@ -206,7 +204,7 @@ end
 --- the driver's values were reset while the light was already offline.
 function LightProxy:offline()
   self.shownDue = false
-  self.suspended = false
+  self.lapsed = false
   if self.toldOnline ~= false then
     self:_tellOnline(false)
   else
@@ -219,12 +217,11 @@ end
 --- @param device LightDevice
 --- @return boolean told The capabilities were told, so the proxy's setup may now list more.
 function LightProxy:online(device)
-  self.readOff = false
   self.toldSince = {}
   self.shownDue = true
-  -- After a load, a bind or a suspend a keypad shows the LEDs it was last told, maybe from before.
-  self.ledsDue = self.leds == nil or self.suspended
-  self.suspended = false
+  -- After a load, a bind or a loss a keypad shows the LEDs it was last told, maybe from before.
+  self.ledsDue = self.leds == nil or self.lapsed
+  self.lapsed = false
   self:_tellOnline(true)
   local told = self:capabilities(device, true)
   local proxy, links = self.profile.proxy, self.profile.links
@@ -249,20 +246,11 @@ function LightProxy:online(device)
   return told
 end
 
---- The connection is gone: offline once per outage. A loss, not a suspend, also reads the light off once
---- per outage, its LEDs with it.
---- @param suspended boolean
-function LightProxy:lost(suspended)
+--- The connection is gone: offline once per outage. The proxy keeps the level and the link LEDs it was told
+--- until the first report after it shows the device.
+function LightProxy:lost()
   self:offline()
-  if suspended then
-    self.suspended = true
-    return
-  end
-  if self.readOff then
-    return
-  end
-  self.readOff = true
-  self:_levelChanged(0, nil)
+  self.lapsed = true
 end
 
 --- Tell the capabilities: at a connection's first report whatever they are, and after it whenever they change.
