@@ -17,6 +17,10 @@ require("lib.utils")
 local Values = {}
 Values.__index = Values
 
+--- A driver that loads this module restores it from OnDriverInit.
+--- @type LibraryRestore
+Values.RESTORE = { method = "restoreValues", phase = "OnDriverInit" }
+
 --- Persistent storage key for values.
 --- @type string
 local VALUES_PERSIST_KEY = "Values"

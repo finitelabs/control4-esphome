@@ -19,6 +19,15 @@ require("drivers-common-public.global.timer")
 
 --- @alias DeviceId integer|string
 
+--- The init a library's restore belongs in.
+--- @alias RestorePhase "OnDriverInit"|"OnDriverLateInit"
+
+--- What a library that keeps saved state asks of a driver that loads it: this method, called in this init.
+--- test/test_driver_restores.lua holds every driver to it.
+--- @class LibraryRestore
+--- @field method string
+--- @field phase RestorePhase
+
 do
   --- @type table<string, fun(paramName: string): string[]>
   --- Global table mapping command names to functions.
