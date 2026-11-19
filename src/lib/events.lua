@@ -11,6 +11,10 @@ require("lib.utils")
 local Events = {}
 Events.__index = Events
 
+--- A driver that loads this module restores it from OnDriverLateInit.
+--- @type LibraryRestore
+Events.RESTORE = { method = "restoreEvents", phase = "OnDriverLateInit" }
+
 --- The key used to persist events in storage.
 --- @type string
 local EVENTS_PERSIST_KEY = "Events"

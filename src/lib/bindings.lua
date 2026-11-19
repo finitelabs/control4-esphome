@@ -83,6 +83,10 @@ end
 local Bindings = {}
 Bindings.__index = Bindings
 
+--- A driver that loads this module restores it from OnDriverInit.
+--- @type LibraryRestore
+Bindings.RESTORE = { method = "restoreBindings", phase = "OnDriverInit" }
+
 --- Persistent storage key for connection bindings.
 --- @type string
 local CONNECTION_BINDINGS_PERSIST_KEY = "ConnectionBindings"

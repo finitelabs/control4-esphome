@@ -107,7 +107,8 @@ then pull the change in with `copier update`.
 - `.gitignore`, `LICENSE`, `CONTRIBUTING.md`
 - `requirements.txt`, the build-time Python dependency list
 - `test/testlib.lua`, `test/c4_fixtures.lua`, `test/c4_shim.lua`,
-  `test/run_test.sh`, and the `test/test_*.lua` suites covering shared code
+  `test/run_test.sh`, `test/driver_restores_probe.lua`, and the
+  `test/test_*.lua` suites covering shared code
 - `test/light_proxy_fake.lua`, `test/light_rig.lua`, `test/light_group_rig.lua`,
   `test/light_drivers.lua`, `test/light_conformance.lua`,
   `test/test_light_conformance.lua`, `test/light_contract_cases.lua` and
@@ -410,6 +411,9 @@ runs `fn` with `print` collected and returns `ok, err, output`, and
   so a test plays minutes of timers at once and in a fixed order. Drive it with
   `run(ms)` and `at(ms, fn)`, read `now()` and `errors` (what a timer or promise
   callback threw), then `restore()`.
+- `F.repoRoot()` is the repo's root. `F.seedProperties(xml)` sets `Properties`
+  to each default a `driver.xml` declares, and `F.answerConfig(xml)` answers the
+  version reads from it, so a driver loads as it does on a controller.
 
 ### Persisted values
 
@@ -445,6 +449,20 @@ it. Neither runner needs telling about them: `make test` collects only
 resolves on its own.
 
 Promote either one into the template only once a second driver needs it.
+
+### Library restores
+
+A library that keeps saved state names, in its `RESTORE` field, the restore a
+driver owes it and the init that restore belongs in. `lib.values` and
+`lib.bindings` want `restoreValues()` and `restoreBindings()` in `OnDriverInit`,
+and `lib.events` wants `restoreEvents()` in `OnDriverLateInit`.
+
+`test/test_driver_restores.lua` holds every driver to them. For each
+`drivers/*/driver.lua`, `test/driver_restores_probe.lua` loads the OSS build in
+a fresh process and runs `OnDriverInit`, then `OnDriverLateInit`. A driver fails
+when its code loads one of these libraries and doesn't call its restore in that
+init. A driver that loads none owes none. A new library that keeps saved state
+declares its own `RESTORE`, and the test covers it with no list to update.
 
 ## Writing a Light Driver
 
