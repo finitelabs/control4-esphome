@@ -14,6 +14,8 @@
 ---   rewrite it, so the others can lag; without dimming it lists the brightness, click and hold rates 0.
 --- - A light that does not dim is asked GET_LIGHT_LEVEL inside the ONLINE_CHANGED that brings it online.
 --- - A LIGHT_COLOR_CHANGED naming a preset id without its origin is dropped whole.
+--- - A LIGHT_BRIGHTNESS_CHANGING naming a preset id never puts its target in 1110: the id itself goes there
+---   for 1, 2 and 10, and 1110 keeps what it held for any other id.
 --- - GET_SETUP is answered from `setup`, or from `newLight` until the proxy is told the light has color.
 ---
 --- It is the driver's library-independent view of the proxy: it knows no lib.light internals.
@@ -339,7 +341,12 @@ function Proxy:_heard(id, cmd, params)
       self.lastLit = current
     end
     self:_var("1001", current)
-    self:_var("1110", self:dims() and target or nil)
+    local preset = tonumber(params.LIGHT_BRIGHTNESS_TARGET_PRESET_ID)
+    if preset == nil then
+      self:_var("1110", self:dims() and target or nil)
+    elseif preset == 1 or preset == 2 or preset == 10 then
+      self:_var("1110", self:dims() and preset or nil)
+    end
   elseif cmd == "LIGHT_COLOR_CHANGED" then
     if params.LIGHT_COLOR_CURRENT_PRESET_ID ~= nil and params.LIGHT_COLOR_CURRENT_PRESET_ORIGIN == nil then
       return

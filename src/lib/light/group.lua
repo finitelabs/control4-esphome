@@ -16,6 +16,7 @@
 ---   group:attach(light)
 ---   group:setMembers(ids)     -- from the member list property
 ---   group:setRule("most")     -- "most", "lowest" or "highest"
+---   group:onChange(fn)        -- optional: fn(online, total) after each member change
 --- The group's profile says cct = true and leaves loadGroups out: a group is not a member of a group.
 
 local log = require("lib.logging")
@@ -48,6 +49,7 @@ local TIMER_QUIET = "LightGroup.Quiet"
 --- @field quietUntil integer C4:GetTime() ms until which members' reports wait.
 --- @field asked boolean A refresh waits for the quiet to end.
 --- @field connected boolean A member is online, so the group light is.
+--- @field changed fun(online: integer, total: integer)|nil The driver's hook, told after every member change.
 local Group = {}
 Group.__index = Group
 
@@ -84,6 +86,13 @@ function Group:attach(light)
   EC.LIGHT_GROUP_STATE = function(tParams)
     self:state(tParams or {})
   end
+end
+
+--- The driver's hook, told how many members are online of how many listed after every member state, list or rule
+--- change. The kit's own handlers stay the kit's.
+--- @param fn fun(online: integer, total: integer)
+function Group:onChange(fn)
+  self.changed = fn
 end
 
 --- The one delivery step: a command to every member, in one pass.
@@ -308,6 +317,16 @@ end
 --- The members changed: the group's device facts, and its state once no command's fade is running.
 --- @private
 function Group:_changed()
+  if self.changed then
+    local online = 0
+    for _, id in ipairs(self.members) do
+      local s = self.states[tostring(id)]
+      if s and s.online then
+        online = online + 1
+      end
+    end
+    self.changed(online, #self.members)
+  end
   local light = self.light
   if not light then
     return
