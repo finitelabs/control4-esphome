@@ -361,9 +361,8 @@ end
 --- @param target integer
 --- @param ms integer
 --- @param endsAt integer
---- @param preset integer|nil
 --- @param ramp LightView The view it was told from, whose device brightnesses an off reads.
-function LightProxy:_levelChanging(current, target, ms, endsAt, preset, ramp)
+function LightProxy:_levelChanging(current, target, ms, endsAt, ramp)
   self.toldSince.level = true
   local told = self.level
   told.preOn = told.preOn or (target > 0 and (told.level or 0) < 1)
@@ -371,18 +370,18 @@ function LightProxy:_levelChanging(current, target, ms, endsAt, preset, ramp)
     -- A fade to off from where a ramp from off had lit the light: the proxy keeps that level at the off.
     told.preOn = false
   end
-  told.target, told.endsAt, told.preset = target, endsAt, preset
+  told.target, told.endsAt = target, endsAt
   told.from, told.to, told.startAt, told.ms = ramp.level, ramp.on and ramp.levelTarget or 0, endsAt - ms, ms
   -- The proxy takes the light's state from CURRENT: one on its way up from off is lit from the start.
   if target > 0 then
     current = math.max(1, current)
   end
   log:debug("LIGHT_BRIGHTNESS_CHANGING: %s to %s, rate=%s", current, target, ms)
+  -- No preset id: given one, the proxy's target reads the id itself (1, 2, 10) or the one before, never TARGET.
   SendToProxy(self.profile.proxy, "LIGHT_BRIGHTNESS_CHANGING", {
     LIGHT_BRIGHTNESS_CURRENT = current,
     LIGHT_BRIGHTNESS_TARGET = target,
     RATE = ms,
-    LIGHT_BRIGHTNESS_TARGET_PRESET_ID = preset,
   }, "NOTIFY", true)
   -- A light on its way up is on from the start of its ramp, as one fading to off is on until its end.
   if target > 0 then
@@ -510,7 +509,7 @@ function LightProxy:_syncLevel(view, now, lo, hi)
     if told.target == target and sameEnd(told.endsAt, endsAt) and not self.resayDue.level then
       return
     end
-    self:_levelChanging(shownLevel(view.level, lo, hi), target, view.levelMs, endsAt, preset, view)
+    self:_levelChanging(shownLevel(view.level, lo, hi), target, view.levelMs, endsAt, view)
     return
   end
   local lit = asked

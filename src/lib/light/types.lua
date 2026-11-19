@@ -259,7 +259,7 @@ Types.API = 1
 --
 -- Group commands. On a light that offers load groups, the ExecuteCommand handlers EC.LIGHT_GROUP_JOIN,
 -- EC.LIGHT_GROUP_LEAVE and EC.LIGHT_GROUP_COMMAND; on a group driver's kit, EC.LIGHT_GROUP_STATE. A driver sets
--- none of them.
+-- none of them. A group driver that shows its members, in Driver Status say, gives the kit Group:onChange.
 --
 -- Notifies. Every notify to the proxy and the links: LIGHT_*, DYNAMIC_CAPABILITIES_CHANGED, ONLINE_CHANGED,
 -- the link LEDs and button colors, and the answers to GET_CONNECTED_STATE and GET_LIGHT_LEVEL. EXTRAS_*
