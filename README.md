@@ -1176,11 +1176,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - An ESPHome light lit on both its color and white channels reports the color
   the mix shows.
 
-### Fixed
-
-- An ESPHome light fading on to its Default On level shows that level as its
-  brightness target on the way, where it showed 1% until it landed.
-
 ## v20261111 - 2026-11-11
 
 ### Fixed
