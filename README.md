@@ -1116,6 +1116,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Added Control4 load groups to the ESPHome light: it joins a load group and
   follows the group's level, ramps and sync.
 
+### Fixed
+
+- An ESPHome light comes on at Default On once the brightness preset its on mode
+  named is removed, where it still came on at that preset's level.
+
 ### Changed
 
 - An ESPHome light whose device drops off the network shows offline and keeps
