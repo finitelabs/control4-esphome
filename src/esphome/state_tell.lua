@@ -74,6 +74,25 @@ function StateTell:forget(key)
   end
 end
 
+--- Turn the state told for one binding key the other way and tell it silently: the same reading
+--- now reads the other way. Nothing happens for a key with no state kept.
+--- @param key string A stable name for the binding.
+--- @param bindingId number|nil The binding to tell; nil turns the state kept without telling it.
+function StateTell:flip(key, bindingId)
+  local stored = persist:get(self._key, {})
+  local before = stored[key]
+  if before == nil then
+    return
+  end
+  local state = before == "OPENED" and "CLOSED" or "OPENED"
+  stored[key] = state
+  persist:set(self._key, stored)
+  self._told[key] = true
+  if bindingId ~= nil then
+    SendToProxy(bindingId, "STATE_" .. state, {}, "NOTIFY")
+  end
+end
+
 --- Forget what was told this load, so the next state is told again, silently unless it changed.
 function StateTell:clear()
   self._told = {}

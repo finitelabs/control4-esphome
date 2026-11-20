@@ -403,6 +403,15 @@ device.
 Use OpenSSL for encryption. This should typically be left at the default value
 of `Yes` for better performance and compatibility.
 
+##### Contact When Active \[ **_Closed_** | Opened \]
+
+Shown only on items added before this setting existed. Sets what door, window,
+opening, garage door, motion, occupancy, presence and moving sensors' contacts
+read while open or detected: `Closed`, as these items always have, or `Opened`.
+Items added since read `Opened`. Changing it updates each contact's state at
+once without firing its Opened or Closed programming; change any programming
+written for the other reading to match.
+
 #### Bluetooth Proxy Settings
 
 > The Bluetooth Proxy feature requires an ESP32 device with the
@@ -696,6 +705,12 @@ offline, or a date or time in another format, goes back to the device's value.
 | Light         | `ESPHOME_LIGHT`                 | Bind to ESPHome Light sub-driver                                  |
 | Lock          | `ESPHOME_LOCK`                  | Bind to ESPHome Lock sub-driver                                   |
 | Water Heater  | `ESPHOME_CLIMATE`               | Bind to ESPHome Climate sub-driver                                |
+
+A binary sensor's contact reads Opened while the sensor is on if its device
+class is door, window, opening, garage door, motion, occupancy, presence or
+moving, and Closed while it is off. Any other binary sensor reads Closed while
+it is on. On items added before this reading, these classes read Closed while on
+unless [Contact When Active](#contact-when-active--closed--opened-) is `Opened`.
 
 > **Note:** Sensor, Number, Select, Text, Text Sensor, Date, Time and Datetime
 > entities do not create bindings. They expose data only through variables and

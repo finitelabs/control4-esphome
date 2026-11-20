@@ -31,6 +31,7 @@ local bleScannerProperties = require("esphome.ble.scanner_properties")
 
 local BluetoothProxyCapability = require("esphome.capabilities.bluetooth_proxy")
 local ButtonLeds = require("esphome.button_leds")
+local ContactReading = require("esphome.contact_reading")
 
 local BinarySensorEntity = require("esphome.entities.binary_sensor")
 local ButtonEntity = require("esphome.entities.button")
@@ -98,7 +99,7 @@ local function getESPHomeDriverIds()
 end
 --#endif
 
-function OnDriverInit()
+function OnDriverInit(driverInitType)
   --#ifdef DRIVERCENTRAL
   drivercentral:startClient()
   --#else
@@ -108,7 +109,8 @@ function OnDriverInit()
   log:setLogName(C4:GetDeviceData(C4:GetDeviceID(), "name"))
   log:setLogLevel(Properties["Log Level"])
   log:setLogMode(Properties["Log Mode"])
-  log:trace("OnDriverInit()")
+  log:trace("OnDriverInit(%s)", driverInitType)
+  ContactReading.init(driverInitType)
 
   -- Restore persisted state
   values:restoreValues()
@@ -263,6 +265,11 @@ end
 function OPC.Restart_Bluetooth_Proxy_When_Stuck(propertyValue)
   log:trace("OPC.Restart_Bluetooth_Proxy_When_Stuck('%s')", propertyValue)
   bluetoothProxyCapability:onRestartButtonChanged(propertyValue)
+end
+
+function OPC.Contact_When_Active(propertyValue)
+  log:trace("OPC.Contact_When_Active('%s')", propertyValue)
+  ContactReading.applied(BinarySensorEntity.retellContacts)
 end
 
 function OPC.IP_Address(propertyValue)
