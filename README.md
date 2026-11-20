@@ -1118,8 +1118,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
-- An ESPHome light comes on at Default On once the brightness preset its on mode
-  named is removed, where it still came on at that preset's level.
+- An ESPHome light no longer comes on at a removed brightness preset's level
+  when that preset was its on mode.
 
 ### Changed
 
