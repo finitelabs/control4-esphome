@@ -5092,20 +5092,25 @@ do
       T.differs(c[1] .. ": Cloud Monitoring hears of it", BENIGN.DIAG)
     end
   end
-  -- A preset the setup names and does not list has no color or level to
+  -- A color preset the setup names and does not list has no color to
   -- store: the mode stored stands.
   for _, c in ipairs({
-    { "an on preset that is not listed", "color_on_mode", { light_color_on_mode_preset_id = 99 } },
-    { "a fade preset that is not listed", "color_on_mode", { light_color_on_mode_fade_preset_id = 99 } },
-    { "no on origin", "color_on_mode", { light_color_on_mode_preset_origin = false } },
-    { "no fade origin", "color_on_mode", { light_color_on_mode_fade_preset_origin = false } },
-    { "a brightness preset that is not listed", "brightness_on_mode", { light_brightness_on_mode_preset_id = 99 } },
+    { "an on preset that is not listed", { light_color_on_mode_preset_id = 99 } },
+    { "a fade preset that is not listed", { light_color_on_mode_fade_preset_id = 99 } },
+    { "no on origin", { light_color_on_mode_preset_origin = false } },
+    { "no fade origin", { light_color_on_mode_fade_preset_origin = false } },
   }) do
-    local had = persist:get(c[2], false)
-    proxySetup = withTags(setup, c[3])
+    local had = persist:get("color_on_mode", false)
+    proxySetup = withTags(setup, c[2])
     restart({ RGBCT, CT }, false)
-    T.eq(c[1] .. ": the mode stored stands", persist:get(c[2], false), had)
+    T.eq(c[1] .. ": the mode stored stands", persist:get("color_on_mode", false), had)
   end
+  proxySetup = withTags(setup, { light_brightness_on_mode_preset_id = 99 })
+  restart({ RGBCT, CT }, false)
+  T.eq("a brightness preset that is not listed: no on mode is stored", {
+    persist:get("brightness_on_mode", false),
+    persist:get("brightness_on_mode_preset", false),
+  }, { false, false })
 end
 
 T.section("the brightness on mode and the default rates are read from the proxy's setup too")
