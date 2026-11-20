@@ -17,6 +17,7 @@
 ---   group:setMembers(ids)     -- from the member list property
 ---   group:setRule("most")     -- "most", "lowest" or "highest"
 ---   group:onChange(fn)        -- optional: fn(online, total) after each member change
+---   group:dissolve()          -- from OnDriverRemovedFromProject
 --- The group's profile says cct = true and leaves loadGroups out: a group is not a member of a group.
 
 local log = require("lib.logging")
@@ -118,8 +119,7 @@ function Group:setMembers(ids)
   local me = tostring(C4:GetDeviceID())
   for _, id in ipairs(self.members) do
     if not now[id] then
-      C4:SendToDevice(id, "LIGHT_GROUP_LEAVE", { GROUP_ID = me })
-      self.states[tostring(id)] = nil
+      self:_leave(id)
     end
   end
   -- A member's state can come back within its join, so the list is set before any join goes out.
@@ -133,6 +133,15 @@ function Group:setMembers(ids)
     end
   end
   self:_changed()
+end
+
+--- The group's driver is deleted from the project: every member is told it left, so none keeps telling a group that
+--- is gone. A driver update or a controller restart never calls it, and the members stay joined.
+function Group:dissolve()
+  for _, id in ipairs(self.members) do
+    self:_leave(id)
+  end
+  self.members = {}
 end
 
 --- How the group shows its members.
@@ -363,6 +372,14 @@ function Group:_report(kind)
     level = chosen.on and chosen.level / 100 or nil,
     color = chosen.on and chosen.color or nil,
   })
+end
+
+--- Tell a member it left the group, and forget what it told.
+--- @private
+--- @param id integer
+function Group:_leave(id)
+  C4:SendToDevice(id, "LIGHT_GROUP_LEAVE", { GROUP_ID = tostring(C4:GetDeviceID()) })
+  self.states[tostring(id)] = nil
 end
 
 --- Reconcile once the quiet after the newest command ends.
