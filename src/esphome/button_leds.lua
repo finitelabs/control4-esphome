@@ -4,6 +4,10 @@
 --- A button is an event entity. Each of its event types has its own button link,
 --- but like a keypad button it has one LED, which follows the first of its links
 --- with a load bound, in the order the device declares them (normally press).
+---
+--- Each link's feedback also goes to the device itself, when it declares a
+--- user-defined API action for it (see ButtonLeds:forward), so a device with no
+--- light for the button, such as a display, can show it however it likes.
 
 local log = require("lib.logging")
 local bindings = require("lib.bindings")
@@ -56,11 +60,35 @@ local RGB_MODES = {
 --- @field lights table<string, ButtonLedLight>
 --- @field lightOrder ButtonLedLight[]
 --- @field feedback table<string, ButtonLedFeedback> What each link's load last reported, by binding key.
+--- @field linkTypes table<string, string> The event type of each link, by binding key.
+--- @field actionSent table<string, string> What was last sent to each link's API action this connection.
 --- @field sent table<string, string> The command last sent to each light this connection.
 --- @field selectedKey string|nil The button the Composer form is editing.
 --- @field optionKeys table<string, string> Configure Button LED option text to button key.
 local ButtonLeds = {}
 ButtonLeds.__index = ButtonLeds
+
+--- The API action every link's feedback goes to when the device declares no
+--- action for that link itself (see ButtonLeds.actionName).
+ButtonLeds.LED_ACTION = "control4_led"
+
+--- Convert a name to the form ESPHome action names take: lowercase, each run of
+--- other characters as one underscore, none at the ends.
+--- @param value any
+--- @return string
+local function slug(value)
+  local s = tostring(value or ""):lower():gsub("[^%a%d]+", "_"):gsub("^_+", ""):gsub("_+$", "")
+  return s
+end
+
+--- The API action a link's feedback goes to: `<event name>_<event type>_led`,
+--- e.g. "Touch Button 2" + "press" is `touch_button_2_press_led`.
+--- @param entity table<string, any> An event entity.
+--- @param eventType string
+--- @return string
+function ButtonLeds.actionName(entity, eventType)
+  return slug(entity.name) .. "_" .. slug(eventType) .. "_led"
+end
 
 --- The key of the button link binding an event entity publishes for one event type.
 --- @param entity table<string, any>
@@ -126,6 +154,8 @@ function ButtonLeds:new(client)
   instance.lights = {}
   instance.lightOrder = {}
   instance.feedback = {}
+  instance.linkTypes = {}
+  instance.actionSent = {}
   instance.sent = {}
   instance.selectedKey = nil
   instance.optionKeys = {}
@@ -156,6 +186,7 @@ end
 function ButtonLeds:reset()
   persist:delete(PAIRS_KEY)
   self.feedback = {}
+  self.actionSent = {}
   self.sent = {}
   self.selectedKey = nil
   self:hideProperties()
@@ -231,7 +262,9 @@ end
 function ButtonLeds:discovered(entities)
   log:trace("ButtonLeds:discovered()")
   self.buttons, self.buttonOrder, self.linkOwners, self.lights, self.lightOrder = {}, {}, {}, {}, {}
+  self.linkTypes = {}
   self.sent = {}
+  self.actionSent = {}
   local buttonsByDevice, lightsByDevice = {}, {}
   for _, entity in pairs(entities) do
     local deviceId = entity.device_id or 0
@@ -241,6 +274,7 @@ function ButtonLeds:discovered(entities)
         local link = self.bindingKey(entity, eventType)
         table.insert(button.links, link)
         self.linkOwners[link] = button
+        self.linkTypes[link] = eventType
       end
       self.buttons[button.key] = button
       table.insert(self.buttonOrder, button)
@@ -270,6 +304,8 @@ function ButtonLeds:discovered(entities)
       if binding ~= nil then
         self:requestState(binding.bindingId)
       end
+      -- A connect is a fresh device session: show it what is already known.
+      self:forward(link)
     end
     self:apply(button)
   end
@@ -278,6 +314,7 @@ end
 --- The device is gone: whatever its lights showed is no longer known.
 function ButtonLeds:disconnected()
   self.sent = {}
+  self.actionSent = {}
 end
 
 --- Ask the load on a button link for its LED state and colors, as a keypad does.
@@ -290,6 +327,7 @@ end
 --- @param link string The link's binding key.
 function ButtonLeds:linkUnbound(link)
   self.feedback[link] = nil
+  self:forward(link, true)
   local button = self.linkOwners[link]
   if button ~= nil then
     self:apply(button, true)
@@ -320,10 +358,85 @@ function ButtonLeds:received(link, strCommand, tParams)
   else
     return
   end
+  self:forward(link)
   local button = self.linkOwners[link]
   if button ~= nil then
     self:apply(button)
   end
+end
+
+--- Send a link's feedback to the device's API action for it, if it declares one:
+--- the link's own `<event name>_<event type>_led` (see ButtonLeds.actionName), else
+--- `control4_led`. A device with neither is left alone. The action may declare any
+--- of `event`, `event_type`, `state`, `color`, `on_color` and `off_color`, in any
+--- order; only what it declares is sent. `color` is what a keypad would show now:
+--- the on color while the load is on, the off color while it is off. A color
+--- declared as an int is sent as 0xRRGGBB, or -1 when the load has given none; as
+--- a string, as RRGGBB, or empty.
+--- @param link string The link's binding key.
+--- @param dark? boolean Send off with no colors: the link lost its load.
+function ButtonLeds:forward(link, dark)
+  local button = self.linkOwners[link]
+  local eventType = self.linkTypes[link]
+  if button == nil or eventType == nil or not self.client:isConnected() then
+    return
+  end
+  local feedback = self.feedback[link]
+  if not dark and (feedback == nil or feedback.state == nil) then
+    return
+  end
+  feedback = feedback or {}
+  local state = feedback.state or false
+  local onColor, offColor = feedback.onColor, feedback.offColor
+  local color
+  if state then
+    color = onColor
+  else
+    color = offColor
+  end
+
+  local signature = table.concat({ tostring(state), color or "", onColor or "", offColor or "" }, "|")
+  if self.actionSent[link] == signature then
+    return
+  end
+  local own = self.actionName(button.entity, eventType)
+  local action = nil
+  if self.client:hasService(own) then
+    action = own
+  elseif self.client:hasService(self.LED_ACTION) then
+    action = self.LED_ACTION
+  end
+  if action == nil then
+    return
+  end
+
+  local ArgType = ESPHomeProtoSchema.Enum.ServiceArgType
+  --- A color in whichever type the action declares it as.
+  local function typedColor(hex)
+    return function(argType)
+      if argType == ArgType.SERVICE_ARG_TYPE_INT or argType == ArgType.SERVICE_ARG_TYPE_FLOAT then
+        return hex ~= nil and tonumber(hex, 16) or -1
+      end
+      return hex or ""
+    end
+  end
+
+  self.actionSent[link] = signature
+  self.client
+    :executeServiceWithArgs(action, {
+      event = button.entity.name,
+      event_type = eventType,
+      state = state,
+      color = typedColor(color),
+      on_color = typedColor(onColor),
+      off_color = typedColor(offColor),
+    })
+    :next(function()
+      log:debug("Sent %s %s LED to '%s': state=%s color=%s", button.label, eventType, action, state, color or "none")
+    end, function(error)
+      self.actionSent[link] = nil
+      log:warn("Could not send %s %s LED to '%s'; %s", button.label, eventType, action, error)
+    end)
 end
 
 --- What the button's LED follows: the first of its links whose load has reported a state.
