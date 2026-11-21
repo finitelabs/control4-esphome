@@ -1113,81 +1113,80 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
-- Added a Remote Temperature Timeout to the ESPHome thermostat: a remote sensor
-  with no new reading in that time is no longer used until it reports again.
-
-- Added Control4 load groups to the ESPHome light: it joins a load group and
+- Added a Remote Temperature Timeout to the ESPHome thermostat, so a remote
+  sensor with no new reading in that time is set aside until it reports again.
+- Added Control4 load groups to the ESPHome light, which joins a load group and
   follows the group's level, ramps and sync.
 
 ### Fixed
 
-- An ESPHome light no longer comes on at a removed brightness preset's level
-  when that preset was its on mode.
-- An ESPHome thermostat using a remote temperature sensor shows the sensor's
-  reading in Control4, where it showed the device's own.
-- An ESPHome thermostat using a remote temperature sensor sends the reading
-  every minute, so the device no longer falls back to its own sensor when the
-  room temperature holds steady.
+- Fixed an ESPHome light coming on at a removed brightness preset's level when
+  that preset was its on mode.
+- Fixed an ESPHome thermostat using a remote temperature sensor showing the
+  device's own reading in Control4 instead of the sensor's.
+- Fixed an ESPHome thermostat using a remote temperature sensor falling back to
+  the device's own sensor when the room temperature held steady. The reading is
+  now sent every minute.
 
 ### Changed
 
-- An ESPHome light whose device drops off the network shows offline and keeps
-  its level and keypad button LEDs until the device reports again, where it used
-  to show off.
-- After a driver restart or a reconnect the ESPHome light reports its brightness
-  and color to Control4 as it finds them, even when they have not changed.
-- A command for the brightness or color the ESPHome light already shows no
-  longer fires a change event in Control4 programming.
-- The ESPHome light answers brightness queries with the level it last reported,
-  also during a fade or while the device can't be reached.
-- Keypad buttons with no colors of their own show the ESPHome light's colors
-  from Composer, then the standard defaults.
-- Turning an ESPHome light on brings it up in its on color, with Dim-To-Warm
-  following its brightness and a scene step that turns it on fading from the
-  color it had.
-- With Dim-To-Warm, turning the ESPHome light off fades its color all the way to
-  the Dim color.
-- With Dim-To-Warm, the color blends in a straight line between the Dim and On
-  colors, whites included, and reports the white the ESPHome light shows.
-- With Dim-To-Warm, a color set by a scene step on an ESPHome light gives way to
-  Dim-To-Warm at the next brightness change.
-- Choosing the color an ESPHome light is already fading to holds that color, as
-  any chosen color does.
-- An ESPHome light turned back on before its fade to off ends keeps the color it
-  had.
-- A keypad press on a dimmable ESPHome light waits 250 ms to tell a click from a
-  hold, and a click fades over the click rate.
-- A keypad hold on an ESPHome light takes time in proportion to the distance it
-  has left, and letting go stops only a hold or a scene ramp.
-- Click and hold rates on an ESPHome light left unset default to 250 ms up, 750
-  ms down and 5 seconds for a hold.
-- Toggle buttons alternate their hold direction after each ramp, and a Toggle
-  press while the ESPHome light fades up from off keeps it coming on.
-- A keypad press on an ESPHome light leaves a running scene alone until the
-  press becomes a click or a hold.
-- Ramp Scene Up on an ESPHome light ramps to full brightness rather than the on
-  level.
-- Stop Scene Ramp on an ESPHome light lets a scene step's fade finish and stops
-  Ramp Scene Up or Down where it is.
-- A stop or an off just after an ESPHome light starts fading on leaves it at its
-  lowest level, and the next on returns there.
-- An ESPHome light counts as on until its fade to off ends.
-- Stopping a brightness fade on an ESPHome light also stops its color where the
-  fade has got to.
-- Binding the ESPHome light to a different device shows it offline until the new
-  device reports.
-- The ESPHome light reports a setting back to Control4 only when it changes, not
-  at every start.
-- An ESPHome light that only switches on and off changes and reports at once,
-  with no fade.
-- A color temperature beyond the ESPHome light's range is reported as the
-  nearest one the ESPHome light can show.
-- With Dim-To-Warm, a blend on an ESPHome light that passes near white lights
-  the white channels.
-- A white chosen in Control4 on an ESPHome light is kept when another app
-  changes the color, until a new white is chosen.
-- An ESPHome light lit on both its color and white channels reports the color
-  the mix shows.
+- Changed an ESPHome light whose device drops off the network to show offline
+  and keep its level and keypad button LEDs until the device reports again,
+  where it used to show off.
+- Changed the ESPHome light to report its brightness and color to Control4 after
+  a driver restart or a reconnect, even when they have not changed.
+- Changed a command for the brightness or color the ESPHome light already shows
+  to no longer fire a change event in Control4 programming.
+- Changed the ESPHome light to answer brightness queries with the level it last
+  reported, also during a fade or while the device can't be reached.
+- Changed keypad buttons with no colors of their own to show the ESPHome light's
+  colors from Composer, then the standard defaults.
+- Changed turning an ESPHome light on to bring it up in its on color, with
+  Dim-To-Warm following its brightness and a scene step that turns it on fading
+  from the color it had.
+- Changed turning an ESPHome light off with Dim-To-Warm to fade its color all
+  the way to the Dim color.
+- Changed Dim-To-Warm on an ESPHome light to blend in a straight line between
+  the Dim and On colors, whites included, and report the white the light shows.
+- Changed a color set by a scene step on an ESPHome light with Dim-To-Warm to
+  give way to Dim-To-Warm at the next brightness change.
+- Changed choosing the color an ESPHome light is already fading to so it holds
+  that color, as any chosen color does.
+- Changed an ESPHome light turned back on before its fade to off ends to keep
+  the color it had.
+- Changed a keypad press on a dimmable ESPHome light to wait 250 ms to tell a
+  click from a hold, and a click to fade over the click rate.
+- Changed a keypad hold on an ESPHome light to take time in proportion to the
+  distance it has left, and letting go to stop only a hold or a scene ramp.
+- Changed click and hold rates left unset on an ESPHome light to default to 250
+  ms up, 750 ms down and 5 seconds for a hold.
+- Changed Toggle buttons to alternate their hold direction after each ramp, and
+  a Toggle press while the ESPHome light fades up from off to keep it coming on.
+- Changed a keypad press on an ESPHome light to leave a running scene alone
+  until the press becomes a click or a hold.
+- Changed Ramp Scene Up on an ESPHome light to ramp to full brightness rather
+  than the on level.
+- Changed Stop Scene Ramp on an ESPHome light to let a scene step's fade finish
+  and stop Ramp Scene Up or Down where it is.
+- Changed a stop or an off just after an ESPHome light starts fading on to leave
+  it at its lowest level, with the next on returning there.
+- Changed an ESPHome light to count as on until its fade to off ends.
+- Changed stopping a brightness fade on an ESPHome light to also stop its color
+  where the fade has got to.
+- Changed binding the ESPHome light to a different device to show it offline
+  until the new device reports.
+- Changed the ESPHome light to report a setting back to Control4 only when it
+  changes, not at every start.
+- Changed an ESPHome light that only switches on and off to change and report at
+  once, with no fade.
+- Changed a color temperature beyond the ESPHome light's range to be reported as
+  the nearest one the light can show.
+- Changed a Dim-To-Warm blend on an ESPHome light that passes near white to
+  light the white channels.
+- Changed a white chosen in Control4 on an ESPHome light to be kept when another
+  app changes the color, until a new white is chosen.
+- Changed an ESPHome light lit on both its color and white channels to report
+  the color the mix shows.
 
 ## v20261111 - 2026-11-11
 
