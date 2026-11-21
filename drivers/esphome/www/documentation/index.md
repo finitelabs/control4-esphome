@@ -74,6 +74,8 @@ ESPHome devices directly from your Control4 system.
 - Local network communication requiring no cloud services
 - Real-time updates from all [supported entities](#supported-esphome-entities)
   exposed by the device
+- Device events as keypad buttons that drive loads, with a light or a display on
+  the device showing the load
 - Supports encrypted connections using the device encryption key
 - Variable Programming Support
 
@@ -545,7 +547,7 @@ either.
 
 An event bound to a load acts as a keypad button. These properties choose which
 of the device's lights is that button's LED, which then shows the load the way a
-Control4 keypad lights its buttons. See the
+Control4 keypad lights its buttons. A display needs neither property. See the
 [Button LED Configuration Guide](#button-led-configuration-guide).
 
 ##### Configure Button LED
@@ -1099,23 +1101,18 @@ on presence tracking settings and events.
 # <span style="color:#17BCF2">Button LED Configuration Guide</span>
 
 An ESPHome event bound to a load acts as a Control4 keypad button: pressing it
-drives the load. With a Button LED, the device also shows the load's state on
-one of its own lights, as a keypad lights its button.
+drives the load. The device can also show the load, as a keypad lights its
+button, in one of two ways:
 
-## Requirements
+- **On an LED:** one of the device's lights shows the load's on/off, or its
+  colors on a light that can show a color.
+- **On a display:** an API action on the device gets the load's state and its
+  colors separately, so a button can show both.
 
-The device needs:
+## The Button
 
-- **The button as an `event` entity.** Only events create button connections. A
-  button exposed only as a `binary_sensor` appears as a contact sensor instead.
-- **The LED as a `light` entity.** Any light platform works: `binary` or
-  `monochromatic` lights turn on and off, and `rgb` (or any light that can show
-  a color) shows the load's colors. The `status_led:` component is not a light
-  entity; use `light: - platform: status_led` instead. A display can take the
-  load's state and colors from an API action instead (see
-  [Showing the Load on a Display](#showing-the-load-on-a-display)).
-
-No other YAML is needed.
+The button must be an `event` entity. Only events create button connections. A
+button exposed only as a `binary_sensor` appears as a contact sensor instead.
 
 ```yaml
 binary_sensor:
@@ -1130,51 +1127,16 @@ binary_sensor:
       - timing: [ON for at least 1s]
         then:
           - event.trigger: { id: button_1_event, event_type: long_press }
-
 event:
   - platform: template
     id: button_1_event
     name: "Button 1"
     event_types: [press, long_press]
-
-output:
-  - platform: gpio
-    pin: GPIO2
-    id: led_1_out
-
-light:
-  - platform: binary
-    name: "Button 1 LED"
-    output: led_1_out
 ```
 
-To pair them without any setup in Composer, put the button and its LED alone
-together on an ESPHome sub-device (ESPHome 2025.7 or later):
-
-```yaml
-esphome:
-  devices:
-    - id: button_1
-      name: "Button 1"
-event:
-  - platform: template
-    id: button_1_event
-    name: "Button"
-    device_id: button_1
-    event_types: [press, long_press]
-light:
-  - platform: binary
-    name: "LED"
-    device_id: button_1
-    output: led_1_out
-```
-
-On a display, an LVGL button can fire the event, and a template output can
-recolor it instead of driving a pin. Fire press from `on_short_click`, not
-`on_click`: LVGL also sends a click after a long press, so `on_click` would fire
-press on every hold. Make the on color clearly brighter than the off color;
-close shades look the same on a panel. To show the load's state and its color
-apart, see [Showing the Load on a Display](#showing-the-load-on-a-display).
+On a display, an LVGL button fires the event. Fire press from `on_short_click`,
+not `on_click`: LVGL also sends a click after a long press, so `on_click` would
+fire press on every hold.
 
 ```yaml
 lvgl:
@@ -1195,30 +1157,56 @@ event:
     id: button_2_event
     name: "Button 2"
     event_types: [press, long_press]
-output:
-  - platform: template
-    id: button_2_led_out
-    type: binary
-    write_action:
-      - lvgl.widget.update:
-          id: lv_button_2
-          bg_color: !lambda 'return lv_color_hex(state ? 0xE0A82E : 0x20252B);'
-light:
-  - platform: binary
-    name: "Button 2 LED"
-    output: button_2_led_out
 ```
 
-## Setup
+Bind the event's `{name} {event_type}` connection to the load, as you would a
+keypad button. Bind it to a light's Toggle, On or Off button link to have the
+button toggle, turn on or turn off the light.
 
-1. Bind the event's `{name} {event_type}` connection to the load, as you would a
-   keypad button. Bind it to a light's Toggle, On or Off button link to have the
-   button toggle, turn on or turn off the light.
-1. In the ESPHome driver's properties, select the button under **Configure
-   Button LED** and its light under **Button LED**. A pair already made from a
-   sub-device shows next to the button.
+## Showing the Load on an LED
 
-## How the LED Behaves
+The LED must be a `light` entity. Any light platform works: `binary` or
+`monochromatic` lights turn on and off, and `rgb` (or any light that can show a
+color) shows the load's colors. The `status_led:` component is not a light
+entity; use `light: - platform: status_led` instead.
+
+```yaml
+output:
+  - platform: gpio
+    pin: GPIO2
+    id: led_1_out
+light:
+  - platform: binary
+    name: "Button 1 LED"
+    output: led_1_out
+```
+
+In the ESPHome driver's properties, select the button under **Configure Button
+LED** and its light under **Button LED**.
+
+To pair them with no setup in Composer, put the button and its LED alone
+together on an ESPHome sub-device (ESPHome 2025.7 or later). The pair then shows
+next to the button under **Configure Button LED**.
+
+```yaml
+esphome:
+  devices:
+    - id: button_1
+      name: "Button 1"
+event:
+  - platform: template
+    id: button_1_event
+    name: "Button"
+    device_id: button_1
+    event_types: [press, long_press]
+light:
+  - platform: binary
+    name: "LED"
+    device_id: button_1
+    output: led_1_out
+```
+
+### How the LED Behaves
 
 - A light that can show a color shows the load's on color while the load is on
   and its off color while it is off; black is dark. Set the colors on the load,
@@ -1242,38 +1230,14 @@ light:
 
 A light carries the load's on/off or its color, not both: on a light that shows
 a color, on/off follows the color, so a load that is off with an off color other
-than black still lights it. A display that styles a button by the load's state
-and shows its color separately can take both from an API action instead, with no
-light and no Button LED setting. It works whatever the connection is bound to.
+than black still lights it. A display takes both from an API action instead,
+with no light and no Button LED setting. It works whatever the connection is
+bound to.
 
-For each button connection the driver calls the first of these the device
-declares:
-
-1. The connection's own action: its name in lowercase, with spaces and other
-   characters as underscores, and `_led` added. `Button 2 press` calls
-   `button_2_press_led`.
-1. `control4_led`, for every connection without its own action.
-
-The action may declare any of these variables, in any order. Only those it
-declares are sent.
-
-| Variable     | Type          | Value                                                |
-| ------------ | ------------- | ---------------------------------------------------- |
-| `event_name` | string        | The event's name                                     |
-| `event_type` | string        | The event type                                       |
-| `state`      | bool          | Whether the load is on                               |
-| `color`      | int or string | The load's on color while it is on, off color if off |
-| `on_color`   | int or string | The load's on color                                  |
-| `off_color`  | int or string | The load's off color                                 |
-
-A color declared as `int` arrives as `0xRRGGBB`, or `-1` when the load has sent
-none. Declared as `string`, it arrives as `RRGGBB`, or empty.
-
-The driver calls the action when the load reports a change and when the device
-connects. When the connection is unbound, it sends `state` off with no colors.
-
-Here the button from the example above takes its background from the state, and
-a dot inside it shows the color.
+This action gives the LVGL button above an amber background while the load is on
+and a dark one while it is off, and colors a dot inside it with the load's
+color. Make the on and off styles clearly different; close shades look the same
+on a panel.
 
 ```yaml
 lvgl:
@@ -1282,10 +1246,7 @@ lvgl:
       widgets:
         - button:
             id: lv_button_2
-            on_short_click:
-              - event.trigger: { id: button_2_event, event_type: press }
-            on_long_press:
-              - event.trigger: { id: button_2_event, event_type: long_press }
+            # on_short_click and on_long_press as above
             widgets:
               - label:
                   text: "Button 2"
@@ -1309,6 +1270,39 @@ api:
             id: lv_button_2_dot
             bg_color: !lambda 'return lv_color_hex(color >= 0 ? color : 0x000000);'
 ```
+
+### The Action's Name
+
+For each button connection the driver calls the first of these the device
+declares:
+
+1. The connection's own action: its name in lowercase, with spaces and other
+   characters as underscores, and `_led` added. `Button 2 press` calls
+   `button_2_press_led`.
+1. `control4_led`, for every connection without its own action.
+
+### The Action's Variables
+
+The action may declare any of these variables, in any order. Only those it
+declares are sent.
+
+| Variable     | Type          | Value                                                |
+| ------------ | ------------- | ---------------------------------------------------- |
+| `event_name` | string        | The event's name                                     |
+| `event_type` | string        | The event type                                       |
+| `state`      | bool          | Whether the load is on                               |
+| `color`      | int or string | The load's on color while it is on, off color if off |
+| `on_color`   | int or string | The load's on color                                  |
+| `off_color`  | int or string | The load's off color                                 |
+
+A color declared as `int` arrives as `0xRRGGBB`, or `-1` when the load has sent
+none. Declared as `string`, it arrives as `RRGGBB`, or empty.
+
+### When the Action Is Called
+
+The driver calls the action when the load reports a change and when the device
+connects, asking the load for its state on connect. When the connection is
+unbound, it sends `state` off with no colors.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
