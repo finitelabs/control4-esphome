@@ -260,8 +260,8 @@ driver.
 A `TEMPERATURE_VALUE` input connection that appears when you select a **Remote
 Temperature Service** in the driver properties. Bind any Control4 temperature
 sensor to this connection to feed external temperature readings to the ESPHome
-device. Bind another device's sensor here, not this driver's own **Temperature**
-connection.
+device. Bind another device's sensor here. Composer also lists this thermostat's
+own **Temperature** outputs, but those carry the device's own reading.
 
 ### Temperature (provider)
 
