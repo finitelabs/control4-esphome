@@ -86,6 +86,21 @@
         <default>None</default>
         <description>ESPHome service called when reverting to the internal sensor. Leave as None if your device auto-reverts when remote updates stop.</description>
       </property>
+      <property>
+        <name>Remote Temperature Timeout</name>
+        <type>LIST</type>
+        <default>30 Minutes</default>
+        <items>
+          <item>Disabled</item>
+          <item>5 Minutes</item>
+          <item>10 Minutes</item>
+          <item>30 Minutes</item>
+          <item>1 Hour</item>
+          <item>1.5 Hours</item>
+          <item>2 Hours</item>
+        </items>
+        <description>Time without a new remote reading before the device goes back to its own sensor.</description>
+      </property>
       <!-- #ifdef DRIVERCENTRAL -->
       <property>
         <name>Support Code</name>

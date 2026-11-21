@@ -1729,12 +1729,19 @@ test("The thermostat shows the remote reading while it is in use, and it is rese
   T.check("and still resent", forwarded ~= nil and forwarded.params.temperature == "20.3")
 
   local realTime = os.time
+  local offset = 0
   os.time = function(...)
-    return realTime(...) + 90 * 60
+    return realTime(...) + offset
   end
+  offset = 29 * 60
   resetSent()
   ShimFireTimers()
-  T.eq("a reading 90 minutes old is not resent", lastSent("SET_REMOTE_TEMPERATURE"), nil)
+  forwarded = lastSentOn(ESPHOME, "SET_REMOTE_TEMPERATURE")
+  T.check("a reading inside the default 30 minutes is resent", forwarded ~= nil)
+  offset = 30 * 60
+  resetSent()
+  ShimFireTimers()
+  T.eq("a reading 30 minutes old is not resent", lastSent("SET_REMOTE_TEMPERATURE"), nil)
   shown = lastSentOn(PROXY, "TEMPERATURE_CHANGED")
   T.check("and the device's own reading is shown", shown ~= nil and shown.params.TEMPERATURE == "32.9")
   resetSent()
@@ -1743,6 +1750,29 @@ test("The thermostat shows the remote reading while it is in use, and it is rese
   RFP[SENSOR](SENSOR, "VALUE_CHANGED", { CELSIUS = "20.4" })
   forwarded = lastSentOn(ESPHOME, "SET_REMOTE_TEMPERATURE")
   T.check("a new reading starts it again", forwarded ~= nil and forwarded.params.temperature == "20.4")
+
+  Properties["Remote Temperature Timeout"] = "Disabled"
+  OnPropertyChanged("Remote Temperature Timeout")
+  offset = offset + 24 * 60 * 60
+  resetSent()
+  ShimFireTimers()
+  forwarded = lastSentOn(ESPHOME, "SET_REMOTE_TEMPERATURE")
+  T.check("with the timeout Disabled a day-old reading is still resent", forwarded ~= nil)
+
+  RFP[SENSOR](SENSOR, "VALUE_CHANGED", { CELSIUS = "20.5" })
+  offset = offset + 6 * 60
+  resetSent()
+  Properties["Remote Temperature Timeout"] = "5 Minutes"
+  OnPropertyChanged("Remote Temperature Timeout")
+  shown = lastSentOn(PROXY, "TEMPERATURE_CHANGED")
+  T.check(
+    "a 5 Minutes timeout past its window shows the device's own at once",
+    shown ~= nil and shown.params.TEMPERATURE == "32.9"
+  )
+  resetSent()
+  ShimFireTimers()
+  T.eq("and resends nothing", lastSent("SET_REMOTE_TEMPERATURE"), nil)
+  Properties["Remote Temperature Timeout"] = nil
   os.time = realTime
 
   RFP.SET_REMOTE_SENSOR(PROXY, "SET_REMOTE_SENSOR", { IN_USE = "False" })

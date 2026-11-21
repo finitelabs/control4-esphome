@@ -196,6 +196,15 @@ Leave as `None` if your ESPHome device automatically reverts to its internal
 sensor when remote temperature updates stop (most devices have a configurable
 timeout for this).
 
+#### Remote Temperature Timeout
+
+> Only visible once a **Remote Temperature Service** is selected.
+
+How long the bound sensor can go without a new reading before the driver stops
+sending it and the device goes back to its own sensor. Many sensors report only
+when the temperature changes, so pick a longer time for one that can sit still,
+or **Disabled** to never time out. Default is 30 minutes.
+
 <!-- #ifdef DRIVERCENTRAL -->
 
 #### Support Code
@@ -410,9 +419,9 @@ Service requirements:
   named `temperature` (in Celsius). The driver calls this each time a new
   reading arrives from the bound Control4 sensor, and again every minute while
   the sensor is in use, since most devices drop a remote reading that is not
-  refreshed. If the sensor sends no new reading for 90 minutes, the driver
-  stops, calls the **Internal Temperature Service** (if configured) and shows
-  the device's own reading until the sensor reports again.
+  refreshed. If the sensor sends no new reading within the **Remote Temperature
+  Timeout**, the driver stops, calls the **Internal Temperature Service** (if
+  configured) and shows the device's own reading until the sensor reports again.
 - **Internal temperature service** (optional): Takes no parameters. The driver
   calls this when the remote sensor is disabled. If your device automatically
   reverts when remote updates stop, you can leave the **Internal Temperature

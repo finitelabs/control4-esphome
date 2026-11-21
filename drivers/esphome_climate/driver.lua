@@ -58,8 +58,17 @@ local DEVICE_CELSIUS = nil -- the device's own current_temperature
 local REMOTE_RESEND_TIMER = "RemoteTemperatureResend"
 -- Devices drop a remote reading that is not refreshed; Midea follow-me lapses within minutes.
 local REMOTE_RESEND_MS = 60 * 1000
--- A sensor sends no offline signal, so a reading this old is taken as a sensor gone quiet.
-local REMOTE_STALE_S = 90 * 60
+-- A sensor sends no offline signal, so a reading older than the Remote Temperature Timeout is taken as one gone quiet.
+local REMOTE_TIMEOUT_S = {
+  ["Disabled"] = 0,
+  ["5 Minutes"] = 5 * 60,
+  ["10 Minutes"] = 10 * 60,
+  ["30 Minutes"] = 30 * 60,
+  ["1 Hour"] = 60 * 60,
+  ["1.5 Hours"] = 90 * 60,
+  ["2 Hours"] = 120 * 60,
+}
+local DEFAULT_REMOTE_TIMEOUT = "30 Minutes"
 local USER_SERVICES_DISCOVERED = false
 local IS_SINGLE_SETPOINT = false
 local LAST_WATER_HEATER_MODE = nil -- restored from persist in OnDriverLateInit
@@ -798,10 +807,14 @@ local function revertToInternalTemperature()
   sendRemoteTemperatureCommand(internalService, nil)
 end
 
---- Whether the bound sensor has reported within the stale window.
+--- Whether the bound sensor has reported within the Remote Temperature Timeout.
 --- @return boolean fresh
 local function remoteReadingFresh()
-  return REMOTE_CELSIUS ~= nil and REMOTE_AT ~= nil and os.time() - REMOTE_AT < REMOTE_STALE_S
+  if REMOTE_CELSIUS == nil or REMOTE_AT == nil then
+    return false
+  end
+  local timeout = REMOTE_TIMEOUT_S[Properties["Remote Temperature Timeout"]] or REMOTE_TIMEOUT_S[DEFAULT_REMOTE_TIMEOUT]
+  return timeout == 0 or os.time() - REMOTE_AT < timeout
 end
 
 --- Whether the bound sensor's reading stands in for the device's own.
@@ -848,7 +861,7 @@ local function updateRemoteResendTimer()
       end
       return
     end
-    log:warn("No reading from the remote temperature sensor in %d minutes, using the device's own", REMOTE_STALE_S / 60)
+    log:warn("No reading from the remote temperature sensor within the timeout, using the device's own")
     if REMOTE_SENSOR_IN_USE then
       revertToInternalTemperature()
     end
@@ -2417,6 +2430,7 @@ function RFP.UPDATE_USER_SERVICES(idBinding, strCommand, tParams)
   else
     C4:SetPropertyAttribs("Remote Temperature Service", constants.HIDE_PROPERTY)
     C4:SetPropertyAttribs("Internal Temperature Service", constants.HIDE_PROPERTY)
+    C4:SetPropertyAttribs("Remote Temperature Timeout", constants.HIDE_PROPERTY)
   end
 
   updateServiceList("Remote Temperature Service", serviceNames, false)
@@ -2434,14 +2448,30 @@ function OPC.Remote_Temperature_Service(propertyValue)
     return
   end
   if propertyValue == SELECT_OPTION or IsEmpty(propertyValue) then
+    C4:SetPropertyAttribs("Remote Temperature Timeout", constants.HIDE_PROPERTY)
     if SENSOR_BINDING ~= nil then
       unconfigureRemoteSensor()
     end
   else
+    if USER_SERVICES_DISCOVERED then
+      C4:SetPropertyAttribs("Remote Temperature Timeout", constants.SHOW_PROPERTY)
+    end
     if SENSOR_BINDING == nil then
       configureRemoteSensor()
     end
   end
+end
+
+function OPC.Remote_Temperature_Timeout(propertyValue)
+  log:trace("OPC.Remote_Temperature_Timeout('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  -- A shorter timeout can leave the held reading stale at once.
+  if REMOTE_SENSOR_IN_USE and SENSOR_BINDING ~= nil and REMOTE_CELSIUS ~= nil and not remoteReadingFresh() then
+    revertToInternalTemperature()
+  end
+  remoteSensorChanged()
 end
 
 function OPC.Internal_Temperature_Service(propertyValue)
@@ -2575,6 +2605,7 @@ function OnDriverLateInit()
   -- Hide remote sensor properties until services are discovered
   C4:SetPropertyAttribs("Remote Temperature Service", constants.HIDE_PROPERTY)
   C4:SetPropertyAttribs("Internal Temperature Service", constants.HIDE_PROPERTY)
+  C4:SetPropertyAttribs("Remote Temperature Timeout", constants.HIDE_PROPERTY)
 
   -- Restore sensor binding reference if it was persisted
   local sensorBinding = bindings:getDynamicBinding(REMOTE_BINDING_NAMESPACE, REMOTE_BINDING_KEY)
