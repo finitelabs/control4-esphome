@@ -100,6 +100,8 @@ local PIECES = {
   { what = "stateNumber", text = cutLocalFunction("stateNumber") },
   { what = "listHas", text = cutLocalFunction("listHas") },
   { what = "matchInputSignature", text = cutLocalFunction("matchInputSignature") },
+  { what = "remoteSensorActive", text = cutLocalFunction("remoteSensorActive") },
+  { what = "sendDisplayedTemperature", text = cutLocalFunction("sendDisplayedTemperature") },
   { what = "RFP.UPDATE_STATE", text = cutHandler("UPDATE_STATE") },
 }
 for _, piece in ipairs(PIECES) do

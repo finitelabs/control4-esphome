@@ -251,6 +251,8 @@ local UPDATE_STATE_SPEC = {
   { "localFn", "stateNumber" },
   { "localFn", "listHas" },
   { "localFn", "matchInputSignature" },
+  { "localFn", "remoteSensorActive" },
+  { "localFn", "sendDisplayedTemperature" },
   { "handler", "UPDATE_STATE" },
 }
 
