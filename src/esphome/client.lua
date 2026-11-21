@@ -2044,7 +2044,7 @@ end
 
 --- Whether the device declares a user-defined service with this name.
 --- @param name string The service name as defined in the ESPHome YAML.
---- @return boolean
+--- @return boolean found True if the device declares a service with this name.
 function ESPHomeClient:hasService(name)
   return self.userServices[name] ~= nil
 end
@@ -2080,10 +2080,9 @@ function ESPHomeClient:executeServiceWithArgs(name, values)
     if argType == ArgType.SERVICE_ARG_TYPE_BOOL then
       arg = { bool_ = value ~= nil and toboolean(value) or false }
     elseif argType == ArgType.SERVICE_ARG_TYPE_INT then
-      local n = tonumber(value) or 0
-      arg = { int_ = n >= 0 and math.floor(n) or math.ceil(n) }
+      arg = { int_ = tointeger(value) or 0 }
     elseif argType == ArgType.SERVICE_ARG_TYPE_FLOAT then
-      arg = { float_ = tonumber(value) or 0 }
+      arg = { float_ = tofinite(value) or 0 }
     elseif argType == ArgType.SERVICE_ARG_TYPE_STRING then
       arg = { string_ = value ~= nil and tostring(value) or "" }
     else

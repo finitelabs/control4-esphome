@@ -24,9 +24,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 - Added Control4 load groups to the ESPHome light: it joins a load group and
   follows the group's level, ramps and sync.
-- Added button feedback for displays to the ESPHome driver: an event's button
-  connections pass the bound load's state and colors to an API action on the
-  device, so a display can show both.
+- Added button feedback for displays to the ESPHome driver. A button connection
+  sends its load's state and colors to an API action on the device, so a display
+  can show both.
 
 ### Fixed
 
