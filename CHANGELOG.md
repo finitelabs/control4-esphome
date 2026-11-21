@@ -25,9 +25,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Added Control4 load groups to the ESPHome light: it joins a load group and
   follows the group's level, ramps and sync.
 - Added button LED feedback through API actions to the ESPHome driver: each
-  event type's link passes the bound load's state and colors to the device's
-  `<name>_<event_type>_led` or `control4_led` action, so a display can show them
-  with no light, whatever the link is bound to
+  event type's link passes the bound load's state, colors and name to the
+  device's `<name>_<event_type>_led` or `control4_led` action, so a display can
+  show them with no light, whatever the link is bound to
 
 ### Fixed
 

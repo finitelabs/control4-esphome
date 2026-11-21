@@ -223,13 +223,54 @@ T.eq("nothing sent while disconnected", #calls, before)
 connected = true
 sent = {}
 leds:discovered(entities)
-local names = {}
+local seen = {}
 for i = before + 1, #calls do
-  names[calls[i].name .. ":" .. tostring(calls[i].args.state)] = true
+  seen[calls[i].name .. ":" .. tostring(calls[i].args.state)] = true
 end
-T.truthy("press replayed (off)", names["touch_button_2_press_led:false"])
-T.truthy("long press replayed", names["control4_led:true"])
+T.truthy("press replayed (off)", seen["touch_button_2_press_led:false"])
+T.truthy("long press replayed", seen["control4_led:true"])
 T.contains("asks the press load for its state", table.concat(sent, ","), press .. ":REQUEST_BUTTON_COLORS")
+
+--------------------------------------------------------------------------------
+T.section("load_name names what the link is bound to")
+--------------------------------------------------------------------------------
+
+-- Two providers: an Advanced Lighting scene binding, and a light's button link.
+local AGENT, LIGHT = 501, 502
+local names = { [AGENT] = "Advanced Lighting", [LIGHT] = "Dining Pendant" }
+local peerBindings = {
+  [AGENT] = { { bindingid = 7, name = "Welcome", provider = true } },
+  [LIGHT] = { { bindingid = 300, name = "Toggle Button Link", provider = true } },
+}
+local shimDisplayName, shimBindingsByDevice = C4.GetDeviceDisplayName, C4.GetBindingsByDevice
+function C4:GetDeviceDisplayName(id)
+  return names[tonumber(id)] or shimDisplayName(self, id)
+end
+function C4:GetBindingsByDevice(id)
+  if peerBindings[tonumber(id)] then
+    return { bindings = peerBindings[tonumber(id)] }
+  end
+  return shimBindingsByDevice(self, id)
+end
+
+C4:Bind(AGENT, 7, C4:GetDeviceID(), long, "BUTTON_LINK")
+RFP[long](long, "MATCH_LED_STATE", { STATE = false })
+T.eq("a scene binding gives its own name", last().args.load_name, "Welcome")
+
+C4:Bind(LIGHT, 300, C4:GetDeviceID(), press, "BUTTON_LINK")
+RFP[press](press, "MATCH_LED_STATE", { STATE = true })
+T.eq("a light's generic button link gives the device's name", last().args.load_name, "Dining Pendant")
+
+before = #calls
+RFP[press](press, "MATCH_LED_STATE", { STATE = true })
+T.eq("the name is looked up once and does not resend", #calls, before)
+
+names[LIGHT] = "Renamed Pendant"
+leds:discovered(entities)
+RFP[press](press, "MATCH_LED_STATE", { STATE = false })
+T.eq("a reconnect looks it up again", last().args.load_name, "Renamed Pendant")
+
+C4:Unbind(C4:GetDeviceID(), long)
 
 --------------------------------------------------------------------------------
 T.section("An unbound link goes dark on the device")
@@ -239,5 +280,6 @@ OBC[press](press, "BUTTON_LINK", false)
 T.eq("off", last().args.state, false)
 T.eq("no color", last().args.color, -1)
 T.eq("to its own action", last().name, "touch_button_2_press_led")
+T.eq("and no load name", last().args.load_name, "")
 
 T.finish()

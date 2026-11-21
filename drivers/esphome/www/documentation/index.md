@@ -1267,9 +1267,16 @@ declares are sent:
 | `color`      | int or string | What a keypad shows now: the on color or the off color |
 | `on_color`   | int or string | The load's on color                                    |
 | `off_color`  | int or string | The load's off color                                   |
+| `load_name`  | string        | What the link is bound to (see below)                  |
 
 A color declared as `int` arrives as `0xRRGGBB`, or `-1` when the load has given
 none; declared as `string`, as `RRGGBB`, or empty.
+
+`load_name` is the name of what the link is bound to, looked up from the
+controller's bindings: the bound connection's own name when it names something,
+such as an Advanced Lighting scene, else the bound device's name, such as a
+light's. It is empty when the link is unbound. The driver logs what it found at
+the Info level the first time it looks each link up.
 
 The action is called when the load reports a change, when the device connects
 (with what is already known, and again once the load answers the driver's
