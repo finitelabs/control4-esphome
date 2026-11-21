@@ -1252,7 +1252,7 @@ For each event type the driver calls the first of these the device declares:
    characters as one underscore, e.g. "Touch Button 2" + "press" calls
    `touch_button_2_press_led`.
 1. `control4_led`: one action for every event type, which tells them apart by
-   the `event` and `event_type` variables.
+   the `event_name` and `event_type` variables.
 
 A device with neither is left alone.
 
@@ -1261,7 +1261,7 @@ declares are sent:
 
 | Variable     | Type          | Value                                                  |
 | ------------ | ------------- | ------------------------------------------------------ |
-| `event`      | string        | Event entity name (e.g., "Touch Button 2")             |
+| `event_name` | string        | Event entity name (e.g., "Touch Button 2")             |
 | `event_type` | string        | Event type (e.g., "press")                             |
 | `state`      | bool          | Whether the load is on, as it tells a keypad           |
 | `color`      | int or string | What a keypad shows now: the on color or the off color |

@@ -176,7 +176,7 @@ T.eq("state", last().args.state, true)
 T.eq("on: color is the on color", last().args.color, 0xFFD166)
 T.eq("on_color", last().args.on_color, 0xFFD166)
 T.eq("off_color", last().args.off_color, 0x202530)
-T.eq("event", last().args.event, "Touch Button 2")
+T.eq("event_name", last().args.event_name, "Touch Button 2")
 T.eq("event_type", last().args.event_type, "press")
 
 RFP[press](press, "MATCH_LED_STATE", { STATE = "0" })

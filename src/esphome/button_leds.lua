@@ -368,8 +368,9 @@ end
 --- Send a link's feedback to the device's API action for it, if it declares one:
 --- the link's own `<event name>_<event type>_led` (see ButtonLeds.actionName), else
 --- `control4_led`. A device with neither is left alone. The action may declare any
---- of `event`, `event_type`, `state`, `color`, `on_color` and `off_color`, in any
---- order; only what it declares is sent. `color` is what a keypad would show now:
+--- of `event_name`, `event_type`, `state`, `color`, `on_color` and `off_color`, in
+--- any order; only what it declares is sent. (ESPHome refuses `event` as a variable
+--- name in any config with event entities, as it names the `event` component.) `color` is what a keypad would show now:
 --- the on color while the load is on, the off color while it is off. A color
 --- declared as an int is sent as 0xRRGGBB, or -1 when the load has given none; as
 --- a string, as RRGGBB, or empty.
@@ -424,7 +425,7 @@ function ButtonLeds:forward(link, dark)
   self.actionSent[link] = signature
   self.client
     :executeServiceWithArgs(action, {
-      event = button.entity.name,
+      event_name = button.entity.name,
       event_type = eventType,
       state = state,
       color = typedColor(color),
