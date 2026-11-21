@@ -203,7 +203,9 @@ timeout for this).
 How long the bound sensor can go without a new reading before the driver stops
 sending it and the device goes back to its own sensor. Many sensors report only
 when the temperature changes, so pick a longer time for one that can sit still,
-or **Disabled** to never time out. Default is 30 minutes.
+or **Disabled** to never time out. With **Disabled**, a sensor that goes silent
+keeps its last reading in use until you unbind it or turn off **Use Remote
+Temperature Sensor**. Default is 30 minutes.
 
 <!-- #ifdef DRIVERCENTRAL -->
 

@@ -899,7 +899,6 @@ local function handleValueChanged(idBinding, tParams)
   if celsius == nil then
     return
   end
-  -- Kept while not in use and across a restart: the sensor reports only on a change, so it is still current.
   setRemoteCelsius(celsius)
   if REMOTE_SENSOR_IN_USE then
     remoteSensorChanged()
