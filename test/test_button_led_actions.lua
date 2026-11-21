@@ -271,6 +271,25 @@ RFP[press](press, "MATCH_LED_STATE", { STATE = false })
 T.eq("a reconnect looks it up again", last().args.load_name, "Renamed Pendant")
 
 C4:Unbind(C4:GetDeviceID(), long)
+OBC[long](long, "BUTTON_LINK", false)
+
+--------------------------------------------------------------------------------
+T.section("A load that never reports a state still gets its name shown")
+--------------------------------------------------------------------------------
+
+-- A scenario button: bound, but it never answers with MATCH_LED_STATE.
+local SCENARIO = 503
+names[SCENARIO] = "Scenarios"
+peerBindings[SCENARIO] = { { bindingid = 9, name = "Arrive Leave Toggle", provider = true } }
+C4:Bind(SCENARIO, 9, C4:GetDeviceID(), long, "BUTTON_LINK")
+sent = {}
+before = #calls
+OBC[long](long, "BUTTON_LINK", true)
+T.eq("sent on bind", #calls, before + 1)
+T.eq("generic words dropped from the binding name", last().args.load_name, "Arrive Leave")
+T.eq("shown as off", last().args.state, false)
+T.eq("with no color", last().args.color, -1)
+T.contains("and the load is asked for its state", table.concat(sent, ","), long .. ":REQUEST_BUTTON_COLORS")
 
 --------------------------------------------------------------------------------
 T.section("An unbound link goes dark on the device")

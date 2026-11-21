@@ -326,6 +326,15 @@ function ButtonLeds:requestState(bindingId)
   SendToProxy(bindingId, "REQUEST_BUTTON_COLORS", {}, "COMMAND")
 end
 
+--- A button link was bound: look up what it is bound to, show its name, and ask it for its state.
+--- @param link string The link's binding key.
+--- @param bindingId integer
+function ButtonLeds:linkBound(link, bindingId)
+  self.loadNames[link] = nil
+  self:requestState(bindingId)
+  self:forward(link)
+end
+
 --- A button link lost its load: the LED follows the button's next linked load, or goes dark.
 --- @param link string The link's binding key.
 function ButtonLeds:linkUnbound(link)
@@ -369,8 +378,34 @@ function ButtonLeds:received(link, strCommand, tParams)
   end
 end
 
---- Binding names that say which of a device's button links is bound, not what the device is.
-local GENERIC_LINK_NAMES = { "button", "link", "toggle", "^on$", "^off$", "^top", "^bottom" }
+--- Words in a binding name that say which of a device's button links is bound, not what is bound.
+local GENERIC_LINK_WORDS = {
+  button = true,
+  link = true,
+  links = true,
+  toggle = true,
+  on = true,
+  off = true,
+  top = true,
+  bottom = true,
+  middle = true,
+  press = true,
+  select = true,
+  activate = true,
+}
+
+--- A binding name without its generic words ("Welcome Toggle" is "Welcome", "Toggle Button Link" is "").
+--- @param name any
+--- @return string
+local function meaningfulName(name)
+  local kept = {}
+  for word in tostring(name or ""):gmatch("[^%s%-_:/]+") do
+    if not GENERIC_LINK_WORDS[word:lower()] then
+      table.insert(kept, word)
+    end
+  end
+  return table.concat(kept, " ")
+end
 
 --- The name of what a link is bound to: the bound binding's own name when it names
 --- something (an Advanced Lighting scene, say), else the bound device's name (a
@@ -388,14 +423,16 @@ function ButtonLeds:loadName(link)
     return ""
   end
   local me = C4:GetDeviceID()
-  local peer
+  local peer, own
   for _, record in pairs(Select(C4:GetBindingsByDevice(me), "bindings") or {}) do
     if tointeger(Select(record, "bindingid")) == binding.bindingId then
+      own = record
       peer = Select(record, "boundprovider", "bound")
     end
   end
   local deviceId = tointeger(Select(peer, "deviceid")) or tointeger(C4:GetBoundProviderDevice(me, binding.bindingId))
   if deviceId == nil or deviceId == 0 or deviceId == me then
+    log:info("Button link %s: no bound load found; its binding: %s", link, own)
     return ""
   end
   local deviceName = C4:GetDeviceDisplayName(deviceId) or Select(peer, "name") or ""
@@ -408,26 +445,19 @@ function ButtonLeds:loadName(link)
     end
   end
   local name = deviceName
-  if not IsEmpty(bindingName) then
-    local lower = tostring(bindingName):lower()
-    local generic = false
-    for _, pattern in ipairs(GENERIC_LINK_NAMES) do
-      if lower:find(pattern) then
-        generic = true
-      end
-    end
-    if not generic then
-      name = tostring(bindingName)
-    end
+  local meaningful = meaningfulName(bindingName)
+  if meaningful ~= "" then
+    name = meaningful
   end
   log:info(
-    "Button link %s is bound to device %s (%s), binding %s (%s): load name '%s'; the device's bindings: %s",
+    "Button link %s is bound to device %s (%s), binding %s (%s): load name '%s'; its binding: %s; the device's bindings: %s",
     link,
     deviceId,
     deviceName,
     peerBindingId,
     bindingName,
     name,
+    own,
     peerRecords
   )
   self.loadNames[link] = name
@@ -453,9 +483,7 @@ function ButtonLeds:forward(link, dark)
     return
   end
   local feedback = self.feedback[link]
-  if not dark and (feedback == nil or feedback.state == nil) then
-    return
-  end
+  local known = feedback ~= nil and feedback.state ~= nil
   feedback = feedback or {}
   local state = feedback.state or false
   local onColor, offColor = feedback.onColor, feedback.offColor
@@ -477,6 +505,11 @@ function ButtonLeds:forward(link, dark)
     return
   end
   local loadName = dark and "" or self:loadName(link)
+  -- A load that has not reported a state (some never do, such as a scenario
+  -- button) still gets its name shown, as off with no colors.
+  if not dark and not known and loadName == "" then
+    return
+  end
   local signature = table.concat({ tostring(state), color or "", onColor or "", offColor or "", loadName }, "|")
   if self.actionSent[link] == signature then
     return
