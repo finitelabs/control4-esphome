@@ -53,10 +53,13 @@ local CAPABILITIES_SENT = false
 local REMOTE_SENSOR_IN_USE = false -- cached from proxy SET_REMOTE_SENSOR, persisted
 local SENSOR_BINDING = nil
 local REMOTE_CELSIUS = nil -- the bound sensor's latest reading, persisted; it reports only on a change
+local REMOTE_AT = nil -- os.time() of that reading
 local DEVICE_CELSIUS = nil -- the device's own current_temperature
 local REMOTE_RESEND_TIMER = "RemoteTemperatureResend"
 -- Devices drop a remote reading that is not refreshed; Midea follow-me lapses within minutes.
 local REMOTE_RESEND_MS = 60 * 1000
+-- A sensor sends no offline signal, so a reading this old is taken as a sensor gone quiet.
+local REMOTE_STALE_S = 90 * 60
 local USER_SERVICES_DISCOVERED = false
 local IS_SINGLE_SETPOINT = false
 local LAST_WATER_HEATER_MODE = nil -- restored from persist in OnDriverLateInit
@@ -795,10 +798,16 @@ local function revertToInternalTemperature()
   sendRemoteTemperatureCommand(internalService, nil)
 end
 
+--- Whether the bound sensor has reported within the stale window.
+--- @return boolean fresh
+local function remoteReadingFresh()
+  return REMOTE_CELSIUS ~= nil and REMOTE_AT ~= nil and os.time() - REMOTE_AT < REMOTE_STALE_S
+end
+
 --- Whether the bound sensor's reading stands in for the device's own.
 --- @return boolean active
 local function remoteSensorActive()
-  return REMOTE_SENSOR_IN_USE and SENSOR_BINDING ~= nil and REMOTE_CELSIUS ~= nil
+  return REMOTE_SENSOR_IN_USE and SENSOR_BINDING ~= nil and remoteReadingFresh()
 end
 
 --- Show the thermostat the reading in charge: the bound sensor's while it is in use, else the device's.
@@ -823,6 +832,9 @@ local function forwardRemoteTemperature()
   sendRemoteTemperatureCommand(serviceName, REMOTE_CELSIUS)
 end
 
+--- Apply a change to whether the bound sensor's reading is in use.
+local remoteSensorChanged
+
 --- Resend the reading on an interval while it is in use, restarting the interval from now.
 local function updateRemoteResendTimer()
   if not remoteSensorActive() then
@@ -830,9 +842,17 @@ local function updateRemoteResendTimer()
     return
   end
   SetTimer(REMOTE_RESEND_TIMER, REMOTE_RESEND_MS, function()
-    if ENTITY ~= nil and remoteSensorActive() then
-      forwardRemoteTemperature()
+    if remoteSensorActive() then
+      if ENTITY ~= nil then
+        forwardRemoteTemperature()
+      end
+      return
     end
+    log:warn("No reading from the remote temperature sensor in %d minutes, using the device's own", REMOTE_STALE_S / 60)
+    if REMOTE_SENSOR_IN_USE then
+      revertToInternalTemperature()
+    end
+    remoteSensorChanged()
   end, true)
 end
 
@@ -841,14 +861,15 @@ end
 local function setRemoteCelsius(celsius)
   REMOTE_CELSIUS = celsius
   if celsius == nil then
-    persist:delete("RemoteCelsius")
+    REMOTE_AT = nil
+    persist:delete("RemoteReading")
   else
-    persist:set("RemoteCelsius", celsius)
+    REMOTE_AT = os.time()
+    persist:set("RemoteReading", { celsius = celsius, at = REMOTE_AT })
   end
 end
 
---- Apply a change to whether the bound sensor's reading is in use.
-local function remoteSensorChanged()
+function remoteSensorChanged()
   if remoteSensorActive() then
     forwardRemoteTemperature()
   end
@@ -2560,9 +2581,14 @@ function OnDriverLateInit()
   if sensorBinding then
     SENSOR_BINDING = sensorBinding.bindingId
     registerSensorBindingHandlers(SENSOR_BINDING)
-    local storedRemote = persist:get("RemoteCelsius")
-    if type(storedRemote) == "number" then
-      REMOTE_CELSIUS = storedRemote
+    local storedRemote = persist:get("RemoteReading")
+    if
+      type(storedRemote) == "table"
+      and type(storedRemote.celsius) == "number"
+      and type(storedRemote.at) == "number"
+    then
+      REMOTE_CELSIUS = storedRemote.celsius
+      REMOTE_AT = storedRemote.at
     end
     updateRemoteResendTimer()
   end

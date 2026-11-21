@@ -1728,6 +1728,23 @@ test("The thermostat shows the remote reading while it is in use, and it is rese
   forwarded = lastSentOn(ESPHOME, "SET_REMOTE_TEMPERATURE")
   T.check("and still resent", forwarded ~= nil and forwarded.params.temperature == "20.3")
 
+  local realTime = os.time
+  os.time = function(...)
+    return realTime(...) + 90 * 60
+  end
+  resetSent()
+  ShimFireTimers()
+  T.eq("a reading 90 minutes old is not resent", lastSent("SET_REMOTE_TEMPERATURE"), nil)
+  shown = lastSentOn(PROXY, "TEMPERATURE_CHANGED")
+  T.check("and the device's own reading is shown", shown ~= nil and shown.params.TEMPERATURE == "32.9")
+  resetSent()
+  ShimFireTimers()
+  T.eq("and the resend has stopped", lastSent("SET_REMOTE_TEMPERATURE"), nil)
+  RFP[SENSOR](SENSOR, "VALUE_CHANGED", { CELSIUS = "20.4" })
+  forwarded = lastSentOn(ESPHOME, "SET_REMOTE_TEMPERATURE")
+  T.check("a new reading starts it again", forwarded ~= nil and forwarded.params.temperature == "20.4")
+  os.time = realTime
+
   RFP.SET_REMOTE_SENSOR(PROXY, "SET_REMOTE_SENSOR", { IN_USE = "False" })
   Properties["Remote Temperature Service"] = nil
   OnPropertyChanged("Remote Temperature Service")

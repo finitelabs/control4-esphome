@@ -1124,7 +1124,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   reading in Control4, where it showed the device's own.
 - An ESPHome thermostat using a remote temperature sensor sends the reading
   every minute, so the device no longer falls back to its own sensor when the
-  room temperature holds steady.
+  room temperature holds steady. A sensor silent for 90 minutes is no longer
+  used until it reports again.
 
 ### Changed
 

@@ -410,7 +410,9 @@ Service requirements:
   named `temperature` (in Celsius). The driver calls this each time a new
   reading arrives from the bound Control4 sensor, and again every minute while
   the sensor is in use, since most devices drop a remote reading that is not
-  refreshed.
+  refreshed. If the sensor sends no new reading for 90 minutes, the driver
+  stops, calls the **Internal Temperature Service** (if configured) and shows
+  the device's own reading until the sensor reports again.
 - **Internal temperature service** (optional): Takes no parameters. The driver
   calls this when the remote sensor is disabled. If your device automatically
   reverts when remote updates stop, you can leave the **Internal Temperature
