@@ -52,6 +52,23 @@ local STATE
 local CAPABILITIES_SENT = false
 local REMOTE_SENSOR_IN_USE = false -- cached from proxy SET_REMOTE_SENSOR, persisted
 local SENSOR_BINDING = nil
+local REMOTE_CELSIUS = nil -- the bound sensor's latest reading, persisted; it reports only on a change
+local REMOTE_AT = nil -- os.time() of that reading
+local DEVICE_CELSIUS = nil -- the device's own current_temperature
+local REMOTE_RESEND_TIMER = "RemoteTemperatureResend"
+-- Devices drop a remote reading that is not refreshed; Midea follow-me lapses within minutes.
+local REMOTE_RESEND_MS = 60 * 1000
+-- A sensor sends no offline signal, so a reading older than the Remote Temperature Timeout is taken as one gone quiet.
+local REMOTE_TIMEOUT_S = {
+  ["Disabled"] = 0,
+  ["5 Minutes"] = 5 * 60,
+  ["10 Minutes"] = 10 * 60,
+  ["30 Minutes"] = 30 * 60,
+  ["1 Hour"] = 60 * 60,
+  ["1.5 Hours"] = 90 * 60,
+  ["2 Hours"] = 120 * 60,
+}
+local DEFAULT_REMOTE_TIMEOUT = "30 Minutes"
 local USER_SERVICES_DISCOVERED = false
 local IS_SINGLE_SETPOINT = false
 local LAST_WATER_HEATER_MODE = nil -- restored from persist in OnDriverLateInit
@@ -790,24 +807,102 @@ local function revertToInternalTemperature()
   sendRemoteTemperatureCommand(internalService, nil)
 end
 
---- Handle a temperature value change from the bound sensor.
---- @param idBinding integer The binding ID.
---- @param tParams table The parameters.
-local function handleValueChanged(idBinding, tParams)
-  log:trace("handleValueChanged(%s, %s)", idBinding, tParams)
-  if not REMOTE_SENSOR_IN_USE then
-    return
+--- Whether the bound sensor has reported within the Remote Temperature Timeout.
+--- @return boolean fresh
+local function remoteReadingFresh()
+  if REMOTE_CELSIUS == nil or REMOTE_AT == nil then
+    return false
   end
-  local celsius = CelsiusFromParams(tParams, "CELSIUS")
+  local timeout = REMOTE_TIMEOUT_S[Properties["Remote Temperature Timeout"]] or REMOTE_TIMEOUT_S[DEFAULT_REMOTE_TIMEOUT]
+  return timeout == 0 or os.time() - REMOTE_AT < timeout
+end
+
+--- Whether the bound sensor's reading stands in for the device's own.
+--- @return boolean active
+local function remoteSensorActive()
+  return REMOTE_SENSOR_IN_USE and SENSOR_BINDING ~= nil and remoteReadingFresh()
+end
+
+--- Show the thermostat the reading in charge: the bound sensor's while it is in use, else the device's.
+local function sendDisplayedTemperature()
+  local celsius = remoteSensorActive() and REMOTE_CELSIUS or DEVICE_CELSIUS
   if celsius == nil then
     return
   end
+  SendToProxy(PROXY_BINDING, "TEMPERATURE_CHANGED", {
+    TEMPERATURE = tostring(celsius),
+    SCALE = SCALE,
+  }, "NOTIFY")
+end
+
+--- Send the bound sensor's latest reading to the Remote Temperature Service.
+local function forwardRemoteTemperature()
   local serviceName = Properties["Remote Temperature Service"]
   if IsEmpty(serviceName) or serviceName == SELECT_OPTION then
     log:warn("Remote Temperature Service not configured - cannot send remote temperature")
     return
   end
-  sendRemoteTemperatureCommand(serviceName, celsius)
+  sendRemoteTemperatureCommand(serviceName, REMOTE_CELSIUS)
+end
+
+--- Apply a change to whether the bound sensor's reading is in use.
+local remoteSensorChanged
+
+--- Resend the reading on an interval while it is in use, restarting the interval from now.
+local function updateRemoteResendTimer()
+  if not remoteSensorActive() then
+    CancelTimer(REMOTE_RESEND_TIMER)
+    return
+  end
+  SetTimer(REMOTE_RESEND_TIMER, REMOTE_RESEND_MS, function()
+    if remoteSensorActive() then
+      if ENTITY ~= nil then
+        forwardRemoteTemperature()
+      end
+      return
+    end
+    log:warn("No reading from the remote temperature sensor within the timeout, using the device's own")
+    if REMOTE_SENSOR_IN_USE then
+      revertToInternalTemperature()
+    end
+    remoteSensorChanged()
+  end, true)
+end
+
+--- Hold the bound sensor's latest reading, or forget it with nil.
+--- @param celsius number|nil
+local function setRemoteCelsius(celsius)
+  REMOTE_CELSIUS = celsius
+  if celsius == nil then
+    REMOTE_AT = nil
+    persist:delete("RemoteReading")
+  else
+    REMOTE_AT = os.time()
+    persist:set("RemoteReading", { celsius = celsius, at = REMOTE_AT })
+  end
+end
+
+function remoteSensorChanged()
+  if remoteSensorActive() then
+    forwardRemoteTemperature()
+  end
+  sendDisplayedTemperature()
+  updateRemoteResendTimer()
+end
+
+--- Handle a temperature value change from the bound sensor.
+--- @param idBinding integer The binding ID.
+--- @param tParams table The parameters.
+local function handleValueChanged(idBinding, tParams)
+  log:trace("handleValueChanged(%s, %s)", idBinding, tParams)
+  local celsius = CelsiusFromParams(tParams, "CELSIUS")
+  if celsius == nil then
+    return
+  end
+  setRemoteCelsius(celsius)
+  if REMOTE_SENSOR_IN_USE then
+    remoteSensorChanged()
+  end
 end
 
 --- Register RFP and OBC handlers for the sensor binding.
@@ -819,9 +914,14 @@ local function registerSensorBindingHandlers(bindingId)
     end
   end
   OBC[bindingId] = function(idBinding, strClass, isBound)
-    if not isBound and REMOTE_SENSOR_IN_USE then
+    if isBound then
+      return
+    end
+    setRemoteCelsius(nil)
+    if REMOTE_SENSOR_IN_USE then
       revertToInternalTemperature()
     end
+    remoteSensorChanged()
   end
 end
 
@@ -851,6 +951,8 @@ local function unconfigureRemoteSensor()
   revertToInternalTemperature()
   REMOTE_SENSOR_IN_USE = false
   SENSOR_BINDING = nil
+  setRemoteCelsius(nil)
+  remoteSensorChanged()
   bindings:deleteBinding(REMOTE_BINDING_NAMESPACE, REMOTE_BINDING_KEY)
   log:info("Remote temperature sensor unconfigured")
 end
@@ -2102,11 +2204,9 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams, args)
   -- Current temperature
   local currentTemp = stateNumber(state, "current_temperature", entity.supports_current_temperature)
   if currentTemp ~= nil then
-    SendToProxy(PROXY_BINDING, "TEMPERATURE_CHANGED", {
-      TEMPERATURE = tostring(currentTemp),
-      SCALE = SCALE,
-    }, "NOTIFY")
-    -- Forward to temperature output connection
+    DEVICE_CELSIUS = currentTemp
+    sendDisplayedTemperature()
+    -- The output stays the device's own reading, so binding it back to the remote input cannot loop.
     SendToProxy(TEMPERATURE_OUTPUT_BINDING, "VALUE_CHANGED", SensorValueParams(currentTemp, "CELSIUS"))
   end
 
@@ -2329,6 +2429,7 @@ function RFP.UPDATE_USER_SERVICES(idBinding, strCommand, tParams)
   else
     C4:SetPropertyAttribs("Remote Temperature Service", constants.HIDE_PROPERTY)
     C4:SetPropertyAttribs("Internal Temperature Service", constants.HIDE_PROPERTY)
+    C4:SetPropertyAttribs("Remote Temperature Timeout", constants.HIDE_PROPERTY)
   end
 
   updateServiceList("Remote Temperature Service", serviceNames, false)
@@ -2346,14 +2447,30 @@ function OPC.Remote_Temperature_Service(propertyValue)
     return
   end
   if propertyValue == SELECT_OPTION or IsEmpty(propertyValue) then
+    C4:SetPropertyAttribs("Remote Temperature Timeout", constants.HIDE_PROPERTY)
     if SENSOR_BINDING ~= nil then
       unconfigureRemoteSensor()
     end
   else
+    if USER_SERVICES_DISCOVERED then
+      C4:SetPropertyAttribs("Remote Temperature Timeout", constants.SHOW_PROPERTY)
+    end
     if SENSOR_BINDING == nil then
       configureRemoteSensor()
     end
   end
+end
+
+function OPC.Remote_Temperature_Timeout(propertyValue)
+  log:trace("OPC.Remote_Temperature_Timeout('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  -- A shorter timeout can leave the held reading stale at once.
+  if REMOTE_SENSOR_IN_USE and SENSOR_BINDING ~= nil and REMOTE_CELSIUS ~= nil and not remoteReadingFresh() then
+    revertToInternalTemperature()
+  end
+  remoteSensorChanged()
 end
 
 function OPC.Internal_Temperature_Service(propertyValue)
@@ -2379,6 +2496,7 @@ function RFP.SET_REMOTE_SENSOR(idBinding, strCommand, tParams)
   if not REMOTE_SENSOR_IN_USE then
     revertToInternalTemperature()
   end
+  remoteSensorChanged()
   SendToProxy(PROXY_BINDING, "REMOTE_SENSOR_CHANGED", {
     IN_USE = REMOTE_SENSOR_IN_USE,
   }, "NOTIFY")
@@ -2486,12 +2604,23 @@ function OnDriverLateInit()
   -- Hide remote sensor properties until services are discovered
   C4:SetPropertyAttribs("Remote Temperature Service", constants.HIDE_PROPERTY)
   C4:SetPropertyAttribs("Internal Temperature Service", constants.HIDE_PROPERTY)
+  C4:SetPropertyAttribs("Remote Temperature Timeout", constants.HIDE_PROPERTY)
 
   -- Restore sensor binding reference if it was persisted
   local sensorBinding = bindings:getDynamicBinding(REMOTE_BINDING_NAMESPACE, REMOTE_BINDING_KEY)
   if sensorBinding then
     SENSOR_BINDING = sensorBinding.bindingId
     registerSensorBindingHandlers(SENSOR_BINDING)
+    local storedRemote = persist:get("RemoteReading")
+    if
+      type(storedRemote) == "table"
+      and type(storedRemote.celsius) == "number"
+      and type(storedRemote.at) == "number"
+    then
+      REMOTE_CELSIUS = storedRemote.celsius
+      REMOTE_AT = storedRemote.at
+    end
+    updateRemoteResendTimer()
   end
 
   gInitialized = true

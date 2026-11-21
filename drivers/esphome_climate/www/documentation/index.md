@@ -196,6 +196,17 @@ Leave as `None` if your ESPHome device automatically reverts to its internal
 sensor when remote temperature updates stop (most devices have a configurable
 timeout for this).
 
+#### Remote Temperature Timeout
+
+> Only visible once a **Remote Temperature Service** is selected.
+
+How long the bound sensor can go without a new reading before the driver stops
+sending it and the device goes back to its own sensor. Many sensors report only
+when the temperature changes, so pick a longer time for one that can sit still,
+or **Disabled** to never time out. With **Disabled**, a sensor that goes silent
+keeps its last reading in use until you unbind it or turn off **Use Remote
+Temperature Sensor**. Default is 30 minutes.
+
 <!-- #ifdef DRIVERCENTRAL -->
 
 #### Support Code
@@ -249,13 +260,14 @@ driver.
 A `TEMPERATURE_VALUE` input connection that appears when you select a **Remote
 Temperature Service** in the driver properties. Bind any Control4 temperature
 sensor to this connection to feed external temperature readings to the ESPHome
-device.
+device. Bind another device's sensor here. Composer also lists this thermostat's
+own **Temperature** outputs, but those carry the device's own reading.
 
 ### Temperature (provider)
 
 Outputs the climate device's current temperature reading to other Control4
 drivers via a `TEMPERATURE_VALUE` connection. Sends both Celsius and Fahrenheit
-values.
+values. It stays the device's own reading while a remote sensor is in use.
 
 ### Humidity (provider)
 
@@ -407,7 +419,11 @@ Service requirements:
 
 - **Remote temperature service** (required): Must accept a `float` parameter
   named `temperature` (in Celsius). The driver calls this each time a new
-  reading arrives from the bound Control4 sensor.
+  reading arrives from the bound Control4 sensor, and again every minute while
+  the sensor is in use, since most devices drop a remote reading that is not
+  refreshed. If the sensor sends no new reading within the **Remote Temperature
+  Timeout**, the driver stops, calls the **Internal Temperature Service** (if
+  configured) and shows the device's own reading until the sensor reports again.
 - **Internal temperature service** (optional): Takes no parameters. The driver
   calls this when the remote sensor is disabled. If your device automatically
   reverts when remote updates stop, you can leave the **Internal Temperature
@@ -420,8 +436,10 @@ Service requirements:
 Once the **Remote Temperature Service** is selected and a Control4 temperature
 sensor is bound to the **Remote Temperature Sensor** connection, toggle **Use
 Remote Temperature Sensor** in the thermostat UI (Navigator or the C4 app) to
-begin forwarding readings. Disabling the toggle calls the **Internal Temperature
-Service** (if configured) so the device reverts to its built-in sensor.
+begin forwarding readings. While it is on, the thermostat shows the bound
+sensor's reading. Disabling the toggle calls the **Internal Temperature
+Service** (if configured) so the device reverts to its built-in sensor, and the
+thermostat shows the device's own reading again.
 
 # <span style="color:#17BCF2">Water Heater Support</span>
 

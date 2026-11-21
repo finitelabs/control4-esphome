@@ -1661,6 +1661,125 @@ test("A fresh install does not forward a bound sensor before the proxy enables i
   OnPropertyChanged("Remote Temperature Service")
 end)
 
+test("The thermostat shows the remote reading while it is in use, and it is resent", function()
+  disconnect()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22, current_temperature = 32.8 })
+  Properties["Remote Temperature Service"] = "set_remote_temperature"
+  OnPropertyChanged("Remote Temperature Service")
+  local SENSOR
+  for id, binding in pairs(ShimDynamicBindings()) do
+    if binding.name == "Remote Temperature Sensor" then
+      SENSOR = id
+    end
+  end
+  T.check("the sensor binding exists", SENSOR ~= nil and RFP[SENSOR] ~= nil)
+  if SENSOR == nil or RFP[SENSOR] == nil then
+    return
+  end
+  RFP.SET_REMOTE_SENSOR(PROXY, "SET_REMOTE_SENSOR", { IN_USE = "False" })
+
+  resetSent()
+  RFP[SENSOR](SENSOR, "VALUE_CHANGED", { CELSIUS = "20.3" })
+  T.eq("a reading while not in use leaves the device's own on show", lastSent("TEMPERATURE_CHANGED"), nil)
+
+  RFP.SET_REMOTE_SENSOR(PROXY, "SET_REMOTE_SENSOR", { IN_USE = "True" })
+  local shown = lastSentOn(PROXY, "TEMPERATURE_CHANGED")
+  T.check("turning it on shows the held reading", shown ~= nil and shown.params.TEMPERATURE == "20.3")
+  local forwarded = lastSentOn(ESPHOME, "SET_REMOTE_TEMPERATURE")
+  T.check("and sends it at once", forwarded ~= nil and forwarded.params.temperature == "20.3")
+
+  resetSent()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22, current_temperature = 32.9 })
+  shown = lastSentOn(PROXY, "TEMPERATURE_CHANGED")
+  T.check("a device report keeps the remote reading on show", shown ~= nil and shown.params.TEMPERATURE == "20.3")
+  local output = lastSentOn(5010, "VALUE_CHANGED")
+  T.check("while the Temperature output carries the device's own", output ~= nil and output.params.CELSIUS == 32.9)
+
+  resetSent()
+  ShimFireTimers()
+  forwarded = lastSentOn(ESPHOME, "SET_REMOTE_TEMPERATURE")
+  T.check("an unchanged reading is resent", forwarded ~= nil and forwarded.params.temperature == "20.3")
+
+  RFP.SET_REMOTE_SENSOR(PROXY, "SET_REMOTE_SENSOR", { IN_USE = "False" })
+  shown = lastSentOn(PROXY, "TEMPERATURE_CHANGED")
+  T.check("turning it off shows the device's reading again", shown ~= nil and shown.params.TEMPERATURE == "32.9")
+  resetSent()
+  ShimFireTimers()
+  T.eq("and stops the resend", lastSent("SET_REMOTE_TEMPERATURE"), nil)
+
+  RFP.SET_REMOTE_SENSOR(PROXY, "SET_REMOTE_SENSOR", { IN_USE = "True" })
+  OBC[SENSOR](SENSOR, "TEMPERATURE_VALUE", false)
+  shown = lastSentOn(PROXY, "TEMPERATURE_CHANGED")
+  T.check("unbinding the sensor shows the device's reading", shown ~= nil and shown.params.TEMPERATURE == "32.9")
+  resetSent()
+  ShimFireTimers()
+  T.eq("and nothing is resent", lastSent("SET_REMOTE_TEMPERATURE"), nil)
+
+  RFP[SENSOR](SENSOR, "VALUE_CHANGED", { CELSIUS = "20.3" })
+  ShimPersistLand()
+  package.loaded["lib.persist"] = nil
+  dofile(DRIVER)
+  ShimLateInit()
+  updateState(singleSetpointEntity(), { mode = Mode.COOL, target_temperature = 22, current_temperature = 32.9 })
+  shown = lastSentOn(PROXY, "TEMPERATURE_CHANGED")
+  T.check("after a restart the held reading is still on show", shown ~= nil and shown.params.TEMPERATURE == "20.3")
+  resetSent()
+  ShimFireTimers()
+  forwarded = lastSentOn(ESPHOME, "SET_REMOTE_TEMPERATURE")
+  T.check("and still resent", forwarded ~= nil and forwarded.params.temperature == "20.3")
+
+  local realTime = os.time
+  local offset = 0
+  os.time = function(...)
+    return realTime(...) + offset
+  end
+  offset = 29 * 60
+  resetSent()
+  ShimFireTimers()
+  forwarded = lastSentOn(ESPHOME, "SET_REMOTE_TEMPERATURE")
+  T.check("a reading inside the default 30 minutes is resent", forwarded ~= nil)
+  offset = 30 * 60
+  resetSent()
+  ShimFireTimers()
+  T.eq("a reading 30 minutes old is not resent", lastSent("SET_REMOTE_TEMPERATURE"), nil)
+  shown = lastSentOn(PROXY, "TEMPERATURE_CHANGED")
+  T.check("and the device's own reading is shown", shown ~= nil and shown.params.TEMPERATURE == "32.9")
+  resetSent()
+  ShimFireTimers()
+  T.eq("and the resend has stopped", lastSent("SET_REMOTE_TEMPERATURE"), nil)
+  RFP[SENSOR](SENSOR, "VALUE_CHANGED", { CELSIUS = "20.4" })
+  forwarded = lastSentOn(ESPHOME, "SET_REMOTE_TEMPERATURE")
+  T.check("a new reading starts it again", forwarded ~= nil and forwarded.params.temperature == "20.4")
+
+  Properties["Remote Temperature Timeout"] = "Disabled"
+  OnPropertyChanged("Remote Temperature Timeout")
+  offset = offset + 24 * 60 * 60
+  resetSent()
+  ShimFireTimers()
+  forwarded = lastSentOn(ESPHOME, "SET_REMOTE_TEMPERATURE")
+  T.check("with the timeout Disabled a day-old reading is still resent", forwarded ~= nil)
+
+  RFP[SENSOR](SENSOR, "VALUE_CHANGED", { CELSIUS = "20.5" })
+  offset = offset + 6 * 60
+  resetSent()
+  Properties["Remote Temperature Timeout"] = "5 Minutes"
+  OnPropertyChanged("Remote Temperature Timeout")
+  shown = lastSentOn(PROXY, "TEMPERATURE_CHANGED")
+  T.check(
+    "a 5 Minutes timeout past its window shows the device's own at once",
+    shown ~= nil and shown.params.TEMPERATURE == "32.9"
+  )
+  resetSent()
+  ShimFireTimers()
+  T.eq("and resends nothing", lastSent("SET_REMOTE_TEMPERATURE"), nil)
+  Properties["Remote Temperature Timeout"] = nil
+  os.time = realTime
+
+  RFP.SET_REMOTE_SENSOR(PROXY, "SET_REMOTE_SENSOR", { IN_USE = "False" })
+  Properties["Remote Temperature Service"] = nil
+  OnPropertyChanged("Remote Temperature Service")
+end)
+
 test("Preset scheduling is published at runtime, not left to the manifest", function()
   -- The static can_preset_schedule in driver.xml does not reach the proxy; it
   -- has to be pushed.
