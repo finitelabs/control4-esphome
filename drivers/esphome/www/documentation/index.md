@@ -1173,7 +1173,8 @@ On a display, an LVGL button can fire the event, and a template output can
 recolor it instead of driving a pin. Fire press from `on_short_click`, not
 `on_click`: LVGL also sends a click after a long press, so `on_click` would fire
 press on every hold. Make the on color clearly brighter than the off color;
-close shades look the same on a panel.
+close shades look the same on a panel. To show the load's state and its color
+apart, see [Showing the Load on a Display](#showing-the-load-on-a-display).
 
 ```yaml
 lvgl:
@@ -1271,7 +1272,29 @@ none. Declared as `string`, it arrives as `RRGGBB`, or empty.
 The driver calls the action when the load reports a change and when the device
 connects. When the connection is unbound, it sends `state` off with no colors.
 
+Here the button from the example above takes its background from the state, and
+a dot inside it shows the color.
+
 ```yaml
+lvgl:
+  pages:
+    - id: main_page
+      widgets:
+        - button:
+            id: lv_button_2
+            on_short_click:
+              - event.trigger: { id: button_2_event, event_type: press }
+            on_long_press:
+              - event.trigger: { id: button_2_event, event_type: long_press }
+            widgets:
+              - label:
+                  text: "Button 2"
+              - obj:
+                  id: lv_button_2_dot
+                  align: top_right
+                  width: 28
+                  height: 28
+                  radius: 14
 api:
   actions:
     - action: button_2_press_led

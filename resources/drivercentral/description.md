@@ -21,8 +21,8 @@ devices near it join the project too.
 - Lights, fans, locks, climate and water heaters as native Control4 devices
   through the included sub-drivers
 - Switches and covers as Control4 relays, and binary sensors as contact sensors
-- Device events as keypad buttons that drive loads, with a light on the device
-  as the button's LED
+- Device events as keypad buttons that drive loads, with a light or a display on
+  the device showing the load
 - Bluetooth proxy support for SwitchBot, BTHome, Govee, Yale and August, and
   SereneScent devices, with the Bluetooth Coordinator to combine several proxies
 - Sensors and other readings as variables for Control4 programming
