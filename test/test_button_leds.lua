@@ -49,6 +49,9 @@ local client = {
     commands[#commands + 1] = body
     return deferred.new():resolve()
   end,
+  hasService = function()
+    return false
+  end,
 }
 
 local gang1Event = {
