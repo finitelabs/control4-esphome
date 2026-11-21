@@ -956,7 +956,9 @@ The device needs:
 - **The LED as a `light` entity.** Any light platform works: `binary` or
   `monochromatic` lights turn on and off, and `rgb` (or any light that can show
   a color) shows the load's colors. The `status_led:` component is not a light
-  entity; use `light: - platform: status_led` instead.
+  entity; use `light: - platform: status_led` instead. A display can take the
+  load's state and colors from an API action instead (see
+  [Showing the Load on a Display](#showing-the-load-on-a-display)).
 
 No other YAML is needed.
 
@@ -1080,6 +1082,56 @@ light:
 > driver. Both would command it, and the button's load would win each time it
 > changes.
 
+## Showing the Load on a Display
+
+A light carries the load's on/off or its color, not both: on a light that shows
+a color, on/off follows the color, so a load that is off with an off color other
+than black still lights it. A display that styles a button by the load's state
+and shows its color separately can take both from an API action instead, with no
+light and no Button LED setting. It works whatever the connection is bound to.
+
+For each button connection the driver calls the first of these the device
+declares:
+
+1. The connection's own action: its name in lowercase, with spaces and other
+   characters as underscores, and `_led` added. `Button 2 press` calls
+   `button_2_press_led`.
+1. `control4_led`, for every connection without its own action.
+
+The action may declare any of these variables, in any order. Only those it
+declares are sent.
+
+| Variable     | Type          | Value                                                |
+| ------------ | ------------- | ---------------------------------------------------- |
+| `event_name` | string        | The event's name                                     |
+| `event_type` | string        | The event type                                       |
+| `state`      | bool          | Whether the load is on                               |
+| `color`      | int or string | The load's on color while it is on, off color if off |
+| `on_color`   | int or string | The load's on color                                  |
+| `off_color`  | int or string | The load's off color                                 |
+
+A color declared as `int` arrives as `0xRRGGBB`, or `-1` when the load has sent
+none. Declared as `string`, it arrives as `RRGGBB`, or empty.
+
+The driver calls the action when the load reports a change and when the device
+connects. When the connection is unbound, it sends `state` off with no colors.
+
+```yaml
+api:
+  actions:
+    - action: button_2_press_led
+      variables:
+        state: bool
+        color: int
+      then:
+        - lvgl.widget.update:
+            id: lv_button_2
+            bg_color: !lambda 'return lv_color_hex(state ? 0xE0A82E : 0x20252B);'
+        - lvgl.widget.update:
+            id: lv_button_2_dot
+            bg_color: !lambda 'return lv_color_hex(color >= 0 ? color : 0x000000);'
+```
+
 # <span style="color:#17BCF2">Support</span>
 
 If you have any questions or issues integrating this driver with Control4, you
@@ -1115,6 +1167,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 - Added Control4 load groups to the ESPHome light: it joins a load group and
   follows the group's level, ramps and sync.
+- Added button feedback for displays to the ESPHome driver: an event's button
+  connections pass the bound load's state and colors to an API action on the
+  device, so a display can show both.
 
 ### Fixed
 

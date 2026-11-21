@@ -545,8 +545,7 @@ either.
 
 An event bound to a load acts as a keypad button. These properties choose which
 of the device's lights is that button's LED, which then shows the load the way a
-Control4 keypad lights its buttons. A device can instead take the feedback
-through an API action, with no light; see the
+Control4 keypad lights its buttons. See the
 [Button LED Configuration Guide](#button-led-configuration-guide).
 
 ##### Configure Button LED
@@ -1112,7 +1111,9 @@ The device needs:
 - **The LED as a `light` entity.** Any light platform works: `binary` or
   `monochromatic` lights turn on and off, and `rgb` (or any light that can show
   a color) shows the load's colors. The `status_led:` component is not a light
-  entity; use `light: - platform: status_led` instead.
+  entity; use `light: - platform: status_led` instead. A display can take the
+  load's state and colors from an API action instead (see
+  [Showing the Load on a Display](#showing-the-load-on-a-display)).
 
 No other YAML is needed.
 
@@ -1236,67 +1237,53 @@ light:
 > driver. Both would command it, and the button's load would win each time it
 > changes.
 
-## Showing the LED on the Device Itself
+## Showing the Load on a Display
 
-A device can also take each link's feedback itself, through a user-defined API
-action, and show it however it likes: a display can recolor a button, or draw
-the load's state and color separately. This needs no light and no Button LED
-setting, and it works whatever the link is bound to (a light, a scene, an
-Advanced Lighting scene), because the driver passes on only what the load sends
-back, as it would to a keypad.
+A light carries the load's on/off or its color, not both: on a light that shows
+a color, on/off follows the color, so a load that is off with an off color other
+than black still lights it. A display that styles a button by the load's state
+and shows its color separately can take both from an API action instead, with no
+light and no Button LED setting. It works whatever the connection is bound to.
 
-For each event type the driver calls the first of these the device declares:
+For each button connection the driver calls the first of these the device
+declares:
 
-1. `<name>_<event_type>_led`: the event type's own action. The name is the event
-   entity's name and the event type in lowercase, with each run of other
-   characters as one underscore, e.g. "Touch Button 2" + "press" calls
-   `touch_button_2_press_led`.
-1. `control4_led`: one action for every event type, which tells them apart by
-   the `event_name` and `event_type` variables.
-
-A device with neither is left alone.
+1. The connection's own action: its name in lowercase, with spaces and other
+   characters as underscores, and `_led` added. `Button 2 press` calls
+   `button_2_press_led`.
+1. `control4_led`, for every connection without its own action.
 
 The action may declare any of these variables, in any order. Only those it
-declares are sent:
+declares are sent.
 
-| Variable     | Type          | Value                                                  |
-| ------------ | ------------- | ------------------------------------------------------ |
-| `event_name` | string        | Event entity name (e.g., "Touch Button 2")             |
-| `event_type` | string        | Event type (e.g., "press")                             |
-| `state`      | bool          | Whether the load is on, as it tells a keypad           |
-| `color`      | int or string | What a keypad shows now: the on color or the off color |
-| `on_color`   | int or string | The load's on color                                    |
-| `off_color`  | int or string | The load's off color                                   |
-| `load_name`  | string        | What the link is bound to (see below)                  |
+| Variable     | Type          | Value                                                |
+| ------------ | ------------- | ---------------------------------------------------- |
+| `event_name` | string        | The event's name                                     |
+| `event_type` | string        | The event type                                       |
+| `state`      | bool          | Whether the load is on                               |
+| `color`      | int or string | The load's on color while it is on, off color if off |
+| `on_color`   | int or string | The load's on color                                  |
+| `off_color`  | int or string | The load's off color                                 |
 
-A color declared as `int` arrives as `0xRRGGBB`, or `-1` when the load has given
-none; declared as `string`, as `RRGGBB`, or empty.
+A color declared as `int` arrives as `0xRRGGBB`, or `-1` when the load has sent
+none. Declared as `string`, it arrives as `RRGGBB`, or empty.
 
-`load_name` is the name of what the link is bound to, looked up from the
-controller's bindings: the bound connection's own name when it names something,
-such as an Advanced Lighting scene, else the bound device's name, such as a
-light's. It is empty when the link is unbound. The driver logs what it found at
-the Info level the first time it looks each link up.
-
-The action is called when the load reports a change, when the device connects
-(with what is already known, and again once the load answers the driver's
-request for its state) and, with `state` off and no colors, when the link is
-unbound. This styles an LVGL button by the state and shows the load's color on a
-dot:
+The driver calls the action when the load reports a change and when the device
+connects. When the connection is unbound, it sends `state` off with no colors.
 
 ```yaml
 api:
   actions:
-    - action: touch_button_2_press_led
+    - action: button_2_press_led
       variables:
         state: bool
         color: int
       then:
         - lvgl.widget.update:
             id: lv_button_2
-            bg_color: !lambda 'return lv_color_hex(state ? 0x28241D : 0x171C24);'
+            bg_color: !lambda 'return lv_color_hex(state ? 0xE0A82E : 0x20252B);'
         - lvgl.widget.update:
-            id: dot_2
+            id: lv_button_2_dot
             bg_color: !lambda 'return lv_color_hex(color >= 0 ? color : 0x000000);'
 ```
 

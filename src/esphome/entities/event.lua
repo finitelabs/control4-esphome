@@ -51,7 +51,7 @@ function EventEntity:discovered(entity)
       end
       OBC[binding.bindingId] = function(idBinding, _strClass, bIsBound)
         if toboolean(bIsBound) then
-          buttonLeds:linkBound(key, idBinding)
+          buttonLeds:requestState(idBinding)
         else
           buttonLeds:linkUnbound(key)
         end
