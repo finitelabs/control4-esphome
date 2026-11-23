@@ -952,7 +952,17 @@ Good to know:
   cached services for the device, disconnects and connects again without the
   cache. From then on the add-on encrypts the link as soon as the device
   connects, ahead of the service search.
-- **Unpairing.** `ble_passkey_clear` removes the passkey and the pairing.
+- **Unpairing.** `ble_passkey_clear` removes the passkey and the pairing. An
+  address the table does not hold still has any pairing removed.
+- **No result comes back.** Both actions report success to the driver whatever
+  happens, and the proxy logs a warning when it ignores one. Check the inputs
+  before calling:
+  - An address that is not exactly six two-digit hex pairs separated by colons
+    is ignored, and nothing changes.
+  - A passkey that is not exactly 6 digits is ignored, and nothing changes. Send
+    it as text so leading zeros are kept.
+  - With 8 other devices already in the table, a new address is not stored.
+    Setting an address the table already holds replaces its passkey.
 
 ## Bluetooth Coordinator Setup
 
