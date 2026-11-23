@@ -937,6 +937,9 @@ Good to know:
   add-on does not answer, as a standard proxy would not; with its default
   settings a standard proxy is never asked.
 - **The proxy holds up to 8 passkeys.**
+- **Very verbose API logging shows passkeys.** At the `VERY_VERBOSE` log level
+  ESPHome prints every action's arguments, passkeys included. Keep the proxy's
+  `logger` level at `VERBOSE` or lower.
 
 ### How a driver uses the add-on
 
