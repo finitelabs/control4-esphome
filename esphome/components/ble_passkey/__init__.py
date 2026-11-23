@@ -29,16 +29,6 @@ CONFIG_SCHEMA = cv.All(
 
 def _final_validate(config):
     full = fv.full_config.get()
-    ble = full.get("esp32_ble") or {}
-    # The appliance shows the passkey and expects it typed in, which needs both settings.
-    if str(ble.get("io_capability", "none")) != "keyboard_only":
-        raise cv.Invalid(
-            "ble_passkey needs 'io_capability: keyboard_only' under 'esp32_ble:'"
-        )
-    if str(ble.get("auth_req_mode", "")) != "bond_mitm":
-        raise cv.Invalid(
-            "ble_passkey needs 'auth_req_mode: bond_mitm' under 'esp32_ble:'"
-        )
     # Re-encrypting a bonded device erases its keys on some ESP-IDF releases. ESPHome
     # only builds its fix with the ESP-IDF toolchain on a non-Windows host.
     if not CORE.using_toolchain_esp_idf or IS_WINDOWS:
@@ -60,3 +50,13 @@ async def to_code(config):
     parent = await cg.get_variable(config[esp32_ble.CONF_BLE_ID])
     esp32_ble.register_gap_event_handler(parent, var)
     esp32_ble.register_gattc_event_handler(parent, var)
+    # Put back what esp32_ble applied after each pairing, or the ESP-IDF defaults.
+    ble = CORE.config.get("esp32_ble") or {}
+    cg.add(
+        var.set_restore_security(
+            ble.get(esp32_ble.CONF_IO_CAPABILITY)
+            or cg.RawExpression("ESP_IO_CAP_NONE"),
+            ble.get(esp32_ble.CONF_AUTH_REQ_MODE)
+            or cg.RawExpression("ESP_LE_AUTH_REQ_SC_MITM_BOND"),
+        )
+    )

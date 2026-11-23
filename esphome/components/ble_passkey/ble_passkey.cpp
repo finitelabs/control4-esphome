@@ -57,6 +57,13 @@ static bool is_bonded(const uint8_t *address) {
   return false;
 }
 
+static void set_security(uint8_t io_cap, uint8_t auth_req) {
+  if (esp_ble_gap_set_security_param(ESP_BLE_SM_IOCAP_MODE, &io_cap, sizeof(io_cap)) != ESP_OK ||
+      esp_ble_gap_set_security_param(ESP_BLE_SM_AUTHEN_REQ_MODE, &auth_req, sizeof(auth_req)) != ESP_OK) {
+    ESP_LOGW(TAG, "Could not change the Bluetooth security settings");
+  }
+}
+
 void BLEPasskey::setup() {
   for (int &conn_id : this->conn_ids_)
     conn_id = NO_CONNECTION;
@@ -134,7 +141,11 @@ void BLEPasskey::on_clear_(std::string address) {
   }
   PasskeyEntry *entry = this->find_(bda);
   if (entry != nullptr) {
-    this->conn_ids_[entry - this->table_.entries] = NO_CONNECTION;
+    int index = entry - this->table_.entries;
+    if (this->active_ == index)
+      this->finish_("passkey cleared");
+    this->waiting_[index] = false;
+    this->conn_ids_[index] = NO_CONNECTION;
     *entry = PasskeyEntry{};
     this->save_();
   }
@@ -142,6 +153,47 @@ void BLEPasskey::on_clear_(std::string address) {
   char buf[18];
   format_address(bda, buf);
   ESP_LOGD(TAG, "Passkey and pairing cleared for %s", buf);
+}
+
+void BLEPasskey::start_next_() {
+  if (this->active_ != NONE_ACTIVE)
+    return;
+  for (int index = 0; index < MAX_ENTRIES; index++) {
+    if (this->waiting_[index]) {
+      this->waiting_[index] = false;
+      this->start_(index);
+      return;
+    }
+  }
+}
+
+void BLEPasskey::start_(int index) {
+  PasskeyEntry &entry = this->table_.entries[index];
+  char buf[18];
+  format_address(entry.address, buf);
+  this->active_ = index;
+  // Keyboard only with bonding and MITM, no Secure Connections: the devices this is for
+  // fall back to an unauthenticated pairing and fail when Secure Connections is asked for.
+  // Set only for this one encryption so every other device keeps the stack's settings.
+  set_security(ESP_IO_CAP_IN, ESP_LE_AUTH_REQ_BOND_MITM);
+  ESP_LOGD(TAG, "Encrypting the link to %s at connect", buf);
+  if (esp_ble_set_encryption(entry.address, ESP_BLE_SEC_ENCRYPT) != ESP_OK) {
+    this->finish_("could not start encryption");
+    return;
+  }
+  this->set_timeout("security", SECURITY_TIMEOUT_MS, [this]() { this->finish_("timed out"); });
+}
+
+void BLEPasskey::finish_(const char *reason) {
+  if (this->active_ == NONE_ACTIVE)
+    return;
+  this->cancel_timeout("security");
+  set_security(this->restore_io_cap_, this->restore_auth_req_);
+  char buf[18];
+  format_address(this->table_.entries[this->active_].address, buf);
+  ESP_LOGD(TAG, "Done with %s: %s", buf, reason);
+  this->active_ = NONE_ACTIVE;
+  this->start_next_();
 }
 
 void BLEPasskey::gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
@@ -157,14 +209,14 @@ void BLEPasskey::gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_
       break;
     }
     case ESP_GAP_BLE_AUTH_CMPL_EVT: {
-      if (this->find_(param->ble_security.auth_cmpl.bd_addr) == nullptr)
+      if (this->active_ == NONE_ACTIVE ||
+          std::memcmp(this->table_.entries[this->active_].address, param->ble_security.auth_cmpl.bd_addr, 6) != 0)
         return;
-      char buf[18];
-      format_address(param->ble_security.auth_cmpl.bd_addr, buf);
       if (param->ble_security.auth_cmpl.success) {
-        ESP_LOGD(TAG, "Encrypted link to %s (mode %d)", buf, param->ble_security.auth_cmpl.auth_mode);
+        this->finish_("link encrypted");
       } else {
-        ESP_LOGW(TAG, "Pairing with %s failed, reason 0x%02X", buf, param->ble_security.auth_cmpl.fail_reason);
+        ESP_LOGW(TAG, "Pairing failed, reason 0x%02X", param->ble_security.auth_cmpl.fail_reason);
+        this->finish_("pairing failed");
       }
       break;
     }
@@ -188,16 +240,19 @@ void BLEPasskey::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t g
       // device shows only on an encrypted link. Needs a pairing from an earlier link.
       if (!is_bonded(param->connect.remote_bda))
         return;
-      char buf[18];
-      format_address(param->connect.remote_bda, buf);
-      ESP_LOGD(TAG, "Encrypting the link to %s at connect", buf);
-      esp_ble_set_encryption(param->connect.remote_bda, ESP_BLE_SEC_ENCRYPT);
+      this->waiting_[index] = true;
+      this->start_next_();
       break;
     }
     case ESP_GATTC_DISCONNECT_EVT: {
       PasskeyEntry *entry = this->find_(param->disconnect.remote_bda);
-      if (entry != nullptr)
-        this->conn_ids_[entry - this->table_.entries] = NO_CONNECTION;
+      if (entry == nullptr)
+        return;
+      int index = entry - this->table_.entries;
+      this->conn_ids_[index] = NO_CONNECTION;
+      this->waiting_[index] = false;
+      if (this->active_ == index)
+        this->finish_("disconnected");
       break;
     }
     case ESP_GATTC_SEARCH_CMPL_EVT:

@@ -1061,7 +1061,7 @@ with it. Every other device the proxy serves is handled as before. A driver that
 needs the add-on says so in its own documentation.
 
 Add these lines to the proxy's ESPHome configuration. They merge with an
-existing `api`, `esp32_ble` and `bluetooth_proxy` setup, including one shared
+existing `api` and `bluetooth_proxy` setup, including one shared
 through a package. The add-on needs ESPHome 2026.11.0 or later, the ESP32
 `esp-idf` framework and the ESP-IDF toolchain (the default), built on macOS or
 Linux. Those keep a device's pairing when the proxy reconnects to it; older
@@ -1076,10 +1076,6 @@ external_components:
   - source: github://finitelabs/control4-esphome@main
     components: [ble_passkey]
 
-esp32_ble:
-  io_capability: keyboard_only
-  auth_req_mode: bond_mitm
-
 ble_passkey:
 ```
 
@@ -1088,9 +1084,13 @@ Good to know:
 - **A pairing belongs to the proxy that made it.** It is kept across restarts. A
   device moved to another proxy is paired again there, which the driver does
   with the passkey it already holds.
-- **A device that pairs with a passkey of its own** (one with a keypad or a
-  display) is asked for one through this proxy. Pair such a device through a
-  proxy without the add-on.
+- **Other devices are untouched.** The add-on changes the proxy's pairing
+  settings only while it encrypts the link to a device it holds a passkey for,
+  one device at a time, and puts them back when that succeeds, fails, the
+  device disconnects or 30 seconds pass. A device it holds no passkey for pairs
+  as it would on a standard proxy. If such a device asks for a passkey anyway,
+  the add-on does not answer, as a standard proxy would not; with its default
+  settings a standard proxy is never asked.
 - **The proxy holds up to 8 passkeys.**
 
 ## Bluetooth Coordinator Setup

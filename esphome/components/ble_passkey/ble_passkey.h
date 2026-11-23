@@ -17,6 +17,8 @@ namespace esphome::ble_passkey {
 
 static constexpr uint8_t MAX_ENTRIES = 8;
 static constexpr int NO_CONNECTION = -1;
+static constexpr int NONE_ACTIVE = -1;
+static constexpr uint32_t SECURITY_TIMEOUT_MS = 30000;
 
 struct PasskeyEntry {
   uint8_t address[6];
@@ -34,6 +36,12 @@ class BLEPasskey : public Component, public api::CustomAPIDevice {
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::AFTER_BLUETOOTH; }
 
+  // The settings the stack had before the add-on, put back after each of its pairings.
+  void set_restore_security(uint8_t io_cap, uint8_t auth_req) {
+    this->restore_io_cap_ = io_cap;
+    this->restore_auth_req_ = auth_req;
+  }
+
   void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
   void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
 
@@ -43,12 +51,20 @@ class BLEPasskey : public Component, public api::CustomAPIDevice {
 
   PasskeyEntry *find_(const uint8_t *address);
   void save_();
+  void start_next_();
+  void start_(int index);
+  void finish_(const char *reason);
 
   PasskeyTable table_{};
   // The connection each entry was last seen on, so the copies of one CONNECT_EVT that
   // every client interface gets are handled once.
   int conn_ids_[MAX_ENTRIES];
   ESPPreferenceObject pref_;
+  // Entries connected and waiting for their turn; one encryption runs at a time.
+  bool waiting_[MAX_ENTRIES]{};
+  int active_{NONE_ACTIVE};
+  uint8_t restore_io_cap_{ESP_IO_CAP_NONE};
+  uint8_t restore_auth_req_{ESP_LE_AUTH_REQ_SC_MITM_BOND};
 };
 
 }  // namespace esphome::ble_passkey

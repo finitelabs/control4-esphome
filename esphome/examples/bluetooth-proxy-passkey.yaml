@@ -29,11 +29,6 @@ external_components:
   - source: github://finitelabs/control4-esphome@main
     components: [ble_passkey]
 
-esp32_ble:
-  # add-on: the appliance shows a passkey and expects it typed in
-  io_capability: keyboard_only
-  auth_req_mode: bond_mitm
-
 esp32_ble_tracker:
   scan_parameters:
     active: true
