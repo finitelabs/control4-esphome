@@ -938,6 +938,22 @@ Good to know:
   settings a standard proxy is never asked.
 - **The proxy holds up to 8 passkeys.**
 
+### How a driver uses the add-on
+
+- **Detecting it.** A proxy with the add-on lists the actions `ble_passkey_set`
+  and `ble_passkey_clear` among its services.
+- **Pairing.** The driver calls `ble_passkey_set` with the device's address
+  (`AA:BB:CC:DD:EE:FF`) and its 6-digit passkey, then connects as usual. When a
+  device in the table connects, the add-on starts the pairing itself and answers
+  the passkey request; the driver does not ask the proxy to pair.
+- **After the first pairing.** The proxy reads the device's services while the
+  pairing is still going on, so it can miss what the device shows only on an
+  encrypted link. Once the pairing succeeds, the driver clears the proxy's
+  cached services for the device, disconnects and connects again without the
+  cache. From then on the add-on encrypts the link as soon as the device
+  connects, ahead of the service search.
+- **Unpairing.** `ble_passkey_clear` removes the passkey and the pairing.
+
 ## Bluetooth Coordinator Setup
 
 For advanced setups with **multiple ESPHome Bluetooth proxies**, use the

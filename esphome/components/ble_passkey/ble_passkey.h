@@ -63,6 +63,9 @@ class BLEPasskey : public Component, public api::CustomAPIDevice {
   // Entries connected and waiting for their turn; one encryption runs at a time.
   bool waiting_[MAX_ENTRIES]{};
   int active_{NONE_ACTIVE};
+  // Per connection, which of encryption and the proxy's service search finished first.
+  bool encrypted_[MAX_ENTRIES]{};
+  bool searched_[MAX_ENTRIES]{};
   uint8_t restore_io_cap_{ESP_IO_CAP_NONE};
   uint8_t restore_auth_req_{ESP_LE_AUTH_REQ_SC_MITM_BOND};
 };

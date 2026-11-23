@@ -176,8 +176,10 @@ void BLEPasskey::start_(int index) {
   // fall back to an unauthenticated pairing and fail when Secure Connections is asked for.
   // Set only for this one encryption so every other device keeps the stack's settings.
   set_security(ESP_IO_CAP_IN, ESP_LE_AUTH_REQ_BOND_MITM);
-  ESP_LOGD(TAG, "Encrypting the link to %s at connect", buf);
-  if (esp_ble_set_encryption(entry.address, ESP_BLE_SEC_ENCRYPT) != ESP_OK) {
+  // A bonded device re-encrypts with its stored keys; a new one pairs with the passkey.
+  bool bonded = is_bonded(entry.address);
+  ESP_LOGD(TAG, "%s the link to %s at connect", bonded ? "Encrypting" : "Pairing", buf);
+  if (esp_ble_set_encryption(entry.address, bonded ? ESP_BLE_SEC_ENCRYPT : ESP_BLE_SEC_ENCRYPT_MITM) != ESP_OK) {
     this->finish_("could not start encryption");
     return;
   }
@@ -213,6 +215,9 @@ void BLEPasskey::gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_
           std::memcmp(this->table_.entries[this->active_].address, param->ble_security.auth_cmpl.bd_addr, 6) != 0)
         return;
       if (param->ble_security.auth_cmpl.success) {
+        this->encrypted_[this->active_] = true;
+        ESP_LOGD(TAG, "Encryption finished %s the service search",
+                 this->searched_[this->active_] ? "after" : "before");
         this->finish_("link encrypted");
       } else {
         ESP_LOGW(TAG, "Pairing failed, reason 0x%02X", param->ble_security.auth_cmpl.fail_reason);
@@ -236,10 +241,10 @@ void BLEPasskey::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t g
       if (this->conn_ids_[index] == param->connect.conn_id)
         return;
       this->conn_ids_[index] = param->connect.conn_id;
+      this->encrypted_[index] = false;
+      this->searched_[index] = false;
       // Encrypting before the proxy's service search lets it see characteristics the
-      // device shows only on an encrypted link. Needs a pairing from an earlier link.
-      if (!is_bonded(param->connect.remote_bda))
-        return;
+      // device shows only on an encrypted link.
       this->waiting_[index] = true;
       this->start_next_();
       break;
@@ -256,8 +261,13 @@ void BLEPasskey::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t g
       break;
     }
     case ESP_GATTC_SEARCH_CMPL_EVT:
-      // Logged so a bench run can tell whether the search finished before encryption did.
-      ESP_LOGV(TAG, "Service search complete on conn %u", param->search_cmpl.conn_id);
+      for (int index = 0; index < MAX_ENTRIES; index++) {
+        if (this->table_.entries[index].used && this->conn_ids_[index] == param->search_cmpl.conn_id &&
+            !this->searched_[index]) {
+          this->searched_[index] = true;
+          ESP_LOGD(TAG, "Service search finished %s encryption", this->encrypted_[index] ? "after" : "before");
+        }
+      }
       break;
     default:
       break;
