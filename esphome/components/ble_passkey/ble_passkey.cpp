@@ -58,7 +58,7 @@ static bool is_bonded(const uint8_t *address) {
 }
 
 void BLEPasskey::setup() {
-  this->pref_ = global_preferences->make_preference<PasskeyTable>(fnv1_hash("ble_passkey"));
+  this->pref_ = global_preferences->make_preference<PasskeyTable>(fnv1_hash("ble_passkey_v1"));
   if (!this->pref_.load(&this->table_))
     this->table_ = PasskeyTable{};
   // These names are how a client tells that this proxy has the add-on.
