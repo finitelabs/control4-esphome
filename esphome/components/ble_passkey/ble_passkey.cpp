@@ -84,8 +84,11 @@ PasskeyEntry *BLEPasskey::find_(const uint8_t *address) {
 }
 
 void BLEPasskey::save_() {
-  if (!this->pref_.save(&this->table_))
+  if (!this->pref_.save(&this->table_)) {
     ESP_LOGW(TAG, "Could not save the passkey table");
+    return;
+  }
+  global_preferences->sync();
 }
 
 void BLEPasskey::on_set_(std::string address, std::string passkey) {
