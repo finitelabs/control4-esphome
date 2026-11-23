@@ -4,7 +4,9 @@ import esphome.codegen as cg
 from esphome.components import esp32_ble
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
+from esphome.core import CORE
 import esphome.final_validate as fv
+from esphome.helpers import IS_WINDOWS
 
 AUTO_LOAD = ["esp32_ble"]
 DEPENDENCIES = ["esp32", "api", "bluetooth_proxy"]
@@ -21,7 +23,7 @@ CONFIG_SCHEMA = cv.All(
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_on_esp32,
-    cv.require_esphome_version(2026, 10, 0),
+    cv.require_esphome_version(2026, 11, 0),
 )
 
 
@@ -36,6 +38,13 @@ def _final_validate(config):
     if str(ble.get("auth_req_mode", "")) != "bond_mitm":
         raise cv.Invalid(
             "ble_passkey needs 'auth_req_mode: bond_mitm' under 'esp32_ble:'"
+        )
+    # Re-encrypting a bonded device erases its keys on some ESP-IDF releases. ESPHome
+    # only builds its fix with the ESP-IDF toolchain on a non-Windows host.
+    if not CORE.using_toolchain_esp_idf or IS_WINDOWS:
+        raise cv.Invalid(
+            "ble_passkey needs the ESP-IDF toolchain on a macOS or Linux build host, "
+            "so ESPHome keeps a device's pairing when it reconnects"
         )
     if not (full.get("api") or {}).get("custom_services", False):
         raise cv.Invalid("ble_passkey needs 'custom_services: true' under 'api:'")

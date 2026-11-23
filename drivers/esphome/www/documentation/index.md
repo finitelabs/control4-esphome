@@ -1062,8 +1062,11 @@ needs the add-on says so in its own documentation.
 
 Add these lines to the proxy's ESPHome configuration. They merge with an
 existing `api`, `esp32_ble` and `bluetooth_proxy` setup, including one shared
-through a package. The add-on needs ESPHome 2026.10.0 or later and the ESP32
-`esp-idf` framework.
+through a package. The add-on needs ESPHome 2026.11.0 or later, the ESP32
+`esp-idf` framework and the ESP-IDF toolchain (the default), built on macOS or
+Linux. Those keep a device's pairing when the proxy reconnects to it; older
+releases, other toolchains and Windows builds can lose it, so ESPHome refuses
+the configuration there.
 
 ```yaml
 api:

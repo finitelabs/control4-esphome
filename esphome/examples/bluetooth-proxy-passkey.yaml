@@ -2,7 +2,7 @@
 # "add-on" differ from a standard proxy; they merge with an existing proxy config.
 esphome:
   name: bluetooth-proxy
-  min_version: 2026.10.0
+  min_version: 2026.11.0
 
 esp32:
   board: esp32dev
