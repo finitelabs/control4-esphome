@@ -22,6 +22,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
+- Added a Passkey Pairing add-on for ESPHome Bluetooth proxies, so a proxy can
+  pair with devices that show a 6-digit passkey and need it typed in.
 - Added a Remote Temperature Timeout to the ESPHome thermostat, so a remote
   sensor with no new reading in that time is set aside until it reports again.
 - Added Control4 load groups to the ESPHome light, which joins a load group and

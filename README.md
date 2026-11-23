@@ -895,6 +895,46 @@ For optimal BLE reception:
 | Through 1-2 walls    | 5-10 meters (15-30 ft)  |
 | Concrete/brick walls | 3-5 meters (10-15 ft)   |
 
+## Passkey Pairing Add-on
+
+Some Bluetooth devices only talk over a paired, encrypted link, and pair by
+showing a 6-digit passkey on their own display that has to be typed in. A
+standard ESPHome Bluetooth proxy has no way to receive that passkey from
+Control4. The Passkey Pairing add-on gives it one: the Control4 driver hands the
+proxy each device's passkey, and the proxy answers the device's pairing request
+with it. Every other device the proxy serves is handled as before. A driver that
+needs the add-on says so in its own documentation.
+
+Add these lines to the proxy's ESPHome configuration. They merge with an
+existing `api`, `esp32_ble` and `bluetooth_proxy` setup, including one shared
+through a package. The add-on needs ESPHome 2026.10.0 or later and the ESP32
+`esp-idf` framework.
+
+```yaml
+api:
+  custom_services: true
+
+external_components:
+  - source: github://finitelabs/control4-esphome@main
+    components: [ble_passkey]
+
+esp32_ble:
+  io_capability: keyboard_only
+  auth_req_mode: bond_mitm
+
+ble_passkey:
+```
+
+Good to know:
+
+- **A pairing belongs to the proxy that made it.** It is kept across restarts. A
+  device moved to another proxy is paired again there, which the driver does
+  with the passkey it already holds.
+- **A device that pairs with a passkey of its own** (one with a keypad or a
+  display) is asked for one through this proxy. Pair such a device through a
+  proxy without the add-on.
+- **The proxy holds up to 8 passkeys.**
+
 ## Bluetooth Coordinator Setup
 
 For advanced setups with **multiple ESPHome Bluetooth proxies**, use the
@@ -1113,6 +1153,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
+- Added a Passkey Pairing add-on for ESPHome Bluetooth proxies, so a proxy can
+  pair with devices that show a 6-digit passkey and need it typed in.
 - Added a Remote Temperature Timeout to the ESPHome thermostat, so a remote
   sensor with no new reading in that time is set aside until it reports again.
 - Added Control4 load groups to the ESPHome light, which joins a load group and
