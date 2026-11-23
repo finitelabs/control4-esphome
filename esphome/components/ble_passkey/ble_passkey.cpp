@@ -237,7 +237,7 @@ void BLEPasskey::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t g
       PasskeyEntry *entry = this->find_(param->connect.remote_bda);
       if (entry == nullptr)
         return;
-      size_t index = entry - this->table_.entries;
+      int index = entry - this->table_.entries;
       if (this->conn_ids_[index] == param->connect.conn_id)
         return;
       this->conn_ids_[index] = param->connect.conn_id;
