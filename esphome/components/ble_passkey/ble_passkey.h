@@ -16,7 +16,7 @@
 namespace esphome::ble_passkey {
 
 static constexpr uint8_t MAX_ENTRIES = 8;
-static constexpr uint32_t CONNECT_DEDUPE_MS = 1000;
+static constexpr int NO_CONNECTION = -1;
 
 struct PasskeyEntry {
   uint8_t address[6];
@@ -45,7 +45,9 @@ class BLEPasskey : public Component, public api::CustomAPIDevice {
   void save_();
 
   PasskeyTable table_{};
-  uint32_t encrypted_at_[MAX_ENTRIES]{};
+  // The connection each entry was last seen on, so the copies of one CONNECT_EVT that
+  // every client interface gets are handled once.
+  int conn_ids_[MAX_ENTRIES];
   ESPPreferenceObject pref_;
 };
 

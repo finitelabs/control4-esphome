@@ -58,6 +58,8 @@ static bool is_bonded(const uint8_t *address) {
 }
 
 void BLEPasskey::setup() {
+  for (int &conn_id : this->conn_ids_)
+    conn_id = NO_CONNECTION;
   this->pref_ = global_preferences->make_preference<PasskeyTable>(fnv1_hash("ble_passkey_v1"));
   if (!this->pref_.load(&this->table_))
     this->table_ = PasskeyTable{};
@@ -132,7 +134,7 @@ void BLEPasskey::on_clear_(std::string address) {
   }
   PasskeyEntry *entry = this->find_(bda);
   if (entry != nullptr) {
-    this->encrypted_at_[entry - this->table_.entries] = 0;
+    this->conn_ids_[entry - this->table_.entries] = NO_CONNECTION;
     *entry = PasskeyEntry{};
     this->save_();
   }
@@ -178,20 +180,24 @@ void BLEPasskey::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t g
       PasskeyEntry *entry = this->find_(param->connect.remote_bda);
       if (entry == nullptr)
         return;
-      // Every client interface gets the same CONNECT_EVT back to back; act on the first.
       size_t index = entry - this->table_.entries;
-      uint32_t now = millis();
-      if (this->encrypted_at_[index] != 0 && now - this->encrypted_at_[index] < CONNECT_DEDUPE_MS)
+      if (this->conn_ids_[index] == param->connect.conn_id)
         return;
+      this->conn_ids_[index] = param->connect.conn_id;
       // Encrypting before the proxy's service search lets it see characteristics the
       // device shows only on an encrypted link. Needs a pairing from an earlier link.
       if (!is_bonded(param->connect.remote_bda))
         return;
-      this->encrypted_at_[index] = now | 1;
       char buf[18];
       format_address(param->connect.remote_bda, buf);
       ESP_LOGD(TAG, "Encrypting the link to %s at connect", buf);
       esp_ble_set_encryption(param->connect.remote_bda, ESP_BLE_SEC_ENCRYPT);
+      break;
+    }
+    case ESP_GATTC_DISCONNECT_EVT: {
+      PasskeyEntry *entry = this->find_(param->disconnect.remote_bda);
+      if (entry != nullptr)
+        this->conn_ids_[entry - this->table_.entries] = NO_CONNECTION;
       break;
     }
     case ESP_GATTC_SEARCH_CMPL_EVT:
