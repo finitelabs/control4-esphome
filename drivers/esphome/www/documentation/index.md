@@ -1052,21 +1052,14 @@ For optimal BLE reception:
 
 ## Passkey Pairing Add-on
 
-Some Bluetooth devices only talk over a paired, encrypted link, and pair by
-showing a 6-digit passkey on their own display that has to be typed in. A
-standard ESPHome Bluetooth proxy has no way to receive that passkey from
-Control4. The Passkey Pairing add-on gives it one: the Control4 driver hands the
-proxy each device's passkey, and the proxy answers the device's pairing request
-with it. Every other device the proxy serves is handled as before. A driver that
-needs the add-on says so in its own documentation.
+Some Bluetooth devices pair by showing a 6-digit passkey on their own display. A
+standard ESPHome Bluetooth proxy can't pair with them. Add the Passkey Pairing
+add-on to any proxy that serves one; a driver that needs it says so in its own
+documentation. Other devices on the proxy work as before.
 
-Add these lines to the proxy's ESPHome configuration. They merge with an
-existing `api` and `bluetooth_proxy` setup, including one shared through a
-package. The add-on needs ESPHome 2026.11.0 or later, the ESP32 `esp-idf`
-framework and the ESP-IDF toolchain (the default), built on macOS or Linux.
-Those keep a device's pairing when the proxy reconnects to it; older releases,
-other toolchains and Windows builds can lose it, so ESPHome refuses the
-configuration there.
+The add-on needs ESPHome 2026.11.0 or later with the ESP32 `esp-idf` framework,
+built on macOS or Linux. Add these lines to the proxy's configuration; they
+merge with an existing `api` and `bluetooth_proxy` setup:
 
 ```yaml
 api:
@@ -1084,46 +1077,11 @@ ble_passkey:
 
 Good to know:
 
-- **A pairing belongs to the proxy that made it.** It is kept across restarts. A
-  device moved to another proxy is paired again there, which the driver does
-  with the passkey it already holds.
-- **Other devices are untouched.** The add-on changes the proxy's pairing
-  settings only while it encrypts the link to a device it holds a passkey for,
-  one device at a time, and puts them back when that succeeds, fails, the device
-  disconnects or 30 seconds pass. A device it holds no passkey for pairs as it
-  would on a standard proxy. If such a device asks for a passkey anyway, the
-  add-on does not answer, as a standard proxy would not; with its default
-  settings a standard proxy is never asked.
-- **The proxy holds up to 8 passkeys.**
-- **Very verbose API logging shows passkeys.** At the `VERY_VERBOSE` log level
-  ESPHome prints every action's arguments, passkeys included. Keep the proxy's
-  `logger` level at `VERBOSE` or lower.
-
-### How a driver uses the add-on
-
-- **Detecting it.** A proxy with the add-on lists the actions `ble_passkey_set`
-  and `ble_passkey_clear` among its services.
-- **Pairing.** The driver calls `ble_passkey_set` with the device's address
-  (`AA:BB:CC:DD:EE:FF`) and its 6-digit passkey, then connects as usual. When a
-  device in the table connects, the add-on starts the pairing itself and answers
-  the passkey request; the driver does not ask the proxy to pair.
-- **After the first pairing.** The proxy reads the device's services while the
-  pairing is still going on, so it can miss what the device shows only on an
-  encrypted link. Once the pairing succeeds, the driver clears the proxy's
-  cached services for the device, disconnects and connects again without the
-  cache. From then on the add-on encrypts the link as soon as the device
-  connects, ahead of the service search.
-- **Unpairing.** `ble_passkey_clear` removes the passkey and the pairing. An
-  address the table does not hold still has any pairing removed.
-- **No result comes back.** Both actions report success to the driver whatever
-  happens, and the proxy logs a warning when it ignores one. Check the inputs
-  before calling:
-  - An address that is not exactly six two-digit hex pairs separated by colons
-    is ignored, and nothing changes.
-  - A passkey that is not exactly 6 digits is ignored, and nothing changes. Send
-    it as text so leading zeros are kept.
-  - With 8 other devices already in the table, a new address is not stored.
-    Setting an address the table already holds replaces its passkey.
+- **Each proxy pairs on its own.** A device that moves to another proxy is
+  paired again there automatically.
+- **Up to 8 paired devices per proxy.**
+- **Keep the proxy's `logger` level at `VERBOSE` or lower.** `VERY_VERBOSE`
+  prints passkeys in the log.
 
 ## Bluetooth Coordinator Setup
 
