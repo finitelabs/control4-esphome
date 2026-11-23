@@ -24,7 +24,7 @@ api:
 ota:
   - platform: esphome
 
-# add-on: pin ref to a release tag
+# add-on. Pin @main to a release tag.
 external_components:
   - source: github://finitelabs/control4-esphome@main
     components: [ble_passkey]

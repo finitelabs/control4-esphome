@@ -1070,8 +1070,11 @@ the configuration there.
 
 ```yaml
 api:
+  encryption:
+    key: !secret api_encryption_key
   custom_services: true
 
+# Pin @main to a release tag.
 external_components:
   - source: github://finitelabs/control4-esphome@main
     components: [ble_passkey]
