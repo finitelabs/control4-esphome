@@ -137,8 +137,8 @@ Log Level.
 #### Cloud Monitoring \[ Disabled | **_Enabled_** \]
 
 When Enabled, the driver sends Finite Labs a short report once an hour, and a
-report of each error it hits, at most 10 a minute. We use them to find and fix
-problems in the driver. Set it to Disabled to send nothing.
+report of each error it hits, at most 10 a minute, so problems in the driver can
+be found and fixed. Set it to Disabled to send nothing.
 
 A report holds the controller's MAC address and OS version, the driver's name,
 version, device ID and DriverCentral license status, how much memory the driver
