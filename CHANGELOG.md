@@ -761,4 +761,4 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
-- Initial Release
+- Added the ESPHome, ESPHome Light and ESPHome Lock drivers.
