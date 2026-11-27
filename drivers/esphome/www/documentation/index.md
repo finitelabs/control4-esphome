@@ -1289,8 +1289,12 @@ Some loads answer the driver's request with their colors alone, never their
 state: Control4's custom button is one. Three seconds after asking, the driver
 reads such a load's state from its variables, or those of its proxies: the first
 one whose name contains `STATE`, `LED` or `SELECTED` and whose value is on or
-off. It logs every variable it read at the Info level. This styles an LVGL
-button by the state and shows the load's color on a dot:
+off. It logs every variable it read at the Info level.
+
+A complete example for a 480×480 LVGL panel, with a local relay tile and three
+Control4 tiles that show the state, the color and the name, is
+`test/guition_4848s040_display_buttons.yaml`. This styles an LVGL button by the
+state and shows the load's color on a dot:
 
 ```yaml
 api:
