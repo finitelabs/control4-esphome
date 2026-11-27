@@ -86,6 +86,7 @@ local Indicator = {
 --- @field _hsState NoiseState|nil The current state of the Noise protocol handshake.
 --- @field _fatalError string|nil Fatal error message (e.g., authentication failure).
 --- @field _logsSubscribed boolean Whether log subscription is active.
+--- @field _actionsSubscribed boolean Whether the device's action calls (homeassistant.action) are subscribed.
 --- @field _btConnections BluetoothConnectionState Cached Bluetooth connection state.
 --- @field _btConnectionsCallbacks table<string, fun(state: BluetoothConnectionState)?> Callbacks for Bluetooth connection changes.
 --- @field _btScannerState BluetoothScannerState Cached scanner state.
@@ -227,6 +228,7 @@ function ESPHomeClient:new()
   instance._hsState = nil
   instance._fatalError = nil
   instance._logsSubscribed = false
+  instance._actionsSubscribed = false
   instance._btConnections = { free = 0, limit = 0, allocated = {}, initialized = false }
   instance._btConnectionsCallbacks = {}
   instance._btScannerState = {
@@ -546,6 +548,7 @@ function ESPHomeClient:disconnect()
   self._hsState = nil
   self._buffer = ""
   self._logsSubscribed = false
+  self._actionsSubscribed = false
 
   -- Swap the callback registry out first: the abort handlers invoked at the
   -- end of this function may re-enter disconnect() or register new callbacks.
@@ -901,6 +904,52 @@ function ESPHomeClient:subscribeLogs(callback, level, dumpConfig)
       d:reject(err)
     end)
 
+  return d
+end
+
+--- Subscribe to the actions the device calls with `homeassistant.action`, which is how its YAML asks this
+--- client to do something (e.g. change the room's volume). Can only subscribe once per connection.
+--- @param callback fun(action: string, data: table<string, string>): void Called with the action's name and its
+---   `data` (and `data_template`/`variables`, which it overrides) as a key-value table.
+--- @return Deferred<nil, string> result A promise that resolves after subscribing.
+function ESPHomeClient:subscribeActions(callback)
+  log:trace("ESPHomeClient:subscribeActions()")
+  --- @type Deferred<nil, string>
+  local d = deferred.new()
+  if self._actionsSubscribed then
+    d:resolve(nil)
+    return d
+  end
+  self._actionsSubscribed = true
+
+  self:_registerCallback(
+    self:_makeMessageCallbackKey(ESPHomeProtoSchema.Message.HomeassistantActionRequest),
+    function(message)
+      --- @cast message ProtoHomeassistantActionRequest
+      local data = {}
+      for _, field in ipairs({ "variables", "data_template", "data" }) do
+        for _, pair in ipairs(message[field] or {}) do
+          if pair.key ~= nil then
+            data[pair.key] = pair.value or ""
+          end
+        end
+      end
+      local ok, err = pcall(callback, message.service or "", data)
+      if not ok then
+        log:error("Action callback failed: %s", err or "unknown error")
+      end
+    end
+  )
+
+  self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.subscribe_homeassistant_services, {}):next(function()
+    log:debug("Subscribe actions message sent successfully")
+    d:resolve(nil)
+  end, function(err)
+    err = normalizeError(err)
+    self._actionsSubscribed = false
+    log:error("Failed to send subscribe actions message: %s", err)
+    d:reject(err)
+  end)
   return d
 end
 

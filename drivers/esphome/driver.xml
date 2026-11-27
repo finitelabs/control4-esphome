@@ -235,6 +235,26 @@
         <description>The light that shows the selected button's load in its button colors.</description>
       </property>
       <property>
+        <name>Room Media</name>
+        <type>LABEL</type>
+        <default>Room Media</default>
+      </property>
+      <property>
+        <name>Media Room</name>
+        <type>DEVICE_SELECTOR</type>
+        <items>
+          <item>roomdevice.c4i</item>
+        </items>
+        <multiselect>false</multiselect>
+        <description>The room a panel's media page controls. None: the driver's own room.</description>
+      </property>
+      <property>
+        <name>Media Sources</name>
+        <type>STRING</type>
+        <default/>
+        <description>Device IDs of the sources a panel offers, comma separated, e.g. "123, 456:video". Empty: the room's own listen and watch lists.</description>
+      </property>
+      <property>
         <name>Device Info</name>
         <type>LABEL</type>
         <default>Device Info</default>

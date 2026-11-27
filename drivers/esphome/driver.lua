@@ -31,6 +31,7 @@ local bleScannerProperties = require("esphome.ble.scanner_properties")
 
 local BluetoothProxyCapability = require("esphome.capabilities.bluetooth_proxy")
 local ButtonLeds = require("esphome.button_leds")
+local RoomMedia = require("esphome.room_media")
 
 local BinarySensorEntity = require("esphome.entities.binary_sensor")
 local ButtonEntity = require("esphome.entities.button")
@@ -60,6 +61,7 @@ bleScanner:addNode(localScannerNode)
 
 local bluetoothProxyCapability = BluetoothProxyCapability:new(esphome)
 local buttonLeds = ButtonLeds:new(esphome)
+local roomMedia = RoomMedia:new(esphome)
 
 --- @type table<EntityType, Entity>
 local Entities = {
@@ -258,6 +260,16 @@ end
 function OPC.Button_LED(propertyValue)
   log:trace("OPC.Button_LED('%s')", propertyValue)
   buttonLeds:ledChanged(propertyValue)
+end
+
+function OPC.Media_Room(propertyValue)
+  log:trace("OPC.Media_Room('%s')", propertyValue)
+  roomMedia:settingsChanged()
+end
+
+function OPC.Media_Sources(propertyValue)
+  log:trace("OPC.Media_Sources('%s')", propertyValue)
+  roomMedia:settingsChanged()
 end
 
 function OPC.Restart_Bluetooth_Proxy_When_Stuck(propertyValue)
@@ -484,6 +496,7 @@ function Connect()
   --- @param suspend? boolean The driver dropped the connection itself; the device was not lost.
   local function notifyEntitiesDisconnected(suspend)
     buttonLeds:disconnected()
+    roomMedia:disconnected()
     local ok, proxyErr = pcall(bluetoothProxyCapability.disconnected, bluetoothProxyCapability, suspend)
     if not ok then
       log:error("Bluetooth proxy disconnected handler failed: %s", proxyErr or "unknown error")
@@ -677,6 +690,16 @@ function RefreshStatus()
           log:error("Button LEDs discovery failed; %s", ret)
           --#ifdef DRIVERCENTRAL
           diagnostics:captureError(tostring(ret):match("^[^\n]*"), tostring(ret), "ESPHome.ButtonLedsDiscovered")
+          --#endif
+        end
+
+        success, ret = xpcall(function()
+          roomMedia:connected()
+        end, debug.traceback)
+        if not success then
+          log:error("Room media setup failed; %s", ret)
+          --#ifdef DRIVERCENTRAL
+          diagnostics:captureError(tostring(ret):match("^[^\n]*"), tostring(ret), "ESPHome.RoomMediaConnected")
           --#endif
         end
 

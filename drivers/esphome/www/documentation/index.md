@@ -560,6 +560,22 @@ The light that is the selected button's LED, or **(None)** to leave the light
 alone. A button and light that are alone together on an ESPHome sub-device are
 paired automatically.
 
+#### Room Media
+
+> Used only by a device that declares a `control4_media` or `control4_sources`
+> API action (see [Room Media on a Panel](#room-media-on-a-panel)).
+
+##### Media Room
+
+The room the device's media page controls. Leave it empty for the driver's own
+room.
+
+##### Media Sources
+
+The sources the device offers, as device IDs separated by commas. A source
+selected as video takes `:video` (e.g., `123, 456:video`). Leave it empty for
+the room's own listen and watch lists.
+
 #### Device Info
 
 ##### Name (read-only)
@@ -1307,6 +1323,57 @@ api:
             id: dot_2
             bg_color: !lambda 'return lv_color_hex(color >= 0 ? color : 0x000000);'
 ```
+
+# <span style="color:#17BCF2">Room Media on a Panel</span>
+
+A device with a display can control its Control4 room's media and show what is
+playing. It sends commands with `homeassistant.action` (enable
+`homeassistant_services: true` under `api:`), and the driver shows it the room's
+state through two API actions. The room is the **Media Room** property's, else
+the driver's own.
+
+## Commands
+
+The device calls the action `control4.media` with a `command`:
+
+| `command`                            | Room command                                   |
+| ------------------------------------ | ---------------------------------------------- |
+| `volume_up`, `volume_down`           | `PULSE_VOL_UP`, `PULSE_VOL_DOWN`               |
+| `mute_toggle`, `mute_on`, `mute_off` | `MUTE_TOGGLE`, `MUTE_ON`, `MUTE_OFF`           |
+| `play`, `pause`, `stop`              | `PLAY`, `PAUSE`, `STOP`                        |
+| `play_pause`                         | `PLAY` and `PAUSE` in turn                     |
+| `next`, `previous`                   | `SKIP_FWD`, `SKIP_REV`                         |
+| `room_off`                           | `ROOM_OFF`                                     |
+| `set_volume` with `level` (0–100)    | `SET_VOLUME_LEVEL`                             |
+| `select_source` with `index`         | `SELECT_AUDIO_DEVICE` or `SELECT_VIDEO_DEVICE` |
+| `room_command` with `name`           | That room command, with any other data         |
+
+```yaml
+api:
+  homeassistant_services: true
+
+# in a button's on_click:
+- homeassistant.action:
+    action: control4.media
+    data:
+      command: volume_up
+```
+
+## State
+
+Whenever the room changes, the driver calls the device's actions, when it
+declares them, with any of these variables:
+
+| Action             | Variables                                                                                                                    |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `control4_media`   | `room_on` bool, `source` string, `title`, `artist`, `album`, `image_url` strings, `volume` int, `muted` bool, `playing` bool |
+| `control4_sources` | `sources` string (names, one per line), `selected` int (index, -1 for none)                                                  |
+
+`playing` comes from the Digital Media agent's queue status for the room, or the
+media info's own state; for a source that reports neither, it is what the panel
+last asked for. `title`, `artist`, `album` and `image_url` come from the room's
+current media info when its source provides them. The driver logs the raw media
+info and the room's source lists at the Info level.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
