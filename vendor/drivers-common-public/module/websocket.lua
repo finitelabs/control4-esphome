@@ -1,10 +1,10 @@
 -- Copyright 2026 Snap One, LLC. All rights reserved.
 --
--- LOCAL FORK of Snap One's drivers-common-public websocket module, upstream v15.
+-- LOCAL FORK of Snap One's drivers-common-public websocket module, upstream v18.
 -- Re-vendoring from upstream silently drops everything listed here, in every repo the
 -- template renders. Keep this list current.
 --
--- Deltas against upstream v15:
+-- Deltas against upstream v18:
 --   1. setupC4Connection reuses one network binding per protocol://host:port
 --      rather than allocating a fresh one on every WebSocket:new(), which leaked
 --      a slot from the 6100-6199 pool on each reconnect until the pool ran out.
@@ -13,24 +13,22 @@
 --      can be sent at all.
 --   3. MakeHeaders omits the default port from the Host header. SigV4 hosts
 --      (AWS IoT) sign the host without it and drop the upgrade otherwise.
---   4. The 64-bit extended-length field is built with %016X rather than %16X.
---      %16X is space padded, not zero padded, so tohex left the spaces in and
---      emitted a malformed 14-byte field for payloads over 65535 bytes.
---   5. delete() takes an optional onComplete, run after the close timer releases the
+--   4. delete() takes an optional onComplete, run after the close timer releases the
 --      binding; a second delete() chains its callback. home-connect and hatch
 --      reconnect from it.
---   6. When it must allocate, setupC4Connection scans on from the last binding it
+--   5. When it must allocate, setupC4Connection scans on from the last binding it
 --      took and asserts once the pool is full. Upstream takes the lowest free slot.
---   7. The close timer skips NetDisconnect and SetBindingAddress without a binding
+--   6. The close timer skips NetDisconnect and SetBindingAddress without a binding
 --      and pcall-wraps them.
---   8. parseWSPacket waits for the rest of a frame header that arrived split, where
---      upstream threw on the missing bytes.
---   9. Metrics are removed, and the module prints only when DEBUG_WEBSOCKET is set.
---  10. The class is named WebSocket (upstream: wsObject) and carries LuaDoc.
+--   7. Metrics are removed, and the module prints only when DEBUG_WEBSOCKET is set.
+--   8. The class is named WebSocket (upstream: wsObject) and carries LuaDoc; string.unpack
+--      is aliased as sunpack for the type checker, and the unused rsv flags are _-prefixed.
 --
--- test/test_websocket.lua covers 1 to 5, and each place v15 stops a timer.
+-- test/test_websocket.lua covers 1 to 4, and the upstream fixes the fork once carried
+-- as its own: the zero-padded 64-bit length (v17), the pong echo and the split frame
+-- header (v18, snap-one/drivers-common-public#11).
 
-COMMON_WEBSOCKET_VER = 15
+COMMON_WEBSOCKET_VER = 18
 
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.timer")
@@ -43,8 +41,11 @@ require("drivers-common-public.global.timer")
 --- @field port number The port number.
 --- @field resource string The resource path.
 --- @field buf string The receive buffer.
---- @field ping_interval number The ping interval in seconds.
---- @field pong_response_interval number The pong response interval in seconds.
+--- @field sendPings boolean Whether the module pings the server.
+--- @field pingInterval number Seconds between pings.
+--- @field pongResponseTimeout number Seconds to wait for each pong.
+--- @field missedPongsTrigger number Missed pongs in a row that close the connection.
+--- @field missedPongs number Pongs missed since the last one received.
 --- @field additionalHeaders string[] Additional headers to send.
 --- @field wssOptions table WSS options.
 --- @field netBinding integer? The network binding ID.
@@ -74,9 +75,10 @@ end
 --- @param url string The WebSocket URL.
 --- @param additionalHeaders? string[] Additional headers.
 --- @param wssOptions? table WSS options.
+--- @param keepAliveOptions? { sendPings?: boolean, pingInterval?: number, pongResponseTimeout?: number, missedPongsTrigger?: number } Pings default on, every 30 s (at least 15), 10 s to answer (at least 5), closing after 1 miss.
 --- @return WebSocket|nil ws The WebSocket instance or nil on error.
 --- @return string? error Error message if creation failed.
-function WebSocket:new(url, additionalHeaders, wssOptions)
+function WebSocket:new(url, additionalHeaders, wssOptions, keepAliveOptions)
   if type(additionalHeaders) ~= "table" then
     additionalHeaders = nil
   end
@@ -118,6 +120,32 @@ function WebSocket:new(url, additionalHeaders, wssOptions)
     wssOptions = {}
   end
 
+  if type(keepAliveOptions) ~= "table" then
+    keepAliveOptions = {}
+  end
+
+  if type(keepAliveOptions.sendPings) ~= "boolean" then
+    keepAliveOptions.sendPings = true
+  end
+
+  if type(keepAliveOptions.pingInterval) ~= "number" then
+    keepAliveOptions.pingInterval = 30
+  elseif keepAliveOptions.pingInterval < 15 then
+    keepAliveOptions.pingInterval = 15
+  end
+
+  if type(keepAliveOptions.pongResponseTimeout) ~= "number" then
+    keepAliveOptions.pongResponseTimeout = 10
+  elseif keepAliveOptions.pongResponseTimeout < 5 then
+    keepAliveOptions.pongResponseTimeout = 5
+  end
+
+  if type(keepAliveOptions.missedPongsTrigger) ~= "number" then
+    keepAliveOptions.missedPongsTrigger = 1
+  elseif keepAliveOptions.missedPongsTrigger < 1 then
+    keepAliveOptions.missedPongsTrigger = 1
+  end
+
   if protocol and host and port and resource then
     local ws = {
       url = url,
@@ -126,10 +154,13 @@ function WebSocket:new(url, additionalHeaders, wssOptions)
       port = port,
       resource = resource,
       buf = "",
-      ping_interval = 30,
-      pong_response_interval = 10,
       additionalHeaders = additionalHeaders or {},
       wssOptions = wssOptions,
+      sendPings = keepAliveOptions.sendPings,
+      pingInterval = keepAliveOptions.pingInterval,
+      pongResponseTimeout = keepAliveOptions.pongResponseTimeout,
+      missedPongsTrigger = keepAliveOptions.missedPongsTrigger,
+      missedPongs = 0,
     }
 
     ws.timerPrefix = "WS_" .. url .. "_Timer_"
@@ -244,9 +275,6 @@ function WebSocket:Send(s, opcode)
     elseif len <= 65535 then
       lenstr = string.char(opcode, bit.bor(126, 0x80)) .. tohex(string.format("%04X", len))
     else
-      -- %016X, not %16X: the latter is space padded to width 16 rather than zero
-      -- padded to 16 digits, and tohex only substitutes hex pairs, so the spaces
-      -- survived into a malformed 14-byte field. This one must be exactly 8 bytes.
       lenstr = string.char(opcode, bit.bor(127, 0x80)) .. tohex(string.format("%016X", len))
     end
 
@@ -292,7 +320,7 @@ function WebSocket:SetProcessMessageFunction(f)
   local _f = function(websocket, data)
     local success, ret = pcall(f, websocket, data)
     if success == false then
-      print("WebSocket callback ProcessMessage error: ", ret, data)
+      print("Websocket callback ProcessMessage error: ", ret, data)
     end
   end
   self.ProcessMessage = _f
@@ -307,7 +335,7 @@ function WebSocket:SetClosedByRemoteFunction(f)
   local _f = function(websocket)
     local success, ret = pcall(f, websocket)
     if success == false then
-      print("WebSocket callback ClosedByRemote error: ", ret)
+      print("Websocket callback ClosedByRemote error: ", ret)
     end
   end
   self.ClosedByRemote = _f
@@ -322,7 +350,7 @@ function WebSocket:SetEstablishedFunction(f)
   local _f = function(websocket)
     local success, ret = pcall(f, websocket)
     if success == false then
-      print("WebSocket callback Established error: ", ret)
+      print("Websocket callback Established error: ", ret)
     end
   end
   self.Established = _f
@@ -337,7 +365,7 @@ function WebSocket:SetOfflineFunction(f)
   local _f = function(websocket)
     local success, ret = pcall(f, websocket)
     if success == false then
-      print("WebSocket callback Offline error: ", ret)
+      print("Websocket callback Offline error: ", ret)
     end
   end
   self.Offline = _f
@@ -488,7 +516,8 @@ function WebSocket:parseWSPacket()
     return
   end
 
-  local _, h1, h2 = sunpack(self.buf, "bb")
+  -- lpack returns only the bytes present, so b1 to b8 are nil past the end of the buffer
+  local _, h1, h2, b1, b2, b3, b4, b5, b6, b7, b8 = sunpack(self.buf, "bbbbbbbbbb")
 
   local final = (bit.band(h1, 0x80) == 0x80)
   local _rsv1 = (bit.band(h1, 0x40) == 0x40)
@@ -500,26 +529,38 @@ function WebSocket:parseWSPacket()
   local mask
   local len = bit.band(h2, 0x7F)
 
-  local msglen, headerlen
+  local msglen = 0
+  local headerlen = 2
   if len <= 125 then
     msglen = len
-    headerlen = 2
   elseif len == 126 then
     if buflen < 4 then
       return
     end
-    local _, _, _, b1, b2 = sunpack(self.buf, "bbbb")
-    msglen = b1 * 0x100 + b2
+    msglen = msglen + b1
+    msglen = msglen * 0x100
+    msglen = msglen + b2
     headerlen = 4
   elseif len == 127 then
     if buflen < 10 then
       return
     end
-    local _, _, _, b1, b2, b3, b4, b5, b6, b7, b8 = sunpack(self.buf, "bbbbbbbbbb")
-    msglen = ((((((b1 * 0x100 + b2) * 0x100 + b3) * 0x100 + b4) * 0x100 + b5) * 0x100 + b6) * 0x100 + b7) * 0x100 + b8
+    msglen = msglen + b1
+    msglen = msglen * 0x100
+    msglen = msglen + b2
+    msglen = msglen * 0x100
+    msglen = msglen + b3
+    msglen = msglen * 0x100
+    msglen = msglen + b4
+    msglen = msglen * 0x100
+    msglen = msglen + b5
+    msglen = msglen * 0x100
+    msglen = msglen + b6
+    msglen = msglen * 0x100
+    msglen = msglen + b7
+    msglen = msglen * 0x100
+    msglen = msglen + b8
     headerlen = 10
-  else
-    return
   end
 
   if masked then
@@ -555,11 +596,12 @@ function WebSocket:parseWSPacket()
       if DEBUG_WEBSOCKET then
         print("RX PING")
       end
-      self:Pong()
+      self:Pong(thisFragment)
     elseif opcode == 0x0A then -- pong control frame
       if DEBUG_WEBSOCKET then
         print("RX PONG")
       end
+      self.missedPongs = 0
       CancelTimer(self.timerPrefix .. "PongResponse")
     elseif opcode == 0x00 then -- continuation frame
       if not self.fragment then
@@ -640,18 +682,45 @@ function WebSocket:Ping()
     end
 
     local _timer = function(timer)
-      print("WS " .. self.url .. " appears disconnected - timed out waiting for PONG")
-      self:Close()
+      self.missedPongs = self.missedPongs + 1
+      if self.missedPongs >= self.missedPongsTrigger then
+        print(
+          "WS "
+            .. self.url
+            .. " appears disconnected - timed out waiting for PONG ("
+            .. tostring(self.missedPongs)
+            .. " missed)"
+        )
+        self:Close()
+      end
     end
-    SetTimer(self.timerPrefix .. "PongResponse", self.pong_response_interval * ONE_SECOND, _timer)
+    SetTimer(self.timerPrefix .. "PongResponse", self.pongResponseTimeout * ONE_SECOND, _timer)
 
     self:sendToNetwork(pkt)
   end
 end
 
-function WebSocket:Pong()
+--- Answer a ping. The pong carries the ping's payload back (RFC 6455 5.5.3).
+--- @param data? string The ping's application data (at most 125 bytes).
+function WebSocket:Pong(data)
   if self.connected then
-    local pkt = string.char(0x8A, 0x80, 0x00, 0x00, 0x00, 0x00)
+    -- RFC 6455 5.5.3: a pong carries the ping's application data
+    data = string.sub(data or "", 1, 125)
+
+    local mask = {
+      math.random(0, 255),
+      math.random(0, 255),
+      math.random(0, 255),
+      math.random(0, 255),
+    }
+
+    local pkt = {
+      string.char(0x8A, bit.bor(string.len(data), 0x80)),
+      string.char(mask[1], mask[2], mask[3], mask[4]),
+      self:Mask(data, mask),
+    }
+
+    local pkt = table.concat(pkt)
     if DEBUG_WEBSOCKET then
       print("TX PONG")
     end
@@ -669,10 +738,12 @@ function WebSocket:ConnectionChanged(strStatus)
     local pkt = self:MakeHeaders()
     self:sendToNetwork(pkt)
 
-    local _timer = function(timer)
-      self:Ping()
+    if self.sendPings then
+      local _timer = function(timer)
+        self:Ping()
+      end
+      SetTimer(self.timerPrefix .. "Ping", self.pingInterval * ONE_SECOND, _timer, true)
     end
-    SetTimer(self.timerPrefix .. "Ping", self.ping_interval * ONE_SECOND, _timer, true)
     print("WS " .. self.url .. " connected")
   else
     if self.running then

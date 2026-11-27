@@ -139,10 +139,15 @@ if not string.pack then
     end
     return table.concat(out)
   end
+  -- Like lpack, it stops at the first value the data is too short for and returns those before it.
   function string.unpack(data, fmt, pos)
     pos = pos or 1
     local out = {}
     for c in fmt:gmatch(".") do
+      local size = c == "f" and 4 or CODE[c] and CODE[c][1]
+      if size and pos + size - 1 > #data then
+        break
+      end
       if c == "<" or c == ">" or c == "=" then
       elseif c == "f" then
         local v
@@ -1742,7 +1747,8 @@ end
 local shim_driver_files = {}
 local shim_next_id = 9000
 
---- @param files string[] The driver files C4:AddDevice can add; any other is not on the controller.
+--- @param files string[] The driver files C4:AddDevice can add, along with any file in ShimFiles("C4Z_ROOT"). Any other
+--- file counts as not on the controller.
 function ShimSetDriverFiles(files)
   shim_driver_files = {}
   for _, file in ipairs(files or {}) do
@@ -1770,7 +1776,7 @@ function ShimAnswerAdds()
   for _, add in ipairs(adds) do
     local id = 0
     local info = { Name = "error", Value = "Unable to load driver " .. add.file, Attributes = {}, ChildNodes = {} }
-    if shim_driver_files[add.file] then
+    if shim_driver_files[add.file] or ShimFiles("C4Z_ROOT")[add.file] then
       id, shim_next_id = shim_next_id, shim_next_id + 2
       local name = add.name or (add.file:gsub("%.c4z$", ""))
       shim_devices[id] =

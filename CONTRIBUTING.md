@@ -813,7 +813,7 @@ property after the Support Code property, the require after
     <item>Disabled</item>
     <item>Enabled</item>
   </items>
-  <description>Sends memory and error reports to Finite Labs so we can fix driver problems.</description>
+  <description>Sends memory and error reports to Finite Labs.</description>
 </property>
 ```
 

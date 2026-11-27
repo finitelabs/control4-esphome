@@ -38,6 +38,7 @@ require("drivers-common-public.global.lib")
 
 JSON = require("JSON")
 local deferred = require("deferred")
+local F = require("c4_fixtures")
 local semver = require("version")
 
 local UNLOCK_KEY = "c29tZXNwZWNpYWxrZXk=++11"
@@ -71,7 +72,7 @@ local function dirCallList()
   return table.concat(dirCalls, ", ")
 end
 
---- downloadOutdatedDrivers rejects with a message or a table of them indexed by number.
+--- downloadOutdatedDrivers and InstallDrivers reject with either a message or a table of messages indexed by number.
 local function describeError(err)
   if type(err) ~= "table" then
     return tostring(err)
@@ -137,11 +138,16 @@ end
 
 resetDirCalls()
 local downloaded, downloadError
-updater:downloadOutdatedDrivers("C4Z_ROOT", "finitelabs/example", { RUNNING_DRIVER }, false, false):next(function(names)
-  downloaded = names
-end, function(err)
-  downloadError = err
-end)
+local tcp = F.captureTcpClient()
+updater
+  :downloadOutdatedDrivers("finitelabs/example", { RUNNING_DRIVER }, false, false)
+  :next(InstallDrivers)
+  :next(function(names)
+    downloaded = names
+  end, function(err)
+    downloadError = err
+  end)
+tcp.restore()
 
 T.check(
   "the single-driver version loop leaves C4Z_ROOT locked",

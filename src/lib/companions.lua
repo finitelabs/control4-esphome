@@ -210,12 +210,14 @@ local function add(need)
   return d
 end
 
---- Gives every need's binding a companion, one at a time. A binding already bound is left alone. Otherwise the
---- companion it had is bound again, when it is in the project and bound to nothing; else a spare the rule allows;
---- else a new one, added in the need's room with its name and shown only in that room, ADD_SPACING_MS before the
---- next. An add with no answer in ADD_TIMEOUT_MS fails, and the next need goes on; if it answers later, its companion
---- takes the binding when that is still free. Nothing is renamed but a spare with `renameSpares`, and nothing is
---- unbound or removed. Navigators are refreshed at the end when anything was bound.
+--- Gives each need's binding a companion, one need at a time. Each companion's driver file is installed first with
+--- InstallDrivers. A binding that is already bound is left alone. Otherwise it gets the companion it had before, if
+--- that companion is still in the project and not bound to anything. If not, it gets a spare that the rule allows. If
+--- there is no spare, a new companion is added in the need's room with the need's name and shown only in that room, and
+--- the next add waits ADD_SPACING_MS. An add with no answer within ADD_TIMEOUT_MS counts as failed, and setup moves on
+--- to the next need. If that add answers later, its companion takes the binding if the binding is still free. Only
+--- spares are renamed, and only with `renameSpares`. Nothing is unbound or removed. Navigators are refreshed at the end
+--- if anything was bound.
 --- @param needs CompanionNeed[]
 --- @param options? CompanionOptions
 --- @return Deferred<CompanionResult, string> result Rejected only when a setup is already running.
@@ -232,6 +234,14 @@ function Companions:setup(needs, options)
   for i, need in ipairs(needs) do
     pending[i] = need
   end
+  local carried, seen = {}, {}
+  for _, need in ipairs(needs) do
+    if not seen[need.file] then
+      seen[need.file] = true
+      table.insert(carried, { name = need.file })
+    end
+  end
+  InstallDrivers(carried)
   -- A companion some binding had is never another's spare.
   local taken = {}
   for _, id in pairs(remembered()) do

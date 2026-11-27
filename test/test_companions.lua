@@ -8,6 +8,7 @@
 local T = require("testlib")
 
 require("c4_shim")
+local F = require("c4_fixtures")
 local companions = require("lib.companions")
 
 local ME = C4:GetDeviceID()
@@ -301,5 +302,164 @@ T.truthy("it is shown only in its room", only and shownOnlyInKitchen(only + 1))
 result = run({ need(5012) })
 T.eq("the next setup binds it again", result and { result.rebound, result.added }, { 1, 0 })
 T.eq("the project has one", lights(), 1)
+
+-- The companion's .c4z as the host carries it in its own package.
+local CARRIED = "example_light package 20261125"
+
+--- Sets up the controller's driver store and the host's package. `stored` is what the store holds, `running` is the
+--- version the project's companions run, `version` is the host's own version, and `carried` is the copy the host
+--- carries. Returns a function that undoes the setup.
+--- @param opts { stored?: string, running?: string, carried?: string, version?: string }
+local function store(opts)
+  local root, package, unpacked = ShimFiles("C4Z_ROOT"), ShimFiles("C4Z/c4z"), ShimFiles("C4Z_ROOT/example_light")
+  root[LIGHT], package[LIGHT], unpacked["driver.xml"] = opts.stored, opts.carried, nil
+  if opts.running then
+    unpacked["driver.xml"] = "<devicedata><version>" .. opts.running .. "</version></devicedata>"
+  end
+  local config = C4.GetDriverConfigInfo
+  function C4:GetDriverConfigInfo(section)
+    if section == "version" then
+      return opts.version
+    end
+    return config(self, section)
+  end
+  return function()
+    C4.GetDriverConfigInfo = config
+  end
+end
+
+--- @param capture table
+--- @return integer count The update requests sent for the companion's file.
+local function updatesSent(capture)
+  local count = 0
+  for _, write in ipairs(capture.writes) do
+    if write:find("UpdateProjectC4i", 1, true) and write:find(LIGHT, 1, true) then
+      count = count + 1
+    end
+  end
+  return count
+end
+
+--- Installs the copy the host carries, as a host does at start.
+--- @return string|nil refused The reason the install was refused, or nil if it wasn't.
+local function install()
+  local refused
+  InstallDrivers({ { name = LIGHT } }):next(nil, function(err)
+    refused = err
+  end)
+  return refused
+end
+
+T.section("A companion the host carries is put in the store and added when the store has none")
+project()
+ShimSetDriverFiles({})
+local restore = store({ carried = CARRIED, version = "20261125" })
+local tcp = F.captureTcpClient()
+result = run({ need(5012, "Kitchen Pendant") })
+T.eq("the store has the carried copy", ShimFiles("C4Z_ROOT")[LIGHT], CARRIED)
+T.eq("one was added", result and { result.added, #result.missing }, { 1, 0 })
+T.eq("no update is asked for, with no companion in the project", updatesSent(tcp), 0)
+tcp.restore()
+restore()
+
+T.section("A companion the host does not carry, and the store does not have, is missing")
+project()
+ShimSetDriverFiles({})
+restore = store({ version = "20261125" })
+result = run({ need(5012) })
+T.eq("it is missing", result and result.missing, { LIGHT })
+T.eq("nothing is put in the store", ShimFiles("C4Z_ROOT")[LIGHT], nil)
+restore()
+
+T.section("Companions on an older version are updated to the one the host carries")
+project({ [500] = existing("Island", KITCHEN) })
+restore = store({ stored = "older package", running = "20261101", carried = CARRIED, version = "20261125" })
+tcp = F.captureTcpClient()
+T.eq("the install is not refused", install(), nil)
+T.eq("the store has the carried copy", ShimFiles("C4Z_ROOT")[LIGHT], CARRIED)
+T.eq("Director is asked to update them once", updatesSent(tcp), 1)
+tcp.restore()
+restore()
+
+T.section("Companions on the host's version or newer are left alone, and so is the store")
+for _, running in ipairs({ "20261125", "20261201" }) do
+  restore = store({ stored = "their package", running = running, carried = CARRIED, version = "20261125" })
+  tcp = F.captureTcpClient()
+  T.eq("the install is not refused, running " .. running, install(), nil)
+  T.eq("the store keeps its copy, running " .. running, ShimFiles("C4Z_ROOT")[LIGHT], "their package")
+  T.eq("no update is asked for, running " .. running, updatesSent(tcp), 0)
+  tcp.restore()
+  restore()
+end
+
+T.section("A copy in the store with no companion of it in the project is left as it is")
+restore = store({ stored = "newer package 20261201", carried = CARRIED, version = "20261125" })
+T.eq("the install is not refused", install(), nil)
+T.eq("the store keeps its copy", ShimFiles("C4Z_ROOT")[LIGHT], "newer package 20261201")
+restore()
+
+T.section("An update lost on an earlier start is asked for again")
+project({ [500] = existing("Island", KITCHEN) })
+restore = store({ stored = CARRIED, running = "20261101", carried = CARRIED, version = "20261125" })
+tcp = F.captureTcpClient()
+install()
+T.eq("Director is asked to update them", updatesSent(tcp), 1)
+tcp.restore()
+restore()
+
+T.section("When a write fails, the install is refused and the store keeps what it had")
+local write = C4.FileWrite
+local function refuseWrites()
+  C4.FileWrite = function()
+    return -1
+  end
+end
+restore = store({ carried = CARRIED, version = "20261125" })
+refuseWrites()
+T.eq("with no copy, the install is refused", install(), "failed to write " .. LIGHT)
+T.eq("the store has none", ShimFiles("C4Z_ROOT")[LIGHT], nil)
+C4.FileWrite = write
+restore()
+restore = store({ stored = "older package", running = "20261101", carried = CARRIED, version = "20261125" })
+tcp = F.captureTcpClient()
+local writes = 0
+C4.FileWrite = function(...)
+  writes = writes + 1
+  if writes == 1 then
+    return -1
+  end
+  return write(...)
+end
+T.eq("with an older copy, the install is refused", install(), "failed to write " .. LIGHT)
+T.eq("the older copy is put back", ShimFiles("C4Z_ROOT")[LIGHT], "older package")
+T.eq("no update is asked for", updatesSent(tcp), 0)
+C4.FileWrite = write
+tcp.restore()
+restore()
+
+T.section("Two needs for one file put it in the store and ask for its update once")
+project({ [500] = existing("Island", KITCHEN) })
+restore = store({ stored = "older package", running = "20261101", carried = CARRIED, version = "20261125" })
+tcp = F.captureTcpClient()
+run({ need(5012, "Kitchen Pendant"), need(5013, "Island") })
+T.eq("Director is asked once", updatesSent(tcp), 1)
+tcp.restore()
+restore()
+
+T.section("Setup still works when the controller won't open the store")
+project()
+local setDir = C4.FileSetDir
+C4.FileSetDir = function(self, dir, ...)
+  if dir == "C4Z_ROOT" then
+    error("Invalid alias: C4Z_ROOT")
+  end
+  return setDir(self, dir, ...)
+end
+T.truthy("the install is refused", install())
+result = run({ need(5012, "Kitchen Pendant") })
+T.eq("a setup still adds", result and result.added, 1)
+result = run({ need(5013, "Island") })
+T.eq("and the next setup runs too", result and result.added, 1)
+C4.FileSetDir = setDir
 
 T.finish()

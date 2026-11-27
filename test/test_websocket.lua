@@ -2,10 +2,11 @@
 --   1. per-endpoint network binding reuse
 --   2. Send(s, opcode), additive, default 0x81
 --   3. Host header omits the default port
---   4. 64-bit extended-length field uses %016X
---   5. delete(onComplete), with a second delete() chaining its callback
+--   4. delete(onComplete), with a second delete() chaining its callback
 --
--- It also checks each place v15 stops the Ping and PongResponse timers.
+-- And for upstream fixes the fork carried before upstream took them: the zero-padded
+-- 64-bit length (v17), the pong echo and the split frame header (v18). It also checks
+-- v16's keepAliveOptions and each place the Ping and PongResponse timers stop.
 --
 -- Run from the driver root:
 --   make test
@@ -92,7 +93,7 @@ do
 end
 
 --------------------------------------------------------------------------------
-T.section("64-bit extended-length field is exactly 8 bytes (%016X)")
+T.section("64-bit extended-length field is exactly 8 bytes (v17)")
 --------------------------------------------------------------------------------
 do
   local ws = WebSocket:new("wss://big.example.com/ws")
@@ -307,6 +308,160 @@ do
   T.check("delete() leaves only the close timer", timersFor() == 1 and running("Closing"), timersFor())
   fireTimers()
   T.check("and none once it has run", timersFor() == 0, timersFor())
+end
+
+--------------------------------------------------------------------------------
+T.section("A pong echoes the ping's payload (v18)")
+--------------------------------------------------------------------------------
+do
+  resetBindings()
+  local ws = WebSocket:new("wss://pong.example.com:8002/ws")
+  ws:ConnectionChanged("ONLINE")
+  ws.running = true
+  local delivered = {}
+  function ws:ProcessMessage(data)
+    table.insert(delivered, data)
+  end
+
+  local seen = #sentFrames
+  --- The frames sent since the last call, as { opcode, masked, len, payload } with the payload unmasked.
+  local function sent()
+    local out = {}
+    for i = seen + 1, #sentFrames do
+      local f = sentFrames[i].data
+      local key = { f:byte(3, 6) }
+      local payload = f:sub(7):gsub("()(.)", function(n, c)
+        return string.char(bit.bxor(c:byte(), key[(n - 1) % 4 + 1]))
+      end)
+      table.insert(out, { opcode = f:byte(1), masked = f:byte(2) >= 0x80, len = f:byte(2) % 0x80, payload = payload })
+    end
+    seen = #sentFrames
+    return out
+  end
+
+  ws:ParsePacket(string.char(0x89, 0x01, 0x41))
+  local out = sent()
+  T.check(
+    "a 1-byte ping gets one masked pong carrying the same byte",
+    #out == 1 and out[1].opcode == 0x8A and out[1].masked and out[1].len == 1 and out[1].payload == "A",
+    #out
+  )
+
+  ws:ParsePacket(string.char(0x89, 0x00))
+  out = sent()
+  T.check("an empty ping gets an empty pong", #out == 1 and out[1].opcode == 0x8A and out[1].payload == "", #out)
+
+  ws:ParsePacket(string.char(0x89, 0x03, 0x61))
+  T.check("a ping cut short waits for the rest", #sent() == 0)
+  ws:ParsePacket("bc")
+  out = sent()
+  T.check("and is answered once it arrives", #out == 1 and out[1].payload == "abc", #out)
+
+  ws:ParsePacket(string.char(0x01, 0x03) .. "hel" .. string.char(0x89, 0x02) .. "pi" .. string.char(0x80, 0x02) .. "lo")
+  out = sent()
+  T.check("a ping between fragments is answered", #out == 1 and out[1].payload == "pi", #out)
+  T.check("and the message around it arrives whole", #delivered == 1 and delivered[1] == "hello", delivered[1])
+
+  local long = string.rep("x", 130)
+  ws:ParsePacket(string.char(0x89, 0x7E, 0x00, #long) .. long)
+  out = sent()
+  T.check(
+    "a ping over the 125-byte limit gets a pong cut to 125",
+    #out == 1 and out[1].len == 125 and out[1].payload == long:sub(1, 125),
+    out[1] and out[1].len
+  )
+  simulateClose(ws)
+end
+
+--------------------------------------------------------------------------------
+T.section("A frame header split across reads waits for the rest (v18)")
+--------------------------------------------------------------------------------
+do
+  resetBindings()
+  local ws = WebSocket:new("wss://split.example.com/ws")
+  ws:ConnectionChanged("ONLINE")
+  ws.running = true
+  local delivered = {}
+  function ws:ProcessMessage(data)
+    table.insert(delivered, data)
+  end
+
+  for _, size in ipairs({ 5, 300, 70000 }) do
+    local payload = string.rep("z", size)
+    local header
+    if size <= 125 then
+      header = string.char(0x81, size)
+    elseif size <= 65535 then
+      header = string.char(0x81, 126, math.floor(size / 256), size % 256)
+    else
+      header = string.char(0x81, 127, 0, 0, 0, 0, 0, math.floor(size / 65536), math.floor(size / 256) % 256, size % 256)
+    end
+    local frame = header .. payload
+    for cut = 1, #header do
+      delivered = {}
+      local ok, err = pcall(function()
+        ws:ParsePacket(frame:sub(1, cut))
+        ws:ParsePacket(frame:sub(cut + 1))
+      end)
+      T.check(
+        string.format("a %d-byte frame cut after header byte %d arrives whole", size, cut),
+        ok and #delivered == 1 and delivered[1] == payload,
+        ok and #delivered or err
+      )
+    end
+  end
+  simulateClose(ws)
+end
+
+--------------------------------------------------------------------------------
+T.section("keepAliveOptions (v16)")
+--------------------------------------------------------------------------------
+do
+  resetBindings()
+  local ws = WebSocket:new("wss://keepalive-default.example.com/ws")
+  T.check(
+    "defaults ping every 30 s, wait 10 s, close on the first miss",
+    ws.sendPings and ws.pingInterval == 30 and ws.pongResponseTimeout == 10 and ws.missedPongsTrigger == 1
+  )
+  simulateClose(ws)
+
+  ws = WebSocket:new(
+    "wss://keepalive-floor.example.com/ws",
+    nil,
+    nil,
+    { pingInterval = 1, pongResponseTimeout = 1, missedPongsTrigger = 0 }
+  )
+  T.check(
+    "values under the floor are raised to 15 s, 5 s and 1",
+    ws.pingInterval == 15 and ws.pongResponseTimeout == 5 and ws.missedPongsTrigger == 1
+  )
+  simulateClose(ws)
+
+  ws = WebSocket:new("wss://keepalive-off.example.com/ws", nil, nil, { sendPings = false })
+  ws:ConnectionChanged("ONLINE")
+  T.check("sendPings = false starts no Ping timer", Timer[ws.timerPrefix .. "Ping"] == nil)
+  ws:ConnectionChanged("OFFLINE")
+  simulateClose(ws)
+
+  -- No Ping timer, so fireTimers runs only the PongResponse timer each Ping() sets.
+  ws = WebSocket:new("wss://keepalive-two.example.com/ws", nil, nil, { sendPings = false, missedPongsTrigger = 2 })
+  ws:ConnectionChanged("ONLINE")
+  ws.running = true
+  local closes = 0
+  function ws:Close()
+    closes = closes + 1
+  end
+  ws:Ping()
+  fireTimers()
+  T.check("one missed pong of two leaves it open", closes == 0 and ws.missedPongs == 1, ws.missedPongs)
+  ws:Ping()
+  fireTimers()
+  T.check("the second closes it", closes == 1, closes)
+  ws:Ping()
+  ws:ParsePacket(string.char(0x8A, 0x00))
+  T.check("a pong resets the count", ws.missedPongs == 0, ws.missedPongs)
+  ws:ConnectionChanged("OFFLINE")
+  simulateClose(ws)
 end
 
 T.finish()
