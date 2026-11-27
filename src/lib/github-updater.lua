@@ -21,6 +21,11 @@ local DEFAULT_HEADERS = {
   Accept = "*/*",
 }
 
+--- The largest driver file downloaded, in bytes. Setting it sends the download through the http library's
+--- streaming path: the controller's plain transfer fails on a body past 4 MiB.
+--- @type integer
+local MAX_ASSET_BYTES = 64 * 1024 * 1024
+
 --- Create a new instance of GitHubUpdater.
 --- @return GitHubUpdater updater A new GitHubUpdater instance.
 function GitHubUpdater:new()
@@ -111,17 +116,15 @@ function GitHubUpdater:getOutdatedDriverAssets(repo, driverFilenames, includePre
   end)
 end
 
---- Download outdated driver assets from GitHub and write them to the specified directory.
---- @param dir string Target directory to save downloaded driver assets.
+--- Downloads the outdated driver assets of the latest release from GitHub.
 --- @param repo string The GitHub repository, in the format "owner/repo".
 --- @param driverFilenames string[] List of driver filenames to update.
 --- @param includePrereleases? boolean If true, includes pre-releases (optional).
 --- @param forceUpdate? boolean Optional. If true, downloads all drivers regardless of version (optional).
---- @return Deferred<string[], string|table<number, string>> outdatedDrivers Deferred resolving to a list of successfully downloaded driver filenames, or rejected with an error message or a table of them indexed by number.
-function GitHubUpdater:downloadOutdatedDrivers(dir, repo, driverFilenames, includePrereleases, forceUpdate)
+--- @return Deferred<DriverPackage[], string|table<number, string>> packages Deferred resolving to each downloaded driver, or rejected with an error message or a table of them indexed by number.
+function GitHubUpdater:downloadOutdatedDrivers(repo, driverFilenames, includePrereleases, forceUpdate)
   log:trace(
-    "GitHubUpdater:downloadOutdatedDrivers(%s, %s, %s, %s, %s)",
-    dir,
+    "GitHubUpdater:downloadOutdatedDrivers(%s, %s, %s, %s)",
     repo,
     driverFilenames,
     includePrereleases,
@@ -136,48 +139,29 @@ function GitHubUpdater:downloadOutdatedDrivers(dir, repo, driverFilenames, inclu
       end
 
       --- @type Deferred<table, string>
-      local download = http:get(asset.browser_download_url, DEFAULT_HEADERS):next(function(response)
-        local downloadSize = string.len(response.body)
-        if downloadSize < 1 then
-          return reject(string.format("asset %s download is empty", asset.name))
-        end
-        log:info("Downloaded asset %s (%d bytes)", asset.name, downloadSize)
-        return { name = asset.name, body = response.body }
-      end, function(response)
-        return reject(response.error)
-      end)
+      local download = http
+        :get(asset.browser_download_url, DEFAULT_HEADERS, { maxBytes = MAX_ASSET_BYTES })
+        :next(function(response)
+          local downloadSize = string.len(response.body)
+          if downloadSize < 1 then
+            return reject(string.format("asset %s download is empty", asset.name))
+          end
+          log:info("Downloaded asset %s (%d bytes)", asset.name, downloadSize)
+          return { name = asset.name, body = response.body }
+        end, function(response)
+          return reject(response.error)
+        end)
 
       table.insert(downloads, download)
     end
-    -- Nothing is written until every asset has downloaded, so a failed download leaves
+    -- Nothing is installed until every asset has downloaded, so a failed download leaves
     -- every installed file as it was.
-    return deferred.all(downloads):next(function(downloaded)
-      --- @type string[]
-      local written = {}
-      for _, download in ipairs(downloaded) do
-        -- GetDriverVersion only unlocks C4Z_ROOT for companion drivers, so a project running
-        -- one driver from this repo reaches the write with the alias still locked.
-        UnlockC4ZRoot()
-        C4:FileSetDir(dir)
-        local currentContents = C4:FileExists(download.name) and FileRead(download.name) or nil
-        FileWrite(download.name, download.body, true)
-        -- The vendored FileWrite returns nothing, so only reading the file back shows a failed write.
-        if FileRead(download.name) ~= download.body then
-          -- Restore the previous contents if the write failed
-          if currentContents ~= nil then
-            FileWrite(download.name, currentContents, true)
-          end
-          return reject(string.format("failed to write asset %s", download.name))
-        end
-        table.insert(written, download.name)
-      end
-      return written
-    end)
+    return deferred.all(downloads)
   end)
 end
 
 --- Update all given drivers to the latest release from GitHub.
---- Downloads new drivers, writes them, and sends them for update over TCP to the local system.
+--- Downloads new drivers and installs them with InstallDrivers.
 --- @param repo string The GitHub repository, in the format "owner/repo".
 --- @param driverFilenames string[] List of driver filenames to update: the repo's own is `require("lib.driver-filenames")`.
 --- @param includePrereleases? boolean If true, includes pre-releases (optional).
@@ -194,78 +178,8 @@ function GitHubUpdater:updateAll(repo, driverFilenames, includePrereleases, forc
   end
 
   return self
-    :downloadOutdatedDrivers("C4Z_ROOT", repo, installedDriverFilenames, includePrereleases, forceUpdate)
-    :next(function(downloadedDriverFilenames)
-      --- @type Deferred<string[], string|table<number, string>>
-      local d = deferred.new()
-      if IsEmpty(downloadedDriverFilenames) then
-        return d:resolve(downloadedDriverFilenames)
-      end
-
-      -- Update the running driver's own c4z LAST: reloading it tears down this
-      -- loop (and its socket) before the remaining companions are sent, which
-      -- strands them a version behind.
-      local ownFilename = C4.GetDriverFileName and C4:GetDriverFileName()
-      local updateOrder = {}
-      local ownFilenameToUpdate
-      for _, driverFilename in pairs(downloadedDriverFilenames) do
-        if driverFilename == ownFilename then
-          ownFilenameToUpdate = driverFilename
-        else
-          table.insert(updateOrder, driverFilename)
-        end
-      end
-      if ownFilenameToUpdate ~= nil then
-        table.insert(updateOrder, ownFilenameToUpdate)
-      end
-
-      -- Director drops UpdateProjectC4i commands still queued on a socket that
-      -- closes, so each update waits for Director's reply before the next is sent.
-      local function sendUpdate(index)
-        local driverFilename = updateOrder[index]
-        if driverFilename == nil then
-          return d:resolve(downloadedDriverFilenames)
-        end
-        local c4soap = XMLTag(
-          "c4soap",
-          XMLTag("param", driverFilename, nil, nil, {
-            name = "name",
-            type = "string",
-          }),
-          false,
-          false,
-          {
-            name = "UpdateProjectC4i",
-            session = "0",
-            operation = "RWX",
-            category = "composer",
-            async = "0",
-          }
-        ) .. "\0"
-        C4:CreateTCPClient()
-          :OnConnect(function(client)
-            client:Write(c4soap)
-            client:ReadUntil("\0")
-            if driverFilename == ownFilenameToUpdate then
-              -- Its update reloads this driver, usually before Director replies.
-              d:resolve(downloadedDriverFilenames)
-            end
-          end)
-          :OnRead(function(client)
-            client:Close()
-            if driverFilename ~= ownFilenameToUpdate then
-              sendUpdate(index + 1)
-            end
-          end)
-          :OnError(function(client, errCode, errMsg)
-            client:Close()
-            d:reject("Error " .. errCode .. ": " .. errMsg)
-          end)
-          :Connect("127.0.0.1", 5020)
-      end
-      sendUpdate(1)
-      return d
-    end)
+    :downloadOutdatedDrivers(repo, installedDriverFilenames, includePrereleases, forceUpdate)
+    :next(InstallDrivers)
 end
 
 return GitHubUpdater:new()

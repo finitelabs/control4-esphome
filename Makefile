@@ -109,6 +109,22 @@ fmt-md: $(VENV_STAMP)
 	done; \
 	[ -z "$$files" ] || $(VENV_PY) tools/docs.py fmt --wrap 80 $$files
 
+# Lossy but not visibly: run it after adding or exporting PNGs. resources/ is the
+# template's images and the DriverCentral listing art, which ships in no .c4z.
+# A second run changes nothing: pngquant skips a palette PNG (IHDR color type 3),
+# which is what it writes, oxipng keeps the color type (--nc), and oxipng runs
+# first so pngquant's size comparison can't come out differently next time.
+.PHONY: images
+images: ## Compress the repo's PNGs outside resources/ (brew install pngquant oxipng)
+	@git ls-files --cached --others --exclude-standard '*.png' ':!:resources/**' | while IFS= read -r f; do \
+		oxipng -q -o 4 --nc --strip safe "$$f" || exit 1; \
+		if [ "$$(od -An -tu1 -j25 -N1 "$$f" | tr -d ' ')" != 3 ]; then \
+			pngquant --quality 80-95 --skip-if-larger --strip --force --output "$$f" -- "$$f"; \
+			code=$$?; [ $$code -eq 0 ] || [ $$code -eq 98 ] || [ $$code -eq 99 ] || exit 1; \
+		fi; \
+		oxipng -q -o 4 --nc --strip safe "$$f" || exit 1; \
+	done
+
 # ─── Check ────────────────────────────────────────────────────────────────────
 # Assert-only mirror of fmt (--check, no rewrite), that the Build workflow
 # passes the build secrets .env.default declares, and that every driver.xml
@@ -304,17 +320,22 @@ zip: $(VENV_STAMP) ## Zip the c4z/ and docs/ subfolders per distribution
 
 VERIFY_VERSION := $(if $(filter environment command,$(origin DRIVER_VERSION)),verify-version)
 
-.PHONY: verify verify-pdfs verify-version verify-clean
+.PHONY: verify verify-pdfs verify-size verify-version verify-clean
 ifeq ($(DRIVERS),)
 verify:
 	@echo "No drivers/*/driver.xml yet: nothing to verify."
 else
-verify: verify-pdfs $(VERIFY_VERSION) verify-clean ## Check what the build made, as CI does
+verify: verify-pdfs verify-size $(VERIFY_VERSION) verify-clean ## Check what the build made, as CI does
 endif
 
 verify-pdfs: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
 		$(VENV_PY) tools/package.py check-pdfs "$$build" || exit 1; \
+	done
+
+verify-size: $(VENV_STAMP)
+	@for build in $(DISTRIBUTIONS); do \
+		$(VENV_PY) tools/package.py check-size "$$build" || exit 1; \
 	done
 
 verify-version: $(VENV_STAMP)

@@ -1,6 +1,8 @@
 -- Tests that updateAll writes nothing until every .c4z has downloaded, and reads
 -- back each one it writes. The vendored FileWrite returns nothing, so a write that
--- failed was still sent to Director to install.
+-- failed was still sent to Director to install. Also that each download takes
+-- the http library's streaming path, since the controller's plain transfer fails
+-- on a body past 4 MiB.
 --
 -- Run from the driver root:
 --   make test
@@ -33,7 +35,9 @@ updater.getLatestRelease = function()
     assets = { { name = RUNNING, browser_download_url = "https://example.invalid/self" } },
   })
 end
-http.get = function()
+local downloadOptions
+http.get = function(_, _, _, options)
+  downloadOptions = options
   return deferred.new():resolve({ body = RELEASE })
 end
 
@@ -60,6 +64,12 @@ local result = update({ RUNNING })
 T.eq("updateAll resolves with the driver", result.updated, { RUNNING })
 T.eq("it is sent to Director", result.sent, 1)
 T.eq("the release is on disk", root[RUNNING], RELEASE)
+
+T.section("a download takes the streaming path")
+T.truthy(
+  "it sets maxBytes, well past the plain transfer's 4 MiB",
+  tonumber(Select(downloadOptions, "maxBytes") or 0) >= 16 * 1024 * 1024
+)
 
 T.section("a failed write is put back and not sent")
 C4.FileWrite = function(self, fh, count, data)

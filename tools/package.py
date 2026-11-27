@@ -28,6 +28,10 @@ Subcommands:
   package.py check-pdfs <build>
       Exit 1 unless dist/<build>/docs holds at least one PDF.
 
+  package.py check-size <build>
+      Exit 1 if any .c4z in dist/<build>/c4z is larger than 3.5 MiB. A released
+      GitHub updater downloads with a plain transfer that fails past 4 MiB.
+
   package.py check-version <build> <version>
       Exit 1 unless dist/<build>/c4z holds a .c4z and every one's driver.xml
       says <version>.
@@ -149,6 +153,24 @@ def check_pdfs(build: str) -> int:
     return 0
 
 
+# Under the 4 MiB a released GitHub updater can download, with room for a release to grow.
+MAX_C4Z_BYTES = 3_670_016
+
+
+def check_size(build: str) -> int:
+    problems = []
+    for c4z in sorted((Path("dist") / build / "c4z").glob("*.c4z")):
+        size = c4z.stat().st_size
+        if size > MAX_C4Z_BYTES:
+            problems.append(f"{c4z} is {size:,} bytes, over {MAX_C4Z_BYTES:,}")
+    for problem in problems:
+        print(f"Error: {problem}", file=sys.stderr)
+    if problems:
+        print("make images compresses the committed PNGs.", file=sys.stderr)
+        return 1
+    return 0
+
+
 def c4z_version(c4z: Path) -> str:
     with zipfile.ZipFile(c4z) as zf:
         xml = zf.read("driver.xml") if "driver.xml" in zf.namelist() else b""
@@ -228,6 +250,8 @@ def main() -> int:
         return tag_version(rest[0])
     elif cmd == "check-pdfs" and len(rest) == 1:
         return check_pdfs(rest[0])
+    elif cmd == "check-size" and len(rest) == 1:
+        return check_size(rest[0])
     elif cmd == "check-version" and len(rest) == 2:
         return check_version(rest[0], rest[1])
     elif cmd == "check-sort-order" and rest:
