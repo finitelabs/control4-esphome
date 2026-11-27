@@ -333,10 +333,9 @@ verify-pdfs: $(VENV_STAMP)
 		$(VENV_PY) tools/package.py check-pdfs "$$build" || exit 1; \
 	done
 
+# Only the OSS build: DriverCentral packages never go through the GitHub updater.
 verify-size: $(VENV_STAMP)
-	@for build in $(DISTRIBUTIONS); do \
-		$(VENV_PY) tools/package.py check-size "$$build" || exit 1; \
-	done
+	@$(VENV_PY) tools/package.py check-size oss
 
 verify-version: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \

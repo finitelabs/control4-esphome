@@ -181,15 +181,15 @@ class CheckSizeTest(InTempDir):
         (c4z / name).write_bytes(b"\0" * size)
 
     def test_a_package_at_the_limit_passes(self):
-        self._sized("a.c4z", 3_670_016)
+        self._sized("a.c4z", 4_194_304)
         self.assertEqual(self._run(check_size, "oss")[0], 0)
 
     def test_a_package_past_the_limit_fails(self):
-        self._sized("a.c4z", 3_670_016)
-        self._sized("b.c4z", 3_670_017)
+        self._sized("a.c4z", 4_194_304)
+        self._sized("b.c4z", 4_194_305)
         code, _, err = self._run(check_size, "oss")
         self.assertEqual(code, 1)
-        self.assertIn("b.c4z is 3,670,017 bytes", err)
+        self.assertIn("b.c4z is 4,194,305 bytes", err)
         self.assertNotIn("a.c4z", err)
 
 
