@@ -1,0 +1,519 @@
+# Real-hardware fixture for room media on an LVGL display: the Guition
+# ESP32-4848S040 with the tiles of guition_4848s040_display_buttons.yaml and a
+# second page that controls the Control4 room's media.
+#
+#   - now playing: album art, source, title, artist, album
+#   - previous / play-pause / next, volume - / slider / +, mute, sources,
+#     room off; greyed out while the room is off (the sources stay usable)
+#   - a music icon in the top-right corner of every page, blue while the room
+#     is on, opens the media page; tap it again, swipe right or wait 60 s to
+#     go back to the tiles
+#
+# Commands go to the driver as homeassistant.action calls (control4.media);
+# the room's state comes back through the control4_media and control4_sources
+# actions. The room is the driver's Media Room property's, else its own.
+#
+# Usage: as guition_4848s040_display_buttons.yaml (secrets.yaml next to it,
+# first flash over USB):
+#   esphome run test/guition_4848s040_room_media.yaml --device /dev/cu.usbmodemXXXX
+
+packages:
+  buttons: !include guition_4848s040_display_buttons.yaml
+
+api:
+  # Lets the panel send commands to the Control4 driver.
+  homeassistant_services: true
+  actions:
+    # ---- room state from Control4 ----
+    - action: control4_media
+      variables:
+        room_on: bool
+        source: string
+        title: string
+        artist: string
+        album: string
+        image_url: string
+        volume: int
+        muted: bool
+        playing: bool
+      then:
+        - globals.set: { id: media_room_on, value: !lambda "return room_on;" }
+        # Header icon on every page: coloured while the room is on.
+        - lvgl.label.update:
+            id: media_icon
+            text_color: !lambda "return lv_color_hex(room_on ? 0x4C9AFF : 0x666666);"
+        # Now playing.
+        - lvgl.label.update:
+            id: media_source
+            text: !lambda 'return room_on ? (source.empty() ? std::string("On") : source) : std::string("Off");'
+        - lvgl.label.update:
+            id: media_title
+            text: !lambda 'return room_on ? title : std::string("Nothing playing");'
+        - lvgl.label.update: { id: media_artist, text: !lambda "return artist;" }
+        - lvgl.label.update: { id: media_album, text: !lambda "return album;" }
+        # Play/pause shows what a tap will do next.
+        - lvgl.label.update:
+            id: media_play_icon
+            text: !lambda 'return playing ? std::string("\U000F03E4") : std::string("\U000F040A");'
+        # Volume and mute.
+        - lvgl.slider.update: { id: media_volume, value: !lambda "return volume;" }
+        - lvgl.label.update:
+            id: media_volume_label
+            text: !lambda "return esphome::to_string(volume) + \"%\";"
+        - lvgl.label.update:
+            id: media_mute_icon
+            text: !lambda 'return muted ? std::string("\U000F0581") : std::string("\U000F057E");'
+            text_color: !lambda "return lv_color_hex(muted ? 0xFF6B6B : 0xF2F4F7);"
+        # Greyed out and inactive while the room is off.
+        - if:
+            condition: { lambda: "return room_on;" }
+            then:
+              - lvgl.widget.enable: [media_transport, media_prev, media_play, media_next, media_volume_row, media_vol_down, media_volume, media_vol_up, media_mute, media_power]
+              - lvgl.widget.update: { id: [media_transport, media_volume_row, media_mute, media_power], opa: COVER }
+            else:
+              - lvgl.widget.disable: [media_transport, media_prev, media_play, media_next, media_volume_row, media_vol_down, media_volume, media_vol_up, media_mute, media_power]
+              - lvgl.widget.update: { id: [media_transport, media_volume_row, media_mute, media_power], opa: 40% }
+        # Album art: only fetched when the URL changes.
+        - if:
+            condition: { lambda: "return image_url != id(media_art_url);" }
+            then:
+              - globals.set: { id: media_art_url, value: !lambda "return image_url;" }
+              - if:
+                  condition: { lambda: "return image_url.empty();" }
+                  then:
+                    - lvgl.widget.hide: media_art
+                    - lvgl.widget.show: media_art_placeholder
+                  else:
+                    - online_image.set_url:
+                        id: media_art_image
+                        url: !lambda "return image_url;"
+
+    # ---- the room's sources from Control4 ----
+    - action: control4_sources
+      variables:
+        sources: string
+        selected: int
+      then:
+        - lambda: |-
+            // Options are one name per line, as LVGL dropdowns take them.
+            lv_dropdown_set_options(id(media_sources)->obj, sources.empty() ? "No sources" : sources.c_str());
+            if (selected >= 0) {
+              id(media_sources)->set_selected_index(selected, LV_ANIM_OFF);
+              lv_dropdown_set_text(id(media_sources)->obj, nullptr);  // show the selected source
+            } else {
+              lv_dropdown_set_text(id(media_sources)->obj, "Source");  // nothing selected
+            }
+
+# ============================================================
+# STATE
+# ============================================================
+
+globals:
+  - id: media_room_on
+    type: bool
+    initial_value: "false"
+  # The album art URL last shown, so the same art is not downloaded again.
+  - id: media_art_url
+    type: std::string
+    initial_value: '""'
+  # Whether the media page is showing (for the return after 60 s idle).
+  - id: media_page_visible
+    type: bool
+    initial_value: "false"
+
+# Back to the tiles after 60 s without a touch on the media page.
+interval:
+  - interval: 5s
+    then:
+      - if:
+          condition:
+            and:
+              - lambda: "return id(media_page_visible);"
+              - lvgl.is_idle:
+                  timeout: 60s
+          then:
+            - lvgl.page.show:
+                id: main_page
+                animation: NONE
+                time: 150ms
+
+# ============================================================
+# ALBUM ART
+# ============================================================
+
+http_request:
+  # Album art is usually plain http from the controller; https covers
+  # cloud art without checking certificates.
+  verify_ssl: false
+
+online_image:
+  - id: media_art_image
+    url: "http://0.0.0.0/none.jpg"   # replaced at runtime by Control4's URL
+    format: AUTO                      # JPEG or PNG, as the server sends it
+    type: RGB565
+    resize: 136x136
+    on_download_finished:
+      - lvgl.image.update: { id: media_art, src: media_art_image }
+      - lvgl.widget.show: media_art
+      - lvgl.widget.hide: media_art_placeholder
+    on_error:
+      - lvgl.widget.hide: media_art
+      - lvgl.widget.show: media_art_placeholder
+
+# ============================================================
+# FONTS: text_16 for names from Control4, media icons
+# ============================================================
+
+font:
+  - file: { type: gfonts, family: Montserrat, weight: 500 }
+    id: text_16
+    size: 16
+    glyphsets: [GF_Latin_Core]
+  - file:
+      type: web
+      url: https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf
+    id: mdi_media_32
+    size: 32
+    bpp: 4
+    glyphs:
+      - "\U000F075A" # music (header icon)
+      - "\U000F04AE" # skip-previous
+      - "\U000F04AD" # skip-next
+      - "\U000F075D" # volume-plus
+      - "\U000F075E" # volume-minus
+      - "\U000F057E" # volume-high
+      - "\U000F0581" # volume-off
+      - "\U000F0425" # power
+  - file:
+      type: web
+      url: https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf
+    id: mdi_media_48
+    size: 48
+    bpp: 4
+    glyphs:
+      - "\U000F040A" # play
+      - "\U000F03E4" # pause
+      - "\U000F0388" # music-note (no album art)
+
+# ============================================================
+# LVGL
+# ============================================================
+
+lvgl:
+  # Media icon in the top-right corner, above every page.
+  top_layer:
+    widgets:
+      - button:
+          id: media_icon_button
+          align: TOP_RIGHT
+          x: -14
+          y: 12
+          width: 56
+          height: 56
+          bg_opa: TRANSP
+          border_width: 0
+          shadow_width: 0
+          pressed:
+            bg_opa: 20%
+            bg_color: 0xFFFFFF
+          widgets:
+            - label:
+                id: media_icon
+                text: "\U000F075A"
+                text_font: mdi_media_32
+                text_color: 0x666666
+                align: CENTER
+          on_click:
+            # Tiles -> media page -> tiles (the pages wrap around).
+            - lvgl.page.next:
+                animation: NONE
+                time: 150ms
+
+  pages:
+    - id: media_page
+      bg_color: 0x0B0E13
+      bg_opa: COVER
+      on_load:
+        - globals.set: { id: media_page_visible, value: "true" }
+      on_unload:
+        - globals.set: { id: media_page_visible, value: "false" }
+      on_swipe_right:
+        - lvgl.page.previous:
+            animation: NONE
+            time: 150ms
+      widgets:
+        # ---- header ----
+        - label:
+            text: "MEDIA"
+            align: TOP_LEFT
+            x: 24
+            y: 22
+            text_font: montserrat_12
+            text_letter_space: 1
+            text_color: 0x8B95A3
+        - label:
+            text: Room
+            align: TOP_LEFT
+            x: 24
+            y: 40
+            text_font: text_20
+            text_color: 0xF2F4F7
+
+        # ---- now playing ----
+        - obj:
+            align: TOP_LEFT
+            x: 20
+            y: 82
+            width: 440
+            height: 168
+            radius: 18
+            pad_all: 0
+            bg_color: 0x171C24
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x232A35
+            scrollable: false
+            widgets:
+              - obj:
+                  align: LEFT_MID
+                  x: 16
+                  width: 136
+                  height: 136
+                  radius: 14
+                  pad_all: 0
+                  border_width: 0
+                  bg_color: 0x222935
+                  clip_corner: true
+                  scrollable: false
+                  widgets:
+                    - label:
+                        id: media_art_placeholder
+                        text: "\U000F0388"
+                        text_font: mdi_media_48
+                        text_color: 0x4A5363
+                        align: CENTER
+                    - image:
+                        id: media_art
+                        src: media_art_image
+                        align: CENTER
+                        hidden: true
+              - label:
+                  id: media_source
+                  text: "Off"
+                  align: TOP_LEFT
+                  x: 168
+                  y: 20
+                  width: 256
+                  long_mode: DOT
+                  text_font: text_16
+                  text_color: 0x9AA4B2
+              - label:
+                  id: media_title
+                  text: "Nothing playing"
+                  align: TOP_LEFT
+                  x: 168
+                  y: 48
+                  width: 256
+                  long_mode: DOT
+                  text_font: text_20
+                  text_color: 0xF2F4F7
+              - label:
+                  id: media_artist
+                  text: ""
+                  align: TOP_LEFT
+                  x: 168
+                  y: 80
+                  width: 256
+                  long_mode: DOT
+                  text_font: text_16
+                  text_color: 0xF2F4F7
+              # Bottom edge level with the bottom of the artwork (both 16 px
+              # from the card's bottom edge).
+              - label:
+                  id: media_album
+                  text: ""
+                  align: BOTTOM_LEFT
+                  x: 168
+                  y: -16
+                  width: 256
+                  long_mode: DOT
+                  text_font: text_16
+                  text_color: 0x8B95A3
+
+        # ---- previous / play-pause / next ----
+        - obj:
+            id: media_transport
+            align: TOP_LEFT
+            x: 20
+            y: 262
+            width: 440
+            height: 84
+            pad_all: 0
+            bg_opa: TRANSP
+            border_width: 0
+            scrollable: false
+            opa: 40%
+            widgets:
+              - button:
+                  id: media_prev
+                  align: CENTER
+                  x: -112
+                  width: 68
+                  height: 68
+                  radius: 34
+                  widgets:
+                    - label: { text: "\U000F04AE", text_font: mdi_media_32, text_color: 0xF2F4F7, align: CENTER }
+                  on_click:
+                    - homeassistant.action: { action: control4.media, data: { command: previous } }
+              - button:
+                  id: media_play
+                  align: CENTER
+                  width: 84
+                  height: 84
+                  radius: 42
+                  bg_color: 0x152439
+                  border_color: 0x4C9AFF
+                  border_width: 2
+                  widgets:
+                    - label: { id: media_play_icon, text: "\U000F040A", text_font: mdi_media_48, text_color: 0xF2F4F7, align: CENTER }
+                  on_click:
+                    - homeassistant.action: { action: control4.media, data: { command: play_pause } }
+              - button:
+                  id: media_next
+                  align: CENTER
+                  x: 112
+                  width: 68
+                  height: 68
+                  radius: 34
+                  widgets:
+                    - label: { text: "\U000F04AD", text_font: mdi_media_32, text_color: 0xF2F4F7, align: CENTER }
+                  on_click:
+                    - homeassistant.action: { action: control4.media, data: { command: next } }
+
+        # ---- volume − / slider / + ----
+        - obj:
+            id: media_volume_row
+            align: TOP_LEFT
+            x: 20
+            y: 356
+            width: 440
+            height: 56
+            pad_all: 0
+            bg_opa: TRANSP
+            border_width: 0
+            scrollable: false
+            opa: 40%
+            widgets:
+              - button:
+                  id: media_vol_down
+                  align: LEFT_MID
+                  x: 0
+                  width: 56
+                  height: 56
+                  radius: 28
+                  widgets:
+                    - label: { text: "\U000F075E", text_font: mdi_media_32, text_color: 0xF2F4F7, align: CENTER }
+                  on_click:
+                    - homeassistant.action: { action: control4.media, data: { command: volume_down } }
+                  # Held down: keep stepping.
+                  on_long_press_repeat:
+                    - homeassistant.action: { action: control4.media, data: { command: volume_down } }
+              - slider:
+                  id: media_volume
+                  align: LEFT_MID
+                  x: 72
+                  width: 236
+                  height: 10
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x232A35
+                  indicator:
+                    bg_color: 0x4C9AFF
+                  knob:
+                    bg_color: 0xF2F4F7
+                    pad_all: 6
+                  # Sent once the finger lifts, not while dragging.
+                  on_release:
+                    - homeassistant.action:
+                        action: control4.media
+                        data:
+                          command: set_volume
+                          level: !lambda "return esphome::to_string((int) x);"
+              - label:
+                  id: media_volume_label
+                  text: "0%"
+                  align: LEFT_MID
+                  x: 320
+                  width: 52
+                  text_align: CENTER
+                  text_font: text_16
+                  text_color: 0xF2F4F7
+              - button:
+                  id: media_vol_up
+                  align: RIGHT_MID
+                  x: 0
+                  width: 56
+                  height: 56
+                  radius: 28
+                  widgets:
+                    - label: { text: "\U000F075D", text_font: mdi_media_32, text_color: 0xF2F4F7, align: CENTER }
+                  on_click:
+                    - homeassistant.action: { action: control4.media, data: { command: volume_up } }
+                  on_long_press_repeat:
+                    - homeassistant.action: { action: control4.media, data: { command: volume_up } }
+
+        # ---- mute / sources / room off ----
+        - button:
+            id: media_mute
+            align: TOP_LEFT
+            x: 20
+            y: 420
+            width: 96
+            height: 48
+            opa: 40%
+            widgets:
+              - label: { id: media_mute_icon, text: "\U000F057E", text_font: mdi_media_32, text_color: 0xF2F4F7, align: CENTER }
+            on_click:
+              - homeassistant.action: { action: control4.media, data: { command: mute_toggle } }
+        - dropdown:
+            id: media_sources
+            align: TOP_LEFT
+            x: 126
+            y: 420
+            width: 228
+            height: 48
+            options: ["No sources"]
+            dir: TOP
+            text_font: text_16
+            text_color: 0xF2F4F7
+            bg_color: 0x171C24
+            border_color: 0x232A35
+            border_width: 1
+            radius: 14
+            dropdown_list:
+              text_font: text_16
+              text_color: 0xF2F4F7
+              bg_color: 0x171C24
+              border_color: 0x343C48
+              selected:
+                checked:
+                  bg_color: 0x152439
+            on_value:
+              - homeassistant.action:
+                  action: control4.media
+                  data:
+                    command: select_source
+                    index: !lambda "return esphome::to_string(x);"
+        - button:
+            id: media_power
+            align: TOP_LEFT
+            x: 364
+            y: 420
+            width: 96
+            height: 48
+            opa: 40%
+            widgets:
+              - label: { text: "\U000F0425", text_font: mdi_media_32, text_color: 0xFF6B6B, align: CENTER }
+            on_click:
+              - homeassistant.action: { action: control4.media, data: { command: room_off } }
