@@ -1,0 +1,282 @@
+# Real-hardware fixture for button LED feedback through API actions on an LVGL
+# display: the Guition ESP32-4848S040 (4" 480x480 ST7701S RGB panel, GT911
+# touch, ESP32-S3 with octal PSRAM and 16 MB flash, 3 relays). Four tiles, each
+# an `event` entity bound in Control4 as a keypad button:
+#
+#   Tile 1  toggles relay 1 on the panel; its look follows the relay, and only
+#           its dot follows Control4
+#   Tile 2-4  Control4 tiles: bind "Touch Button N press" to any load (a light,
+#           a scene, an Advanced Lighting scene, a custom button). The tile's
+#           look follows `state`, its dot shows `color` (the load's keypad LED
+#           color: on color while on, off color while off) and its label
+#           becomes `load_name` (what the button is bound to)
+#
+# The driver finds each tile's action by name: "Touch Button 2" + "press" ->
+# touch_button_2_press_led. No light and no Button LED setting is needed.
+#
+# Usage: put a secrets.yaml next to this file (never commit it) with wifi_ssid
+# and wifi_password, then flash the first time over USB:
+#   esphome run test/guition_4848s040_display_buttons.yaml --device /dev/cu.usbmodemXXXX
+# If no port shows up, hold BOOT while plugging in USB. The fonts are downloaded
+# at compile time.
+
+esphome:
+  name: guition-4848s040
+  friendly_name: Guition 4848S040
+  min_version: 2025.7.0
+  name_add_mac_suffix: true
+
+esp32:
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  actions:
+    # Tile 1 follows its relay; Control4 colors only its dot.
+    - action: touch_button_1_press_led
+      variables: { state: bool, color: int }
+      then:
+        - lvgl.widget.update: { id: dot_1, bg_color: !lambda "return lv_color_hex(color >= 0 ? color : 0x000000);" }
+    # A Control4 tile: blue while its load is on, the reported color on its dot,
+    # and what it is bound to as its label (kept until Control4 sends a name).
+    - action: touch_button_2_press_led
+      variables: { state: bool, color: int, load_name: string }
+      then:
+        - lvgl.widget.update:
+            id: tile_2
+            bg_color: !lambda "return lv_color_hex(state ? 0x152439 : 0x171C24);"
+            border_color: !lambda "return lv_color_hex(state ? 0x4C9AFF : 0x232A35);"
+        - lvgl.widget.update: { id: dot_2, bg_color: !lambda "return lv_color_hex(color >= 0 ? color : 0x000000);" }
+        - if:
+            condition: { lambda: "return !load_name.empty();" }
+            then:
+              - lvgl.label.update: { id: name_2, text: !lambda "return load_name;" }
+    # A Control4 tile: blue while its load is on, the reported color on its dot,
+    # and what it is bound to as its label (kept until Control4 sends a name).
+    - action: touch_button_3_press_led
+      variables: { state: bool, color: int, load_name: string }
+      then:
+        - lvgl.widget.update:
+            id: tile_3
+            bg_color: !lambda "return lv_color_hex(state ? 0x152439 : 0x171C24);"
+            border_color: !lambda "return lv_color_hex(state ? 0x4C9AFF : 0x232A35);"
+        - lvgl.widget.update: { id: dot_3, bg_color: !lambda "return lv_color_hex(color >= 0 ? color : 0x000000);" }
+        - if:
+            condition: { lambda: "return !load_name.empty();" }
+            then:
+              - lvgl.label.update: { id: name_3, text: !lambda "return load_name;" }
+    # A Control4 tile: blue while its load is on, the reported color on its dot,
+    # and what it is bound to as its label (kept until Control4 sends a name).
+    - action: touch_button_4_press_led
+      variables: { state: bool, color: int, load_name: string }
+      then:
+        - lvgl.widget.update:
+            id: tile_4
+            bg_color: !lambda "return lv_color_hex(state ? 0x152439 : 0x171C24);"
+            border_color: !lambda "return lv_color_hex(state ? 0x4C9AFF : 0x232A35);"
+        - lvgl.widget.update: { id: dot_4, bg_color: !lambda "return lv_color_hex(color >= 0 ? color : 0x000000);" }
+        - if:
+            condition: { lambda: "return !load_name.empty();" }
+            then:
+              - lvgl.label.update: { id: name_4, text: !lambda "return load_name;" }
+
+# ---- relay 1, toggled by tile 1 ----
+output:
+  - platform: ledc
+    id: backlight_output
+    pin: GPIO38
+    frequency: 150Hz
+  - platform: gpio
+    id: relay_1_output
+    pin: GPIO40
+
+light:
+  - platform: monochromatic
+    id: display_backlight
+    name: Display Backlight
+    output: backlight_output
+    restore_mode: ALWAYS_ON
+  - platform: binary
+    id: relay_1
+    name: Relay 1
+    output: relay_1_output
+    on_turn_on:
+      - lvgl.widget.update: { id: tile_1, bg_color: 0x28241D, border_color: 0x68563B }
+    on_turn_off:
+      - lvgl.widget.update: { id: tile_1, bg_color: 0x171C24, border_color: 0x232A35 }
+
+# ---- the buttons Control4 binds ----
+event:
+  - platform: template
+    id: button_1_event
+    name: Touch Button 1
+    device_class: button
+    event_types: [press]
+  - platform: template
+    id: button_2_event
+    name: Touch Button 2
+    device_class: button
+    event_types: [press]
+  - platform: template
+    id: button_3_event
+    name: Touch Button 3
+    device_class: button
+    event_types: [press]
+  - platform: template
+    id: button_4_event
+    name: Touch Button 4
+    device_class: button
+    event_types: [press]
+
+# ---- display and touch (Guition ESP32-4848S040) ----
+spi:
+  - id: lcd_spi
+    clk_pin: GPIO48
+    mosi_pin: GPIO47
+
+i2c:
+  sda: GPIO19
+  scl:
+    number: GPIO45
+    ignore_strapping_warning: true
+
+display:
+  - platform: st7701s
+    id: panel
+    dimensions: { width: 480, height: 480 }
+    spi_mode: MODE3
+    data_rate: 2MHz
+    color_order: RGB
+    cs_pin: GPIO39
+    de_pin: GPIO18
+    hsync_pin: GPIO16
+    vsync_pin: GPIO17
+    pclk_pin: GPIO21
+    pclk_frequency: 12MHz
+    hsync_pulse_width: 8
+    hsync_front_porch: 10
+    hsync_back_porch: 20
+    vsync_pulse_width: 8
+    vsync_front_porch: 10
+    vsync_back_porch: 10
+    update_interval: never
+    auto_clear_enabled: false
+    init_sequence:
+      - 1
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x10]
+      - [0xCD, 0x00]
+    data_pins:
+      red: [GPIO11, GPIO12, GPIO13, GPIO14, GPIO0]
+      green: [GPIO8, GPIO20, GPIO3, GPIO46, GPIO9, GPIO10]
+      blue: [GPIO4, GPIO5, GPIO6, GPIO7, GPIO15]
+
+touchscreen:
+  - platform: gt911
+    display: panel
+
+# ---- fonts: Montserrat with accented letters (Control4 names), and icons ----
+font:
+  - file: { type: gfonts, family: Montserrat, weight: 500 }
+    id: text_20
+    size: 20
+    glyphsets: [GF_Latin_Core]
+  - file:
+      type: web
+      url: https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf
+    id: icons_36
+    size: 36
+    glyphs:
+      - "\U000F0335" # lightbulb
+      - "\U000F1256" # lightbulb-multiple-outline
+
+# ---- 2x2 tiles, each with a dot for the load's color ----
+lvgl:
+  theme:
+    button:
+      bg_color: 0x171C24
+      border_width: 2
+      border_color: 0x232A35
+      radius: 18
+  style_definitions:
+    - id: dot
+      width: 12
+      height: 12
+      radius: 6
+      bg_color: 0x000000
+      border_width: 1
+      border_color: 0x343C48
+      align: TOP_RIGHT
+      x: -14
+      y: 14
+  pages:
+    - id: main_page
+      bg_color: 0x0B0E13
+      widgets:
+        - button:
+            id: tile_1
+            align: TOP_LEFT
+            x: 20
+            y: 20
+            width: 214
+            height: 214
+            on_click:
+              - event.trigger: { id: button_1_event, event_type: press }
+              - light.toggle: relay_1
+            widgets:
+              - obj: { id: dot_1, styles: dot }
+              - label: { text: "\U000F0335", text_font: icons_36, align: CENTER, y: -20 }
+              - label: { text: Relay 1, text_font: text_20, align: CENTER, y: 30 }
+        - button:
+            id: tile_2
+            align: TOP_RIGHT
+            x: -20
+            y: 20
+            width: 214
+            height: 214
+            on_click:
+              - event.trigger: { id: button_2_event, event_type: press }
+            widgets:
+              - obj: { id: dot_2, styles: dot }
+              - label: { text: "\U000F0335", text_font: icons_36, align: CENTER, y: -20 }
+              - label: { id: name_2, text: Button 2, text_font: text_20, align: CENTER, y: 30, width: 190, long_mode: DOT, text_align: CENTER }
+        - button:
+            id: tile_3
+            align: BOTTOM_LEFT
+            x: 20
+            y: -20
+            width: 214
+            height: 214
+            on_click:
+              - event.trigger: { id: button_3_event, event_type: press }
+            widgets:
+              - obj: { id: dot_3, styles: dot }
+              - label: { text: "\U000F1256", text_font: icons_36, align: CENTER, y: -20 }
+              - label: { id: name_3, text: Button 3, text_font: text_20, align: CENTER, y: 30, width: 190, long_mode: DOT, text_align: CENTER }
+        - button:
+            id: tile_4
+            align: BOTTOM_RIGHT
+            x: -20
+            y: -20
+            width: 214
+            height: 214
+            on_click:
+              - event.trigger: { id: button_4_event, event_type: press }
+            widgets:
+              - obj: { id: dot_4, styles: dot }
+              - label: { text: "\U000F1256", text_font: icons_36, align: CENTER, y: -20 }
+              - label: { id: name_4, text: Button 4, text_font: text_20, align: CENTER, y: 30, width: 190, long_mode: DOT, text_align: CENTER }
