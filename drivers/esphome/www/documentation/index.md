@@ -1379,6 +1379,9 @@ last asked for. `title`, `artist`, `album` and `image_url` come from the room's
 current media info when its source provides them. The driver logs the raw media
 info and the room's source lists at the Info level.
 
+A complete example, a media page next to the tiles of a 480×480 LVGL panel, is
+`test/guition_4848s040_room_media.yaml`.
+
 <!-- #ifdef DRIVERCENTRAL -->
 
 # <span style="color:#17BCF2">Developer Information</span>
