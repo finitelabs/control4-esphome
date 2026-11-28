@@ -3123,14 +3123,14 @@ test("The current-temperature resolution uses the proxy's names and stays finer 
   T.check("a 1 °C step is published", whole ~= nil)
   if whole then
     T.eq("capped at 0.5 °C", whole.params.TEMPERATURE_RESOLUTION_C, 0.5)
-    T.eq("and 2 °F is left alone", whole.params.TEMPERATURE_RESOLUTION_F, 2)
+    T.eq("and capped at 1 °F", whole.params.TEMPERATURE_RESOLUTION_F, 1)
   end
 
   local coarse = sentFor(2)
   T.check("a 2 °C step is published", coarse ~= nil)
   if coarse then
     T.eq("capped at 0.5 °C", coarse.params.TEMPERATURE_RESOLUTION_C, 0.5)
-    T.eq("and capped at 2 °F", coarse.params.TEMPERATURE_RESOLUTION_F, 2)
+    T.eq("and capped at 1 °F", coarse.params.TEMPERATURE_RESOLUTION_F, 1)
   end
 end)
 
