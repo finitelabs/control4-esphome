@@ -3101,6 +3101,39 @@ test("An offline thermostat is shown no mode, vane or water heater mode it was s
   T.eq("back, a mode is shown and sent", Select(lastSent("HVAC_MODE_CHANGED"), "params", "MODE"), "Heat")
 end)
 
+test("The current-temperature resolution uses the proxy's names and stays finer than 1 °C", function()
+  local function sentFor(step)
+    disconnect()
+    resetSent()
+    local entity = singleSetpointEntity()
+    entity.visual_current_temperature_step = step
+    updateState(entity, { mode = Mode.COOL, current_temperature = 22 })
+    return lastSentWith("DYNAMIC_CAPABILITIES_CHANGED", "TEMPERATURE_RESOLUTION_C")
+  end
+
+  local fine = sentFor(0.1)
+  T.check("a 0.1 °C step is published", fine ~= nil)
+  if fine then
+    T.eq("as 0.1 °C", fine.params.TEMPERATURE_RESOLUTION_C, 0.1)
+    T.eq("and 0.2 °F", fine.params.TEMPERATURE_RESOLUTION_F, 0.2)
+    T.check("without the old names", fine.params.CURRENT_TEMPERATURE_RESOLUTION_C == nil)
+  end
+
+  local whole = sentFor(1)
+  T.check("a 1 °C step is published", whole ~= nil)
+  if whole then
+    T.eq("capped at 0.5 °C", whole.params.TEMPERATURE_RESOLUTION_C, 0.5)
+    T.eq("and capped at 1 °F", whole.params.TEMPERATURE_RESOLUTION_F, 1)
+  end
+
+  local coarse = sentFor(2)
+  T.check("a 2 °C step is published", coarse ~= nil)
+  if coarse then
+    T.eq("capped at 0.5 °C", coarse.params.TEMPERATURE_RESOLUTION_C, 0.5)
+    T.eq("and capped at 1 °F", coarse.params.TEMPERATURE_RESOLUTION_F, 1)
+  end
+end)
+
 ---------------------------------------------------------------------------
 
 SendToProxy = originalSendToProxy

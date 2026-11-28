@@ -713,9 +713,14 @@ local function sendCapabilities(entity)
 
   local currentStep = entity.visual_current_temperature_step
   if currentStep ~= nil then
+    -- A 1 °C current-temperature resolution makes the proxy show 0° after a driver reload,
+    -- and from 2 °F up the proxy truncates instead of rounding.
     SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", {
-      CURRENT_TEMPERATURE_RESOLUTION_C = snapResolution(currentStep, VALID_RESOLUTIONS_C),
-      CURRENT_TEMPERATURE_RESOLUTION_F = snapResolution(celsiusDeltaToFahrenheit(currentStep), VALID_RESOLUTIONS_F),
+      TEMPERATURE_RESOLUTION_C = math.min(snapResolution(currentStep, VALID_RESOLUTIONS_C), 0.5),
+      TEMPERATURE_RESOLUTION_F = math.min(
+        snapResolution(celsiusDeltaToFahrenheit(currentStep), VALID_RESOLUTIONS_F),
+        1
+      ),
     }, "NOTIFY")
   end
 
