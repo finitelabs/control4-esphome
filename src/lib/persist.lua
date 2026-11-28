@@ -22,6 +22,8 @@
 --- Migrations are loaded automatically on the first `get()` call via `pcall(require, "migrations")`.
 --- Each migration runs once per key, transforms the value, persists the result, and removes itself.
 --- A key that is not stored has nothing to migrate: its migration is dropped without running.
+--- A migration runs at every driver start, so one that finds the value already in the new format
+--- returns it untouched; a result that serializes the same as the stored value is not written.
 --- If no `migrations.lua` file exists, persist operates normally with no migrations.
 ---
 --- ## Write-behind
@@ -117,9 +119,9 @@ end
 
 --- Retrieves a value from the persistence store.
 --- On first call, loads any driver-specific migrations from `migrations.lua`.
---- If a migration exists for the requested key, it runs once, persists the transformed value,
---- and removes itself. A table holding a string that is not UTF-8 text reads back with each
---- byte JSON:decode rejects as its Latin-1 character.
+--- If a migration exists for the requested key, it runs once, persists its result only when that
+--- serializes differently from the stored value, and removes itself. A table holding a string that
+--- is not UTF-8 text reads back with each byte JSON:decode rejects as its Latin-1 character.
 --- @param key string The key to retrieve the value for.
 --- @param default? any The value to return if the key isn't stored (optional). It is this call's alone.
 --- @param encrypted? boolean Whether the value is encrypted (optional).
@@ -132,9 +134,14 @@ function Persist:get(key, default, encrypted)
   if type(MIGRATIONS[key]) == "function" then
     -- A key that is not stored has nothing to migrate, and a default handed back would be stored.
     if self._persist[key] ~= EMPTY then
-      self:set(key, MIGRATIONS[key](value), encrypted)
-      -- Read again: a migration that deletes the key leaves this call its default.
-      value = self:_get(key, default, encrypted)
+      -- Snapshot before the call: a migration may change the table it was given.
+      local before = Serialize(self._persist[key])
+      local migrated = MIGRATIONS[key](value)
+      if Serialize(migrated) ~= before then
+        self:set(key, migrated, encrypted)
+        -- Read again: a migration that deletes the key leaves this call its default.
+        value = self:_get(key, default, encrypted)
+      end
     end
     MIGRATIONS[key] = nil
   end

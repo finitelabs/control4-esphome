@@ -5,6 +5,9 @@ Subcommands:
   package.py xml-get-name <driver.xml>
       Print /devicedata/name. (replaces: xmlstarlet sel)
 
+  package.py c4z-filename <driver.c4zproj>
+      Print the packed archive filename declared in the project.
+
   package.py xml-set <driver.xml> <version|modified> <value>
       Set /devicedata/<version|modified> text in place, preserving the rest of
       the file byte-for-byte. (replaces: xmlstarlet edit --inplace)
@@ -55,6 +58,18 @@ def xml_get_name(xml_path: Path) -> None:
     if name is None:
         raise SystemExit(f"no /devicedata/name in {xml_path}")
     sys.stdout.write(name)
+
+
+def c4z_filename(project: Path) -> str:
+    root = ElementTree.parse(project).getroot()
+    name = root.get("name", "")
+    if (
+        root.tag != "Driver"
+        or root.get("type") != "c4z"
+        or not re.fullmatch(r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*", name)
+    ):
+        raise SystemExit(f"invalid driver archive name in {project}")
+    return f"{name}.c4z"
 
 
 def xml_set(xml_path: Path, tag: str, value: str) -> None:
@@ -240,6 +255,8 @@ def main() -> int:
     cmd, rest = (args[0], args[1:]) if args else ("", [])
     if cmd == "xml-get-name" and len(rest) == 1:
         xml_get_name(Path(rest[0]).resolve())
+    elif cmd == "c4z-filename" and len(rest) == 1:
+        print(c4z_filename(Path(rest[0])))
     elif cmd == "xml-set" and len(rest) == 3:
         xml_set(Path(rest[0]).resolve(), rest[1], rest[2])
     elif cmd == "zip" and len(rest) >= 2:

@@ -6246,6 +6246,460 @@ end
 
 do
   local _ENV = _ENV
+  package.preload["crypto.rsa"] = function(...)
+    local arg = _G.arg
+    --- @module "crypto.rsa"
+    --- RSA key generation, DER encoding and PKCS #1 v1.5 decryption (RFC 8017).
+    ---
+    --- Enough RSA for a client that hands a device its public key and decrypts what
+    --- the device sends back: TP-Link's AES transport is the case it was written for.
+    --- There is no encryption or signing.
+    ---
+    --- The arithmetic is `crypto.bignum`, so modular exponentiation runs on OpenSSL
+    --- when acceleration is enabled and in pure Lua otherwise. Primes are drawn from
+    --- `crypto.random`, which raises rather than return weak bytes.
+    ---
+    --- Key generation is many modular exponentiations. On a host where Lua runs one
+    --- driver at a time, `opts.step` is called between them so the caller can spread
+    --- the work over timer ticks (yield from a coroutine, for instance).
+    ---
+    --- PKCS #1 v1.5 decryption is open to padding-oracle attacks when its failures
+    --- can be told apart by a party that chooses ciphertexts. Every failure here
+    --- returns the same message; a caller must not reveal more than that either.
+    ---
+    --- @usage
+    --- local rsa = require("crypto.rsa")
+    --- local key = rsa.generate(1024)
+    --- send(rsa.public_key_der(key))
+    --- local secret = assert(rsa.decrypt_pkcs1(key, reply))
+    --- save(rsa.private_key_der(key)) -- rsa.private_key_from_der reads it back
+    ---
+    --- @class crypto.rsa
+    local rsa = {}
+
+    local bignum = require("crypto.bignum")
+    local random = require("crypto.random")
+
+    local floor = math.floor
+    local string_byte = string.byte
+    local string_char = string.char
+    local string_find = string.find
+    local string_sub = string.sub
+    local table_concat = table.concat
+
+    --- An RSA private key with its CRT values, all as `crypto.bignum` values.
+    --- @class RsaPrivateKey
+    --- @field n BigNum Modulus
+    --- @field e BigNum Public exponent
+    --- @field d BigNum Private exponent
+    --- @field p BigNum First prime
+    --- @field q BigNum Second prime
+    --- @field dp BigNum d mod (p - 1)
+    --- @field dq BigNum d mod (q - 1)
+    --- @field qinv BigNum q^-1 mod p
+
+    --- @class RsaGenerateOptions
+    --- @field step? fun() Called between modular exponentiations
+
+    local E = 65537
+    local LIMB_RADIX = 2 ^ 24
+    local DECRYPT_ERROR = "rsa: decryption error"
+
+    -- Odd primes below 2048, for trial division before Miller-Rabin.
+    local SMALL_PRIMES = {}
+    do
+      local composite = {}
+      for i = 3, 2047, 2 do
+        if not composite[i] then
+          SMALL_PRIMES[#SMALL_PRIMES + 1] = i
+          for j = i * i, 2047, 2 * i do
+            composite[j] = true
+          end
+        end
+      end
+    end
+
+    --- Remainder of a big number by a small one (below 2^24), from its limbs.
+    --- @param a BigNum
+    --- @param m integer
+    --- @return integer
+    local function small_mod(a, m)
+      local r = 0
+      for k = #a, 1, -1 do
+        r = (r * LIMB_RADIX + a[k]) % m
+      end
+      return r
+    end
+
+    --- Modular inverse by the extended Euclidean algorithm, with every coefficient
+    --- kept in [0, m) since big numbers are unsigned.
+    --- @param a BigNum
+    --- @param m BigNum
+    --- @return BigNum|nil inverse nil when a and m share a factor
+    local function mod_inverse(a, m)
+      local r0, r1 = m, bignum.mod(a, m)
+      local t0, t1 = bignum.zero(), bignum.one()
+      while not bignum.is_zero(r1) do
+        local q, r = bignum.divmod(r0, r1)
+        r0, r1 = r1, r
+        t0, t1 = t1, bignum.mod_sub(t0, bignum.mod_mul(q, t1, m), m)
+      end
+      if not bignum.equals(r0, bignum.one()) then
+        return nil
+      end
+      return t0
+    end
+
+    --- Miller-Rabin rounds for a random candidate of this many bits: the
+    --- average-case bounds of HAC Table 4.4 (OpenSSL 1.0's BN_prime_checks_for_size),
+    --- an error below 2^-80.
+    --- @param bits integer
+    --- @return integer
+    local function rounds_for(bits)
+      if bits >= 1300 then
+        return 2
+      elseif bits >= 850 then
+        return 3
+      elseif bits >= 650 then
+        return 4
+      elseif bits >= 550 then
+        return 5
+      elseif bits >= 450 then
+        return 6
+      elseif bits >= 400 then
+        return 7
+      elseif bits >= 350 then
+        return 8
+      elseif bits >= 300 then
+        return 9
+      end
+      return 12
+    end
+
+    --- Miller-Rabin with random bases. `n` is odd and above every small prime.
+    --- @param n BigNum
+    --- @param rounds integer
+    --- @param step fun()
+    --- @return boolean probably_prime
+    local function miller_rabin(n, rounds, step)
+      local one = bignum.one()
+      local two = bignum.from_number(2)
+      local n1 = bignum.sub(n, one)
+      local d, s = n1, 0
+      while d[1] % 2 == 0 do
+        d = bignum.divmod(d, two)
+        s = s + 1
+      end
+      local width = bignum.byte_length(n)
+      local span = bignum.sub(n, bignum.from_number(3))
+      for _ = 1, rounds do
+        local a = bignum.add(bignum.mod(bignum.from_bytes(random.bytes(width)), span), two)
+        local x = bignum.mod_exp(a, d, n)
+        step()
+        if not bignum.equals(x, one) and not bignum.equals(x, n1) then
+          local witness = true
+          for _ = 1, s - 1 do
+            x = bignum.mod_mul(x, x, n)
+            if bignum.equals(x, n1) then
+              witness = false
+              break
+            end
+          end
+          if witness then
+            return false
+          end
+        end
+      end
+      return true
+    end
+
+    --- A random prime of exactly `bits` bits with its top two bits set, so the
+    --- product of two is exactly twice as long, and with p - 1 coprime to E.
+    --- @param bits integer A multiple of 8
+    --- @param step fun()
+    --- @return BigNum
+    local function random_prime(bits, step)
+      local width = bits / 8
+      local rounds = rounds_for(bits)
+      while true do
+        local raw = random.bytes(width)
+        raw = string_char(192 + string_byte(raw, 1) % 64)
+          .. string_sub(raw, 2, width - 1)
+          .. string_char(string_byte(raw, width) - string_byte(raw, width) % 2 + 1)
+        local base = bignum.from_bytes(raw)
+        local residues = {}
+        for i, p in ipairs(SMALL_PRIMES) do
+          residues[i] = small_mod(base, p)
+        end
+        -- Walk odd offsets from the random start, trial-dividing by the residues.
+        for delta = 0, 65534, 2 do
+          local clear = true
+          for i, p in ipairs(SMALL_PRIMES) do
+            if (residues[i] + delta) % p == 0 then
+              clear = false
+              break
+            end
+          end
+          if clear then
+            local candidate = bignum.add(base, bignum.from_number(delta))
+            if bignum.bit_length(candidate) ~= bits then
+              break
+            end
+            if small_mod(candidate, E) ~= 1 and miller_rabin(candidate, rounds, step) then
+              return candidate
+            end
+          end
+        end
+      end
+    end
+
+    --- The step callback from `opts`, or a no-op.
+    --- @param opts? RsaGenerateOptions
+    --- @return fun()
+    local function stepper(opts)
+      if opts == nil or opts.step == nil then
+        return function() end
+      end
+      if type(opts.step) ~= "function" then
+        error("rsa: opts.step must be a function", 3)
+      end
+      return opts.step
+    end
+
+    --- Fills in d and the CRT values from the primes.
+    --- @param p BigNum
+    --- @param q BigNum
+    --- @param e BigNum
+    --- @return RsaPrivateKey|nil key nil when e is not invertible
+    local function from_primes(p, q, e)
+      local one = bignum.one()
+      local p1, q1 = bignum.sub(p, one), bignum.sub(q, one)
+      local d = mod_inverse(e, bignum.mul(p1, q1))
+      local qinv = mod_inverse(q, p)
+      if d == nil or qinv == nil then
+        return nil
+      end
+      return {
+        n = bignum.mul(p, q),
+        e = e,
+        d = d,
+        p = p,
+        q = q,
+        dp = bignum.mod(d, p1),
+        dq = bignum.mod(d, q1),
+        qinv = qinv,
+      }
+    end
+
+    --- Generates an RSA key with public exponent 65537.
+    --- @param bits? integer Modulus length, a multiple of 16 from 512; 2048 when omitted
+    --- @param opts? RsaGenerateOptions
+    --- @return RsaPrivateKey key
+    function rsa.generate(bits, opts)
+      bits = bits or 2048
+      if type(bits) ~= "number" or bits < 512 or bits % 16 ~= 0 then
+        error("rsa: key length must be a multiple of 16 from 512, got " .. tostring(bits), 2)
+      end
+      local step = stepper(opts)
+      local e = bignum.from_number(E)
+      while true do
+        local p = random_prime(bits / 2, step)
+        local q = random_prime(bits / 2, step)
+        if not bignum.equals(p, q) then
+          local key = from_primes(p, q, e)
+          if key then
+            return key
+          end
+        end
+      end
+    end
+
+    --- Whether the modular exponentiations run on OpenSSL; see `crypto.bignum.is_accelerated`.
+    --- @return boolean accelerated
+    --- @return string|nil reason Why not, when not
+    function rsa.is_accelerated()
+      return bignum.is_accelerated("mod_exp")
+    end
+
+    --- Decrypts an RSAES-PKCS1-v1_5 ciphertext (RFC 8017 section 7.2.2).
+    --- @param key RsaPrivateKey
+    --- @param ciphertext string Exactly the modulus length in bytes
+    --- @return string|nil plaintext
+    --- @return string|nil err The same message for every failure
+    function rsa.decrypt_pkcs1(key, ciphertext)
+      local k = bignum.byte_length(key.n)
+      if type(ciphertext) ~= "string" or #ciphertext ~= k or k < 11 then
+        return nil, DECRYPT_ERROR
+      end
+      local c = bignum.from_bytes(ciphertext)
+      if bignum.compare(c, key.n) >= 0 then
+        return nil, DECRYPT_ERROR
+      end
+      local m1 = bignum.mod_exp(bignum.mod(c, key.p), key.dp, key.p)
+      local m2 = bignum.mod_exp(bignum.mod(c, key.q), key.dq, key.q)
+      local h = bignum.mod_mul(key.qinv, bignum.mod_sub(m1, bignum.mod(m2, key.p), key.p), key.p)
+      local em = bignum.to_bytes(bignum.add(m2, bignum.mul(h, key.q)), k)
+      local separator = string_find(em, "\0", 3, true)
+      if string_byte(em, 1) ~= 0 or string_byte(em, 2) ~= 2 or separator == nil or separator < 11 then
+        return nil, DECRYPT_ERROR
+      end
+      return string_sub(em, separator + 1)
+    end
+
+    -- DER
+
+    --- @param n integer
+    --- @return string
+    local function der_length(n)
+      if n < 128 then
+        return string_char(n)
+      elseif n < 256 then
+        return string_char(0x81, n)
+      end
+      return string_char(0x82, floor(n / 256), n % 256)
+    end
+
+    --- @param tag integer
+    --- @param body string
+    --- @return string
+    local function der(tag, body)
+      return string_char(tag) .. der_length(#body) .. body
+    end
+
+    --- @param value BigNum
+    --- @return string
+    local function der_integer(value)
+      local body = bignum.to_bytes(value)
+      if body == "" or string_byte(body, 1) >= 0x80 then
+        body = "\0" .. body
+      end
+      return der(0x02, body)
+    end
+
+    --- @param items string[]
+    --- @return string
+    local function der_sequence(items)
+      return der(0x30, table_concat(items))
+    end
+
+    -- AlgorithmIdentifier for rsaEncryption (1.2.840.113549.1.1.1) with NULL parameters.
+    local RSA_ENCRYPTION = der_sequence({ "\6\9\42\134\72\134\247\13\1\1\1", "\5\0" })
+
+    --- The public key as a DER SubjectPublicKeyInfo (RFC 5280), the body of a
+    --- "BEGIN PUBLIC KEY" PEM.
+    --- @param key RsaPrivateKey
+    --- @return string der
+    function rsa.public_key_der(key)
+      local public = der_sequence({ der_integer(key.n), der_integer(key.e) })
+      return der_sequence({ RSA_ENCRYPTION, der(0x03, "\0" .. public) })
+    end
+
+    --- The private key as a DER RSAPrivateKey (RFC 8017 appendix A.1.2), the body
+    --- of a "BEGIN RSA PRIVATE KEY" PEM.
+    --- @param key RsaPrivateKey
+    --- @return string der
+    function rsa.private_key_der(key)
+      return der_sequence({
+        der_integer(bignum.zero()),
+        der_integer(key.n),
+        der_integer(key.e),
+        der_integer(key.d),
+        der_integer(key.p),
+        der_integer(key.q),
+        der_integer(key.dp),
+        der_integer(key.dq),
+        der_integer(key.qinv),
+      })
+    end
+
+    --- Reads one DER element at `pos`.
+    --- @param s string
+    --- @param pos integer
+    --- @return integer|nil tag
+    --- @return string|nil body
+    --- @return integer|nil next_pos
+    local function der_read(s, pos)
+      local tag, first = string_byte(s, pos, pos + 1)
+      if tag == nil or first == nil then
+        return nil
+      end
+      local length, start = first, pos + 2
+      if first >= 0x80 then
+        local count = first - 0x80
+        if count < 1 or count > 2 then
+          return nil
+        end
+        length = 0
+        for i = 1, count do
+          local b = string_byte(s, pos + 1 + i)
+          if b == nil then
+            return nil
+          end
+          length = length * 256 + b
+        end
+        start = pos + 2 + count
+      end
+      local stop = start + length - 1
+      if stop > #s then
+        return nil
+      end
+      return tag, string_sub(s, start, stop), stop + 1
+    end
+
+    --- Reads a DER RSAPrivateKey written by `private_key_der` or another encoder
+    --- (`openssl rsa -traditional -outform DER`).
+    --- @param s string
+    --- @return RsaPrivateKey|nil key
+    --- @return string|nil err
+    function rsa.private_key_from_der(s)
+      if type(s) ~= "string" then
+        return nil, "rsa: not an RSAPrivateKey"
+      end
+      local tag, body, after = der_read(s, 1)
+      if tag ~= 0x30 or after ~= #s + 1 or body == nil then
+        return nil, "rsa: not an RSAPrivateKey"
+      end
+      local values = {}
+      local pos = 1
+      while pos <= #body do
+        local itag, ibody, inext = der_read(body, pos)
+        if itag ~= 0x02 or ibody == nil or ibody == "" or inext == nil then
+          return nil, "rsa: not an RSAPrivateKey"
+        end
+        values[#values + 1] = bignum.from_bytes(ibody)
+        pos = inext
+      end
+      if #values ~= 9 or not bignum.is_zero(values[1]) then
+        return nil, "rsa: not a two-prime RSAPrivateKey"
+      end
+      local key = {
+        n = values[2],
+        e = values[3],
+        d = values[4],
+        p = values[5],
+        q = values[6],
+        dp = values[7],
+        dq = values[8],
+        qinv = values[9],
+      }
+      if not bignum.equals(bignum.mul(key.p, key.q), key.n) then
+        return nil, "rsa: the primes do not multiply to the modulus"
+      end
+      return key
+    end
+
+    -- Private functions the tests in test/ check directly.
+    rsa._internal = {
+      mod_inverse = mod_inverse,
+      small_mod = small_mod,
+    }
+
+    return rsa
+  end
+end
+
+do
+  local _ENV = _ENV
   package.preload["crypto.sha256"] = function(...)
     local arg = _G.arg
     --- @module "crypto.sha256"
@@ -8770,8 +9224,8 @@ end
 --- Pure-Lua implementations of hashing (SHA-256/512, BLAKE2), AEAD ciphers
 --- (ChaCha20-Poly1305, AES-GCM, AES-CCM), the Poly1305 MAC, HKDF and PBKDF2 key
 --- derivation, Curve25519/448 Diffie-Hellman, Ed25519 signatures, SRP-6a, NIST
---- P-256 group arithmetic and SPAKE2+. Runs on Lua 5.1, 5.2, 5.3, 5.4, and LuaJIT
---- with zero C dependencies.
+--- P-256 group arithmetic, SPAKE2+ and RSA key generation and decryption. Runs on Lua 5.1, 5.2, 5.3, 5.4, 5.5, and
+--- LuaJIT with zero C dependencies.
 ---
 --- Key generation draws from `crypto.random`, which uses the host CSPRNG and
 --- raises when there is not one. It never falls back to `math.random`.
@@ -8848,6 +9302,10 @@ local crypto = {
   --- @type crypto.spake2plus
   spake2plus = require("crypto.spake2plus"),
 
+  -- RSA key generation and PKCS #1 v1.5 decryption (OpenSSL-preferred arithmetic)
+  --- @type crypto.rsa
+  rsa = require("crypto.rsa"),
+
   -- Diffie-Hellman (always pure Lua)
   --- @type crypto.x25519
   x25519 = require("crypto.x25519"),
@@ -8866,7 +9324,7 @@ local crypto = {
 local openssl_wrapper = crypto.openssl_wrapper
 
 --- Library version (injected at build time for releases).
-local VERSION = "v0.4.0"
+local VERSION = "v0.5.0"
 
 --- Enable or disable OpenSSL acceleration for the primitives that support it
 --- (hashing, AEAD, big-number and P-256 arithmetic). Opt-in and safe: when the lua-openssl binding is
