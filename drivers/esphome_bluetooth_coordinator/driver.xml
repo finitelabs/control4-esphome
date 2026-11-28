@@ -191,6 +191,16 @@
         <default>-100</default>
         <description>Minimum signal strength to assign a device to a room. -100 disables threshold (any signal assigns room). Devices with weaker signals are "home" but not in any room.</description>
       </property>
+      <property>
+        <name>Contact When Active</name>
+        <type>LIST</type>
+        <default>Closed</default>
+        <items>
+          <item>Closed</item>
+          <item>Opened</item>
+        </items>
+        <description>What Present and Occupied read while a device is home or a room is occupied.</description>
+      </property>
     </properties>
     <commands/>
     <actions>

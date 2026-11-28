@@ -27,6 +27,7 @@ local proxyRegistry = require("esphome.ble.coordinator.proxy_registry")
 local deviceRegistry = require("esphome.ble.coordinator.device_registry")
 local router = require("esphome.ble.coordinator.router")
 local presenceTracker = require("esphome.ble.coordinator.presence_tracker")
+local ContactReading = require("esphome.contact_reading")
 local bleScanner = require("esphome.ble.scanner")
 local bleScannerProperties = require("esphome.ble.scanner_properties")
 
@@ -662,7 +663,7 @@ end
 -- Control4 Callbacks
 --------------------------------------------------------------------------------
 
-function OnDriverInit()
+function OnDriverInit(driverInitType)
   --#ifdef DRIVERCENTRAL
   drivercentral:startClient()
   --#else
@@ -672,7 +673,8 @@ function OnDriverInit()
   log:setLogName(C4:GetDeviceData(C4:GetDeviceID(), "name"))
   log:setLogLevel(Properties["Log Level"])
   log:setLogMode(Properties["Log Mode"])
-  log:trace("OnDriverInit()")
+  log:trace("OnDriverInit(%s)", driverInitType)
+  ContactReading.init(driverInitType)
 
   gInitialized = false
 
@@ -797,6 +799,13 @@ end
 function OPC.Log_Level(propertyValue)
   log:trace("OPC.Log_Level('%s')", propertyValue)
   log:setLogLevel(propertyValue)
+end
+
+function OPC.Contact_When_Active(propertyValue)
+  log:trace("OPC.Contact_When_Active('%s')", propertyValue)
+  ContactReading.applied(function()
+    presenceTracker:retellContacts()
+  end)
 end
 
 function OPC.Select_Bluetooth_Devices(propertyValue)

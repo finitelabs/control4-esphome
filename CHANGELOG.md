@@ -96,6 +96,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   app changes the color, until a new white is chosen.
 - Changed an ESPHome light lit on both its color and white channels to report
   the color the mix shows.
+- Changed ESPHome door, window, motion, occupancy and presence sensors,
+  SwitchBot motion sensors and the Bluetooth Coordinator's Present and Occupied
+  to read Opened while open, detected, present or occupied on items added from
+  this release. Items added before keep their reading, with a Contact When
+  Active setting to switch.
 
 ## v20261111 - 2026-11-11
 

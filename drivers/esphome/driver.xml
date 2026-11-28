@@ -165,6 +165,16 @@
         </items>
       </property>
       <property>
+        <name>Contact When Active</name>
+        <type>LIST</type>
+        <default>Closed</default>
+        <items>
+          <item>Closed</item>
+          <item>Opened</item>
+        </items>
+        <description>What door, window, motion, occupancy and presence contacts read while open or detected.</description>
+      </property>
+      <property>
         <name>Bluetooth Proxy Settings</name>
         <type>LABEL</type>
         <default>Bluetooth Proxy Settings</default>

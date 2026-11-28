@@ -128,6 +128,102 @@ H.test("a SwitchBot contact tells an open door OPENED, however long it is open, 
   T.eq("closed again: CLOSED", toldTo("SwitchBot", "contact_contact"), { "CLOSED" })
 end)
 
+-- The Contact Sensor's motion bit: byte 1 bit 6.
+local NO_MOTION, MOTION = "\100\0\100\0", "\100\64\100\0"
+
+H.test("a SwitchBot motion sensor added from this build tells motion OPENED and no motion CLOSED", function()
+  H.boot({ ["MAC Address"] = MAC }, function()
+    persist:delete("RelayContactStates")
+    persist:set("ContactsReadOpened", true)
+    require("lib.values"):delete("Device Type")
+  end)
+  advertise("FD3D", NO_MOTION)
+  T.eq("no motion, first heard: CLOSED, silently", toldTo("SwitchBot", "contact_motion"), { "STATE_CLOSED" })
+  H.clearSent()
+  advertise("FD3D", MOTION)
+  T.eq("motion seen: OPENED", toldTo("SwitchBot", "contact_motion"), { "OPENED" })
+end)
+
+H.test("a SwitchBot motion sensor added before tells motion CLOSED and no motion OPENED, as it did", function()
+  H.boot({ ["MAC Address"] = MAC }, function()
+    persist:delete("RelayContactStates")
+    persist:delete("ContactsReadOpened")
+    require("lib.values"):delete("Device Type")
+  end)
+  advertise("FD3D", NO_MOTION)
+  T.eq("no motion, first heard: OPENED, silently", toldTo("SwitchBot", "contact_motion"), { "STATE_OPENED" })
+  H.clearSent()
+  advertise("FD3D", MOTION)
+  T.eq("motion seen: CLOSED", toldTo("SwitchBot", "contact_motion"), { "CLOSED" })
+end)
+
+--- Boot, and return what the late init told each binding and the events it fired, which H.boot
+--- would otherwise clear.
+local function bootTelling(properties, prepare)
+  local told, fired, send, fire = {}, {}, C4.SendToProxy, C4.FireEventByID
+  C4.SendToProxy = function(self, idBinding, strCommand, ...)
+    table.insert(told, { binding = idBinding, command = strCommand })
+    return send(self, idBinding, strCommand, ...)
+  end
+  C4.FireEventByID = function(self, idEvent, ...)
+    table.insert(fired, idEvent)
+    return fire(self, idEvent, ...)
+  end
+  local ok, err = pcall(H.boot, properties, prepare)
+  C4.SendToProxy, C4.FireEventByID = send, fire
+  assert(ok, err)
+  return told, fired
+end
+
+--- What one binding was told in `told`, in order.
+local function toldIn(told, namespace, key)
+  local binding = bindings:getDynamicBinding(namespace, key)
+  local got = {}
+  for _, s in ipairs(told) do
+    if binding and s.binding == binding.bindingId then
+      got[#got + 1] = s.command
+    end
+  end
+  return got
+end
+
+H.test("setting a SwitchBot item added before to Opened tells its motion silently, and only its motion", function()
+  -- An item added before: no motion told OPENED; a leak and the Bot's relay read as they always have.
+  H.boot({ ["MAC Address"] = MAC }, function()
+    persist:delete("RelayContactStates")
+    persist:delete("ContactsReadOpened")
+    persist:delete("ContactReading")
+    require("lib.values"):delete("Device Type")
+  end)
+  advertise("FD3D", NO_MOTION)
+  local kept = persist:get("RelayContactStates", {})
+  kept.leak, kept.botRelay = "OPENED", "CLOSED"
+  persist:set("RelayContactStates", kept)
+  H.clearSent()
+
+  local fired, fire = {}, C4.FireEventByID
+  C4.FireEventByID = function(self, idEvent, ...)
+    table.insert(fired, idEvent)
+    return fire(self, idEvent, ...)
+  end
+  Properties["Contact When Active"] = "Opened"
+  OnPropertyChanged("Contact When Active")
+  C4.FireEventByID = fire
+  T.eq("no motion is told CLOSED, silently", toldTo("SwitchBot", "contact_motion"), { "STATE_CLOSED" })
+  T.eq("nothing fires", fired, {})
+  kept = persist:get("RelayContactStates", {})
+  T.eq("the leak state is left as it was", kept.leak, "OPENED")
+  T.eq("and so is the Bot relay's", kept.botRelay, "CLOSED")
+  H.clearSent()
+  advertise("FD3D", NO_MOTION)
+  T.eq("the same reading after it tells nothing", toldTo("SwitchBot", "contact_motion"), {})
+  advertise("FD3D", MOTION)
+  T.eq("and motion seen is told OPENED", toldTo("SwitchBot", "contact_motion"), { "OPENED" })
+
+  local told = bootTelling({ ["MAC Address"] = MAC, ["Contact When Active"] = "Opened" }, function() end)
+  T.eq("the next load tells nothing", toldIn(told, "SwitchBot", "contact_motion"), {})
+end)
+
 H.test("after the update, a SwitchBot contact told the reverse before is corrected silently", function()
   H.boot({ ["MAC Address"] = MAC }, function()
     -- An earlier build told a shut door OPENED.
@@ -139,6 +235,32 @@ H.test("after the update, a SwitchBot contact told the reverse before is correct
   H.clearSent()
   advertise("FD3D", CONTACT_OPEN)
   T.eq("and its next change as one", toldTo("SwitchBot", "contact_contact"), { "OPENED" })
+end)
+
+H.test("after the update, a contact already read the right way is left as it is", function()
+  -- A build that reads the door the right way keeps it under its own key; an older build's reversed state is
+  -- still kept beside it.
+  local told, fired = bootTelling({ ["MAC Address"] = MAC }, function()
+    persist:set("RelayContactStates", { contact = "CLOSED", door = "CLOSED" })
+    persist:delete("ContactsReadOpened")
+    require("lib.values"):delete("Device Type")
+  end)
+  T.eq("nothing is told to the contact at the start", toldIn(told, "SwitchBot", "contact_contact"), {})
+  T.eq("nothing fires", fired, {})
+  advertise("FD3D", CONTACT_CLOSED)
+  T.eq("the shut door's reading is told silently", toldTo("SwitchBot", "contact_contact"), { "STATE_CLOSED" })
+  H.clearSent()
+  advertise("FD3D", CONTACT_OPEN)
+  T.eq("and its next change as one", toldTo("SwitchBot", "contact_contact"), { "OPENED" })
+end)
+
+H.test("after the update, a door that opened while the driver was down is told as a change", function()
+  H.boot({ ["MAC Address"] = MAC }, function()
+    persist:set("RelayContactStates", { door = "CLOSED" })
+    require("lib.values"):delete("Device Type")
+  end)
+  advertise("FD3D", CONTACT_OPEN)
+  T.eq("the door that opened is told as a change", toldTo("SwitchBot", "contact_contact"), { "OPENED" })
 end)
 
 H.test("after a restart, a SwitchBot contact's unchanged state fires nothing", function()

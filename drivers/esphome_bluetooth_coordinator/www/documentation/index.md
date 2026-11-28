@@ -435,6 +435,15 @@ specific room.
 > regardless of strength. Individual proxies can override this value (see
 > ESPHome driver "Minimum Room RSSI Override" property).
 
+#### Contact When Active \[ **_Closed_** | Opened \]
+
+Shown only on items added before this setting existed. Sets what each device's
+Present and each room's Occupied read while the device is home or the room is
+occupied: `Closed`, as these items always have, or `Opened`. Items added since
+read `Opened`. Changing it updates each contact's state at once without firing
+its Opened or Closed programming; change any programming written for the other
+reading to match.
+
 ## Driver Actions
 
 ### Reset Driver
@@ -626,12 +635,15 @@ address for devices, room ID for rooms) to avoid conflicts.
 
 ### Room Occupancy Bindings
 
-- **[Room] [RoomID] Occupied** - CLOSED when room has occupants, OPENED when
+- **[Room] [RoomID] Occupied** - OPENED when room has occupants, CLOSED when
   empty
 
 ### Device Presence Bindings
 
-- **[Device] [MAC] Present** - CLOSED when device is home, OPENED when away
+- **[Device] [MAC] Present** - OPENED when device is home, CLOSED when away
+
+On items added before this reading, Occupied and Present read the other way
+unless [Contact When Active](#contact-when-active--closed--opened-) is `Opened`.
 
 # <span style="color:#17BCF2">Best Practices</span>
 
