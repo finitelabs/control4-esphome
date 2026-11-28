@@ -1050,6 +1050,39 @@ For optimal BLE reception:
 | Through 1-2 walls    | 5-10 meters (15-30 ft)  |
 | Concrete/brick walls | 3-5 meters (10-15 ft)   |
 
+## Passkey Pairing Add-on
+
+Some Bluetooth devices pair by showing a 6-digit passkey on their own display. A
+standard ESPHome Bluetooth proxy can't pair with them. Add the Passkey Pairing
+add-on to any proxy that serves one; a driver that needs it says so in its own
+documentation. Other devices on the proxy work as before.
+
+The add-on needs ESPHome 2026.11.0 or later with the ESP32 `esp-idf` framework,
+built on macOS or Linux. Add these lines to the proxy's configuration; they
+merge with an existing `api` and `bluetooth_proxy` setup:
+
+```yaml
+api:
+  encryption:
+    key: !secret api_encryption_key
+  custom_services: true
+
+# Pin @main to a release tag.
+external_components:
+  - source: github://finitelabs/control4-esphome@main
+    components: [ble_passkey]
+
+ble_passkey:
+```
+
+Good to know:
+
+- **Each proxy pairs on its own.** A device that moves to another proxy is
+  paired again there automatically.
+- **Up to 8 paired devices per proxy.**
+- **Keep the proxy's `logger` level at `VERBOSE` or lower.** `VERY_VERBOSE`
+  prints passkeys in the log.
+
 ## Bluetooth Coordinator Setup
 
 For advanced setups with **multiple ESPHome Bluetooth proxies**, use the

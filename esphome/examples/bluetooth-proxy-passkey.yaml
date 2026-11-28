@@ -1,0 +1,40 @@
+# An ESPHome Bluetooth proxy with the Passkey Pairing add-on. Only the parts marked
+# "add-on" differ from a standard proxy; they merge with an existing proxy config.
+esphome:
+  name: bluetooth-proxy
+  min_version: 2026.11.0
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  # add-on: lets the add-on offer its two actions to the Control4 driver
+  custom_services: true
+
+ota:
+  - platform: esphome
+
+# add-on. Pin @main to a release tag.
+external_components:
+  - source: github://finitelabs/control4-esphome@main
+    components: [ble_passkey]
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+
+bluetooth_proxy:
+  active: true
+
+# add-on
+ble_passkey:
