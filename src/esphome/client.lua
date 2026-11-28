@@ -86,6 +86,7 @@ local Indicator = {
 --- @field _hsState NoiseState|nil The current state of the Noise protocol handshake.
 --- @field _fatalError string|nil Fatal error message (e.g., authentication failure).
 --- @field _logsSubscribed boolean Whether log subscription is active.
+--- @field _actionsSubscribed boolean Whether the device's action calls (homeassistant.action) are subscribed.
 --- @field _btConnections BluetoothConnectionState Cached Bluetooth connection state.
 --- @field _btConnectionsCallbacks table<string, fun(state: BluetoothConnectionState)?> Callbacks for Bluetooth connection changes.
 --- @field _btScannerState BluetoothScannerState Cached scanner state.
@@ -93,6 +94,7 @@ local Indicator = {
 --- @field _btAdvertisementsCallbacks table<string, fun(advertisement: BLEAdvertisement)?> Callbacks for BLE advertisements.
 --- @field _btProxyInitDeferred Deferred|nil In-flight deferred for initBluetoothProxy (re-entrancy guard).
 --- @field userServices table<string, number> Map of user-defined service names to their numeric keys, populated during listEntities().
+--- @field userServiceArgs table<string, ProtoListEntitiesServicesArgument[]> Map of user-defined service names to their declared arguments, populated during listEntities().
 local ESPHomeClient = {}
 ESPHomeClient.__index = ESPHomeClient
 
@@ -226,6 +228,7 @@ function ESPHomeClient:new()
   instance._hsState = nil
   instance._fatalError = nil
   instance._logsSubscribed = false
+  instance._actionsSubscribed = false
   instance._btConnections = { free = 0, limit = 0, allocated = {}, initialized = false }
   instance._btConnectionsCallbacks = {}
   instance._btScannerState = {
@@ -237,6 +240,7 @@ function ESPHomeClient:new()
   instance._btAdvertisementsCallbacks = {}
   instance._btProxyInitDeferred = nil
   instance.userServices = {}
+  instance.userServiceArgs = {}
   return instance
 end
 
@@ -544,6 +548,7 @@ function ESPHomeClient:disconnect()
   self._hsState = nil
   self._buffer = ""
   self._logsSubscribed = false
+  self._actionsSubscribed = false
 
   -- Swap the callback registry out first: the abort handlers invoked at the
   -- end of this function may re-enter disconnect() or register new callbacks.
@@ -562,6 +567,7 @@ function ESPHomeClient:disconnect()
   }
   self._btProxyInitDeferred = nil
   self.userServices = {}
+  self.userServiceArgs = {}
 
   if pingTimer ~= nil then
     pingTimer:Cancel()
@@ -774,6 +780,7 @@ function ESPHomeClient:listEntities()
             log:debug("Discovered user service: %s (key=%s)", message.name, message.key)
             if not IsEmpty(message.name) and message.key ~= nil then
               self.userServices[message.name] = message.key
+              self.userServiceArgs[message.name] = message.args or {}
             end
           end)
           table.insert(addedCallbackHandles, handle)
@@ -897,6 +904,52 @@ function ESPHomeClient:subscribeLogs(callback, level, dumpConfig)
       d:reject(err)
     end)
 
+  return d
+end
+
+--- Subscribe to the actions the device calls with `homeassistant.action`, which is how its YAML asks this
+--- client to do something (e.g. change the room's volume). Can only subscribe once per connection.
+--- @param callback fun(action: string, data: table<string, string>): void Called with the action's name and its
+---   `data` (and `data_template`/`variables`, which it overrides) as a key-value table.
+--- @return Deferred<nil, string> result A promise that resolves after subscribing.
+function ESPHomeClient:subscribeActions(callback)
+  log:trace("ESPHomeClient:subscribeActions()")
+  --- @type Deferred<nil, string>
+  local d = deferred.new()
+  if self._actionsSubscribed then
+    d:resolve(nil)
+    return d
+  end
+  self._actionsSubscribed = true
+
+  self:_registerCallback(
+    self:_makeMessageCallbackKey(ESPHomeProtoSchema.Message.HomeassistantActionRequest),
+    function(message)
+      --- @cast message ProtoHomeassistantActionRequest
+      local data = {}
+      for _, field in ipairs({ "variables", "data_template", "data" }) do
+        for _, pair in ipairs(message[field] or {}) do
+          if pair.key ~= nil then
+            data[pair.key] = pair.value or ""
+          end
+        end
+      end
+      local ok, err = pcall(callback, message.service or "", data)
+      if not ok then
+        log:error("Action callback failed: %s", err or "unknown error")
+      end
+    end
+  )
+
+  self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.subscribe_homeassistant_services, {}):next(function()
+    log:debug("Subscribe actions message sent successfully")
+    d:resolve(nil)
+  end, function(err)
+    err = normalizeError(err)
+    self._actionsSubscribed = false
+    log:error("Failed to send subscribe actions message: %s", err)
+    d:reject(err)
+  end)
   return d
 end
 
@@ -2034,6 +2087,64 @@ function ESPHomeClient:executeServiceByName(name, floatValue)
   local body = { key = key }
   if floatValue ~= nil then
     body.args = { { float_ = floatValue } }
+  end
+  return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.execute_service, body)
+end
+
+--- Whether the device declares a user-defined service with this name.
+--- @param name string The service name as defined in the ESPHome YAML.
+--- @return boolean
+function ESPHomeClient:hasService(name)
+  return self.userServices[name] ~= nil
+end
+
+--- Execute a user-defined ESPHome service, passing arguments by name.
+---
+--- ESPHome matches arguments by position, in the order the YAML declares them, so
+--- the request is built from the declared list: each declared argument takes the
+--- value of the same name, coerced to its declared type. A declared argument with
+--- no value gets its type's zero value, and a value nothing declares is dropped,
+--- so a YAML action may declare any subset of what the caller offers. A value may
+--- be a function, called with the declared ServiceArgType, for an argument the
+--- YAML could declare as more than one type.
+--- @param name string The service name as defined in the ESPHome YAML.
+--- @param values table<string, any|fun(argType: integer): any> Argument values keyed by argument name.
+--- @return Deferred<any, string> result A promise that resolves when the service is executed.
+function ESPHomeClient:executeServiceWithArgs(name, values)
+  log:trace("ESPHomeClient:executeServiceWithArgs(%s, %s)", name, values)
+  local key = self.userServices[name]
+  if key == nil then
+    return deferred.new():reject("Service not found: " .. tostring(name))
+  end
+  values = values or {}
+  local ArgType = ESPHomeProtoSchema.Enum.ServiceArgType
+  local args = {}
+  for _, declared in ipairs(self.userServiceArgs[name] or {}) do
+    local value = values[declared.name]
+    local argType = declared.type or ArgType.SERVICE_ARG_TYPE_BOOL
+    if type(value) == "function" then
+      value = value(argType)
+    end
+    local arg
+    if argType == ArgType.SERVICE_ARG_TYPE_BOOL then
+      arg = { bool_ = value ~= nil and toboolean(value) or false }
+    elseif argType == ArgType.SERVICE_ARG_TYPE_INT then
+      local n = tonumber(value) or 0
+      arg = { int_ = n >= 0 and math.floor(n) or math.ceil(n) }
+    elseif argType == ArgType.SERVICE_ARG_TYPE_FLOAT then
+      arg = { float_ = tonumber(value) or 0 }
+    elseif argType == ArgType.SERVICE_ARG_TYPE_STRING then
+      arg = { string_ = value ~= nil and tostring(value) or "" }
+    else
+      return deferred.new():reject(
+        string.format("Service %s argument %s has an unsupported type (%s)", name, tostring(declared.name), argType)
+      )
+    end
+    table.insert(args, arg)
+  end
+  local body = { key = key }
+  if #args > 0 then
+    body.args = args
   end
   return self:callServiceMethod(ESPHomeProtoSchema.RPC.APIConnection.execute_service, body)
 end

@@ -26,6 +26,17 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   sensor with no new reading in that time is set aside until it reports again.
 - Added Control4 load groups to the ESPHome light, which joins a load group and
   follows the group's level, ramps and sync.
+- Added button LED feedback through API actions to the ESPHome driver: each
+  event type's link passes the bound load's state, colors and name to the
+  device's `<name>_<event_type>_led` or `control4_led` action, so a display can
+  show them with no light, whatever the link is bound to. A load that answers
+  with its colors alone, such as a custom button, has its state read from its
+  variables.
+- Added room media to the ESPHome driver: a panel controls its Control4 room's
+  media (volume, mute, transport, sources, room off) through
+  `homeassistant.action` calls, and is shown the room's power, source, volume
+  and what is playing through its `control4_media` and `control4_sources`
+  actions.
 
 ### Fixed
 

@@ -545,7 +545,8 @@ either.
 
 An event bound to a load acts as a keypad button. These properties choose which
 of the device's lights is that button's LED, which then shows the load the way a
-Control4 keypad lights its buttons. See the
+Control4 keypad lights its buttons. A device can instead take the feedback
+through an API action, with no light; see the
 [Button LED Configuration Guide](#button-led-configuration-guide).
 
 ##### Configure Button LED
@@ -558,6 +559,22 @@ Lists each event entity, with its LED when one is chosen (e.g.,
 The light that is the selected button's LED, or **(None)** to leave the light
 alone. A button and light that are alone together on an ESPHome sub-device are
 paired automatically.
+
+#### Room Media
+
+> Used only by a device that declares a `control4_media` or `control4_sources`
+> API action (see [Room Media on a Panel](#room-media-on-a-panel)).
+
+##### Media Room
+
+The room the device's media page controls. Leave it empty for the driver's own
+room.
+
+##### Media Sources
+
+The sources the device offers, as device IDs separated by commas. A source
+selected as video takes `:video` (e.g., `123, 456:video`). Leave it empty for
+the room's own listen and watch lists.
 
 #### Device Info
 
@@ -1234,6 +1251,136 @@ light:
 > **Note:** Leave a light used as a button LED unbound from an ESPHome Light
 > driver. Both would command it, and the button's load would win each time it
 > changes.
+
+## Showing the LED on the Device Itself
+
+A device can also take each link's feedback itself, through a user-defined API
+action, and show it however it likes: a display can recolor a button, or draw
+the load's state and color separately. This needs no light and no Button LED
+setting, and it works whatever the link is bound to (a light, a scene, an
+Advanced Lighting scene), because the driver passes on only what the load sends
+back, as it would to a keypad.
+
+For each event type the driver calls the first of these the device declares:
+
+1. `<name>_<event_type>_led`: the event type's own action. The name is the event
+   entity's name and the event type in lowercase, with each run of other
+   characters as one underscore, e.g. "Touch Button 2" + "press" calls
+   `touch_button_2_press_led`.
+1. `control4_led`: one action for every event type, which tells them apart by
+   the `event_name` and `event_type` variables.
+
+A device with neither is left alone.
+
+The action may declare any of these variables, in any order. Only those it
+declares are sent:
+
+| Variable     | Type          | Value                                                  |
+| ------------ | ------------- | ------------------------------------------------------ |
+| `event_name` | string        | Event entity name (e.g., "Touch Button 2")             |
+| `event_type` | string        | Event type (e.g., "press")                             |
+| `state`      | bool          | Whether the load is on, as it tells a keypad           |
+| `color`      | int or string | What a keypad shows now: the on color or the off color |
+| `on_color`   | int or string | The load's on color                                    |
+| `off_color`  | int or string | The load's off color                                   |
+| `load_name`  | string        | What the link is bound to (see below)                  |
+
+A color declared as `int` arrives as `0xRRGGBB`, or `-1` when the load has given
+none; declared as `string`, as `RRGGBB`, or empty.
+
+`load_name` is the name of what the link is bound to, looked up from the
+controller's bindings: the bound connection's own name when it names something,
+such as an Advanced Lighting scene, else the bound device's name, such as a
+light's. It is empty when the link is unbound. The driver logs what it found at
+the Info level the first time it looks each link up.
+
+The action is called when the load reports a change, when the device connects
+(with what is already known, and again once the load answers the driver's
+request for its state) and, with `state` off and no colors, when the link is
+unbound. It is also called as soon as a link is bound or the device connects,
+with the load's name and `state` off, before the load reports, so a load that
+never reports still shows its name.
+
+Some loads answer the driver's request with their colors alone, never their
+state: Control4's custom button is one. Three seconds after asking, the driver
+reads such a load's state from its variables, or those of its proxies: the first
+one whose name contains `STATE`, `LED` or `SELECTED` and whose value is on or
+off. It logs every variable it read at the Info level.
+
+A complete example for a 480×480 LVGL panel, with a local relay tile and three
+Control4 tiles that show the state, the color and the name, is
+`test/guition_4848s040_display_buttons.yaml`. This styles an LVGL button by the
+state and shows the load's color on a dot:
+
+```yaml
+api:
+  actions:
+    - action: touch_button_2_press_led
+      variables:
+        state: bool
+        color: int
+      then:
+        - lvgl.widget.update:
+            id: lv_button_2
+            bg_color: !lambda 'return lv_color_hex(state ? 0x28241D : 0x171C24);'
+        - lvgl.widget.update:
+            id: dot_2
+            bg_color: !lambda 'return lv_color_hex(color >= 0 ? color : 0x000000);'
+```
+
+# <span style="color:#17BCF2">Room Media on a Panel</span>
+
+A device with a display can control its Control4 room's media and show what is
+playing. It sends commands with `homeassistant.action` (enable
+`homeassistant_services: true` under `api:`), and the driver shows it the room's
+state through two API actions. The room is the **Media Room** property's, else
+the driver's own.
+
+## Commands
+
+The device calls the action `control4.media` with a `command`:
+
+| `command`                            | Room command                                   |
+| ------------------------------------ | ---------------------------------------------- |
+| `volume_up`, `volume_down`           | `PULSE_VOL_UP`, `PULSE_VOL_DOWN`               |
+| `mute_toggle`, `mute_on`, `mute_off` | `MUTE_TOGGLE`, `MUTE_ON`, `MUTE_OFF`           |
+| `play`, `pause`, `stop`              | `PLAY`, `PAUSE`, `STOP`                        |
+| `play_pause`                         | `PLAY` and `PAUSE` in turn                     |
+| `next`, `previous`                   | `SKIP_FWD`, `SKIP_REV`                         |
+| `room_off`                           | `ROOM_OFF`                                     |
+| `set_volume` with `level` (0–100)    | `SET_VOLUME_LEVEL`                             |
+| `select_source` with `index`         | `SELECT_AUDIO_DEVICE` or `SELECT_VIDEO_DEVICE` |
+| `room_command` with `name`           | That room command, with any other data         |
+
+```yaml
+api:
+  homeassistant_services: true
+
+# in a button's on_click:
+- homeassistant.action:
+    action: control4.media
+    data:
+      command: volume_up
+```
+
+## State
+
+Whenever the room changes, the driver calls the device's actions, when it
+declares them, with any of these variables:
+
+| Action             | Variables                                                                                                                    |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `control4_media`   | `room_on` bool, `source` string, `title`, `artist`, `album`, `image_url` strings, `volume` int, `muted` bool, `playing` bool |
+| `control4_sources` | `sources` string (names, one per line), `selected` int (index, -1 for none)                                                  |
+
+`playing` comes from the Digital Media agent's queue status for the room, or the
+media info's own state; for a source that reports neither, it is what the panel
+last asked for. `title`, `artist`, `album` and `image_url` come from the room's
+current media info when its source provides them. The driver logs the raw media
+info and the room's source lists at the Info level.
+
+A complete example, a media page next to the tiles of a 480×480 LVGL panel, is
+`test/guition_4848s040_room_media.yaml`.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
