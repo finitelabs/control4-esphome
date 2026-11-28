@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from package import (  # noqa: E402
+    c4z_filename,
     check_encrypted,
     check_pdfs,
     check_size,
@@ -49,6 +50,28 @@ class InTempDir(unittest.TestCase):
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = fn(*args)
         return code, out.getvalue(), err.getvalue()
+
+
+class C4zFilenameTest(InTempDir):
+    def test_project_name_selects_the_archive(self):
+        project = Path("example_companion") / "driver.c4zproj"
+        project.parent.mkdir()
+        project.write_text('<Driver type="c4z" name="Example.Companion"/>')
+        self.assertEqual(c4z_filename(project), "Example.Companion.c4z")
+
+    def test_invalid_archive_paths_are_rejected(self):
+        project = Path("driver.c4zproj")
+        for name, package_type in (
+            ("", "c4z"),
+            ("../fixture", "c4z"),
+            ("fixture..child", "c4z"),
+            ("fixture/child", "c4z"),
+            ("fixture", "c4i"),
+        ):
+            with self.subTest(name=name, package_type=package_type):
+                project.write_text(f'<Driver type="{package_type}" name="{name}"/>')
+                with self.assertRaises(SystemExit):
+                    c4z_filename(project)
 
 
 class CheckEncryptedTest(InTempDir):
